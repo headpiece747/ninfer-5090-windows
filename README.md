@@ -35,7 +35,11 @@ The NVFP4 models utilize W4A4 Tensor Core MMA for prefill and A16 NVFP4 kernels 
 
 **If you just want to run the engine and don't want to compile it yourself, download the [Latest Release ZIP](../../releases/latest) from the Releases page.**
 
-The ZIP contains the fully compiled Windows binaries (`ninfer-serve.exe`) and the optimized startup script. Simply extract it, download the model, and run `start_ninfer_5090.bat`!
+The ZIP contains the fully compiled Windows binaries (`ninfer-serve.exe`) and the optimized startup script. 
+
+1. Extract the ZIP to a new folder.
+2. Run `download_model.bat` to automatically download the required ~20GB `qwen3_8_27b_nvfp4.ninfer` model file into your folder (or download it manually from [HuggingFace](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer/resolve/main/qwen3_8_27b_nvfp4.ninfer)).
+3. Double-click `start_ninfer_5090.bat` to launch the server!
 
 ---
 
@@ -189,3 +193,29 @@ This eliminates client-side bloat, ensuring your RTX 5090 uses its VRAM exclusiv
 This project is licensed under the [Apache License 2.0](LICENSE). 
 
 It is derived from the upstream [NInfer](https://github.com/Neroued/ninfer) project, which is also distributed under the Apache-2.0 License. All vendored dependencies and original model weights retain their respective licenses.
+
+## OpenCode Desktop & Advanced Tweaks
+
+### 1. Limiting "Overthinking" (Reasoning Effort)
+If you find Qwen3.8 is generating too many thinking tokens and eating into your context window, you can limit its reasoning budget directly in OpenCode.
+Edit your ~/.config/opencode/opencode.json and add a thinking budget to your model configuration:
+\\\json
+"thinking": {
+  "budget": 4096
+}
+\\\
+
+### 2. Running as a Background Windows Service
+To avoid keeping a command prompt window open, you can run NInfer as a silent background service using NSSM (Non-Sucking Service Manager):
+1. Download [NSSM](http://nssm.cc/).
+2. Open an Administrator command prompt and run: 
+ssm install NInferServe
+3. Set the **Path** to C:\path\to\start_ninfer_5090.bat.
+4. Click "Install service" and start it via the Windows Services app. NInfer will now start silently every time you boot your PC!
+
+### 3. WDDM VRAM Warning (Windows Overhead)
+Unlike Linux, Windows (via the WDDM display driver) reserves roughly 10-15% of your GPU VRAM for desktop rendering and background apps. 
+> **Warning:** Do not run heavy 3D rendering software or modern video games simultaneously while doing 200k+ token code reviews, as you may hit an Out-Of-Memory (OOM) crash. Monitor your VRAM usage via Task Manager.
+
+### 4. Multimodal / Vision Support
+NInfer supports images! If you want to drop UI screenshots directly into OpenCode Desktop for the model to review, use the included start_ninfer_vision.bat script instead. This appends the --vision flag and loads the vision encoders into VRAM.
