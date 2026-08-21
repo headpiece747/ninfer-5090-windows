@@ -217,5 +217,5 @@ ssm install NInferServe
 Unlike Linux, Windows (via the WDDM display driver) reserves roughly 10-15% of your GPU VRAM for desktop rendering and background apps. 
 > **Warning:** Do not run heavy 3D rendering software or modern video games simultaneously while doing 200k+ token code reviews, as you may hit an Out-Of-Memory (OOM) crash. Monitor your VRAM usage via Task Manager.
 
-### 4. Multimodal / Vision Support
-NInfer supports images! If you want to drop UI screenshots directly into OpenCode Desktop for the model to review, use the included start_ninfer_vision.bat script instead. This appends the --vision flag and loads the vision encoders into VRAM.
+### 4. Note on Vision Support (Text-Only Build)
+**Note: This Windows port is currently text-only.** While the original NInfer engine supports vision, the FFmpeg media dependencies were intentionally stubbed out (`NINFER_BUILD_MEDIA_ACQUIRE=OFF`) to allow for extremely simple native MSVC compilation without using `vcpkg`. We are actively looking into adding vision support back in a future release by directly bundling pre-compiled FFmpeg `.dll` files.
