@@ -1,0 +1,57 @@
+﻿name: Windows Vision Build
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-vision:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup CUDA
+      uses: Jimver/cuda-toolkit@v0.2.16
+      with:
+        cuda: '12.6.0'
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Download and Extract FFmpeg
+      shell: powershell
+      run: |
+        Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip' -OutFile 'ffmpeg.zip'
+        Expand-Archive -Path 'ffmpeg.zip' -DestinationPath 'ffmpeg_temp' -Force
+        Move-Item ffmpeg_temp\ffmpeg-master-latest-win64-gpl-shared ffmpeg
+        Remove-Item -Recurse -Force ffmpeg_temp
+        Remove-Item ffmpeg.zip
+
+    - name: Configure CMake
+      run: cmake -B build_vision -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DNINFER_BUILD_MEDIA_ACQUIRE=ON
+
+    - name: Build
+      run: cmake --build build_vision --config Release
+
+    - name: Prepare Artifacts
+      shell: powershell
+      run: |
+        Copy-Item ffmpeg\bin\avcodec-*.dll build_vision\apps\
+        Copy-Item ffmpeg\bin\avformat-*.dll build_vision\apps\
+        Copy-Item ffmpeg\bin\avutil-*.dll build_vision\apps\
+        Copy-Item ffmpeg\bin\swscale-*.dll build_vision\apps\
+        Copy-Item ffmpeg\bin\swresample-*.dll build_vision\apps\
+        Rename-Item build_vision\apps\ninfer-serve.exe ninfer-serve-vision.exe
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ninfer-windows-vision-binaries
+        path: |
+          build_vision/apps/ninfer-serve-vision.exe
+          build_vision/apps/*.dll
+          start_ninfer_vision.bat
