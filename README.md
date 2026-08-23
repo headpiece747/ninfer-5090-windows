@@ -1,4 +1,4 @@
-# NInfer 5090 Windows
+﻿# NInfer 5090 Windows
 
 > Windows port of NInfer. Selected checkpoints. Maximum single-GPU inference performance. **100% Native Windows MSVC (No WSL2 Required!).**
 
@@ -217,5 +217,10 @@ ssm install NInferServe
 Unlike Linux, Windows (via the WDDM display driver) reserves roughly 10-15% of your GPU VRAM for desktop rendering and background apps. 
 > **Warning:** Do not run heavy 3D rendering software or modern video games simultaneously while doing 200k+ token code reviews, as you may hit an Out-Of-Memory (OOM) crash. Monitor your VRAM usage via Task Manager.
 
-### 4. Note on Vision Support (Text-Only Build)
-**Note: This Windows port is currently text-only.** While the original NInfer engine supports vision, the FFmpeg media dependencies were intentionally stubbed out (`NINFER_BUILD_MEDIA_ACQUIRE=OFF`) to allow for extremely simple native MSVC compilation without using `vcpkg`. We are actively looking into adding vision support back in a future release by directly bundling pre-compiled FFmpeg `.dll` files.
+### 4. Multimodal / Vision Support
+**Vision support is now available!** We have introduced a separate, optional vision build to keep the core text-only engine as simple as possible. 
+- **For standard use**, run `start_ninfer_5090.bat` (Text-only, maximum 262k context).
+- **For vision**, run `start_ninfer_vision.bat` (Multimodal, ~180k context to leave room for the 3GB visual encoders).
+
+If you are building from source, you can use `build_vision_windows.bat`, which automatically downloads the necessary pre-compiled GPL-shared FFmpeg binaries and statically links them against `ninfer-serve-vision.exe` without requiring `vcpkg`.
+
