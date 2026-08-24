@@ -63,13 +63,21 @@ if(NINFER_BUILD_APPS OR BUILD_TESTING)
 endif()
 
 find_package(CUDAToolkit REQUIRED)
-# FFMPEG and CURL are stubbed out on Windows MSVC.
-# find_package(PkgConfig REQUIRED)
-# pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-#   libavformat>=60 libavcodec>=60 libavutil>=58 libswscale>=7)
-# if(NINFER_BUILD_MEDIA_ACQUIRE)
-#   pkg_check_modules(LIBCURL REQUIRED IMPORTED_TARGET libcurl>=7.85)
-# endif()
+if(NINFER_BUILD_MEDIA_ACQUIRE)
+  if(WIN32)
+    add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
+    set_property(TARGET PkgConfig::FFMPEG PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/ffmpeg/include")
+    set_property(TARGET PkgConfig::FFMPEG PROPERTY INTERFACE_LINK_LIBRARIES 
+      "${CMAKE_SOURCE_DIR}/ffmpeg/lib/avcodec.lib"
+      "${CMAKE_SOURCE_DIR}/ffmpeg/lib/avformat.lib"
+      "${CMAKE_SOURCE_DIR}/ffmpeg/lib/avutil.lib"
+      "${CMAKE_SOURCE_DIR}/ffmpeg/lib/swscale.lib"
+    )
+  else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat>=60 libavcodec>=60 libavutil>=58 libswscale>=7)
+  endif()
+endif()
 find_package(Threads REQUIRED)
 
 # --- Subdirectories ----------------------------------------------------------
