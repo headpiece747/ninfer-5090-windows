@@ -1,4 +1,4 @@
-function(ninfer_internal_includes target)
+﻿function(ninfer_internal_includes target)
   target_include_directories(${target} PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src
@@ -273,7 +273,10 @@ ninfer_internal_includes(ninfer_text)
 add_library(ninfer_media_decode STATIC
   media/decode/decode.cpp)
 ninfer_internal_includes(ninfer_media_decode)
-# target_link_libraries(ninfer_media_decode PRIVATE PkgConfig::FFMPEG)
+if(NINFER_BUILD_MEDIA_ACQUIRE)
+  target_link_libraries(ninfer_media_decode PRIVATE PkgConfig::FFMPEG)
+  target_compile_definitions(ninfer_media_decode PRIVATE NINFER_HAVE_FFMPEG)
+endif()
 
 if(NINFER_BUILD_MEDIA_ACQUIRE)
   # Product-only path/data/HTTP acquisition. No target package links this library.
@@ -341,3 +344,5 @@ if(NINFER_BUILD_SERVE)
     PUBLIC ninfer_engine Threads::Threads
     PRIVATE ninfer_media_acquire CUDA::cudart)
 endif()
+
+
