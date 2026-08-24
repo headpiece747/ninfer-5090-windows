@@ -60,10 +60,6 @@ To compile natively on Windows, you must patch several files in the `src/` direc
    add_compile_options(/Zc:preprocessor)
    add_compile_definitions(NOMINMAX UTF8PROC_STATIC)
    ```
-   Disable FFmpeg and curl dependencies if not needed:
-   ```cmake
-   set(NINFER_BUILD_MEDIA_ACQUIRE OFF)
-   ```
 
 2. **POSIX Header Swaps**:
    * Replace `#include <unistd.h>` with `<process.h>` or `<io.h>` in `src/serve/request_log.cpp` and `src/product/load_progress/load_progress.cpp`.
@@ -90,6 +86,12 @@ Alternatively, if you wish to compile manually, open the **x64 Native Tools Comm
 ```cmd
 cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DNINFER_BUILD_MEDIA_ACQUIRE=OFF
 cmake --build build --config Release
+`
+
+Alternatively, to manually compile the **Vision** build, you must first download the FFmpeg GPL shared binaries to an fmpeg/ subdirectory. Then configure with NINFER_BUILD_MEDIA_ACQUIRE enabled:
+`cmd
+cmake -B build_vision -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DNINFER_BUILD_MEDIA_ACQUIRE=ON
+cmake --build build_vision --config Release
 ```
 
 **Note:** This repository also includes a GitHub Actions workflow (`build-windows.yml`) that automatically compiles the `.exe` binaries on every push!
@@ -223,4 +225,6 @@ Unlike Linux, Windows (via the WDDM display driver) reserves roughly 10-15% of y
 - **For vision**, run `start_ninfer_vision.bat` (Multimodal, ~180k context to leave room for the 3GB visual encoders).
 
 If you are building from source, you can use `build_vision_windows.bat`, which automatically downloads the necessary pre-compiled GPL-shared FFmpeg binaries and statically links them against `ninfer-serve-vision.exe` without requiring `vcpkg`.
+
+
 
