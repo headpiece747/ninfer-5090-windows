@@ -22,11 +22,25 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
+    - name: Download and Extract FFmpeg
+      shell: powershell
+      run: |
+        Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip' -OutFile 'ffmpeg.zip'
+        Expand-Archive -Path 'ffmpeg.zip' -DestinationPath 'ffmpeg_temp' -Force
+        Move-Item -Path 'ffmpeg_temp\ffmpeg-master-latest-win64-gpl-shared' -Destination 'ffmpeg'
+        Remove-Item -Recurse -Force 'ffmpeg_temp'
+        Remove-Item 'ffmpeg.zip'
+
     - name: Configure CMake
-      run: cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DNINFER_BUILD_MEDIA_ACQUIRE=OFF
+      run: cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON
 
     - name: Build
       run: cmake --build build --config Release
+
+    - name: Copy FFmpeg DLLs
+      shell: powershell
+      run: |
+        Copy-Item ffmpeg\bin\*.dll build\apps\ -Force
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
@@ -35,4 +49,6 @@ jobs:
         path: |
           build/apps/ninfer-serve.exe
           build/apps/ninfer.exe
+          build/apps/*.dll
           start_ninfer_5090.bat
+          start_ninfer_vision.bat
