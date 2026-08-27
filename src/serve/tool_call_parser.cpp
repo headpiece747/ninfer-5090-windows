@@ -9,6 +9,7 @@
 #include <random>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 
 namespace ninfer::serve {
 namespace {
@@ -39,14 +40,6 @@ bool starts_with_at(std::string_view text, std::size_t pos, std::string_view pre
     return pos <= text.size() && text.substr(pos, prefix.size()) == prefix;
 }
 
-std::size_t longest_suffix_prefix(std::string_view text, std::string_view marker) {
-    const std::size_t maximum = std::min(text.size(), marker.size() - 1);
-    for (std::size_t size = maximum; size != 0; --size) {
-        if (text.substr(text.size() - size) == marker.substr(0, size)) { return size; }
-    }
-    return 0;
-}
-
 bool valid_function_name(std::string_view name, std::size_t max_name_length) {
     if (name.empty() || name.size() > max_name_length) { return false; }
     for (const unsigned char c : name) {
@@ -64,7 +57,113 @@ std::string new_tool_call_id() {
     return std::string(buf.data());
 }
 
-bool parse_parameter(std::string_view inner, std::size_t& pos, Json& args) {
+bool is_json_schema_type(std::string_view type) {
+    return type == "string" || type == "integer" || type == "number" || type == "boolean" ||
+           type == "object" || type == "array" || type == "null";
+}
+
+bool explicit_parameter_encoding(const Json& property,
+                                 ToolArgumentTypeContracts::Encoding& encoding) {
+    if (!property.is_object()) { return false; }
+    const auto type = property.find("type");
+    if (type == property.end()) { return false; }
+
+    if (type->is_string()) {
+        const std::string& name = type->get_ref<const std::string&>();
+        if (!is_json_schema_type(name)) { return false; }
+        encoding = name == "string" ? ToolArgumentTypeContracts::Encoding::String
+                                    : ToolArgumentTypeContracts::Encoding::Json;
+        return true;
+    }
+    if (!type->is_array() || type->empty()) { return false; }
+    bool admits_string = false;
+    for (const Json& member : *type) {
+        if (!member.is_string()) { return false; }
+        const std::string& name = member.get_ref<const std::string&>();
+        if (!is_json_schema_type(name)) { return false; }
+        admits_string |= name == "string";
+    }
+    encoding = admits_string ? ToolArgumentTypeContracts::Encoding::String
+                             : ToolArgumentTypeContracts::Encoding::Json;
+    return true;
+}
+
+ToolArgumentTypeContracts::Tool compile_tool_contract(const ToolDefinition& definition) {
+    ToolArgumentTypeContracts::Tool contract;
+    contract.name = definition.name;
+
+    const Json schema = Json::parse(definition.parameters_json, nullptr, false);
+    if (!schema.is_object()) { return contract; }
+    const auto properties = schema.find("properties");
+    if (properties == schema.end() || !properties->is_object()) { return contract; }
+
+    for (const auto& [name, property] : properties->items()) {
+        ToolArgumentTypeContracts::Encoding encoding;
+        if (explicit_parameter_encoding(property, encoding)) {
+            contract.parameters.push_back({name, encoding});
+        }
+    }
+    return contract;
+}
+
+bool same_contract(const ToolArgumentTypeContracts::Tool& lhs,
+                   const ToolArgumentTypeContracts::Tool& rhs) {
+    if (lhs.parameters.size() != rhs.parameters.size()) { return false; }
+    for (std::size_t i = 0; i < lhs.parameters.size(); ++i) {
+        if (lhs.parameters[i].name != rhs.parameters[i].name ||
+            lhs.parameters[i].encoding != rhs.parameters[i].encoding) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void append_tool_contract(ToolArgumentTypeContracts& contracts, const ToolDefinition& definition) {
+    ToolArgumentTypeContracts::Tool compiled = compile_tool_contract(definition);
+    const auto existing =
+        std::find_if(contracts.tools.begin(), contracts.tools.end(),
+                     [&](const auto& tool) { return tool.name == compiled.name; });
+    if (existing == contracts.tools.end()) {
+        contracts.tools.push_back(std::move(compiled));
+        return;
+    }
+    if (existing->unambiguous && !same_contract(*existing, compiled)) {
+        existing->parameters.clear();
+        existing->unambiguous = false;
+    }
+}
+
+const ToolArgumentTypeContracts::Parameter*
+find_parameter_contract(const ToolArgumentTypeContracts& contracts, std::string_view tool_name,
+                        std::string_view parameter_name) {
+    const auto tool =
+        std::find_if(contracts.tools.begin(), contracts.tools.end(),
+                     [&](const auto& candidate) { return candidate.name == tool_name; });
+    if (tool == contracts.tools.end() || !tool->unambiguous) { return nullptr; }
+    const auto parameter =
+        std::find_if(tool->parameters.begin(), tool->parameters.end(),
+                     [&](const auto& candidate) { return candidate.name == parameter_name; });
+    return parameter == tool->parameters.end() ? nullptr : &*parameter;
+}
+
+std::string_view remove_parameter_framing_newlines(std::string_view text) {
+    std::size_t begin = 0;
+    std::size_t end   = text.size();
+    if (text.starts_with("\r\n")) {
+        begin = 2;
+    } else if (text.starts_with('\n')) {
+        begin = 1;
+    }
+    if (end >= begin + 2 && text.substr(end - 2, 2) == "\r\n") {
+        end -= 2;
+    } else if (end > begin && text[end - 1] == '\n') {
+        --end;
+    }
+    return text.substr(begin, end - begin);
+}
+
+bool parse_parameter(std::string_view inner, std::size_t& pos, Json& args,
+                     std::string_view tool_name, const ToolArgumentTypeContracts& contracts) {
     constexpr std::string_view kParamOpen  = "<parameter=";
     constexpr std::string_view kParamClose = "</parameter>";
     if (!starts_with_at(inner, pos, kParamOpen)) { return false; }
@@ -75,14 +174,31 @@ bool parse_parameter(std::string_view inner, std::size_t& pos, Json& args) {
     pos                         = name_end + 1;
     const std::size_t value_end = inner.find(kParamClose, pos);
     if (value_end == std::string_view::npos) { return false; }
-    const std::string raw_value = trim_ascii(inner.substr(pos, value_end - pos));
-    Json parsed                 = Json::parse(raw_value, nullptr, false);
-    args[key]                   = parsed.is_discarded() ? Json(raw_value) : parsed;
-    pos                         = value_end + kParamClose.size();
+    const std::string_view encoded_value = inner.substr(pos, value_end - pos);
+    const ToolArgumentTypeContracts::Parameter* contract =
+        find_parameter_contract(contracts, tool_name, key);
+    if (contract == nullptr) {
+        const std::string legacy_value = trim_ascii(encoded_value);
+        Json parsed                    = Json::parse(legacy_value, nullptr, false);
+        args[key] = parsed.is_discarded() ? Json(legacy_value) : std::move(parsed);
+    } else {
+        const std::string value(remove_parameter_framing_newlines(encoded_value));
+        if (contract->encoding == ToolArgumentTypeContracts::Encoding::String) {
+            // The tag grammar writes strings without JSON quoting. If a union admits string,
+            // retaining the tag payload as a string is the only unambiguous interpretation.
+            args[key] = value;
+        } else {
+            Json parsed = Json::parse(value, nullptr, false);
+            if (parsed.is_discarded()) { return false; }
+            args[key] = std::move(parsed);
+        }
+    }
+    pos = value_end + kParamClose.size();
     return true;
 }
 
-bool parse_one_tool_call(std::string_view block, std::size_t max_name_length, ToolCall& out) {
+bool parse_one_tool_call(std::string_view block, std::size_t max_name_length,
+                         const ToolArgumentTypeContracts& contracts, ToolCall& out) {
     constexpr std::string_view kFunctionOpen  = "<function=";
     constexpr std::string_view kFunctionClose = "</function>";
     std::size_t pos                           = 0;
@@ -103,7 +219,7 @@ bool parse_one_tool_call(std::string_view block, std::size_t max_name_length, To
     for (;;) {
         skip_ws(params, param_pos);
         if (param_pos >= params.size()) { break; }
-        if (!parse_parameter(params, param_pos, args)) { return false; }
+        if (!parse_parameter(params, param_pos, args, name, contracts)) { return false; }
     }
 
     pos = function_end + kFunctionClose.size();
@@ -124,8 +240,26 @@ ParsedToolCallOutput fallback(const std::string& text) {
 
 } // namespace
 
+ToolArgumentTypeContracts build_tool_argument_type_contracts(const GenerationRequest& request) {
+    ToolArgumentTypeContracts contracts;
+    if (!request.uses_tools()) { return contracts; }
+
+    if (request.tool_choice.mode == ToolChoiceMode::Named) {
+        const auto selected =
+            std::find_if(request.tools.begin(), request.tools.end(),
+                         [&](const auto& tool) { return tool.name == request.tool_choice.name; });
+        if (selected != request.tools.end()) { append_tool_contract(contracts, *selected); }
+        return contracts;
+    }
+
+    contracts.tools.reserve(request.tools.size());
+    for (const ToolDefinition& tool : request.tools) { append_tool_contract(contracts, tool); }
+    return contracts;
+}
+
 ParsedToolCallOutput parse_qwen_tool_call_output(const std::string& text,
-                                                 std::size_t max_tool_name_length) {
+                                                 std::size_t max_tool_name_length,
+                                                 const ToolArgumentTypeContracts& contracts) {
     constexpr std::string_view kToolOpen  = "<tool_call>";
     constexpr std::string_view kToolClose = "</tool_call>";
 
@@ -145,7 +279,7 @@ ParsedToolCallOutput parse_qwen_tool_call_output(const std::string& text,
         if (close == std::string::npos) { return fallback(text); }
         ToolCall call;
         if (!parse_one_tool_call(std::string_view(text).substr(inner_begin, close - inner_begin),
-                                 max_tool_name_length, call)) {
+                                 max_tool_name_length, contracts, call)) {
             return fallback(text);
         }
         out.tool_calls.push_back(std::move(call));
@@ -166,29 +300,39 @@ std::string ToolCallStreamFilter::feed(std::string_view text) {
     }
 
     constexpr std::string_view kToolOpen = "<tool_call>";
-    pending_.append(text);
-    const std::size_t marker = pending_.find(kToolOpen);
-    if (marker != std::string::npos) {
-        std::size_t safe_end = marker;
-        while (safe_end != 0 &&
-               std::isspace(static_cast<unsigned char>(pending_[safe_end - 1])) != 0) {
-            --safe_end;
+    std::string visible;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        const char byte = text[index];
+        if (marker_prefix_bytes_ != 0) {
+            if (byte == kToolOpen[marker_prefix_bytes_]) {
+                ++marker_prefix_bytes_;
+                if (marker_prefix_bytes_ == kToolOpen.size()) {
+                    tool_region_ = std::move(trailing_whitespace_);
+                    trailing_whitespace_.clear();
+                    tool_region_.append(kToolOpen);
+                    tool_region_.append(text.substr(index + 1));
+                    marker_prefix_bytes_ = 0;
+                    saw_tool_marker_     = true;
+                    break;
+                }
+                continue;
+            }
+            visible.append(trailing_whitespace_);
+            trailing_whitespace_.clear();
+            visible.append(kToolOpen.substr(0, marker_prefix_bytes_));
+            marker_prefix_bytes_ = 0;
         }
-        std::string visible = pending_.substr(0, safe_end);
-        tool_region_        = pending_.substr(safe_end);
-        pending_.clear();
-        saw_tool_marker_ = true;
-        emitted_bytes_ += visible.size();
-        return visible;
-    }
 
-    const std::size_t prefix = longest_suffix_prefix(pending_, kToolOpen);
-    std::size_t safe_end     = pending_.size() - prefix;
-    while (safe_end != 0 && std::isspace(static_cast<unsigned char>(pending_[safe_end - 1])) != 0) {
-        --safe_end;
+        if (byte == kToolOpen.front()) {
+            marker_prefix_bytes_ = 1;
+        } else if (std::isspace(static_cast<unsigned char>(byte)) != 0) {
+            trailing_whitespace_.push_back(byte);
+        } else {
+            visible.append(trailing_whitespace_);
+            trailing_whitespace_.clear();
+            visible.push_back(byte);
+        }
     }
-    std::string visible = pending_.substr(0, safe_end);
-    pending_.erase(0, safe_end);
     emitted_bytes_ += visible.size();
     return visible;
 }
@@ -197,11 +341,15 @@ std::string ToolCallStreamFilter::finish(bool is_tool_call_response) {
     if (finished_) { throw std::logic_error("tool-call stream filter is already finished"); }
     finished_ = true;
     if (is_tool_call_response) {
-        pending_.clear();
+        trailing_whitespace_.clear();
         tool_region_.clear();
+        marker_prefix_bytes_ = 0;
         return {};
     }
-    std::string tail = std::move(pending_);
+    constexpr std::string_view kToolOpen = "<tool_call>";
+    std::string tail                     = std::move(trailing_whitespace_);
+    tail.append(kToolOpen.substr(0, marker_prefix_bytes_));
+    marker_prefix_bytes_ = 0;
     tail += tool_region_;
     tool_region_.clear();
     emitted_bytes_ += tail.size();

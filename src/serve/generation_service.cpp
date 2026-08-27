@@ -1,13 +1,13 @@
 #include "serve/generation_service.h"
 
 #include "product/media_acquire/acquire.h"
-#include "serve/console_log.h"
 #include "serve/tool_call_parser.h"
 #include "serve/translate.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <iterator>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -47,6 +47,11 @@ ApiError request_error_to_api_error(const ninfer::RequestError& exception) {
     case ninfer::RequestErrorKind::ContextLengthExceeded:
         error.status = 400;
         error.code   = "context_length_exceeded";
+        break;
+    case ninfer::RequestErrorKind::ThinkingBudgetCapacityInsufficient:
+        error.param.clear();
+        error.status = 400;
+        error.code   = "thinking_budget_capacity_insufficient";
         break;
     case ninfer::RequestErrorKind::MediaBudgetExceeded:
         error.status = 400;
@@ -238,6 +243,8 @@ GenerationService::GenerationService(ServeOptions options, LoadProgress load_pro
     engine_options.enable_vision            = options_.enable_vision;
     engine_options.use_cuda_graph           = options_.use_cuda_graph;
     engine_options.speculative              = options_.speculative;
+    engine_options.context_cache            = options_.context_cache;
+    engine_options.context_cost.preset_path = options_.context_cost_presets;
     engine_options.media_cache_bytes        = options_.media_cache_bytes;
     engine_options.media_live_bytes         = options_.media_live_bytes;
     engine_options.media_preprocess_threads = options_.media_preprocess_threads;
@@ -248,7 +255,8 @@ GenerationService::GenerationService(ServeOptions options, LoadProgress load_pro
         static_cast<std::size_t>(options_.max_concurrency) + options_.max_pending_requests);
 }
 
-std::shared_ptr<RequestLifetime> GenerationService::acquire_request_lifetime() const {
+std::shared_ptr<RequestLifetime>
+GenerationService::acquire_request_lifetime(DeadlinePolicy deadline_policy) const {
     const auto started = Clock::now();
     {
         std::lock_guard lock(request_capacity_->mutex);
@@ -259,9 +267,11 @@ std::shared_ptr<RequestLifetime> GenerationService::acquire_request_lifetime() c
         ++request_capacity_->active;
     }
     try {
-        return std::make_shared<RequestLifetime>(
-            request_capacity_, started,
-            started + std::chrono::milliseconds(options_.pending_timeout_ms));
+        const Clock::time_point deadline =
+            deadline_policy == DeadlinePolicy::UnboundedStartup
+                ? Clock::time_point::max()
+                : started + std::chrono::milliseconds(options_.pending_timeout_ms);
+        return std::make_shared<RequestLifetime>(request_capacity_, started, deadline);
     } catch (...) {
         std::lock_guard lock(request_capacity_->mutex);
         --request_capacity_->active;
@@ -270,15 +280,30 @@ std::shared_ptr<RequestLifetime> GenerationService::acquire_request_lifetime() c
 }
 
 PreparedRequest GenerationService::prepare(const GenerationRequest& request,
-                                           std::function<bool()> is_cancelled) const {
+                                           std::function<bool()> is_cancelled,
+                                           ContextCacheHints context_cache) const {
+    return prepare_impl(request, std::move(is_cancelled), std::move(context_cache),
+                        options_.allow_prefix_reuse ? CacheParticipation::ReadWrite
+                                                    : CacheParticipation::Disabled,
+                        DeadlinePolicy::ClientPendingTimeout);
+}
+
+PreparedRequest GenerationService::prepare_impl(const GenerationRequest& request,
+                                                std::function<bool()> is_cancelled,
+                                                ContextCacheHints context_cache,
+                                                CacheParticipation cache_participation,
+                                                DeadlinePolicy deadline_policy) const {
     PreparedRequest prepared;
-    ninfer::RequestOptions request_options = to_request_options(request, options_);
-    prepared.include_usage                 = request.include_usage;
-    prepared.tool_capable                  = request.uses_tools() || request.has_tool_history();
-    prepared.tool_name_max_length          = request.tool_name_max_length;
+    prepared.include_usage        = request.include_usage;
+    prepared.tool_capable         = request.uses_tools() || request.has_tool_history();
+    prepared.tool_name_max_length = request.tool_name_max_length;
+    prepared.tool_argument_types  = build_tool_argument_type_contracts(request);
     const ResolvedPromptSemantics semantics =
         resolve_prompt_semantics(request, options_, prompt_capabilities_);
+    ninfer::RequestOptions request_options = to_request_options(
+        request, options_, semantics, cache_participation == CacheParticipation::ReadWrite);
     prepared.enable_thinking                   = semantics.enable_thinking;
+    prepared.thinking_budget                   = request_options.execution.thinking.budget;
     prepared.preserve_thinking                 = semantics.preserve_thinking;
     prepared.preserve_thinking_semantic_change = request.preserve_thinking_semantic_change;
     const bool request_has_media               = request.media_item_count() != 0;
@@ -286,7 +311,7 @@ PreparedRequest GenerationService::prepare(const GenerationRequest& request,
         const std::invalid_argument error("Vision is disabled for this server");
         throw_invalid_input(error, "vision_disabled");
     }
-    prepared.lifetime = acquire_request_lifetime();
+    prepared.lifetime = acquire_request_lifetime(deadline_policy);
 
     try {
         const auto acquisition_started = Clock::now();
@@ -297,6 +322,11 @@ PreparedRequest GenerationService::prepare(const GenerationRequest& request,
                 return acquire_media(part, prepared.lifetime->deadline, is_cancelled,
                                      remaining_media_bytes);
             });
+        std::vector<PromptCacheMarker> protocol_markers = std::move(input.context_cache.markers);
+        input.context_cache                             = std::move(context_cache);
+        input.context_cache.markers.insert(input.context_cache.markers.end(),
+                                           std::make_move_iterator(protocol_markers.begin()),
+                                           std::make_move_iterator(protocol_markers.end()));
         prepared.acquisition_seconds =
             std::chrono::duration<double>(Clock::now() - acquisition_started).count();
         check_preparation_control(prepared.lifetime->deadline, is_cancelled);
@@ -310,9 +340,12 @@ PreparedRequest GenerationService::prepare(const GenerationRequest& request,
         prepared.preparation   = prompt.preparation_stats();
         prepared.prepare_seconds =
             std::chrono::duration<double>(Clock::now() - prepared.lifetime->started).count();
-        prepared.generation = engine_->submit(std::move(prompt), std::move(request_options),
-                                              prepared.lifetime->deadline);
-        prepared.sampling   = prepared.generation.resolved_sampling();
+        prepared.generation =
+            engine_->submit(std::move(prompt), std::move(request_options),
+                            request.stream ? ninfer::OutputConsumerMode::Streaming
+                                           : ninfer::OutputConsumerMode::Aggregate,
+                            prepared.lifetime->deadline);
+        prepared.sampling = prepared.generation.resolved_sampling();
     } catch (const ApiException&) { throw; } catch (const ninfer::RequestError& exception) {
         throw_request_error(exception);
     } catch (const std::invalid_argument& exception) { throw_invalid_input(exception); }
@@ -376,6 +409,7 @@ GenerationOutcome GenerationService::run(PreparedRequest& prepared, const Stream
     outcome.prompt_tokens     = static_cast<int>(result.prompt.prompt_tokens);
     outcome.completion_tokens = static_cast<int>(result.generated_token_ids.size());
     outcome.reasoning_tokens  = static_cast<int>(result.reasoning_tokens);
+    outcome.thinking          = result.thinking;
     outcome.finish_reason     = result.finish_reason;
 
     outcome.metrics.prepare_seconds = prepared.prepare_seconds;
@@ -388,8 +422,10 @@ GenerationOutcome GenerationService::run(PreparedRequest& prepared, const Stream
     outcome.metrics.total_seconds =
         prepared.prepare_seconds +
         std::max(0.0, result.timings.total_seconds - result.timings.prepare_seconds);
+    outcome.metrics.engine_timing               = result.engine_timing;
     outcome.metrics.prefix_cache_hit_tokens     = result.reused_prompt_tokens;
     outcome.metrics.prefix_reuse_path           = result.prefix_reuse_path;
+    outcome.metrics.materialization             = result.materialization;
     outcome.metrics.speculative_backend         = result.speculative.backend;
     outcome.metrics.speculative_draft_window    = result.speculative.draft_window;
     outcome.metrics.speculative_rounds          = result.speculative.rounds;
@@ -401,8 +437,8 @@ GenerationOutcome GenerationService::run(PreparedRequest& prepared, const Stream
 
     bool is_tool_call_response = false;
     if (prepared.tool_capable) {
-        ParsedToolCallOutput parsed =
-            parse_qwen_tool_call_output(outcome.text, prepared.tool_name_max_length);
+        ParsedToolCallOutput parsed = parse_qwen_tool_call_output(
+            outcome.text, prepared.tool_name_max_length, prepared.tool_argument_types);
         outcome.text          = std::move(parsed.content);
         is_tool_call_response = parsed.is_tool_call_response;
         if (is_tool_call_response) { outcome.tool_calls = std::move(parsed.tool_calls); }
@@ -414,24 +450,20 @@ GenerationOutcome GenerationService::run(PreparedRequest& prepared, const Stream
 }
 
 void GenerationService::warmup() {
-    try {
-        GenerationRequest request;
-        ChatTurn turn;
-        turn.role = ChatRole::User;
-        ContentPart content;
-        content.kind     = ContentKind::Text;
-        content.text     = "hi";
-        content.type_raw = "text";
-        turn.content.push_back(std::move(content));
-        request.messages.push_back(std::move(turn));
-        request.max_tokens       = 4;
-        request.max_tokens_set   = true;
-        PreparedRequest prepared = prepare(request);
-        run(prepared, nullptr);
-    } catch (const std::exception& exception) {
-        write_console_log(ConsoleLogLevel::Warning,
-                          std::string("warmup failed (continuing): ") + exception.what());
-    }
+    GenerationRequest request;
+    ChatTurn turn;
+    turn.role = ChatRole::User;
+    ContentPart content;
+    content.kind     = ContentKind::Text;
+    content.text     = "hi";
+    content.type_raw = "text";
+    turn.content.push_back(std::move(content));
+    request.messages.push_back(std::move(turn));
+    request.max_tokens       = 4;
+    request.max_tokens_set   = true;
+    PreparedRequest prepared = prepare_impl(request, {}, {}, CacheParticipation::Disabled,
+                                            DeadlinePolicy::UnboundedStartup);
+    run(prepared, nullptr);
 }
 
 } // namespace ninfer::serve
