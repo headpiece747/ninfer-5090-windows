@@ -4,21 +4,23 @@
 
 NInfer 5090 Windows is a from-scratch C++/CUDA inference engine optimized for explicitly registered Qwen checkpoints on a single NVIDIA GeForce RTX 5090, now ported natively to Windows. It runs text, image, and video prompts through a local CLI or OpenAI-/Anthropic-compatible HTTP APIs.
 
-This project is a Windows adaptation of the original [Neroued/ninfer](https://github.com/Neroued/ninfer) Linux engine, incorporating architectural concepts from [Don-Chad/ninfer-3090](https://github.com/Don-Chad/ninfer-3090) to support compilation via Microsoft Visual Studio (MSVC) on Windows 11.
+This project is a Windows adaptation of the original [Neroued/ninfer](https://github.com/Neroued/ninfer) Linux engine, supporting compilation via Microsoft Visual Studio (MSVC) on Windows 11.
 
 ## Supported Models
 
-Like the upstream project, this engine supports a closed set of model artifacts to maximize performance on the RTX 5090 (`sm_120a`). 
+Like the upstream project, this engine supports a closed set of model artifacts to maximize performance on the RTX 5090 (`sm_120a`).
 
-Our primary benchmark target is:
+Our primary target is:
 * [Qwen3.8-27B NVFP4](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer)
 
-## Performance
+## Performance & Benchmarks
 
-The NVFP4 models utilize W4A4 Tensor Core MMA for prefill and A16 NVFP4 kernels for decode. When combined with Multi-Token Prediction (MTP3) and INT8 Group-64 KV caching, performance on a single RTX 5090 is extraordinary:
+The NVFP4 models utilize W4A4 Tensor Core MMA for prefill and A16 NVFP4 kernels for decode. When combined with Multi-Token Prediction (MTP5) and FP8 KV caching:
 
-* **Decode Speed**: ~182 tokens/s (with ~84% MTP acceptance)
-* **Context Capacity**: With `int8-group64` KV compression, a single token footprint shrinks to ~33 KB. This allows an RTX 5090 (32GB VRAM) to easily hold a **262,144-token prompt** alongside the 19.4GB model weights in a single GPU!
+* **Generation Throughput**: **207 – 220.8 tok/s** (with ~80% MTP5 acceptance rate).
+* **Deep Context Throughput**: **160 – 194.2 tok/s** on massive prompts (tested up to 182k+ tokens).
+* **Context Capacity**: With FP8 KV compression, full **262,144-token context** fits in 32GB VRAM alongside the 19.4GB model weights with ~1.2 GiB headroom.
+* **Host RAM Offloading**: 16GB DDR5 host KV cache offload (`--host-kv-mib 16384`) allows instant context switching across multi-turn sessions.
 
 ## Requirements
 
@@ -29,111 +31,86 @@ The NVFP4 models utilize W4A4 Tensor Core MMA for prefill and A16 NVFP4 kernels 
 - CMake 3.28 or newer
 - Ninja build system
 
-*(Note: FFmpeg and libcurl dependencies from the original Linux repo are stubbed out in this port for ease of compilation).*
-
 ## Installation (Pre-compiled)
 
-**If you just want to run the engine and don't want to compile it yourself, download the [Latest Release ZIP](../../releases/latest) from the Releases page.**
+**Download the [Latest Release ZIP](../../releases/latest) from the Releases page.**
 
-The ZIP contains the fully compiled Windows binaries (`ninfer-serve.exe`) and the optimized startup script. 
+The ZIP contains the fully compiled Windows binaries (`ninfer-serve.exe`, `ninfer.exe`) and optimized startup scripts.
 
-1. Extract the ZIP to a new folder.
-2. Run `download_model.bat` to automatically download the required ~20GB `qwen3_8_27b_nvfp4.ninfer` model file into your folder (or download it manually from [HuggingFace](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer/resolve/main/qwen3_8_27b_nvfp4.ninfer)).
+1. Extract the ZIP to a folder.
+2. Run `download_model.bat` to download the ~20GB `qwen3_8_27b_nvfp4.ninfer` model file into your folder (or download manually from [HuggingFace](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer/resolve/main/qwen3_8_27b_nvfp4.ninfer)).
 3. Double-click `start_ninfer_5090.bat` to launch the server!
 
 ---
 
 ## Building from Source (For Developers)
 
-### 1. Clone Upstream
-Clone the original Linux repository as a base:
-```cmd
-git clone https://github.com/Neroued/ninfer.git ninfer_upstream
-cd ninfer_upstream
-```
-
-### 2. Apply Windows/MSVC Patches
-To compile natively on Windows, you must patch several files in the `src/` directory to remove POSIX dependencies and fix MSVC-specific linker issues:
-
-1. **`CMakeLists.txt`**: Add MSVC-specific compile definitions:
-   ```cmake
-   add_compile_options(/Zc:preprocessor)
-   add_compile_definitions(NOMINMAX UTF8PROC_STATIC)
-   ```
-
-2. **POSIX Header Swaps**:
-   * Replace `#include <unistd.h>` with `<process.h>` or `<io.h>` in `src/serve/request_log.cpp` and `src/product/load_progress/load_progress.cpp`.
-   * Replace `isatty` with `_isatty`.
-   * In `src/serve/console_log.cpp`, replace `localtime_r` with `localtime_s` for Windows compatibility.
-
-3. **TMA Alignment Patch**: 
-   * In `src/targets/qwen3_6/impl/compute/nvfp4_w4a4_tma.cuh`, ensure TMA allocations are patched from `128` to `64` for Windows compatibility.
-
-4. **Template Instantiation (`api_impl.h`)**:
-   * MSVC requires explicit inline template instantiation for `RequestPlan` and `SequencePlan`. In `src/targets/qwen3_6/impl/runtime/api_impl.h`, modify the defaulted move constructors to manually expand the move logic (e.g., `impl_(std::move(other.impl_))`) to resolve `LNK2019` unresolved external symbol errors.
-
-5. **NVFP4 Format Support (`reader.cpp`)**:
-   * In `src/artifact/reader.cpp`, add mappings for `FP8_E4M3FN_ROW_BF16S` to `parse_format()` and `row-scale-v1` to `parse_layout()` to correctly recognize Qwen3.8 NVFP4 artifacts.
-
-### 3. Compile
-You can compile the project automatically using the provided batch script:
+### 1. Build Automatically
+Simply run:
 ```cmd
 build_windows.bat
 ```
-*(The script will automatically attempt to find your MSVC environment and run the required CMake commands).*
+*(The script automatically downloads the required FFmpeg dev package, locates your MSVC environment, and builds with Ninja).*
 
-Alternatively, if you wish to compile manually, open the **x64 Native Tools Command Prompt**, navigate to the folder, and run:
+### 2. Manual CMake Build
+Open the **x64 Native Tools Command Prompt** and run:
 ```cmd
-cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DNINFER_BUILD_MEDIA_ACQUIRE=OFF
+cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
-`
-
-Alternatively, to manually compile the **Vision** build, you must first download the FFmpeg GPL shared binaries to an fmpeg/ subdirectory. Then configure with NINFER_BUILD_MEDIA_ACQUIRE enabled:
-`cmd
-cmake -B build_vision -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DNINFER_BUILD_MEDIA_ACQUIRE=ON
-cmake --build build_vision --config Release
 ```
 
-**Note:** This repository also includes a GitHub Actions workflow (`build-windows.yml`) that automatically compiles the `.exe` binaries on every push!
+---
 
 ## Running the Server
 
-To achieve the maximum benchmark speeds (~182+ tok/s) and support massive context windows, you can simply run the included batch script:
+### Text Model (Full 262k Context Profile)
+Run `start_ninfer_5090.bat`:
 ```cmd
-start_ninfer_5090.bat
-```
-
-*(You must edit the script to point to the location of your downloaded `.ninfer` model file).*
-
-Alternatively, run the generated executable manually with the exact optimized flags:
-
-```cmd
-build\apps\ninfer-serve.exe C:\path\to\qwen3_8_27b_nvfp4.ninfer ^
+build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
   --host 127.0.0.1 ^
   --port 8080 ^
-  --spec mtp ^
-  --draft-tokens 3 ^
-  --kv-dtype int8 ^
   --max-context 262144 ^
+  --kv-capacity 262144 ^
+  --max-concurrency 1 ^
+  --kv-dtype fp8 ^
+  --prefill-chunk 1024 ^
+  --device-state-slots 1 ^
+  --host-state-slots 16 ^
+  --host-kv-mib 16384 ^
+  --spec mtp --draft-tokens 5 ^
   --lm-head-draft ^
-  --prefill-chunk 4096 ^
+  --preserve-thinking ^
   --pending-timeout-ms 600000
 ```
 
-### Flag Explanations:
-* `--spec mtp --draft-tokens 3`: Enables Multi-Token Prediction (MTP3), drafting 3 tokens concurrently, leading to massive speedups.
-* `--kv-dtype int8`: Compresses the KV cache footprint (to ~33KB per token). Essential for squeezing large contexts onto a single GPU.
-* `--max-context 262144`: Overrides the default 8192 software limit, unlocking the full 256k context potential since the 5090 has enough VRAM.
-* `--lm-head-draft`: Evaluates the language model head on drafted tokens for slightly better speculative acceptance.
-* `--prefill-chunk 4096`: Increases the batch size for prompt ingestion, speeding up the initial processing of massive OpenCode workspaces.
-* `--pending-timeout-ms 600000`: Increases the queue timeout to 10 minutes, preventing OpenCode requests from dropping while the server is busy crunching a large prompt.
+### Vision Model (131k Context Profile)
+Run `start_ninfer_vision.bat`:
+```cmd
+build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
+  --vision ^
+  --host 127.0.0.1 ^
+  --port 8080 ^
+  --max-context 131072 ^
+  --kv-capacity 131072 ^
+  --max-concurrency 1 ^
+  --kv-dtype fp8 ^
+  --prefill-chunk 1024 ^
+  --device-state-slots 1 ^
+  --host-state-slots 16 ^
+  --host-kv-mib 16384 ^
+  --spec mtp --draft-tokens 5 ^
+  --lm-head-draft ^
+  --preserve-thinking ^
+  --pending-timeout-ms 600000
+```
 
-## OpenCode Desktop & IDE Integration
+---
 
-Once the NInfer server is running, it operates exactly like an OpenAI API endpoint. You can plug it directly into OpenCode Desktop (or Cursor/Continue).
+## OpenCode Desktop Integration
 
-For **OpenCode Desktop**, edit your `~/.config/opencode/opencode.json` configuration file to add NInfer as a local provider and force the global context limit:
+NInfer exposes OpenAI-compatible `/v1/chat/completions` and `/v1/responses` endpoints.
 
+Edit `~/.config/opencode/opencode.json`:
 ```json
 {
   "provider": {
@@ -159,72 +136,26 @@ For **OpenCode Desktop**, edit your `~/.config/opencode/opencode.json` configura
     "auto": true,
     "prune": true,
     "maxContext": 262144,
-    "buffer": 8192
+    "buffer": 20480
+  },
+  "agent": {
+    "build": {
+      "temperature": 0.6
+    },
+    "plan": {
+      "temperature": 1.0
+    }
   }
 }
 ```
 
-*Note: The `buffer: 8192` ensures OpenCode reserves enough tokens for the AI's reply instead of filling the entire 256k context with your codebase.*
+### Key Recommendations:
+* **Temperature**: Use `0.6` for precise code construction (e.g. Rust/Tauri) and `1.0` for high-level design planning.
+* **Context Buffer**: A `20480` token compaction buffer ensures room for large outputs without early truncation.
+* **Ignore Bloat**: Add `.opencodeignore` (`node_modules/`, `target/`, `dist/`, `.git/`) to prevent irrelevant files from consuming VRAM.
 
-*Note: Make sure the `model` name precisely matches the ID served by NInfer (e.g., `qwen3.8-27b`).*
-
-### Advanced OpenCode Optimizations
-
-**1. Use `.opencodeignore`**
-Even with 262k context, injecting build artifacts or binaries into your prompt is a massive waste of VRAM.
-Create a `.opencodeignore` file in the root of your project:
-```text
-node_modules/
-dist/
-build/
-.git/
-*.bin
-*.lock
-package-lock.json
-```
-This eliminates client-side bloat, ensuring your RTX 5090 uses its VRAM exclusively for actual code comprehension.
-
-## Acknowledgements
-
-- [Neroued/ninfer](https://github.com/Neroued/ninfer) - Original author of the ultra-optimized C++/CUDA NInfer engine for Linux.
-- [Don-Chad/ninfer-3090](https://github.com/Don-Chad/ninfer-3090) - Reference implementation for compiling the engine under Windows/MSVC.
-- Original models derived from Qwen/Qwen3.8-27B.
+---
 
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE). 
-
-It is derived from the upstream [NInfer](https://github.com/Neroued/ninfer) project, which is also distributed under the Apache-2.0 License. All vendored dependencies and original model weights retain their respective licenses.
-
-## OpenCode Desktop & Advanced Tweaks
-
-### 1. Limiting "Overthinking" (Reasoning Effort)
-If you find Qwen3.8 is generating too many thinking tokens and eating into your context window, you can limit its reasoning budget directly in OpenCode.
-Edit your ~/.config/opencode/opencode.json and add a thinking budget to your model configuration:
-\\\json
-"thinking": {
-  "budget": 4096
-}
-\\\
-
-### 2. Running as a Background Windows Service
-To avoid keeping a command prompt window open, you can run NInfer as a silent background service using NSSM (Non-Sucking Service Manager):
-1. Download [NSSM](http://nssm.cc/).
-2. Open an Administrator command prompt and run: 
-ssm install NInferServe
-3. Set the **Path** to C:\path\to\start_ninfer_5090.bat.
-4. Click "Install service" and start it via the Windows Services app. NInfer will now start silently every time you boot your PC!
-
-### 3. WDDM VRAM Warning (Windows Overhead)
-Unlike Linux, Windows (via the WDDM display driver) reserves roughly 10-15% of your GPU VRAM for desktop rendering and background apps. 
-> **Warning:** Do not run heavy 3D rendering software or modern video games simultaneously while doing 200k+ token code reviews, as you may hit an Out-Of-Memory (OOM) crash. Monitor your VRAM usage via Task Manager.
-
-### 4. Multimodal / Vision Support
-**Vision support is now available!** We have introduced a separate, optional vision build to keep the core text-only engine as simple as possible. 
-- **For standard use**, run `start_ninfer_5090.bat` (Text-only, maximum 262k context).
-- **For vision**, run `start_ninfer_vision.bat` (Multimodal, ~180k context to leave room for the 3GB visual encoders).
-
-If you are building from source, you can use `build_vision_windows.bat`, which automatically downloads the necessary pre-compiled GPL-shared FFmpeg binaries and statically links them against `ninfer-serve-vision.exe` without requiring `vcpkg`.
-
-
-
+This project is licensed under the [Apache License 2.0](LICENSE).
