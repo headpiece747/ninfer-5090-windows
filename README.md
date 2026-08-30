@@ -156,6 +156,13 @@ Edit `~/.config/opencode/opencode.json`:
 
 ---
 
-## License
+## License & Attribution
 
 This project is licensed under the [Apache License 2.0](LICENSE).
+
+### Derivative Work & Upstream Attribution
+This repository is a Windows MSVC adaptation of the upstream [Neroued/ninfer](https://github.com/Neroued/ninfer) project, originally authored by **Neroued** and licensed under the [Apache License 2.0](LICENSE).
+
+In accordance with Apache License 2.0 Section 4:
+- Modifications have been made to support native Windows MSVC compilation, C-runtime portability (random generation, thread-safe time handling, build database locks), FP8 KV cache and MTP5 execution profiles on RTX 5090 (`sm_120a`), and Windows dependency tooling.
+- All original attribution and copyright notices are retained. See the [NOTICE](NOTICE) file for third-party software details (`cpp-httplib`, `nlohmann/json`, `utf8proc`, and FFmpeg).

@@ -1,0 +1,36 @@
+﻿NInfer 5090 Windows
+Copyright 2026 The NInfer 5090 Windows Contributors
+
+This product includes software developed by:
+- Neroued (https://github.com/Neroued/ninfer)
+  Original NInfer inference engine, licensed under Apache License 2.0.
+
+- Don-Chad (https://github.com/Don-Chad/ninfer-3090)
+  Reference Windows/MSVC adaptations and build configurations.
+
+This product contains modifications developed by headpiece747 to support:
+- Native Windows 11 MSVC compilation (Visual Studio 2022/2026 + CUDA 13.3)
+- Windows C-runtime compatibility patches (random number generation, thread-safe time, /FS compiler flags)
+- FP8 KV cache and Multi-Token Prediction (MTP5) execution profiles on NVIDIA GeForce RTX 5090
+- Automated Windows dependency management and FFmpeg integration
+
+========================================================================
+Third-Party Software and Attributions:
+========================================================================
+
+1. cpp-httplib
+   Copyright (c) 2024 Yuji Hirose
+   License: MIT
+
+2. JSON for Modern C++ (nlohmann/json)
+   Copyright (c) 2013-2022 Niels Lohmann
+   License: MIT
+
+3. utf8proc
+   Copyright (c) 2014-2021 Public Software Group e.V. and contributors
+   Copyright (c) 2009-2013 Steven G. Johnson, Jiahao Chen, Tony Kelman
+   License: MIT
+
+4. FFmpeg Windows Shared Binaries (used in multimodal / vision builds)
+   Developed by the FFmpeg developers (https://ffmpeg.org/)
+   Binaries distributed via BtbN/FFmpeg-Builds (GPL v3.0 / LGPL v2.1)
