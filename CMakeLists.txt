@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 3.28)
 
 # The current implementation is compiled only for sm_120a. Set and validate the
 # architecture before CUDA compiler detection so CMake never injects a generic
@@ -27,12 +27,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)        # clangd / IDE tooling
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
+
 if(MSVC)
   add_compile_definitions(NOMINMAX UTF8PROC_STATIC)
   add_compile_options(
     $<$<COMPILE_LANGUAGE:C>:/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:C>:/FS>
     $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:CXX>:/FS>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/FS>
   )
 endif()
 
@@ -63,18 +67,18 @@ if(NINFER_BUILD_APPS OR BUILD_TESTING)
 endif()
 
 find_package(CUDAToolkit REQUIRED)
-# FFMPEG and CURL are stubbed out on Windows MSVC.
-# find_package(PkgConfig REQUIRED)
-# pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-#   libavformat>=60 libavcodec>=60 libavutil>=58 libswscale>=7)
-# if(NINFER_BUILD_MEDIA_ACQUIRE)
-#   pkg_check_modules(LIBCURL REQUIRED IMPORTED_TARGET libcurl>=7.85)
-# endif()
 if(MSVC)
   add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
   target_include_directories(PkgConfig::FFMPEG INTERFACE "${PROJECT_SOURCE_DIR}/ffmpeg/include")
   target_link_directories(PkgConfig::FFMPEG INTERFACE "${PROJECT_SOURCE_DIR}/ffmpeg/lib")
   target_link_libraries(PkgConfig::FFMPEG INTERFACE avcodec avformat avutil swscale swresample)
+else()
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+    libavformat>=60 libavcodec>=60 libavutil>=58 libswscale>=7)
+  if(NINFER_BUILD_MEDIA_ACQUIRE)
+    pkg_check_modules(LIBCURL REQUIRED IMPORTED_TARGET libcurl>=7.85)
+  endif()
 endif()
 find_package(Threads REQUIRED)
 
@@ -90,5 +94,3 @@ endif()
 if(NINFER_BUILD_BENCHMARKS)
   add_subdirectory(bench)
 endif()
-
-

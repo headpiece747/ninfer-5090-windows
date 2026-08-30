@@ -114,10 +114,23 @@ RequestBasePlan<Variant>::prefix_shortlist_key(std::uint32_t frontier) const noe
         return std::nullopt;
     }
     return PrefixShortlistKey{
-        .digest       = impl_->prefix_digests.at(frontier),
+        .digests      = impl_->prefix_digests.at(frontier),
         .frontier     = frontier,
         .identity_tag = impl_->prefix_identity_tag,
     };
+}
+
+template <>
+std::optional<runtime::PrefillWork>
+RequestBasePlan<Variant>::shared_candidate_rebuild_work(std::uint32_t frontier) const noexcept {
+    if (impl_ == nullptr) { return std::nullopt; }
+    const auto found = std::find_if(impl_->shared_candidates.begin(),
+                                    impl_->shared_candidates.end(), [&](const auto& candidate) {
+                                        return candidate.frontier == frontier && candidate.identity;
+                                    });
+    return found == impl_->shared_candidates.end()
+               ? std::nullopt
+               : std::optional<runtime::PrefillWork>(found->identity->rebuild_work);
 }
 
 template <>
@@ -191,6 +204,15 @@ PressurePlanningSession<Variant>::seal(PressureTargetHandle target, const Prepar
 }
 
 template <>
+std::optional<CapturePressurePlan<Variant>>
+PressurePlanningSession<Variant>::seal_capture(PressureTargetHandle target) {
+    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
+    std::optional<AdmissionCandidate<Variant>> sealed = impl_->seal_capture(target);
+    if (!sealed) { return std::nullopt; }
+    return CapturePressurePlan<Variant>(std::move(*sealed), impl_->resource_revision);
+}
+
+template <>
 Program<Variant>::Program(std::unique_ptr<detail::ProgramImpl<Variant>> impl) noexcept
     : impl_(std::move(impl)) {}
 
@@ -202,6 +224,12 @@ RequestBasePlan<Variant>
 Program<Variant>::plan_request(const PreparedPrompt& prompt,
                                const runtime::ResolvedExecutionOptions& options) {
     return impl_->plan_request(PreparedPromptAccess::view(prompt), options);
+}
+
+template <>
+std::vector<float> Program<Variant>::causal_score(PreparedPrompt&& prompt,
+                                                  std::uint32_t first_target) {
+    return impl_->causal_score(PreparedPromptAccess::take(std::move(prompt)), first_target);
 }
 
 template <>
@@ -238,6 +266,26 @@ PressurePlanningSession<Variant> Program<Variant>::begin_pressure_planning(
         std::make_unique<detail::PressurePlanningSessionImpl<Variant>>(
             *impl_, machine_cost, candidates, private_owners, private_owner_ordinals, shared_owners,
             shared_owner_ordinals));
+}
+
+template <>
+void Program<Variant>::select_shared_captures(ResourcePlan<Variant>& plan,
+                                              const PreparedPrompt& prompt,
+                                              std::span<const std::uint32_t> frontiers) {
+    if (plan.revision_ == 0 || plan.revision_ != impl_->resource_revision()) {
+        throw std::logic_error("shared capture selection observes a stale resource plan");
+    }
+    impl_->select_shared_captures(plan.admission_, PreparedPromptAccess::view(prompt), frontiers);
+}
+
+template <>
+std::uint64_t Program<Variant>::shared_capture_split_cost_ns(
+    const ResourcePlan<Variant>& plan, const PreparedPrompt& prompt,
+    std::span<const std::uint32_t> frontiers,
+    const runtime::ContextMachineCostModel& machine_cost) {
+    if (impl_ == nullptr) { throw std::logic_error("Program is empty"); }
+    return impl_->shared_capture_split_cost_ns(plan.admission_, PreparedPromptAccess::view(prompt),
+                                               frontiers, machine_cost);
 }
 
 template <>
@@ -287,12 +335,34 @@ Program<Variant>::advance_prefill(SequenceHandle<Variant> sequence,
 }
 
 template <>
-CaptureAssessment
-Program<Variant>::inspect_capture(const CaptureOffer<Variant>& offer,
-                                  const SharedPrefixHandle<Variant>* exact_shared,
-                                  const SharedPrefixHandle<Variant>* replacement,
-                                  std::optional<runtime::CheckpointRef> private_replacement) const {
-    return impl_->inspect_capture(offer, exact_shared, replacement, private_replacement);
+CaptureAssessment Program<Variant>::inspect_capture(
+    const CaptureOffer<Variant>& offer, const SharedPrefixHandle<Variant>* exact_shared,
+    const SharedPrefixHandle<Variant>* replacement,
+    std::optional<runtime::CheckpointRef> private_replacement, bool permit_shared_publication,
+    const runtime::ContextMachineCostModel& machine_cost) const {
+    return impl_->inspect_capture(offer, exact_shared, replacement, private_replacement,
+                                  permit_shared_publication, machine_cost);
+}
+
+template <>
+std::uint64_t Program<Variant>::checkpoint_recovery_ns(
+    const ContinuationHandle<Variant>& owner, runtime::CheckpointRef checkpoint,
+    const runtime::ContextMachineCostModel& machine_cost) const {
+    return impl_->checkpoint_recovery_ns(owner, checkpoint, machine_cost);
+}
+
+template <>
+AdmissionCandidate<Variant> Program<Variant>::make_capture_pressure_candidate(
+    const CaptureAssessment& assessment,
+    const runtime::ContextMachineCostModel& machine_cost) const {
+    return impl_->make_capture_pressure_candidate(assessment, machine_cost);
+}
+
+template <>
+std::uint64_t Program<Variant>::checkpoint_recovery_ns(
+    const SharedPrefixHandle<Variant>& owner, runtime::CheckpointRef checkpoint,
+    const runtime::ContextMachineCostModel& machine_cost) const {
+    return impl_->checkpoint_recovery_ns(owner, checkpoint, machine_cost);
 }
 
 template <>
@@ -307,14 +377,30 @@ void Program<Variant>::skip_capture(CaptureOffer<Variant>&& offer) {
 }
 
 template <>
-runtime::ContextTransactionReserveStatus
-Program<Variant>::reserve_active_capture(CaptureOffer<Variant>&& offer,
-                                         const SharedPrefixHandle<Variant>* exact_shared,
-                                         const SharedPrefixHandle<Variant>* replacement,
-                                         std::optional<runtime::CheckpointRef> private_replacement,
-                                         runtime::CancellationFlagView cancellation) {
+runtime::ContextTransactionReserveStatus Program<Variant>::reserve_active_capture(
+    CaptureOffer<Variant>&& offer, const SharedPrefixHandle<Variant>* exact_shared,
+    const SharedPrefixHandle<Variant>* replacement,
+    std::optional<runtime::CheckpointRef> private_replacement, bool permit_shared_publication,
+    const runtime::ContextMachineCostModel& machine_cost,
+    runtime::CancellationFlagView cancellation) {
     return impl_->reserve_active_capture(std::move(offer), exact_shared, replacement,
-                                         private_replacement, cancellation);
+                                         private_replacement, permit_shared_publication,
+                                         machine_cost, cancellation);
+}
+
+template <>
+runtime::ContextTransactionReserveStatus Program<Variant>::reserve_active_capture_with_pressure(
+    CaptureOffer<Variant>&& offer, const SharedPrefixHandle<Variant>* exact_shared,
+    const SharedPrefixHandle<Variant>* replacement,
+    std::optional<runtime::CheckpointRef> private_replacement, bool permit_shared_publication,
+    CapturePressurePlan<Variant>&& pressure, const runtime::ContextMachineCostModel& machine_cost,
+    runtime::CancellationFlagView cancellation) {
+    if (pressure.revision_ == 0 || pressure.revision_ != impl_->resource_revision()) {
+        return runtime::ContextTransactionReserveStatus::Aborted;
+    }
+    return impl_->reserve_active_capture_with_pressure(
+        std::move(offer), exact_shared, replacement, private_replacement, permit_shared_publication,
+        std::move(pressure.pressure_), machine_cost, cancellation);
 }
 
 template <>

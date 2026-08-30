@@ -78,7 +78,6 @@ int main() {
     engine_options.context_cache.max_private_continuations         = 4;
     engine_options.context_cache.max_shared_prefixes               = 2;
     engine_options.context_cache.max_long_anchors_per_continuation = 2;
-    engine_options.context_cache.max_cache_markers_per_request     = 4;
 
     const ninfer::ModelSamplingDefaults sampling_defaults{
         .thinking     = {.temperature = 1.0F, .top_k = 20, .top_p = 0.95F},
@@ -235,18 +234,15 @@ int main() {
                       "server argv did not retain the redaction marker");
 
     GenerationRequest request;
-    request.model          = "qwen3.6-27b";
-    request.stream         = false;
-    request.max_tokens     = 4096;
-    request.max_tokens_set = true;
+    request.max_tokens = 4096;
     request.messages.resize(2);
     request.messages.front().content.push_back(ContentPart{.kind = ContentKind::Image});
 
     PreparedRequest prepared;
     prepared.enable_thinking                           = true;
     prepared.thinking_budget                           = 256;
+    prepared.effective_reasoning_effort                = ninfer::ReasoningEffort::XHigh;
     prepared.preserve_thinking                         = true;
-    prepared.preserve_thinking_semantic_change         = true;
     prepared.sampling.temperature                      = 0.6F;
     prepared.sampling.top_p                            = 0.95F;
     prepared.sampling.top_k                            = 20;
@@ -263,8 +259,14 @@ int main() {
     prepared.preparation.media_cache_misses            = 1;
     prepared.preparation.built_patch_bytes             = 49152;
 
+    const RequestLogMetadata metadata{
+        .model                             = "qwen3.6-27b",
+        .stream                            = false,
+        .output_tokens_explicit            = true,
+        .preserve_thinking_semantic_change = true,
+    };
     const RequestLogContext context =
-        make_request_log_context(7, "openai_chat_completions", request, prepared);
+        make_request_log_context(7, "openai_chat_completions", request, metadata, prepared);
     const Json started = Json::parse(format_request_start_json("serve-test", 2000, context));
     failures +=
         check(started.at("request").at("request_id") == 7, "request id missing from start record");
@@ -274,6 +276,12 @@ int main() {
                       "resolved thinking mode missing");
     failures += check(started.at("request").at("thinking_budget") == 256,
                       "resolved thinking budget missing");
+    failures += check(started.at("request").at("requested_reasoning_effort").is_null() &&
+                          started.at("request").at("resolved_reasoning_effort") == "xhigh",
+                      "requested and resolved reasoning effort are not distinguished");
+    failures += check(format_request_start(context).find("reasoning_effort=default->xhigh") !=
+                          std::string::npos,
+                      "human request log omits default reasoning resolution");
     failures += check(started.at("request").at("preserve_thinking") == true &&
                           started.at("request").at("preserve_thinking_semantic_change") == true,
                       "resolved preserve-thinking metadata missing");
@@ -293,8 +301,10 @@ int main() {
     preparation_error.code   = "context_length_exceeded";
     preparation_error.message =
         "prepared prompt has 270000 tokens, exceeding Engine max_context 262144";
-    const RequestRejectionLogContext rejected_context =
-        make_request_rejection_log_context(8, "anthropic_messages", request, preparation_error);
+    GenerationRequest rejected_request                = request;
+    rejected_request.reasoning_effort                 = RequestedReasoningEffort::High;
+    const RequestRejectionLogContext rejected_context = make_request_rejection_log_context(
+        8, "anthropic_messages", rejected_request, metadata, preparation_error);
     const Json rejected =
         Json::parse(format_request_rejected_json("serve-test", 2500, rejected_context));
     failures +=
@@ -304,17 +314,22 @@ int main() {
                           rejected.at("request").at("media_item_count") == 1 &&
                           rejected.at("request").at("message_count") == 2,
                       "preparation rejection request shape missing");
+    failures += check(rejected.at("request").at("requested_reasoning_effort") == "high" &&
+                          rejected.at("request").at("resolved_reasoning_effort").is_null(),
+                      "rejection log fabricated a resolved reasoning effort");
     failures += check(rejected.at("error").at("status") == 400 &&
                           rejected.at("error").at("code") == "context_length_exceeded" &&
                           rejected.at("error").at("param") == "messages",
                       "preparation rejection API error missing");
-    failures +=
-        check(format_request_rejected(rejected_context)
-                          .find("rejected phase=prepare protocol=anthropic_messages") !=
-                      std::string::npos &&
-                  format_request_rejected(rejected_context).find("code=context_length_exceeded") !=
-                      std::string::npos,
-              "human preparation rejection log is incomplete");
+    failures += check(
+        format_request_rejected(rejected_context)
+                    .find("rejected phase=prepare protocol=anthropic_messages") !=
+                std::string::npos &&
+            format_request_rejected(rejected_context).find("code=context_length_exceeded") !=
+                std::string::npos &&
+            format_request_rejected(rejected_context).find("reasoning_effort=high->unresolved") !=
+                std::string::npos,
+        "human preparation rejection log is incomplete");
 
     GenerationOutcome outcome;
     outcome.prompt_tokens                   = 401;

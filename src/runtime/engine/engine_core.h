@@ -576,21 +576,27 @@ private:
         } guard{this, request};
 
         std::exception_ptr caller_error;
+        std::optional<GenerationStart> start;
         std::vector<OutputDelta> events;
         for (;;) {
+            start.reset();
             events.clear();
             bool done = false;
             {
                 std::unique_lock lock(request->mutex);
                 request->cv.wait_for(lock, std::chrono::milliseconds(10), [&] {
-                    return request->response_done || !request->events.empty();
+                    return request->response_done || request->stream_start.has_value() ||
+                           !request->events.empty();
                 });
+                start = std::move(request->stream_start);
+                request->stream_start.reset();
                 events.swap(request->events);
                 done = request->response_done;
             }
 
             if (caller_error == nullptr && sink != nullptr) {
                 try {
+                    if (start) { sink->start(std::move(*start)); }
                     for (OutputDelta& event : events) { sink->publish(std::move(event)); }
                 } catch (...) {
                     caller_error = std::current_exception();
@@ -661,6 +667,25 @@ private:
             }
         }
         if (streaming) { request->cv.notify_one(); }
+    }
+
+    void publish_generation_start(const std::shared_ptr<Request>& request, BeginSummary begin) {
+        if (request->admitted_begin) {
+            throw std::logic_error("request admission published generation start twice");
+        }
+        request->admitted_begin = begin;
+        if (request->consumer_mode != OutputConsumerMode::Streaming) { return; }
+        {
+            std::lock_guard lock(request->mutex);
+            if (request->stream_start || request->response_done) {
+                throw std::logic_error("streaming request has an invalid generation-start state");
+            }
+            request->stream_start = GenerationStart{
+                .prompt               = request->prompt_summary,
+                .reused_prompt_tokens = begin.reused_prompt_tokens,
+            };
+        }
+        request->cv.notify_one();
     }
 
     void release_reserved_capacity() noexcept {
@@ -736,8 +761,10 @@ private:
         result.generated_token_ids     = std::move(request->generated);
         result.content                 = std::move(request->content);
         result.reasoning               = std::move(request->reasoning);
+        result.tool_calls              = request->output.take_tool_calls();
         result.reasoning_tokens        = request->output.reasoning_tokens();
         result.finish_reason           = reason;
+        result.matched_stop_string     = request->output.matched_stop_string();
         result.timings.prepare_seconds = request->prepare_seconds;
         if (request->begin) {
             result.reused_prompt_tokens = request->begin->reused_prompt_tokens;
@@ -1181,9 +1208,20 @@ private:
             post_capture_state == EngineRequestState::ModelFinished) {
             throw std::logic_error("committed capture offer has invalid Engine ownership");
         }
-        const bool permit_transfer = !has_pending_requests();
-        const auto reserved        = resources_.reserve_active_capture(
-            *instance_.program, *request->lane, std::move(offer), permit_transfer,
+        std::uint64_t blocked = 0;
+        {
+            std::lock_guard lock(queue_mutex_);
+            blocked = pending_.size();
+        }
+        for (const auto& active : slots_) {
+            if (active != nullptr && active != request && !active->terminal_reason) { ++blocked; }
+        }
+        const std::uint32_t blocked_runnable_requests =
+            blocked > std::numeric_limits<std::uint32_t>::max()
+                ? std::numeric_limits<std::uint32_t>::max()
+                : static_cast<std::uint32_t>(blocked);
+        const auto reserved = resources_.reserve_active_capture(
+            *instance_.program, *request->lane, std::move(offer), blocked_runnable_requests,
             CancellationFlagView{&request->cancelled});
         if (reserved == ResourceManagement::ActiveCaptureReserveResult::Skipped) { return; }
         request->capture_pending    = true;
@@ -1213,6 +1251,9 @@ private:
         if (!request->lane || !progress.pending) {
             throw std::logic_error("completed prefill has no lane or pending token");
         }
+        if (!request->admitted_begin || progress.summary != *request->admitted_begin) {
+            throw std::logic_error("runtime Begin summary differs from committed admission");
+        }
         const std::uint32_t lane = request->lane->value;
         if (scheduler_.prefill_lane() == lane) {
             scheduler_.clear_prefill_lane(lane);
@@ -1226,6 +1267,7 @@ private:
     }
 
     void run_prefill_step(const std::array<bool, kMaximumConcurrency>& cancelled_at_unit_start) {
+        nvtx::ScopedRange prefill_range(nvtx::Name::Prefill, nvtx::Category::Prefill);
         EnginePhaseScope setup(*this, EngineHostPhase::CommitOutput);
         const auto prefill_lane = scheduler_.prefill_lane();
         if (!prefill_lane) { throw std::logic_error("no request owns staged prefill"); }
@@ -1483,6 +1525,10 @@ private:
         request->model_state = EngineRequestState::Materializing;
         materializing_.emplace(std::move(control));
         scheduler_.commit_admission(std::move(grant));
+        publish_generation_start(
+            request, BeginSummary{.prompt_tokens        = summary.prompt_tokens,
+                                  .reused_prompt_tokens = summary.reusable_prompt_tokens,
+                                  .prefix_reuse_path    = summary.prefix_reuse_path});
 
         publish_runtime_stats();
         return progress_context_transaction(false);
@@ -1635,6 +1681,8 @@ private:
 
     void run_decode_round(const RoundMembership& membership,
                           const std::array<bool, kMaximumConcurrency>& cancelled_at_unit_start) {
+        nvtx::ScopedRange decode_range(nvtx::Name::Decode, nvtx::Category::Decode,
+                                       static_cast<std::uint64_t>(membership.size));
         ProgramCallScope program_call(*this);
         auto pending = instance_.program->decode(
             membership.sequence_span(), membership.budget_span(), &program_call.failed_timing());
@@ -1644,6 +1692,8 @@ private:
     }
 
     void run_control_batch(const ControlMembership& membership) {
+        nvtx::ScopedRange control_range(nvtx::Name::ControlBatch, nvtx::Category::Control,
+                                        static_cast<std::uint64_t>(membership.size));
         EnginePhaseScope phase(*this, EngineHostPhase::CommitOutput);
         if (membership.empty() || membership.row_stride == 0 ||
             membership.tokens.size() !=

@@ -54,6 +54,7 @@ struct MediaData {
     std::vector<std::uint8_t> bytes;
     std::string media_type;
     std::string source_name;
+    ImageResizePolicy image_resize_policy = ImageResizePolicy::Downsize;
 };
 
 struct ChatPart {
@@ -90,13 +91,16 @@ struct ChatMessage {
     std::string tool_call_id;
 
     [[nodiscard]] bool has_media() const noexcept;
-    [[nodiscard]] RenderedFragment rendered_content(bool add_vision_id       = false,
-                                                    int* image_count         = nullptr,
-                                                    int* video_count         = nullptr,
-                                                    std::size_t* media_count = nullptr) const;
+    [[nodiscard]] RenderedFragment
+    rendered_content(bool add_vision_id = false, int* image_count = nullptr,
+                     int* video_count = nullptr, std::size_t* media_count = nullptr,
+                     std::vector<std::size_t>* part_boundaries = nullptr) const;
 };
 
 struct ChatRenderOptions {
+    PromptContinuationMode continuation = PromptContinuationMode::NewAssistantTurn;
+    // Internal renderer control used by frontend qualification. Product PromptInput always
+    // selects either a new assistant turn or continuation of the final assistant.
     bool add_generation_prompt = true;
     bool enable_thinking       = true;
     std::optional<ReasoningEffort> reasoning_effort;

@@ -784,4 +784,50 @@ PressurePlanningSessionImpl<NINFER_QWEN36_VARIANT>::seal(
                                          selected_shared_decisions);
 }
 
+inline std::optional<
+    typename PressurePlanningSessionImpl<NINFER_QWEN36_VARIANT>::AdmissionCandidate>
+PressurePlanningSessionImpl<NINFER_QWEN36_VARIANT>::seal_capture(
+    qwen3_6::PressureTargetHandle target) {
+    if (!valid(target) || scratch_live) {
+        throw std::logic_error("capture pressure target seal is stale or conflicts with expansion");
+    }
+    const TargetNode& node = targets[target.index_];
+    populate_options(node.candidate_index);
+    const AdmissionCandidate& candidate = *candidates[node.candidate_index];
+    if (!candidate.impl_->capture_pressure) {
+        throw std::invalid_argument("capture pressure seal received a request candidate");
+    }
+    const CandidateOptions& options = candidate_options[node.candidate_index];
+    selected_private_owners.clear();
+    selected_private_decisions.clear();
+    selected_shared_owners.clear();
+    selected_shared_decisions.clear();
+    for (std::size_t index = 0; index < owners.size(); ++index) {
+        const std::uint16_t choice = node.owner_choices[index];
+        if (choice == 0) { continue; }
+        if (choice > options.owners[index].size()) {
+            throw std::logic_error("capture pressure owner choice is invalid at seal");
+        }
+        const PressureDecision& decision = options.owners[index][choice - 1U];
+        if (owners[index].shared) {
+            selected_shared_owners.push_back(owners[index].shared_handle);
+            selected_shared_decisions.push_back(decision);
+        } else {
+            selected_private_owners.push_back(owners[index].private_handle);
+            selected_private_decisions.push_back(decision);
+        }
+    }
+    AdmissionCandidate copy(
+        std::make_unique<qwen3_6::detail::AdmissionCandidateImpl<NINFER_QWEN36_VARIANT>>(
+            *candidate.impl_));
+    std::optional<AdmissionCandidate> composed = program->compose_materialization(
+        std::move(copy), selected_private_owners, selected_private_decisions,
+        selected_shared_owners, selected_shared_decisions);
+    if (!composed || composed->impl_->blocked_host_allocation_bytes != 0 ||
+        !program->physical_peak_fits(composed->impl_->demand.physical_peak_additional)) {
+        return std::nullopt;
+    }
+    return composed;
+}
+
 } // namespace ninfer::targets::qwen3_6::detail

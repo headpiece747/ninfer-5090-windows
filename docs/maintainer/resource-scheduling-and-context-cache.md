@@ -122,8 +122,7 @@ Engine 另有固定的逻辑容量：
 - active lanes；
 - private continuation catalog slots；
 - shared prefix catalog slots；
-- 每个 continuation 的 checkpoint/anchor 上限；
-- 每个 request 的 cache-marker 输入上限。
+- 每个 continuation 的 checkpoint/anchor 上限。
 
 Lane 和 catalog slot 不计入物理 bytes，但 target 只有同时满足逻辑容量和物理容量才可发布。
 
@@ -365,6 +364,17 @@ capacity 和 placement 独立。
 具体 page geometry、Host packed extent、COW 和 block-table publication 由
 [Paged KV Context Store](paged-kv-cache.md)定义。
 
+Prefix Fork 后的 active address 可以按以下顺序同时包含共享与私有页：
+
+```text
+immutable full pages | unique mutable full pages | optional unique mutable tail
+```
+
+Active capture 对不可变整页只增加引用，对唯一可写整页原地 Freeze；非对齐尾页保留给 checkpoint，并只
+复制一页作为新的 active writer。对齐 frontier 不发生 KV copy，后续增长再物化新的 writer page。
+Program 的 capture assessment、reservation 和 commit 使用同一个 snapshot-shape 分析，因此资源信用、
+transfer cost 与实际可提交的页所有权条件一致。
+
 State 与 KV 可以独立 placement，例如 State 在 Device、Main KV 部分在 Device、其余 Main KV 在 Host，
 backend KV 采用另一种 coverage。Checkpoint 只有在全部 required components 至少保留一份有效 replica
 时才继续存在。
@@ -399,8 +409,9 @@ TerminalPending request 继续持有 `SequenceHandle` 和完整 reservation，�
 - **Finish**：发布一个完整 immutable checkpoint；或
 - **Discard**：释放整个 active continuation。
 
-若 Finish 无法形成合法保留终态，必须采用 Discard。Optional capture 在缺少 logical publication slot、
-物理容量或已有 resource transition 时跳过，不阻塞 active request。
+若 Finish 无法形成合法保留终态，必须采用 Discard。Optional capture 可以通过同一 pressure graph 改变
+inactive owners，但只有严格优于 private-only baseline 的完整终态才会提交；否则跳过 shared publication，
+不阻塞 active request，也不改变同一 frontier 原本可执行的 private capture。
 
 ### 6.3 Persistent backfill proof
 
@@ -439,7 +450,46 @@ ResourceManager 为已选 request 建立有界 candidate 集合：
 
 Root 始终存在。它不复用 continuation state，代表从 prompt 开始正常 prefill。
 
-### 7.2 Target
+### 7.2 Shared publication candidate
+
+Shared prefix 的三个状态不能混为一谈：
+
+- **boundary** 是协议或 Engine 指出的逻辑内容边界；
+- **candidate** 是 Frontend 已解析到 exact token frontier 的可选写入机会；
+- **owner** 是 Program 已发布、具有完整 State/KV identity 与 placement 的 immutable checkpoint。
+
+外部协议或 C++ `PromptInput` 每个请求最多提交四个显式 markers。Frontend 还可以生成最多三个 Engine
+candidates：全部 tools 之后、连续 leading System/Developer 之后，以及 full prompt。相同 frontier 合并，
+因此每个请求最多七个 prepared candidates。这个固定上限不是启动配置。
+
+Candidate 保存 evidence flags。策略含义为：
+
+| Evidence | 首次出现时的准入能力 |
+|---|---|
+| `ExplicitBoundary` | 可以参与 pressure，但仍须有严格正净收益 |
+| `RequestedAutomatic` | 可以参与 pressure，但仍须有严格正净收益 |
+| `DefaultAutomatic` | 只能使用不降低现有 owner 的空余终态 |
+| `EngineStructural` | 只能使用不降低现有 owner 的空余终态 |
+| `EngineObserved` | 至少两个独立 reuse domains 观测到相同 key 后才可创建 |
+
+Marker、evidence 和 shortlist key 都不证明命中；Program 对 read、dedup 和 publication 重新验证完整
+identity。候选创建 source 的顺序为：exact shared owner 直接 dedup；selected exact private reuse base 在
+第一次模型 mutation 前做零-prefill promotion；更晚 frontier 由 active prefill capture。早于 selected
+reuse base 且没有现成 exact source 的候选只保留为需求观察，不回滚状态或重新 prefill。
+
+Shared candidate 必须在 prefill 前决定是否增加 split，而物理状态只能在 frontier 到达时确定。因此实现
+分为两步：
+
+1. admission 已选定 materialization source 后，ResourceManager 用完整逻辑 portfolio 的乐观收益上界和
+   Program 返回的精确 split cost 选择 candidate subset；这一步不预留资源，也不承诺 publication；
+2. capture offer 到达后，`SharedCapturePlanner` 从当前 `resource_revision` 搜索完整物理 targets，可以联合
+   demote/evict 多个合法 inactive private/shared owners。shared catalog 已满时，logical replacement 与其他
+   物理 victims 属于同一个 target 和同一个 transaction。
+
+实际 planner 的 baseline 是同一 frontier 的 private-only policy。Shared publication 是可选投资：没有可行
+且严格正收益的 target 时执行 private baseline 或 Skip。
+
+### 7.3 Target
 
 Planner 的搜索节点是完整 target，而不是一条孤立 eviction action。一个 target 同时确定：
 
@@ -468,7 +518,7 @@ Program 从该完整终态重新推导：
 一个 candidate 的 `identity target` 只应用 incoming activation 与必需的 source disposition，保持其他
 eligible inactive owners 的 checkpoint contents 和 placements 不变。它是该 candidate 压力降级图的根。
 
-### 7.3 单调降级图
+### 7.4 单调降级图
 
 Pressure target 从 candidate 的 identity target 沿单调降级方向扩展：
 
@@ -524,39 +574,77 @@ AttentionPairs = B\,S+\frac{S(S+1)}{2}
 其中 \(B\) 是已复用 prefix tokens，\(S\) 是剩余 suffix tokens。Vision item/patch work 使用同一
 startup-resolved machine model 的独立分量。
 
-### 8.3 Future loss
+### 8.3 Portfolio value 与 future loss
 
-Pressure target 可能降低其他 checkpoints 的未来恢复质量。对 candidate \(c\) 和 target \(T\)：
+ResourceManager 保存最近 32 个成功 materialize 为 Active 的请求。每条 demand record 保存 reuse domain
+以及该请求 exact-matched、selected 或可创建的 prefix keys；不保存 prompt、媒体内容、session 原文或 API
+cache key。有 Engine session key 的请求使用其稳定 digest 作为 domain；无 session key 的每个请求形成独立
+domain。
+
+对 checkpoint \(p\) 和完整 portfolio state \(S\)：
 
 \[
-J(c,T)=Now(c,T)+FutureLoss_c(T)
+Saving(p,S)=\max(0,\ Rebuild(p)-Recovery(p,S))
 \]
+
+`Rebuild` 是从 root 到该 frontier 的 canonical prefill cost；`Recovery` 是 Program 根据实际 State/KV
+placement 返回的最小 restore、copy 和必要 interval-prefill cost。每条 demand 只取所有 matching
+checkpoints 中的最大 saving：
 
 \[
-FutureLoss_c(T)=
-\sum_{q\in Q_c}
-w_q\max\left(0,\ Recovery(q,T)-Recovery(q,I_c)\right)
+EmpiricalValue(S)=\sum_q\max_{p\ matches\ q}Saving(p,S)
 \]
 
-其中：
+因此 tools、instructions 和 full-prompt 等嵌套 prefixes 不会对同一个未来请求重复计价。再加上尚未到期
+的显式 shared credit，得到公共价值：
 
-- \(I_c\) 是 candidate 不进行 optional pressure degradation 的 identity target；
-- \(Recovery\) 使用同一 machine model 计算该 checkpoint 的最小 restore 与 prefill 成本；
-- \(w_q\) 由 ResourceManager 的 retention class 唯一确定。
+\[
+PublicValue(S)=EmpiricalValue(S)+SharedCredit(S)
+\]
 
-当前权重为：
+Private retention 表示每个 owner 还有一次未观测的后续复用。比较 baseline \(S_b\) 与 target \(S_t\) 时，
+保持 checkpoint identity 不变，先计算每个 checkpoint 的 saving 损失，再在 owner 内取最大值：
 
-| Retention class | \(w_q\) |
+\[
+PrivateLoss_o(S_b,S_t)=w_o\max_{p\in o}
+\max(0,Saving(p,S_b)-Saving(p,S_t))
+\]
+
+不同 owners 的 `PrivateLoss` 相加。这样不会把同一 continuation 的嵌套 checkpoints 全部当作未来请求，
+也不会让一个仍然可用的末端 checkpoint 掩盖较早 TurnClosure 或 long anchor 的损失。权重为：
+
+| Private retention | prior weight |
 |---|---:|
 | Disposable | 1 |
 | RecentPrivate | 4 |
 | LiveSession | 16 |
-| SharedStable | 64 |
 
-命中次数和最近命中时间不进入 \(J\) 的数值相加；它们用于成本相等时的确定性 tie-break。
+Shared owner 没有固定 retention multiplier。`ExplicitBoundary` 或 `RequestedAutomatic` 在 publication 时带来
+一个 owner-scoped credit；它在第一次后续 exact match 时消费，或在 32 次成功 materialization 后到期。
+同一 frontier 的多个 evidence 不叠加 credit。
+
+对 mandatory materialization 的 candidate identity state \(I_c\) 和 pressure target \(T\)：
+
+\[
+FutureLoss_c(T)=\max(0,PublicValue(I_c)-PublicValue(T))
++\sum_o PrivateLoss_o(I_c,T),\qquad
+J(c,T)=Now(c,T)+FutureLoss_c(T)
+\]
+
+对 optional shared capture，比较 private-only state \(S_b\) 与 complete shared target \(S_t\)：
+
+\[
+NetGain=PublicValue(S_t)-PublicValue(S_b)
+-\sum_o PrivateLoss_o(S_b,S_t)-ImmediateDelta
+\]
+
+执行前 candidate subset 另减精确 `SplitCost`；capture offer 到达后 split 已经发生，不再重复计费。
+`ImmediateDelta` 包括 shared target 相对 private baseline 的 transfer/copy cost，并乘以当前 capture owner
+及被该 global transition 阻塞的其他请求数。只有 `NetGain>0` 才发布；相等、溢出或饱和无法证明严格
+正收益时保持 baseline。
 
 Selected source 的合法 `ConsumedToActive` 是 ownership transfer，不计作 eviction。其他随 pressure
-删除或降级的 source checkpoints 仍进入 future loss。
+删除或降级的 checkpoints 通过 public value 与 private transition loss 进入 future loss。
 
 ### 8.4 Lower bound
 
@@ -635,13 +723,12 @@ decisions 使用 \(O(NA)\) memory；physical oracle 与 successor scratch 还受
 
 首要比较键是 \(J\)。成本相等时依次偏好：
 
-1. 少破坏 SharedStable、LiveSession、RecentPrivate、Disposable；
-2. 少影响已观测命中的 checkpoints，优先保留最近命中；
-3. 少 owner eviction、checkpoint deletion、copy operation 和 transferred bytes；
-4. 少剩余 Text/Vision prefill；
-5. 多复用 prompt tokens；
-6. 当前 session binding；
-7. candidate 与 target 的稳定 ordinal。
+1. 少影响已观测命中的 checkpoints，优先保留最近命中；
+2. 少 owner eviction、checkpoint deletion、copy operation 和 transferred bytes；
+3. 少剩余 Text/Vision prefill；
+4. 多复用 prompt tokens；
+5. 当前 session binding；
+6. candidate 与 target 的稳定 ordinal。
 
 `model_optimal` 只表示在当前 target graph、规范 stage order 和机器成本模型内已经证明最优，不表示真实
 请求分布上的全局最优 TTFT。
@@ -745,7 +832,8 @@ Abort 保证：
 
 ### 10.1 Retention policy
 
-Retention class 影响 future loss 和 tie-break，不提供固定 eviction 顺序。Planner 可以组合：
+Private retention class 通过 owner prior 影响 portfolio value，不提供固定 eviction 顺序。Shared owner 的价值
+来自真实 demand 与尚未到期的 explicit credit。Planner 可以组合：
 
 - 删除冗余 replica；
 - 将 Device replica 降为 Host-only；
@@ -794,9 +882,10 @@ terminal Finish 没有合法 publication capacity 时采用 Discard。
 | `max_private_continuations` | private owner/catalog 容量 |
 | `max_shared_prefixes` | shared immutable owner/catalog 容量 |
 | `max_long_anchors_per_continuation` | 每条 private history 的 retained long checkpoints 上限 |
-| `max_cache_markers_per_request` | 输入 candidate markers 的复杂度上限 |
 
 所有 stores、catalogs、planner scratch 和 transaction adoption storage 都按解析后的上限在启动时建立。
+每请求 external markers 固定最多四个、Frontend candidates 固定最多三个、demand window 固定为 32；这些
+是产品语义与算法有界性，不是可调容量轴。
 配置必须满足：
 
 - private continuation capacity 至少覆盖全部 active requests；
@@ -830,6 +919,10 @@ Context cache disabled 时采用 root-only 语义：不读取或发布 inactive 
 13. Planner 成本模型只排序可行 targets，不参与物理正确性。
 14. Session binding 只接受更大的 publication order。
 15. Retention 或 capture 失败必须退化为 skip/release，使 active lane 有有限终态。
+16. Shared publication 必须严格优于 private-only baseline；单个 demand 对嵌套 prefixes 只能贡献一次最大
+    saving。
+17. Candidate selection 不是资源预留；实际 capture target 必须在 frontier 到达后按当前 revision 重新
+    证明完整物理终态。
 
 ---
 
@@ -839,6 +932,8 @@ Context cache disabled 时采用 root-only 语义：不读取或发布 inactive 
 |---|---|
 | logical catalog、claims、session policy | `src/runtime/engine/resource_manager.h` |
 | cross-candidate bounded planner | `src/runtime/engine/materialization_planner.h` |
+| shared capture bounded planner | `src/runtime/engine/shared_capture_planner.h` |
+| shared/private portfolio value | `src/runtime/engine/context_portfolio_value.h` |
 | machine cost model | `src/runtime/engine/context_cost.*` |
 | common resource summaries | `src/runtime/contract/types.h` |
 | target physical projection 与 transaction | `src/targets/qwen3_6/impl/runtime/program*.h` |

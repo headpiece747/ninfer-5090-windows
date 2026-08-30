@@ -22,20 +22,20 @@ if not exist ffmpeg (
 
 echo.
 echo [3/4] Setting up MSVC environment...
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" 2>nul || echo Please open x64 Native Tools Command Prompt manually!
+call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" 2>nul || echo Please open x64 Native Tools Command Prompt manually!
 
 echo.
 echo [4/4] Compiling NInfer...
-cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON
+cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 
 echo.
 echo Copying FFmpeg DLLs to the build folder so the executable can find them...
-copy ffmpeg\bin\avcodec-*.dll build\apps\ >nul
-copy ffmpeg\bin\avformat-*.dll build\apps\ >nul
-copy ffmpeg\bin\avutil-*.dll build\apps\ >nul
-copy ffmpeg\bin\swscale-*.dll build\apps\ >nul
-copy ffmpeg\bin\swresample-*.dll build\apps\ >nul
+copy ffmpeg\bin\avcodec-*.dll build\apps\ >nul 2>nul
+copy ffmpeg\bin\avformat-*.dll build\apps\ >nul 2>nul
+copy ffmpeg\bin\avutil-*.dll build\apps\ >nul 2>nul
+copy ffmpeg\bin\swscale-*.dll build\apps\ >nul 2>nul
+copy ffmpeg\bin\swresample-*.dll build\apps\ >nul 2>nul
 
 echo.
 echo ========================================================

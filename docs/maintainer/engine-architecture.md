@@ -18,7 +18,7 @@
 
 ## 1. 产品执行模型
 
-一个 NInfer Engine 固定运行：
+Generation purpose 的 NInfer Engine 固定运行：
 
 - 一张 GPU；
 - 一个常驻模型实例；
@@ -29,6 +29,11 @@
 
 Text、Vision、prefix reuse、MTP、DFlash、CLI 和 HTTP serving 都通过公共 `ninfer::Engine` 路径。
 MTP 和 DFlash 是 Program 内部的执行后端，不产生第二套请求调度或结果发布机制。
+
+同一个公共 Engine 还提供启动时固定的 CausalScoring purpose。它只服务离线文本评分：
+`CausalScoreCore` 串行调用 Program，窗口使用临时的空 State 与 Main KV，不创建请求、continuation、
+checkpoint 或 cache replica，也不进入 Scheduler/ResourceManager。Generation 与 CausalScoring
+不在运行期切换，评分专用 staging 只在 CausalScoring 启动时分配。
 
 `max_concurrency` 限制同时激活的请求数，不把共享 KV 容量平均切分给 lane。请求只有在 Program
 证明其完整执行资源已经得到保障后才会进入 Active；进入 Active 后，它不会因为另一个请求或
@@ -76,7 +81,7 @@ Frontend 拥有模型家族的输入与输出语义：
 
 - tokenizer、chat template、Vision preprocessing 和 MRoPE prompt construction；
 - owning `PreparedPrompt` 及其内容 identity；
-- stop、thinking/content channel、detokenization 和最终文本；
+- stop、thinking/content channel、detokenization、最终文本和模型私有结构化输出；
 - 每个请求独占的 `OutputSession`。
 
 Frontend 可以预览一次模型输出将产生的语义效果，但只有 Engine 完成提交后才能发布该效果。
@@ -104,7 +109,8 @@ Program 是 exact target package 的唯一物理执行入口，拥有：
 - prefill、ordinary decode、MTP/DFlash 和 forced control；
 - provisional model state 及 accepted-prefix commit/rollback；
 - resource feasibility、物理 transition 和 `ResourceResult`；
-- workspace、CUDA Graph 和 target execution schedule。
+- workspace、CUDA Graph 和 target execution schedule；
+- CausalScoring 窗口的临时 State/KV 与 `lm_head`/logprob staging。
 
 Program 不维护 FIFO、SessionIndex、cache retention 价值或用户可见输出。
 
@@ -204,6 +210,8 @@ Free -> Materializing -> Active -> TerminalPending -> Free
 
 请求只有在 materialization 的物理结果和逻辑结果均成功采用后才能进入 Active。Terminal request
 必须保留 active ownership，直到完整 checkpoint 被发布或全部 active resources 被释放。
+Streaming request 在 admission 选择提交后、任何输出 delta 前发布一次 `GenerationStart`；其中的
+prompt token 和 reused-prefix token 是已提交的资源选择事实，不等待 prefill 完成。
 
 Control lane、StateImage slot、KV execution row 和 decode batch row 是不同身份：
 

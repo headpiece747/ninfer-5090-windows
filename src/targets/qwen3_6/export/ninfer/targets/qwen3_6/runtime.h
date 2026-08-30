@@ -56,7 +56,7 @@ struct GraphExecutionProfile {
 // Program-minted shortlist metadata. It only narrows catalog inspection; Program still performs
 // exact token, position, media and runtime-mode verification before a checkpoint can be selected.
 struct PrefixShortlistKey {
-    std::uint64_t digest       = 0;
+    std::array<std::uint64_t, 2> digests{};
     std::uint32_t frontier     = 0;
     std::uint32_t identity_tag = 0;
 
@@ -127,6 +127,8 @@ template <class Variant>
 class Program;
 template <class Variant>
 class PressurePlanningSession;
+template <class Variant>
+class CapturePressurePlan;
 
 // These are the complete family execution types. Exact packages bind them to a private Variant;
 // target selection remains outside this layer and happens once in the closed Engine registry.
@@ -193,6 +195,8 @@ public:
     [[nodiscard]] const PreparedContextCache& context_cache() const noexcept;
     [[nodiscard]] std::optional<PrefixShortlistKey>
     prefix_shortlist_key(std::uint32_t frontier) const noexcept;
+    [[nodiscard]] std::optional<runtime::PrefillWork>
+    shared_candidate_rebuild_work(std::uint32_t frontier) const noexcept;
 
 public:
     explicit RequestBasePlan(std::unique_ptr<detail::RequestBasePlanImpl<Variant>> impl) noexcept;
@@ -222,7 +226,33 @@ public:
 
     friend class Program<Variant>;
     friend class PressurePlanningSession<Variant>;
+    friend class CapturePressurePlan<Variant>;
     friend struct detail::PressurePlanningSessionImpl<Variant>;
+};
+
+// A sealed pressure-only post-state for one active capture. The contained synthetic admission
+// candidate is never executable as a request; it only carries Program-private owner outcomes.
+template <class Variant>
+class CapturePressurePlan {
+public:
+    CapturePressurePlan(CapturePressurePlan&&) noexcept            = default;
+    CapturePressurePlan& operator=(CapturePressurePlan&&) noexcept = default;
+    ~CapturePressurePlan()                                         = default;
+
+    CapturePressurePlan(const CapturePressurePlan&)            = delete;
+    CapturePressurePlan& operator=(const CapturePressurePlan&) = delete;
+
+    [[nodiscard]] std::uint64_t resource_revision() const noexcept { return revision_; }
+
+private:
+    CapturePressurePlan(AdmissionCandidate<Variant>&& pressure, std::uint64_t revision) noexcept
+        : pressure_(std::move(pressure)), revision_(revision) {}
+
+    AdmissionCandidate<Variant> pressure_;
+    std::uint64_t revision_ = 0;
+
+    friend class Program<Variant>;
+    friend class PressurePlanningSession<Variant>;
 };
 
 // A sealed Program-owned physical decision.  ResourceManager may retain it and inspect the
@@ -419,6 +449,8 @@ public:
     void discard_expansion(PreparedPressureExpansion<Variant>&& prepared) noexcept;
     [[nodiscard]] std::optional<ResourcePlan<Variant>> seal(PressureTargetHandle target,
                                                             const PreparedPrompt& prompt);
+    [[nodiscard]] std::optional<CapturePressurePlan<Variant>>
+    seal_capture(PressureTargetHandle target);
 
 private:
     explicit PressurePlanningSession(
@@ -517,13 +549,17 @@ struct CaptureAssessment {
     // Program retains the physical assessment in this opaque package-private payload.
     std::shared_ptr<detail::CaptureAssessmentImpl> implementation;
     PrefixShortlistKey shortlist_key;
+    SharedCandidateEvidence shared_evidence = SharedCandidateEvidence::None;
     runtime::PrefillWork protected_rebuild_work;
     std::vector<runtime::ContextTransferRequirement> transfer_requirements;
     std::vector<runtime::CheckpointRef> private_replacement_candidates;
     std::uint32_t frontier                = 0;
+    std::uint64_t immediate_ns            = 0;
+    std::uint64_t projected_recovery_ns   = 0;
     bool publishes_private                = false;
     bool publishes_shared                 = false;
     bool needs_transfer                   = false;
+    bool physically_feasible              = false;
     bool recycles_private_state           = false;
     CaptureStatePlacement state_placement = CaptureStatePlacement::DeviceFork;
 };
@@ -534,12 +570,17 @@ struct SharedPrefixPublication {
     SharedPrefixSummary summary;
 };
 
+struct MaterializationVictimResult;
+struct MaterializationSharedVictimResult;
+
 template <class Variant>
 struct ActiveCaptureResult {
     runtime::ContextTransactionStatus status = runtime::ContextTransactionStatus::Aborted;
     bool capacity_preparation_committed      = false;
     ContinuationSummary active_summary;
     std::optional<SharedPrefixPublication<Variant>> shared;
+    std::vector<MaterializationVictimResult> victims;
+    std::vector<MaterializationSharedVictimResult> shared_victims;
     std::vector<runtime::ContextTransferObservation> transfer_observations;
     runtime::ContextOperationCounts operations;
 };
@@ -646,6 +687,8 @@ public:
     // capabilities, model state and one immutable pending transaction at a time.
     [[nodiscard]] RequestBasePlan<Variant>
     plan_request(const PreparedPrompt& prompt, const runtime::ResolvedExecutionOptions& options);
+    [[nodiscard]] std::vector<float> causal_score(PreparedPrompt&& prompt,
+                                                  std::uint32_t first_target);
     [[nodiscard]] std::optional<AdmissionCandidate<Variant>>
     inspect_admission(const PreparedPrompt& prompt, const RequestBasePlan<Variant>& base,
                       runtime::LaneId destination, const ContinuationHandle<Variant>* source,
@@ -662,6 +705,12 @@ public:
                             std::span<const std::uint32_t> private_owner_ordinals,
                             std::span<const SharedPrefixHandle<Variant>* const> shared_owners,
                             std::span<const std::uint32_t> shared_owner_ordinals);
+    void select_shared_captures(ResourcePlan<Variant>& plan, const PreparedPrompt& prompt,
+                                std::span<const std::uint32_t> frontiers);
+    [[nodiscard]] std::uint64_t
+    shared_capture_split_cost_ns(const ResourcePlan<Variant>& plan, const PreparedPrompt& prompt,
+                                 std::span<const std::uint32_t> frontiers,
+                                 const runtime::ContextMachineCostModel& machine_cost);
     [[nodiscard]] runtime::ContextTransactionReserveStatus
     start_resource_transaction(ResourcePlan<Variant>&& plan, PreparedPrompt&& prompt,
                                runtime::CancellationFlagView cancellation);
@@ -676,20 +725,38 @@ public:
     [[nodiscard]] PrefillProgress<Variant>
     advance_prefill(SequenceHandle<Variant> sequence,
                     runtime::ExecutionTiming* failed_timing = nullptr);
-    [[nodiscard]] CaptureAssessment
-    inspect_capture(const CaptureOffer<Variant>& offer,
-                    const SharedPrefixHandle<Variant>* exact_shared,
-                    const SharedPrefixHandle<Variant>* replacement,
-                    std::optional<runtime::CheckpointRef> private_replacement) const;
+    [[nodiscard]] CaptureAssessment inspect_capture(
+        const CaptureOffer<Variant>& offer, const SharedPrefixHandle<Variant>* exact_shared,
+        const SharedPrefixHandle<Variant>* replacement,
+        std::optional<runtime::CheckpointRef> private_replacement, bool permit_shared_publication,
+        const runtime::ContextMachineCostModel& machine_cost) const;
+    [[nodiscard]] std::uint64_t
+    checkpoint_recovery_ns(const ContinuationHandle<Variant>& owner,
+                           runtime::CheckpointRef checkpoint,
+                           const runtime::ContextMachineCostModel& machine_cost) const;
+    [[nodiscard]] std::uint64_t
+    checkpoint_recovery_ns(const SharedPrefixHandle<Variant>& owner,
+                           runtime::CheckpointRef checkpoint,
+                           const runtime::ContextMachineCostModel& machine_cost) const;
+    [[nodiscard]] AdmissionCandidate<Variant>
+    make_capture_pressure_candidate(const CaptureAssessment& assessment,
+                                    const runtime::ContextMachineCostModel& machine_cost) const;
     [[nodiscard]] bool shared_capture_matches(const CaptureOffer<Variant>& offer,
                                               const SharedPrefixHandle<Variant>& shared) const;
     void skip_capture(CaptureOffer<Variant>&& offer);
-    [[nodiscard]] runtime::ContextTransactionReserveStatus
-    reserve_active_capture(CaptureOffer<Variant>&& offer,
-                           const SharedPrefixHandle<Variant>* exact_shared,
-                           const SharedPrefixHandle<Variant>* replacement,
-                           std::optional<runtime::CheckpointRef> private_replacement,
-                           runtime::CancellationFlagView cancellation);
+    [[nodiscard]] runtime::ContextTransactionReserveStatus reserve_active_capture(
+        CaptureOffer<Variant>&& offer, const SharedPrefixHandle<Variant>* exact_shared,
+        const SharedPrefixHandle<Variant>* replacement,
+        std::optional<runtime::CheckpointRef> private_replacement, bool permit_shared_publication,
+        const runtime::ContextMachineCostModel& machine_cost,
+        runtime::CancellationFlagView cancellation);
+    [[nodiscard]] runtime::ContextTransactionReserveStatus reserve_active_capture_with_pressure(
+        CaptureOffer<Variant>&& offer, const SharedPrefixHandle<Variant>* exact_shared,
+        const SharedPrefixHandle<Variant>* replacement,
+        std::optional<runtime::CheckpointRef> private_replacement, bool permit_shared_publication,
+        CapturePressurePlan<Variant>&& pressure,
+        const runtime::ContextMachineCostModel& machine_cost,
+        runtime::CancellationFlagView cancellation);
     [[nodiscard]] PendingBatch<Variant> decode(std::span<const SequenceHandle<Variant>> sequences,
                                                std::span<const runtime::RoundBudget> budgets,
                                                runtime::ExecutionTiming* failed_timing = nullptr);

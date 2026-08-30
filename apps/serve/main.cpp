@@ -103,8 +103,7 @@ int main(int argc, char** argv) {
                  << " host-kv=" << format_bytes(cache.host_kv_capacity_bytes)
                  << " private=" << *cache.max_private_continuations
                  << " shared=" << *cache.max_shared_prefixes
-                 << " anchors=" << *cache.max_long_anchors_per_continuation
-                 << " markers=" << *cache.max_cache_markers_per_request;
+                 << " anchors=" << *cache.max_long_anchors_per_continuation;
         capacity << " context-cost-transfer="
                  << ninfer::context_cost_preset_source_name(context_cost.transfer_source)
                  << " context-cost-prefill="

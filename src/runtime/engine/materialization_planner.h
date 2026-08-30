@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/engine/context_cost.h"
+#include "runtime/engine/context_portfolio_value.h"
 
 #include <algorithm>
 #include <chrono>
@@ -17,16 +18,21 @@ namespace ninfer::runtime {
 struct MaterializationCheckpointPolicy {
     std::uint32_t owner_ordinal = 0;
     CheckpointRef checkpoint;
-    RetentionClass retention_class   = RetentionClass::RecentPrivate;
-    std::uint64_t selected_hit_count = 0;
-    std::uint64_t last_hit_epoch     = 0;
+    RetentionClass retention_class     = RetentionClass::RecentPrivate;
+    std::uint64_t selected_hit_count   = 0;
+    std::uint64_t last_hit_epoch       = 0;
+    std::uint32_t demand_mask          = 0;
+    std::uint64_t rebuild_ns           = 0;
+    std::uint64_t baseline_recovery_ns = 0;
 };
 
 struct MaterializationOwnerPolicy {
-    std::uint32_t ordinal            = 0;
-    RetentionClass retention_class   = RetentionClass::RecentPrivate;
-    std::uint64_t selected_hit_count = 0;
-    std::uint64_t last_hit_epoch     = 0;
+    std::uint32_t ordinal                  = 0;
+    RetentionClass retention_class         = RetentionClass::RecentPrivate;
+    std::uint64_t selected_hit_count       = 0;
+    std::uint64_t last_hit_epoch           = 0;
+    std::uint32_t private_retention_weight = 0;
+    bool explicit_shared_credit            = false;
 };
 
 template <class Package>
@@ -75,6 +81,8 @@ public:
         assessed_.reserve(kTargetBudget);
         expanded_.reserve(kTargetBudget);
         impact_scratch_.reserve(32);
+        portfolio_owner_scratch_.reserve(32);
+        portfolio_checkpoint_scratch_.reserve(64);
     }
 
     template <class PressureInputsFn, class LogicalGoalFn>
@@ -296,10 +304,6 @@ public:
                         .target                    = child,
                         .candidate_index           = assessment.candidate_ordinal,
                         .lower_bound_ns            = cost.lower_bound_ns,
-                        .shared_stable_units       = cost.shared_stable_units,
-                        .live_session_units        = cost.live_session_units,
-                        .recent_private_units      = cost.recent_private_units,
-                        .disposable_units          = cost.disposable_units,
                         .affected_selected_hits    = cost.affected_selected_hits,
                         .newest_affected_hit_epoch = cost.newest_affected_hit_epoch,
                         .owner_evictions           = cost.owner_evictions,
@@ -363,10 +367,6 @@ private:
         std::uint64_t future_loss_ns            = 0;
         std::uint64_t total_ns                  = 0;
         std::uint64_t lower_bound_ns            = 0;
-        std::uint32_t shared_stable_units       = 0;
-        std::uint32_t live_session_units        = 0;
-        std::uint32_t recent_private_units      = 0;
-        std::uint32_t disposable_units          = 0;
         std::uint64_t affected_selected_hits    = 0;
         std::uint64_t newest_affected_hit_epoch = 0;
         std::uint32_t owner_evictions           = 0;
@@ -383,10 +383,6 @@ private:
         [[nodiscard]] auto key() const noexcept {
             return std::tuple{
                 total_ns,
-                shared_stable_units,
-                live_session_units,
-                recent_private_units,
-                disposable_units,
                 affected_selected_hits,
                 newest_affected_hit_epoch,
                 owner_evictions,
@@ -426,10 +422,6 @@ private:
         PressureTargetHandle target{};
         std::uint32_t candidate_index           = 0;
         std::uint64_t lower_bound_ns            = 0;
-        std::uint32_t shared_stable_units       = 0;
-        std::uint32_t live_session_units        = 0;
-        std::uint32_t recent_private_units      = 0;
-        std::uint32_t disposable_units          = 0;
         std::uint64_t affected_selected_hits    = 0;
         std::uint64_t newest_affected_hit_epoch = 0;
         std::uint32_t owner_evictions           = 0;
@@ -462,20 +454,6 @@ private:
         value = add > std::numeric_limits<std::uint64_t>::max() - value
                     ? std::numeric_limits<std::uint64_t>::max()
                     : value + add;
-    }
-
-    [[nodiscard]] static std::uint64_t retention_weight(RetentionClass retention) noexcept {
-        switch (retention) {
-        case RetentionClass::Disposable:
-            return 1;
-        case RetentionClass::RecentPrivate:
-            return 4;
-        case RetentionClass::LiveSession:
-            return 16;
-        case RetentionClass::SharedStable:
-            return 64;
-        }
-        return 64;
     }
 
     [[nodiscard]] static const MaterializationOwnerPolicy*
@@ -536,20 +514,6 @@ private:
             if (policy == nullptr) {
                 throw std::logic_error("pressure target references an unknown logical owner");
             }
-            switch (policy->retention_class) {
-            case RetentionClass::SharedStable:
-                cost.shared_stable_units += outcome.degradation_units;
-                break;
-            case RetentionClass::LiveSession:
-                cost.live_session_units += outcome.degradation_units;
-                break;
-            case RetentionClass::RecentPrivate:
-                cost.recent_private_units += outcome.degradation_units;
-                break;
-            case RetentionClass::Disposable:
-                cost.disposable_units += outcome.degradation_units;
-                break;
-            }
             if (outcome.disposition == ClaimDisposition::Evicted) { ++cost.owner_evictions; }
         }
 
@@ -572,30 +536,57 @@ private:
                 found->target_ns   = std::max(found->target_ns, impact.target_recovery_ns);
             }
         }
-        for (const CombinedImpact& impact : impact_scratch_) {
-            if (impact.target_ns <= impact.baseline_ns) { continue; }
-            const MaterializationCheckpointPolicy* policy =
-                checkpoint_policy_for(checkpoint_policies, impact.owner_ordinal, impact.checkpoint);
+        portfolio_owner_scratch_.clear();
+        for (const MaterializationOwnerPolicy& policy : owner_policies) {
+            portfolio_owner_scratch_.push_back(ContextPortfolioOwnerPolicy{
+                .ordinal                  = policy.ordinal,
+                .private_retention_weight = policy.private_retention_weight,
+                .explicit_shared_credit   = policy.explicit_shared_credit,
+            });
+        }
+        portfolio_checkpoint_scratch_.clear();
+        bool portfolio_degraded = false;
+        for (const MaterializationCheckpointPolicy& policy : checkpoint_policies) {
             const MaterializationOwnerPolicy* owner =
-                owner_policy_for(owner_policies, impact.owner_ordinal);
+                owner_policy_for(owner_policies, policy.owner_ordinal);
             if (owner == nullptr) {
-                throw std::logic_error("checkpoint impact has no owner policy");
+                throw std::logic_error("checkpoint policy has no portfolio owner");
             }
-            const RetentionClass retention =
-                policy != nullptr ? policy->retention_class : owner->retention_class;
-            const std::uint64_t delta  = impact.target_ns - impact.baseline_ns;
-            const std::uint64_t weight = retention_weight(retention);
-            const std::uint64_t weighted =
-                delta > std::numeric_limits<std::uint64_t>::max() / weight
-                    ? std::numeric_limits<std::uint64_t>::max()
-                    : delta * weight;
-            planning_saturating_add(cost.future_loss_ns, weighted);
-            planning_saturating_add(cost.affected_selected_hits, policy != nullptr
-                                                                     ? policy->selected_hit_count
-                                                                     : owner->selected_hit_count);
-            cost.newest_affected_hit_epoch =
-                std::max(cost.newest_affected_hit_epoch,
-                         policy != nullptr ? policy->last_hit_epoch : owner->last_hit_epoch);
+            const auto impact = std::find_if(
+                impact_scratch_.begin(), impact_scratch_.end(), [&](const CombinedImpact& value) {
+                    return value.owner_ordinal == policy.owner_ordinal &&
+                           value.checkpoint == policy.checkpoint;
+                });
+            const std::uint64_t target_recovery =
+                impact == impact_scratch_.end() ? policy.baseline_recovery_ns : impact->target_ns;
+            if (impact != impact_scratch_.end() &&
+                impact->baseline_ns != policy.baseline_recovery_ns) {
+                throw std::logic_error("checkpoint baseline recovery changed during planning");
+            }
+            portfolio_checkpoint_scratch_.push_back(ContextPortfolioCheckpointValue{
+                .owner_ordinal        = policy.owner_ordinal,
+                .demand_mask          = policy.demand_mask,
+                .rebuild_ns           = policy.rebuild_ns,
+                .baseline_recovery_ns = policy.baseline_recovery_ns,
+                .target_recovery_ns   = target_recovery,
+            });
+            if (target_recovery > policy.baseline_recovery_ns) {
+                portfolio_degraded = true;
+                planning_saturating_add(cost.affected_selected_hits, policy.selected_hit_count);
+                cost.newest_affected_hit_epoch =
+                    std::max(cost.newest_affected_hit_epoch, policy.last_hit_epoch);
+            }
+        }
+        const ContextPortfolioValueResult portfolio =
+            portfolio_value_.fold(portfolio_owner_scratch_, portfolio_checkpoint_scratch_);
+        if (portfolio.saturated && portfolio_degraded) {
+            cost.future_loss_ns = std::numeric_limits<std::uint64_t>::max();
+        } else {
+            cost.future_loss_ns =
+                portfolio.baseline_public_value > portfolio.target_public_value
+                    ? portfolio.baseline_public_value - portfolio.target_public_value
+                    : 0;
+            planning_saturating_add(cost.future_loss_ns, portfolio.private_transition_loss);
         }
         cost.total_ns = cost.now_ns;
         planning_saturating_add(cost.total_ns, cost.future_loss_ns);
@@ -625,10 +616,6 @@ private:
     [[nodiscard]] static auto queue_key(const QueueEntry& entry) noexcept {
         return std::tuple{
             entry.lower_bound_ns,
-            entry.shared_stable_units,
-            entry.live_session_units,
-            entry.recent_private_units,
-            entry.disposable_units,
             entry.affected_selected_hits,
             entry.newest_affected_hit_epoch,
             entry.owner_evictions,
@@ -709,6 +696,9 @@ private:
     std::vector<PressureTargetHandle> assessed_;
     std::vector<PressureTargetHandle> expanded_;
     std::vector<CombinedImpact> impact_scratch_;
+    ContextPortfolioValue portfolio_value_;
+    std::vector<ContextPortfolioOwnerPolicy> portfolio_owner_scratch_;
+    std::vector<ContextPortfolioCheckpointValue> portfolio_checkpoint_scratch_;
 };
 
 } // namespace ninfer::runtime

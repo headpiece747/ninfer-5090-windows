@@ -32,6 +32,11 @@ enum class KvCacheStorage : std::uint8_t {
     Fp8E4M3Row256,
 };
 
+enum class EnginePurpose : std::uint8_t {
+    Generation,
+    CausalScoring,
+};
+
 enum class KvCapacityMode : std::uint8_t {
     Explicit,
     Automatic,
@@ -78,8 +83,8 @@ struct LoadProgress {
 
 struct ContextCacheOptions {
     // Engine resolves every optional once at construction. With C=max_concurrency, the enabled
-    // defaults are H=C, R=8, Host KV=8 GiB, P=2C, S=C, L=2 and M=4; Engine::options() returns
-    // those effective values.
+    // defaults are H=C, R=8, Host KV=8 GiB, P=2C, S=C and L=2; Engine::options() returns those
+    // effective values.
     bool enabled = true;
     // Extra Device checkpoint StateImage slots H. Total Device StateImage capacity is C + H.
     std::optional<std::uint32_t> device_state_slots;
@@ -90,8 +95,6 @@ struct ContextCacheOptions {
     std::optional<std::uint32_t> max_private_continuations;
     std::optional<std::uint32_t> max_shared_prefixes;
     std::optional<std::uint32_t> max_long_anchors_per_continuation;
-    // Input-complexity bound; this does not reserve checkpoint storage.
-    std::optional<std::uint32_t> max_cache_markers_per_request;
 };
 
 struct ContextCostOptions {
@@ -103,8 +106,9 @@ struct ContextCostOptions {
 
 struct EngineOptions {
     std::filesystem::path artifact_path;
+    EnginePurpose purpose              = EnginePurpose::Generation;
     int device                         = 0;
-    std::uint32_t max_context          = 2048; // Exact logical ceiling of each request.
+    std::uint32_t max_context          = 2048; // Logical ceiling of one request or score window.
     KvCapacityPolicy kv_capacity       = KvCapacityPolicy::explicit_capacity(2048);
     std::uint32_t max_concurrency      = 1;
     std::uint32_t max_pending_requests = 16;
@@ -163,7 +167,7 @@ struct SamplingOverrides {
 // Complete parameters after Engine resolution. Target runtimes consume only this type.
 struct ResolvedSamplingParameters {
     float temperature       = 0.0F;
-    std::int32_t top_k      = 0;
+    std::int32_t top_k      = 20;
     float top_p             = 1.0F;
     float min_p             = 0.0F;
     float presence_penalty  = 0.0F;
@@ -206,6 +210,9 @@ struct ExecutionOptions {
 struct OutputOptions {
     bool raw                     = false;
     bool preserve_special_tokens = false;
+    // Presentation constraint supplied by the protocol adapter. It bounds only Qwen's emitted
+    // function-name grammar; it does not require the name to match a currently declared tool.
+    std::uint32_t tool_name_max_length = 128;
 };
 
 struct RequestOptions {
@@ -219,15 +226,27 @@ enum class MediaKind : std::uint8_t {
     Video,
 };
 
+enum class ImageResizePolicy : std::uint8_t {
+    Downsize,
+    RejectOversized,
+};
+
 struct OwnedMedia {
     MediaKind kind = MediaKind::Image;
     std::vector<std::uint8_t> bytes;
     std::string media_type;
     std::string source_name;
+    ImageResizePolicy image_resize_policy = ImageResizePolicy::Downsize;
 };
 
 struct ToolCall {
     std::string id;
+    std::string name;
+    std::string arguments_json;
+};
+
+// Model-origin structured output. Protocol adapters own any wire-level call identifier.
+struct GeneratedToolCall {
     std::string name;
     std::string arguments_json;
 };
@@ -291,9 +310,14 @@ struct PromptCapabilities {
     ReasoningEffortCapabilities reasoning_effort;
 };
 
+enum class PromptContinuationMode : std::uint8_t {
+    NewAssistantTurn,
+    ContinueFinalAssistant,
+};
+
 struct PromptOptions {
-    bool add_generation_prompt = true;
-    bool enable_thinking       = true;
+    PromptContinuationMode continuation = PromptContinuationMode::NewAssistantTurn;
+    bool enable_thinking                = true;
     std::optional<ReasoningEffort> reasoning_effort;
     bool preserve_thinking = false;
     bool add_vision_id     = false;
@@ -311,8 +335,35 @@ enum class PromptCacheMarkerKind : std::uint8_t {
     PrivateLongAnchor,
 };
 
+enum class SharedCandidateEvidence : std::uint8_t {
+    None               = 0,
+    ExplicitBoundary   = 1U << 0U,
+    RequestedAutomatic = 1U << 1U,
+    DefaultAutomatic   = 1U << 2U,
+    EngineStructural   = 1U << 3U,
+    EngineObserved     = 1U << 4U,
+};
+
+[[nodiscard]] constexpr SharedCandidateEvidence operator|(SharedCandidateEvidence left,
+                                                          SharedCandidateEvidence right) noexcept {
+    return static_cast<SharedCandidateEvidence>(static_cast<std::uint8_t>(left) |
+                                                static_cast<std::uint8_t>(right));
+}
+
+constexpr SharedCandidateEvidence& operator|=(SharedCandidateEvidence& left,
+                                              SharedCandidateEvidence right) noexcept {
+    left = left | right;
+    return left;
+}
+
+[[nodiscard]] constexpr bool has_shared_candidate_evidence(SharedCandidateEvidence value,
+                                                           SharedCandidateEvidence evidence) {
+    return (static_cast<std::uint8_t>(value) & static_cast<std::uint8_t>(evidence)) != 0;
+}
+
 enum class PromptCacheMarkerLocation : std::uint8_t {
     MessageBoundary,
+    MessagePartBoundary,
     LeadingInstructionBoundary,
     ToolBoundary,
 };
@@ -320,10 +371,14 @@ enum class PromptCacheMarkerLocation : std::uint8_t {
 struct PromptCacheMarker {
     std::uint32_t after_message_count  = 0;
     PromptCacheMarkerKind kind         = PromptCacheMarkerKind::SharedStablePrefix;
+    SharedCandidateEvidence evidence   = SharedCandidateEvidence::ExplicitBoundary;
     PromptCacheMarkerLocation location = PromptCacheMarkerLocation::MessageBoundary;
     // Byte count within the untrimmed leading System/Developer message.
     std::uint32_t leading_instruction_bytes = 0;
     std::uint32_t after_tool_count          = 0;
+    // For MessagePartBoundary, after_message_count identifies the containing message using a
+    // one-based count and this value identifies the number of serialized parts within it.
+    std::uint32_t after_message_part_count = 0;
 
     [[nodiscard]] friend constexpr bool operator==(PromptCacheMarker,
                                                    PromptCacheMarker) noexcept = default;
@@ -333,6 +388,9 @@ struct ContextCacheHints {
     std::optional<std::string> session_key;
     CacheRetentionHint retention = CacheRetentionHint::Default;
     std::vector<PromptCacheMarker> markers;
+    // Protocols with their own automatic/explicit write policy disable the Engine's structural
+    // candidates. Exact reads from already-published shared prefixes remain enabled.
+    bool allow_engine_automatic_shared_prefixes = true;
     // Advance the named session lineage when session_key is present. This does not require an
     // anonymous content-matched source to be retained.
     bool update_session_index = true;
@@ -348,6 +406,7 @@ enum class RequestErrorKind : std::uint8_t {
     ContextLengthExceeded,
     ThinkingBudgetCapacityInsufficient,
     MediaBudgetExceeded,
+    InvalidMedia,
     Overloaded,
     QueueTimeout,
     Cancelled,
@@ -418,10 +477,19 @@ struct OutputDelta {
     std::string text;
 };
 
+// Exact prompt accounting selected at admission. Streaming consumers receive this once before any
+// OutputDelta, after the prefix choice and materialization reservation are committed and before
+// transfer/prefill execution.
+struct GenerationStart {
+    PromptSummary prompt;
+    std::uint32_t reused_prompt_tokens = 0;
+};
+
 class OutputSink {
 public:
-    virtual ~OutputSink()                   = default;
-    virtual void publish(OutputDelta delta) = 0;
+    virtual ~OutputSink()                     = default;
+    virtual void start(GenerationStart start) = 0;
+    virtual void publish(OutputDelta delta)   = 0;
 };
 
 enum class OutputConsumerMode : std::uint8_t {
@@ -569,8 +637,10 @@ struct GenerationResult {
     std::vector<TokenId> generated_token_ids;
     std::string content;
     std::string reasoning;
-    std::uint32_t reasoning_tokens     = 0;
-    FinishReason finish_reason         = FinishReason::None;
+    std::vector<GeneratedToolCall> tool_calls;
+    std::uint32_t reasoning_tokens = 0;
+    FinishReason finish_reason     = FinishReason::None;
+    std::optional<std::string> matched_stop_string;
     std::uint32_t reused_prompt_tokens = 0;
     PrefixReusePath prefix_reuse_path  = PrefixReusePath::Root;
     MaterializationDiagnostics materialization;

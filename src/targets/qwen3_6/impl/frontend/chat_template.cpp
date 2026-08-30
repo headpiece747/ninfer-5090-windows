@@ -165,8 +165,10 @@ bool ends_with(const std::string& text, std::string_view suffix) {
 }
 
 long last_real_user_query(const std::vector<ChatMessage>& messages) {
+    long trailing_tool_query = -1;
     for (long i = static_cast<long>(messages.size()) - 1; i >= 0; --i) {
         const ChatMessage& message = messages[static_cast<std::size_t>(i)];
+        if (message.role == ChatRole::Tool && trailing_tool_query < 0) { trailing_tool_query = i; }
         if (message.role != ChatRole::User) { continue; }
         const RenderedFragment content = trim_ascii_whitespace(message.rendered_content());
         if (!(starts_with(content.text, "<tool_response>") &&
@@ -174,6 +176,9 @@ long last_real_user_query(const std::vector<ChatMessage>& messages) {
             return i;
         }
     }
+    // A truncated imported history may begin at the tool-result turn. That result is the current
+    // query even though the user message that initiated the omitted tool call is not visible.
+    if (trailing_tool_query >= 0) { return trailing_tool_query; }
     throw std::invalid_argument("no user query found in chat messages");
 }
 
@@ -368,7 +373,8 @@ bool ChatMessage::has_media() const noexcept {
 }
 
 RenderedFragment ChatMessage::rendered_content(bool add_vision_id, int* image_count,
-                                               int* video_count, std::size_t* media_count) const {
+                                               int* video_count, std::size_t* media_count,
+                                               std::vector<std::size_t>* part_boundaries) const {
     int local_images        = 0;
     int local_videos        = 0;
     std::size_t local_media = 0;
@@ -376,6 +382,10 @@ RenderedFragment ChatMessage::rendered_content(bool add_vision_id, int* image_co
     int& videos             = video_count == nullptr ? local_videos : *video_count;
     std::size_t& media      = media_count == nullptr ? local_media : *media_count;
     RenderBuilder out;
+    if (part_boundaries != nullptr) {
+        part_boundaries->clear();
+        part_boundaries->reserve(parts.size());
+    }
     for (const ChatPart& part : parts) {
         switch (part.kind) {
         case ChatPartKind::Text:
@@ -396,6 +406,7 @@ RenderedFragment ChatMessage::rendered_content(bool add_vision_id, int* image_co
             out.append_template("<|vision_end|>");
             break;
         }
+        if (part_boundaries != nullptr) { part_boundaries->push_back(out.size()); }
     }
     return std::move(out).release();
 }
@@ -427,6 +438,24 @@ PromptCapabilities CompiledChatTemplate::capabilities() const noexcept {
 RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messages,
                                           ChatRenderOptions options) const {
     if (messages.empty()) { throw std::invalid_argument("chat messages must not be empty"); }
+
+    const bool continue_final_assistant =
+        options.continuation == PromptContinuationMode::ContinueFinalAssistant;
+    if (continue_final_assistant) {
+        const ChatMessage& final = messages.back();
+        if (final.role != ChatRole::Assistant || final.parts.empty() ||
+            !final.reasoning_content.empty() || !final.tool_calls.empty()) {
+            throw std::invalid_argument(
+                "assistant continuation requires a final text-only assistant message");
+        }
+        if (final.has_media()) {
+            throw std::invalid_argument(
+                "assistant continuation requires a final text-only assistant message");
+        }
+        if (options.enable_thinking) {
+            throw std::invalid_argument("assistant continuation cannot start in thinking mode");
+        }
+    }
 
     const bool effort_template = semantics_ == ChatTemplateSemantics::ReasoningEffort;
     const std::string_view reasoning_instructions =
@@ -476,6 +505,7 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
     }
 
     std::vector<std::optional<std::size_t>> message_boundaries(messages.size() + 1U);
+    std::vector<std::optional<std::size_t>> cache_boundaries(options.cache_markers.size());
     if (message_begin == 0) {
         message_boundaries[0] = rendered.size();
     } else {
@@ -501,10 +531,30 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
         const ChatMessage& message = messages[i];
         if (i < message_begin) { continue; }
         if (is_instruction_role(message.role)) { validate_instruction_message(message); }
-        const RenderedFragment content = trim_ascii_whitespace(message.rendered_content(
-            options.add_vision_id, &image_count, &video_count, &media_count));
+        std::vector<std::size_t> raw_part_boundaries;
+        const RenderedFragment raw_content = message.rendered_content(
+            options.add_vision_id, &image_count, &video_count, &media_count, &raw_part_boundaries);
+        const auto [content_trim_begin, content_trim_end] =
+            trim_ascii_whitespace_bounds(raw_content.text);
+        const RenderedFragment content =
+            slice_fragment(raw_content, content_trim_begin, content_trim_end);
+        const auto resolve_part_boundaries = [&](std::size_t content_begin) {
+            for (std::size_t marker_index = 0; marker_index < options.cache_markers.size();
+                 ++marker_index) {
+                const PromptCacheMarker& marker = options.cache_markers[marker_index];
+                if (marker.location != PromptCacheMarkerLocation::MessagePartBoundary ||
+                    marker.after_message_count != i + 1U || marker.after_message_part_count == 0 ||
+                    marker.after_message_part_count > raw_part_boundaries.size()) {
+                    continue;
+                }
+                const std::size_t raw = raw_part_boundaries[marker.after_message_part_count - 1U];
+                const std::size_t clamped = std::clamp(raw, content_trim_begin, content_trim_end);
+                cache_boundaries[marker_index] = content_begin + clamped - content_trim_begin;
+            }
+        };
         if (is_instruction_role(message.role)) {
             rendered.append_template("<|im_start|>system\n");
+            resolve_part_boundaries(rendered.size());
             rendered.append(content);
             rendered.append_template("<|im_end|>\n");
             message_boundaries[i + 1U] = rendered.size();
@@ -512,17 +562,19 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
         }
         if (message.role == ChatRole::User) {
             rendered.append_template("<|im_start|>user\n");
+            resolve_part_boundaries(rendered.size());
             rendered.append(content);
             rendered.append_template("<|im_end|>\n");
             message_boundaries[i + 1U] = rendered.size();
             continue;
         }
         if (message.role == ChatRole::Tool) {
-            const bool opens_group = i > 0 && messages[i - 1].role != ChatRole::Tool;
+            const bool opens_group = i == 0 || messages[i - 1].role != ChatRole::Tool;
             const bool closes_group =
                 i + 1 == messages.size() || messages[i + 1].role != ChatRole::Tool;
             if (opens_group) { rendered.append_template("<|im_start|>user"); }
             rendered.append_template("\n<tool_response>\n");
+            resolve_part_boundaries(rendered.size());
             rendered.append(content);
             rendered.append_template("\n</tool_response>");
             if (closes_group) { rendered.append_template("<|im_end|>\n"); }
@@ -535,6 +587,16 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
         }
 
         // assistant
+        if (continue_final_assistant && i + 1U == messages.size()) {
+            const std::size_t generation_begin = rendered.size();
+            rewrite_checkpoint                 = RewriteCheckpointByteSpec{
+                                .kind = RewriteCheckpointKind::ResponseReplay, .offset = generation_begin};
+            rendered.append_template("<|im_start|>assistant\n");
+            add_rewrite_execution_boundary();
+            rendered.append(content);
+            message_boundaries[i + 1U] = rendered.size();
+            continue;
+        }
         RenderedFragment reasoning;
         RenderedFragment body = content;
         if (!message.reasoning_content.empty()) {
@@ -580,7 +642,7 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
         message_boundaries[i + 1U] = rendered.size();
     }
 
-    if (options.add_generation_prompt) {
+    if (!continue_final_assistant && options.add_generation_prompt) {
         // The generation suffix is replaceable as a unit. An immediate successor may replay the
         // response, close the turn, or branch by appending a different user message directly to
         // the input history. The rolling private checkpoint must therefore precede the assistant
@@ -606,7 +668,6 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
             add_rewrite_execution_boundary();
         }
     }
-    std::vector<std::optional<std::size_t>> cache_boundaries(options.cache_markers.size());
     for (std::size_t index = 0; index < options.cache_markers.size(); ++index) {
         const PromptCacheMarker marker = options.cache_markers[index];
         switch (marker.location) {
@@ -614,6 +675,10 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
             if (marker.after_message_count < message_boundaries.size()) {
                 cache_boundaries[index] = message_boundaries[marker.after_message_count];
             }
+            break;
+        case PromptCacheMarkerLocation::MessagePartBoundary:
+            // Resolved while the containing message's content offset is known. Assistant
+            // reasoning/tool-call interiors deliberately remain advisory and unresolved.
             break;
         case PromptCacheMarkerLocation::LeadingInstructionBoundary:
             if (message_begin == 1 && instruction_begin &&

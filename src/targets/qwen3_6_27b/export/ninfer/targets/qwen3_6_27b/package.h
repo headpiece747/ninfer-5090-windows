@@ -106,6 +106,7 @@ struct Package {
     using SharedPrefixSummary        = qwen3_6::SharedPrefixSummary;
     using PressurePlanningSession    = qwen3_6::PressurePlanningSession<detail::Variant>;
     using PressureTargetHandle       = qwen3_6::PressureTargetHandle;
+    using CapturePressurePlan        = qwen3_6::CapturePressurePlan<detail::Variant>;
     using MaterializationResult      = qwen3_6::MaterializationResult<detail::Variant>;
     using ContextTransactionProgress = qwen3_6::ContextTransactionProgress<detail::Variant>;
     using CaptureAssessment          = qwen3_6::CaptureAssessment;

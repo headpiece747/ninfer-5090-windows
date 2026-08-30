@@ -472,6 +472,8 @@ struct BeginSummary {
     std::uint32_t prompt_tokens        = 0;
     std::uint32_t reused_prompt_tokens = 0;
     PrefixReusePath prefix_reuse_path  = PrefixReusePath::Root;
+
+    [[nodiscard]] friend constexpr bool operator==(BeginSummary, BeginSummary) noexcept = default;
 };
 
 struct GeneratedRound {

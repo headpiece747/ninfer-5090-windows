@@ -24,6 +24,7 @@ class MediaPreprocessCache;
 enum class ProcessorErrorKind {
     BudgetExceeded,
     ContextLengthExceeded,
+    InvalidMedia,
 };
 
 class ProcessorError final : public std::runtime_error {

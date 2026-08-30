@@ -36,10 +36,6 @@ constexpr std::array<std::byte, 8> kMagic = {
     std::byte{'N'}, std::byte{'I'}, std::byte{'N'}, std::byte{'F'},
     std::byte{'E'}, std::byte{'R'}, std::byte{0},   std::byte{2},
 };
-constexpr std::array<std::byte, 8> kV1Magic = {
-    std::byte{'N'}, std::byte{'I'}, std::byte{'N'}, std::byte{'F'},
-    std::byte{'E'}, std::byte{'R'}, std::byte{0},   std::byte{1},
-};
 constexpr std::uint64_t kPrefixBytes      = 16;
 constexpr std::uint64_t kPayloadAlignment = 4096;
 
@@ -388,9 +384,8 @@ struct Reader::Impl {
         if (file.size() < kPrefixBytes) {
             throw ArtifactError("artifact is shorter than the v2 prefix");
         }
-        const bool legacy_v1 = std::equal(kV1Magic.begin(), kV1Magic.end(), file.data());
-        if (!legacy_v1 && !std::equal(kMagic.begin(), kMagic.end(), file.data())) {
-            throw ArtifactError("artifact magic is not NInfer v1 or v2");
+        if (!std::equal(kMagic.begin(), kMagic.end(), file.data())) {
+            throw ArtifactError("artifact magic is not NInfer v2");
         }
 
         const auto json_bytes = read_u64_le(file.data() + 8);
@@ -409,23 +404,13 @@ struct Reader::Impl {
             throw ArtifactError(std::string("invalid JSON directory: ") + error.what());
         }
 
-        if (legacy_v1) {
-            static constexpr std::array root_members = {"model_id", "objects"};
-            require_members(directory, root_members, "legacy directory root");
-            identity.model_id = require_string(directory.at("model_id"), "model_id");
-            if (identity.model_id != "qwen3.6-27b" && identity.model_id != "qwen3.6-35b-a3b") {
-                throw ArtifactError("legacy artifact model_id is not a registered groupwise target");
-            }
-            identity.weights_id = "groupwise-int";
-        } else {
-            static constexpr std::array root_members = {"identity", "objects"};
-            require_members(directory, root_members, "directory root");
-            const auto& raw_identity = directory.at("identity");
-            static constexpr std::array identity_members = {"model_id", "weights_id"};
-            require_members(raw_identity, identity_members, "artifact identity");
-            identity.model_id = require_string(raw_identity.at("model_id"), "model_id");
-            identity.weights_id = require_string(raw_identity.at("weights_id"), "weights_id");
-        }
+        static constexpr std::array root_members = {"identity", "objects"};
+        require_members(directory, root_members, "directory root");
+        const auto& raw_identity = directory.at("identity");
+        static constexpr std::array identity_members = {"model_id", "weights_id"};
+        require_members(raw_identity, identity_members, "artifact identity");
+        identity.model_id   = require_string(raw_identity.at("model_id"), "model_id");
+        identity.weights_id = require_string(raw_identity.at("weights_id"), "weights_id");
 
         const auto& raw_objects = directory.at("objects");
         if (!raw_objects.is_array() || raw_objects.empty()) {

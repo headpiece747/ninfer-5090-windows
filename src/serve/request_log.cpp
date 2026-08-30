@@ -92,12 +92,36 @@ std::string tool_choice_name(const ToolChoice& choice) {
         return "auto";
     case ToolChoiceMode::None:
         return "none";
-    case ToolChoiceMode::Required:
-        return "required";
-    case ToolChoiceMode::Named:
-        return choice.name.empty() ? "named" : choice.name;
     }
     return "unknown";
+}
+
+const char* reasoning_effort_name(ninfer::ReasoningEffort effort) {
+    switch (effort) {
+    case ninfer::ReasoningEffort::Low:
+        return "low";
+    case ninfer::ReasoningEffort::Medium:
+        return "medium";
+    case ninfer::ReasoningEffort::XHigh:
+        return "xhigh";
+    }
+    return "unknown";
+}
+
+Json requested_reasoning_effort_json(const std::optional<RequestedReasoningEffort>& requested) {
+    return requested ? Json(std::string(requested_reasoning_effort_name(*requested)))
+                     : Json(nullptr);
+}
+
+Json resolved_reasoning_effort_json(bool enable_thinking,
+                                    const std::optional<ninfer::ReasoningEffort>& resolved) {
+    if (!enable_thinking) { return "none"; }
+    return resolved ? Json(reasoning_effort_name(*resolved)) : Json(nullptr);
+}
+
+std::string
+requested_reasoning_effort_text(const std::optional<RequestedReasoningEffort>& requested) {
+    return requested ? std::string(requested_reasoning_effort_name(*requested)) : "default";
 }
 
 const char* kv_cache_name(ninfer::KvCacheStorage storage) {
@@ -200,6 +224,11 @@ Json request_json(const RequestLogContext& context) {
                 {"has_tool_history", context.has_tool_history},
                 {"enable_thinking", context.enable_thinking},
                 {"thinking_budget", std::move(thinking_budget)},
+                {"requested_reasoning_effort",
+                 requested_reasoning_effort_json(context.requested_reasoning_effort)},
+                {"resolved_reasoning_effort",
+                 resolved_reasoning_effort_json(context.enable_thinking,
+                                                context.resolved_reasoning_effort)},
                 {"preserve_thinking", context.preserve_thinking},
                 {"preserve_thinking_semantic_change", context.preserve_thinking_semantic_change},
                 {"sampling", sampler_json(context.sampling)}};
@@ -236,7 +265,10 @@ Json rejected_request_json(const RequestRejectionLogContext& context) {
                  context.requested_output_tokens_client_set ? "client" : "server_default"},
                 {"tool_count", context.tool_count},
                 {"tool_choice", tool_choice_name(context.tool_choice)},
-                {"has_tool_history", context.has_tool_history}};
+                {"has_tool_history", context.has_tool_history},
+                {"requested_reasoning_effort",
+                 requested_reasoning_effort_json(context.requested_reasoning_effort)},
+                {"resolved_reasoning_effort", nullptr}};
 }
 
 Json error_json(const ApiError& error) {
@@ -431,23 +463,26 @@ std::string speculative_str(const GenerationMetrics& metrics) {
 
 RequestLogContext make_request_log_context(std::uint64_t id, std::string protocol,
                                            const GenerationRequest& request,
+                                           const RequestLogMetadata& metadata,
                                            const PreparedRequest& prepared) {
     RequestLogContext context;
     context.id                                 = id;
     context.protocol                           = std::move(protocol);
-    context.model                              = request.model;
-    context.stream                             = request.stream;
+    context.model                              = metadata.model;
+    context.stream                             = metadata.stream;
     context.message_count                      = request.messages.size();
     context.media_item_count                   = request.media_item_count();
     context.requested_output_tokens            = request.max_tokens;
-    context.requested_output_tokens_client_set = request.max_tokens_set;
+    context.requested_output_tokens_client_set = metadata.output_tokens_explicit;
     context.tool_count                         = request.tools.size();
     context.tool_choice                        = request.tool_choice;
     context.has_tool_history                   = request.has_tool_history();
     context.enable_thinking                    = prepared.enable_thinking;
     context.thinking_budget                    = prepared.thinking_budget;
+    context.requested_reasoning_effort         = request.reasoning_effort;
+    context.resolved_reasoning_effort          = prepared.effective_reasoning_effort;
     context.preserve_thinking                  = prepared.preserve_thinking;
-    context.preserve_thinking_semantic_change  = prepared.preserve_thinking_semantic_change;
+    context.preserve_thinking_semantic_change  = metadata.preserve_thinking_semantic_change;
     context.sampling                           = prepared.sampling;
     context.acquisition_seconds                = prepared.acquisition_seconds;
     context.preparation                        = prepared.preparation;
@@ -457,19 +492,21 @@ RequestLogContext make_request_log_context(std::uint64_t id, std::string protoco
 RequestRejectionLogContext make_request_rejection_log_context(std::uint64_t id,
                                                               std::string protocol,
                                                               const GenerationRequest& request,
+                                                              const RequestLogMetadata& metadata,
                                                               ApiError error) {
     RequestRejectionLogContext context;
     context.id                                 = id;
     context.protocol                           = std::move(protocol);
-    context.model                              = request.model;
-    context.stream                             = request.stream;
+    context.model                              = metadata.model;
+    context.stream                             = metadata.stream;
     context.message_count                      = request.messages.size();
     context.media_item_count                   = request.media_item_count();
     context.requested_output_tokens            = request.max_tokens;
-    context.requested_output_tokens_client_set = request.max_tokens_set;
+    context.requested_output_tokens_client_set = metadata.output_tokens_explicit;
     context.tool_count                         = request.tools.size();
     context.tool_choice                        = request.tool_choice;
     context.has_tool_history                   = request.has_tool_history();
+    context.requested_reasoning_effort         = request.reasoning_effort;
     context.error                              = std::move(error);
     return context;
 }
@@ -483,8 +520,16 @@ std::string format_request_start(const RequestLogContext& context) {
         << " tools=" << context.tool_count
         << " tool_choice=" << tool_choice_name(context.tool_choice)
         << " tool_history=" << (context.has_tool_history ? "yes" : "no")
-        << " thinking=" << (context.enable_thinking ? "on" : "off")
-        << " preserve_thinking=" << (context.preserve_thinking ? "on" : "off")
+        << " thinking=" << (context.enable_thinking ? "on" : "off") << " reasoning_effort="
+        << requested_reasoning_effort_text(context.requested_reasoning_effort) << "->";
+    if (!context.enable_thinking) {
+        out << "none";
+    } else if (context.resolved_reasoning_effort) {
+        out << reasoning_effort_name(*context.resolved_reasoning_effort);
+    } else {
+        out << "n/a";
+    }
+    out << " preserve_thinking=" << (context.preserve_thinking ? "on" : "off")
         << " preserve_change=" << (context.preserve_thinking_semantic_change ? "yes" : "no")
         << " sampler=[" << sampler_str(context.sampling) << ']';
     if (context.thinking_budget) { out << " thinking_budget=" << *context.thinking_budget; }
@@ -507,6 +552,8 @@ std::string format_request_rejected(const RequestRejectionLogContext& context) {
     out << "[req " << context.id << "] rejected phase=prepare protocol=" << context.protocol << ' '
         << (context.stream ? "stream" : "non-stream") << " msgs=" << context.message_count
         << " media=" << context.media_item_count << " tools=" << context.tool_count
+        << " reasoning_effort="
+        << requested_reasoning_effort_text(context.requested_reasoning_effort) << "->unresolved"
         << " status=" << context.error.status;
     if (!context.error.code.empty()) { out << " code=" << context.error.code; }
     out << " message=" << context.error.message;
@@ -653,45 +700,44 @@ std::string format_server_start_json(
     const std::uint64_t total_device_state_slots =
         static_cast<std::uint64_t>(engine_options.max_concurrency) +
         cache.device_state_slots.value();
-    record["engine"] = Json{
-        {"device", engine_options.device},
-        {"max_context", engine_options.max_context},
-        {"kv_capacity_mode", kv_capacity_mode_name(memory.kv_capacity_mode)},
-        {"kv_capacity", memory.kv_capacity},
-        {"kv_capacity_page_groups", memory.kv_capacity_page_groups},
-        {"kv_capacity_max_page_groups", memory.kv_capacity_max_page_groups},
-        {"max_concurrency", engine_options.max_concurrency},
-        {"max_pending_requests", engine_options.max_pending_requests},
-        {"pending_timeout_ms", engine_options.pending_timeout_ms},
-        {"prefill_chunk", engine_options.prefill_chunk},
-        {"log_stats_interval_ms", options.log_stats_interval_ms},
-        {"kv_cache", kv_cache_name(engine_options.kv_cache)},
-        {"vision", engine_options.enable_vision},
-        {"cuda_graph", engine_options.use_cuda_graph},
-        {"prefix_reuse", options.allow_prefix_reuse},
-        {"speculative_backend",
-         product::speculative_backend_name(engine_options.speculative.backend)},
-        {"speculative_draft_window", engine_options.speculative.draft_tokens},
-        {"proposal_head", proposal_head_name(engine_options.speculative.proposal_head)},
-        {"context_cost", Json{{"transfer_source", ninfer::context_cost_preset_source_name(
-                                                      context_cost.transfer_source)},
-                              {"prefill_source", ninfer::context_cost_preset_source_name(
-                                                     context_cost.prefill_source)},
-                              {"hardware_class", context_cost.hardware_class},
-                              {"model_id", context_cost.model_id},
-                              {"weights_id", context_cost.weights_id},
-                              {"preset_path", context_cost.preset_path.string()}}},
-        {"context_cache",
-         Json{
-             {"enabled", cache.enabled},
-             {"device_state_slots", cache.device_state_slots.value()},
-             {"total_device_state_slots", total_device_state_slots},
-             {"host_state_slots", cache.host_state_slots},
-             {"host_kv_capacity_bytes", cache.host_kv_capacity_bytes},
-             {"max_private_continuations", cache.max_private_continuations.value()},
-             {"max_shared_prefixes", cache.max_shared_prefixes.value()},
-             {"max_long_anchors_per_continuation", cache.max_long_anchors_per_continuation.value()},
-             {"max_cache_markers_per_request", cache.max_cache_markers_per_request.value()}}}};
+    record["engine"] =
+        Json{{"device", engine_options.device},
+             {"max_context", engine_options.max_context},
+             {"kv_capacity_mode", kv_capacity_mode_name(memory.kv_capacity_mode)},
+             {"kv_capacity", memory.kv_capacity},
+             {"kv_capacity_page_groups", memory.kv_capacity_page_groups},
+             {"kv_capacity_max_page_groups", memory.kv_capacity_max_page_groups},
+             {"max_concurrency", engine_options.max_concurrency},
+             {"max_pending_requests", engine_options.max_pending_requests},
+             {"pending_timeout_ms", engine_options.pending_timeout_ms},
+             {"prefill_chunk", engine_options.prefill_chunk},
+             {"log_stats_interval_ms", options.log_stats_interval_ms},
+             {"kv_cache", kv_cache_name(engine_options.kv_cache)},
+             {"vision", engine_options.enable_vision},
+             {"cuda_graph", engine_options.use_cuda_graph},
+             {"prefix_reuse", options.allow_prefix_reuse},
+             {"speculative_backend",
+              product::speculative_backend_name(engine_options.speculative.backend)},
+             {"speculative_draft_window", engine_options.speculative.draft_tokens},
+             {"proposal_head", proposal_head_name(engine_options.speculative.proposal_head)},
+             {"context_cost", Json{{"transfer_source", ninfer::context_cost_preset_source_name(
+                                                           context_cost.transfer_source)},
+                                   {"prefill_source", ninfer::context_cost_preset_source_name(
+                                                          context_cost.prefill_source)},
+                                   {"hardware_class", context_cost.hardware_class},
+                                   {"model_id", context_cost.model_id},
+                                   {"weights_id", context_cost.weights_id},
+                                   {"preset_path", context_cost.preset_path.string()}}},
+             {"context_cache",
+              Json{{"enabled", cache.enabled},
+                   {"device_state_slots", cache.device_state_slots.value()},
+                   {"total_device_state_slots", total_device_state_slots},
+                   {"host_state_slots", cache.host_state_slots},
+                   {"host_kv_capacity_bytes", cache.host_kv_capacity_bytes},
+                   {"max_private_continuations", cache.max_private_continuations.value()},
+                   {"max_shared_prefixes", cache.max_shared_prefixes.value()},
+                   {"max_long_anchors_per_continuation",
+                    cache.max_long_anchors_per_continuation.value()}}}};
     record["sampling_defaults"] =
         Json{{"thinking", preset_json(sampling_defaults.thinking)},
              {"non_thinking", preset_json(sampling_defaults.non_thinking)},
