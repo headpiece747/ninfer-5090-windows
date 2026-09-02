@@ -11,7 +11,7 @@ This product includes software developed by:
 This product contains modifications developed by headpiece747 to support:
 - Native Windows 11 MSVC compilation (Visual Studio 2022/2026 + CUDA 13.3)
 - Windows C-runtime compatibility patches (random number generation, thread-safe time, /FS compiler flags)
-- FP8 KV cache and Multi-Token Prediction (MTP5) execution profiles on NVIDIA GeForce RTX 5090
+- FP8, NVFP4, and K8V4 KV cache and Multi-Token Prediction (MTP5) execution profiles on NVIDIA GeForce RTX 5090
 - Automated Windows dependency management and FFmpeg integration
 
 ========================================================================
@@ -31,6 +31,10 @@ Third-Party Software and Attributions:
    Copyright (c) 2009-2013 Steven G. Johnson, Jiahao Chen, Tony Kelman
    License: MIT
 
-4. FFmpeg Windows Shared Binaries (used in multimodal / vision builds)
+4. spdlog (Fast C++ logging library)
+   Copyright (c) 2016 Gabi Melman
+   License: MIT
+
+5. FFmpeg Windows Shared Binaries (used in multimodal / vision builds)
    Developed by the FFmpeg developers (https://ffmpeg.org/)
    Binaries distributed via BtbN/FFmpeg-Builds (GPL v3.0 / LGPL v2.1)
