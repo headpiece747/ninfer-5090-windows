@@ -250,6 +250,11 @@ public:
         return published_stats_;
     }
 
+    [[nodiscard]] bool is_available() const {
+        std::lock_guard lock(queue_mutex_);
+        return !stopping_ && !failed_;
+    }
+
     void reset_memory_peaks() noexcept {
         try {
             std::scoped_lock lock(execution_mutex_);

@@ -96,7 +96,8 @@ Engine 是请求控制平面，拥有：
 - Scheduler 与 ResourceManager；
 - admission、prefill、decode、control、capture 和 terminal 的编排；
 - 模型提交、输出提交和 response publication 的顺序；
-- Engine-wide failure cleanup。
+- Engine-wide failure cleanup；
+- 可供 Gateway 读取的 Engine availability；其事实仍只由 EngineCore 的 failure/lifecycle 状态拥有。
 
 Engine 理解请求、预算、finish reason 和可发布输出，不解释 transformer layer、KV plane 或 allocator。
 
@@ -123,6 +124,7 @@ Program 不维护 FIFO、SessionIndex、cache retention 价值或用户可见输
 | 协议、连接、transport | Gateway |
 | prompt 与 output 语义 | Frontend |
 | waiting queue、request record、response event | EngineCore |
+| Engine availability | EngineCore；Gateway 只读取并映射为外部 readiness |
 | FIFO head、backfill、prefill/decode 顺序、round membership | Scheduler |
 | logical lane、cache catalog、session binding、retention policy | ResourceManager |
 | physical State/KV、reservation、placement、model state | Program |

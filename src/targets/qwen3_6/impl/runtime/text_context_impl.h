@@ -885,7 +885,7 @@ void TextContext::gdn_mix(const GdnLayerW& w, Tensor& x, int gidx, Phase ph) {
     Tensor g           = control.g;
     Tensor beta        = control.beta;
     Variant::gdn_norm_control_projection(x, *w.input_norm, kCfg.rms_eps, *w.projection, h, g, beta,
-                                         work_, s);
+                                         work_, ctx_.execution_view());
 
     const auto projection = workspace_recipe::gdn_projection<TextConfig>(work_, T);
     Tensor z              = projection.output_gate.view({kCfg.gdn_v_dim, kCfg.gdn_v_heads, T});

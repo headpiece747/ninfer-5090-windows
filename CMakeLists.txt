@@ -33,10 +33,13 @@ if(MSVC)
   add_compile_options(
     $<$<COMPILE_LANGUAGE:C>:/Zc:preprocessor>
     $<$<COMPILE_LANGUAGE:C>:/FS>
+    $<$<COMPILE_LANGUAGE:C>:/utf-8>
     $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>
     $<$<COMPILE_LANGUAGE:CXX>:/FS>
+    $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/FS>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>
   )
 endif()
 
@@ -81,6 +84,12 @@ else()
   endif()
 endif()
 find_package(Threads REQUIRED)
+
+if(NINFER_BUILD_APPS OR BUILD_TESTING)
+  # Product operational logging is an offline, repository-pinned dependency. Core-only builds do
+  # not configure or link it.
+  add_subdirectory(third_party/spdlog)
+endif()
 
 # --- Subdirectories ----------------------------------------------------------
 add_subdirectory(src)

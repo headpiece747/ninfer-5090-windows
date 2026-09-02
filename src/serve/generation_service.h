@@ -89,7 +89,7 @@ struct PreparedRequest {
 
 class GenerationService {
 public:
-    explicit GenerationService(ServeOptions options, LoadProgress load_progress = {});
+    explicit GenerationService(ServeOptions options, StartupObserver startup_observer = {});
 
     [[nodiscard]] const ServeOptions& options() const noexcept { return options_; }
 
@@ -102,6 +102,8 @@ public:
     [[nodiscard]] ninfer::MemorySummary memory_summary() const { return engine_->memory_summary(); }
 
     [[nodiscard]] ninfer::RuntimeStats runtime_stats() const { return engine_->runtime_stats(); }
+
+    [[nodiscard]] bool is_available() const { return engine_->is_available(); }
 
     [[nodiscard]] ninfer::MediaCacheSummary media_cache_summary() const {
         return engine_->media_cache_summary();
