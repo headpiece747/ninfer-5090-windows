@@ -2,9 +2,11 @@
 
 > Windows port of NInfer. Selected checkpoints. Maximum single-GPU inference performance. **100% Native Windows MSVC (No WSL2 Required!).**
 
-NInfer 5090 Windows is a from-scratch C++/CUDA inference engine optimized for explicitly registered Qwen checkpoints on a single NVIDIA GeForce RTX 5090, now ported natively to Windows. It runs text, image, and video prompts through a local CLI or OpenAI-/Anthropic-compatible HTTP APIs.
+NInfer 5090 Windows is a from-scratch C++/CUDA inference engine optimized for explicitly registered Qwen checkpoints on a single NVIDIA GeForce RTX 5090 (`sm_120a`), now ported natively to Windows. It runs text, image, and video prompts through a local CLI or OpenAI-/Anthropic-compatible HTTP APIs.
 
 This project is a Windows adaptation of the original [Neroued/ninfer](https://github.com/Neroued/ninfer) Linux engine, supporting compilation via Microsoft Visual Studio (MSVC) on Windows 11.
+
+---
 
 ## Supported Models
 
@@ -13,14 +15,26 @@ Like the upstream project, this engine supports a closed set of model artifacts 
 Our primary target is:
 * [Qwen3.8-27B NVFP4](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer)
 
-## Performance & Benchmarks
+---
 
-The NVFP4 models utilize W4A4 Tensor Core MMA for prefill and A16 NVFP4 kernels for decode. When combined with Multi-Token Prediction (MTP5) and FP8 KV caching:
+## Performance & Features (v1.0.4)
+
+The NVFP4 models utilize W4A4 Tensor Core MMA for prefill and A16 NVFP4 kernels for decode. When combined with Multi-Token Prediction (MTP5) and advanced KV caching:
 
 * **Generation Throughput**: **207 – 220.8 tok/s** (with ~80% MTP5 acceptance rate).
-* **Deep Context Throughput**: **160 – 194.2 tok/s** on massive prompts (tested up to 182k+ tokens).
-* **Context Capacity**: With FP8 KV compression, full **262,144-token context** fits in 32GB VRAM alongside the 19.4GB model weights with ~1.2 GiB headroom.
+* **Deep Context Throughput**: **160 – 194.2 tok/s** sustained throughput on massive deep-context prompts (tested up to 182k+ tokens).
+* **Quantized KV Cache Options**:
+  * **FP8 (`--kv-dtype fp8`)**: Full **262,144-token context** fits in 32GB VRAM alongside the 19.4GB model weights with ~1.2 GiB headroom.
+  * **NVFP4 (`--kv-dtype nvfp4`)**: Sub-4-bit FP4 KV cache compression for ultra-low memory footprint.
+  * **K8V4 (`--kv-dtype k8v4`)**: Asymmetric 8-bit Key + 4-bit Value hybrid quantization for high precision retention with half value memory.
 * **Host RAM Offloading**: 16GB DDR5 host KV cache offload (`--host-kv-mib 16384`) allows instant context switching across multi-turn sessions.
+* **Kernel & Engine Optimizations**:
+  * Optimized RMSNorm warp unrolling tuned for RTX 5090 (170 SMs).
+  * Fused MoE Gate/Up routing schedule.
+  * Value-aware prefix cache reuse and instant streaming cancellation.
+* **Unified Logging**: Fast, asynchronous operational logging powered by `spdlog` with dynamic weight-loading progress bars.
+
+---
 
 ## Requirements
 
@@ -31,11 +45,13 @@ The NVFP4 models utilize W4A4 Tensor Core MMA for prefill and A16 NVFP4 kernels 
 - CMake 3.28 or newer
 - Ninja build system
 
+---
+
 ## Installation (Pre-compiled)
 
 **Download the [Latest Release ZIP](../../releases/latest) from the Releases page.**
 
-The ZIP contains the fully compiled Windows binaries (`ninfer-serve.exe`, `ninfer.exe`) and optimized startup scripts.
+The ZIP contains the fully compiled Windows binaries (`ninfer-serve.exe`, `ninfer.exe`, `ninfer-perplexity.exe`) and optimized startup scripts.
 
 1. Extract the ZIP to a folder.
 2. Run `download_model.bat` to download the ~20GB `qwen3_8_27b_nvfp4.ninfer` model file into your folder (or download manually from [HuggingFace](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer/resolve/main/qwen3_8_27b_nvfp4.ninfer)).
@@ -164,5 +180,5 @@ This project is licensed under the [Apache License 2.0](LICENSE).
 This repository is a Windows MSVC adaptation of the upstream [Neroued/ninfer](https://github.com/Neroued/ninfer) project, originally authored by **Neroued** and licensed under the [Apache License 2.0](LICENSE).
 
 In accordance with Apache License 2.0 Section 4:
-- Modifications have been made to support native Windows MSVC compilation, C-runtime portability (random generation, thread-safe time handling, build database locks), FP8 KV cache and MTP5 execution profiles on RTX 5090 (`sm_120a`), and Windows dependency tooling.
-- All original attribution and copyright notices are retained. See the [NOTICE](NOTICE) file for third-party software details (`cpp-httplib`, `nlohmann/json`, `utf8proc`, and FFmpeg).
+- Modifications have been made to support native Windows MSVC compilation, C-runtime portability (random generation, thread-safe time handling, build database locks), FP8/NVFP4/K8V4 KV cache and MTP5 execution profiles on RTX 5090 (`sm_120a`), and Windows dependency tooling.
+- All original attribution and copyright notices are retained. See the [NOTICE](NOTICE) file for third-party software details (`cpp-httplib`, `nlohmann/json`, `utf8proc`, `spdlog`, and FFmpeg).
