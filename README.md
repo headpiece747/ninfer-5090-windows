@@ -1,4 +1,4 @@
-﻿# NInfer 5090 Windows
+# NInfer 5090 Windows
 
 > Windows port of NInfer. Selected checkpoints. Maximum single-GPU inference performance. **100% Native Windows MSVC (No WSL2 Required!).**
 
@@ -98,6 +98,26 @@ build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
   --host-kv-mib 16384 ^
   --spec mtp --draft-tokens 5 ^
   --lm-head-draft ^
+  --preserve-thinking ^
+  --default-thinking-budget 4096 ^
+  --pending-timeout-ms 600000
+```
+
+### Text Model with DFlash2 Speculative Decoding (Up to 356 tok/s Profile)
+If your model artifact includes DFlash2 companion weights, run `start_ninfer_dflash2.bat`:
+```cmd
+build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
+  --host 127.0.0.1 ^
+  --port 8080 ^
+  --max-context 262144 ^
+  --kv-capacity 262144 ^
+  --max-concurrency 1 ^
+  --kv-dtype fp8 ^
+  --prefill-chunk 1024 ^
+  --device-state-slots 1 ^
+  --host-state-slots 16 ^
+  --host-kv-mib 16384 ^
+  --spec dflash2 --draft-tokens 7 ^
   --preserve-thinking ^
   --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000

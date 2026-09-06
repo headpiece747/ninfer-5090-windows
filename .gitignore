@@ -7,3 +7,6 @@ ffmpeg/
 *.zip
 fix_api.py
 fix_cost.py
+
+__pycache__/
+*.pyc

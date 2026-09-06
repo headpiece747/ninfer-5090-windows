@@ -1,5 +1,5 @@
 @echo off
-echo Starting NInfer on RTX 5090 (Full 262k Context + FP8 + MTP5)
+echo Starting NInfer on RTX 5090 (Full 262k Context + FP8 + DFlash2 Profile)
 build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
   --host 127.0.0.1 ^
   --port 8080 ^
@@ -11,8 +11,7 @@ build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
   --device-state-slots 1 ^
   --host-state-slots 16 ^
   --host-kv-mib 16384 ^
-  --spec mtp --draft-tokens 5 ^
-  --lm-head-draft ^
+  --spec dflash2 --draft-tokens 7 ^
   --preserve-thinking ^
   --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000
