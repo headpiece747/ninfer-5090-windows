@@ -54,6 +54,28 @@ int main() {
                "--reasoning-effort", "medium"});
     failures += check(with_effort.thinking_budget == 8 && with_effort.reasoning_effort,
                       "thinking budget did not coexist with reasoning effort");
+    const ninfer::cli::Options dflash_vision =
+        parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--vision", "--spec", "dflash",
+               "--draft-tokens", "7"});
+    failures += check(dflash_vision.enable_vision &&
+                          dflash_vision.speculative.backend == ninfer::SpeculativeBackend::DFlash &&
+                          dflash_vision.speculative.draft_tokens == 7,
+                      "CLI did not preserve the combined DFlash and Vision startup features");
+    for (const auto k : {1U, 2U, 7U, 15U}) {
+        const auto dflash2 = parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--spec",
+                                    "dflash2", "--draft-tokens", std::to_string(k)});
+        failures += check(dflash2.speculative.backend == ninfer::SpeculativeBackend::DFlash2 &&
+                              dflash2.speculative.draft_tokens == k,
+                          "CLI did not preserve the DFlash2 draft count");
+    }
+    for (const auto k : {0U, 16U}) {
+        failures +=
+            check(rejects([&] {
+                      (void)parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--spec",
+                                   "dflash2", "--draft-tokens", std::to_string(k)});
+                  }),
+                  "CLI accepted an unsupported DFlash2 draft count");
+    }
     const ninfer::cli::Options nvfp4 =
         parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--kv-dtype", "nvfp4"});
     failures += check(nvfp4.kv_cache == ninfer::KvCacheStorage::Nvfp4Group16,
@@ -66,6 +88,17 @@ int main() {
     failures +=
         check(help.find("nvfp4") != std::string::npos && help.find("k8v4") != std::string::npos,
               "CLI help omits a production KV storage mode");
+    const ninfer::cli::Options logging =
+        parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--log-level", "debug"});
+    failures += check(logging.log_level == ninfer::product::LogLevel::Debug,
+                      "CLI log level was not parsed");
+    failures += check(help.find("--log-level") != std::string::npos,
+                      "CLI help omits the log-level control");
+    failures += check(rejects([] {
+                          (void)parse({"ninfer-cli", "model.ninfer", "--prompt", "hello",
+                                       "--log-level", "verbose"});
+                      }),
+                      "CLI accepted an unknown log level");
     failures +=
         check(rejects([] {
                   (void)parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--top-k", "21"});

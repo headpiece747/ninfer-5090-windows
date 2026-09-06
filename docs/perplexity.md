@@ -29,12 +29,12 @@ KV representations are `bf16`, `int8`, `fp8`, `nvfp4`, and `k8v4`.
 ```
 
 Run `./build/apps/ninfer-perplexity --help` for the complete command surface. The evaluator loads
-the model once, reads and tokenizes every selected stream before scoring, and writes structured
-startup plus closed preflight/scoring/stream phase records to stderr. Long scoring emits throttled
-progress between its begin and terminal records. Interactive weight loading uses the same transient
-progress line as the other applications. The final domain/overall table remains product output on
-stdout; the independent machine report is `report.json` under `profiles/perplexity/` unless
-`--output` supplies an empty directory.
+the model once, reads and tokenizes every selected stream before scoring, and writes readable
+startup, corpus, scoring, and per-stream summaries to stderr. Interactive weight loading and
+scoring use one transient progress line; redirected scoring emits persistent progress every ten
+seconds. `--log-level debug` exposes internal startup and stream-begin detail. The final
+domain/overall table remains product output on stdout; the independent full-precision machine
+report is `report.json` under `profiles/perplexity/` unless `--output` supplies an empty directory.
 
 For KV-format comparisons, the recommended long-context profile is the full corpus with
 `--context 65536 --stride 32768` and without `--quick`.

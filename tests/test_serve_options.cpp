@@ -118,12 +118,21 @@ int main() {
     failures += check(dflash.speculative.proposal_head == ninfer::ProposalHead::Optimized,
                       "--lm-head-draft did not select the optimized proposal head");
 
-    bool dflash_vision_rejected = false;
-    try {
-        (void)parse({"ninfer-serve", "model.ninfer", "--spec", "dflash", "--draft-tokens", "15",
-                     "--vision"});
-    } catch (const std::invalid_argument&) { dflash_vision_rejected = true; }
-    failures += check(dflash_vision_rejected, "DFlash and Vision were accepted together");
+    for (const auto k : {1U, 2U, 7U, 15U}) {
+        const auto options = parse({"ninfer-serve", "model.ninfer", "--spec", "dflash2",
+                                    "--draft-tokens", std::to_string(k), "--lm-head-draft"});
+        failures += check(options.speculative.backend == ninfer::SpeculativeBackend::DFlash2 &&
+                              options.speculative.draft_tokens == k &&
+                              options.speculative.proposal_head == ninfer::ProposalHead::Optimized,
+                          "serve options did not preserve DFlash2 configuration");
+    }
+
+    const ServeOptions dflash_vision = parse(
+        {"ninfer-serve", "model.ninfer", "--spec", "dflash", "--draft-tokens", "15", "--vision"});
+    failures += check(dflash_vision.enable_vision &&
+                          dflash_vision.speculative.backend == ninfer::SpeculativeBackend::DFlash &&
+                          dflash_vision.speculative.draft_tokens == 15,
+                      "serve options did not preserve combined DFlash and Vision features");
 
     bool implicit_backend_rejected = false;
     try {
@@ -178,6 +187,10 @@ int main() {
                           configured.media_live_bytes == (512ULL << 20) &&
                           configured.media_preprocess_threads == 6,
                       "media preparation limits did not reach serving options");
+
+    const ServeOptions logging = parse({"ninfer-serve", "model.ninfer", "--log-level", "debug"});
+    failures += check(logging.log_level == ninfer::product::LogLevel::Debug,
+                      "log level did not reach serving options");
 
     const ServeOptions context_cache =
         parse({"ninfer-serve", "model.ninfer", "--device-state-slots", "3", "--host-state-slots",
@@ -299,6 +312,8 @@ int main() {
     failures +=
         check(serve_usage_text("ninfer-serve").find("--log-stats-interval-ms") != std::string::npos,
               "serve help omits --log-stats-interval-ms");
+    failures += check(serve_usage_text("ninfer-serve").find("--log-level") != std::string::npos,
+                      "serve help omits the log-level control");
     failures += check(serve_usage_text("ninfer-serve").find("--media-preprocess-threads") !=
                           std::string::npos,
                       "serve help omits media preparation controls");

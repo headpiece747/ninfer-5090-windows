@@ -1,7 +1,9 @@
 #include "options.h"
 #include "product/logging/logging.h"
+#include "product/logging/pretty_format.h"
 #include "product/logging/startup_log.h"
 #include "product/prompt_input/prompt_input.h"
+#include "product/speculative_options.h"
 
 #include "ninfer/engine.h"
 
@@ -18,42 +20,22 @@
 namespace {
 
 std::string format_seconds(double seconds) {
-    std::ostringstream output;
-    output << std::fixed << std::setprecision(3) << seconds << " s";
-    return output.str();
+    return ninfer::product::format_pretty_duration(seconds);
 }
 
 std::string format_rate(double tokens, double seconds) {
     if (tokens <= 0.0 || seconds <= 0.0) { return "n/a"; }
-    std::ostringstream output;
-    output << std::fixed << std::setprecision(2) << tokens / seconds << " tok/s";
-    return output.str();
+    return ninfer::product::format_pretty_rate(tokens / seconds, "tok");
 }
 
 std::string format_percent(std::uint64_t numerator, std::uint64_t denominator) {
     if (denominator == 0) { return "n/a"; }
-    std::ostringstream output;
-    output << std::fixed << std::setprecision(2)
-           << 100.0 * static_cast<double>(numerator) / static_cast<double>(denominator) << '%';
-    return output.str();
+    return ninfer::product::format_pretty_percent(static_cast<double>(numerator) /
+                                                  static_cast<double>(denominator));
 }
 
 std::string format_bytes(std::uint64_t bytes) {
-    constexpr double kKiB = 1024.0;
-    constexpr double kMiB = 1024.0 * kKiB;
-    constexpr double kGiB = 1024.0 * kMiB;
-    std::ostringstream output;
-    output << std::fixed << std::setprecision(2);
-    if (bytes >= static_cast<std::uint64_t>(kGiB)) {
-        output << static_cast<double>(bytes) / kGiB << " GiB";
-    } else if (bytes >= static_cast<std::uint64_t>(kMiB)) {
-        output << static_cast<double>(bytes) / kMiB << " MiB";
-    } else if (bytes >= static_cast<std::uint64_t>(kKiB)) {
-        output << static_cast<double>(bytes) / kKiB << " KiB";
-    } else {
-        output << bytes << " B";
-    }
-    return output.str();
+    return ninfer::product::format_pretty_bytes(bytes);
 }
 
 std::string format_arena_used(const ninfer::ArenaMemorySummary& arena) {
@@ -124,6 +106,10 @@ void print_metric(std::string_view label, std::string_view value) {
 class StreamingSink final : public ninfer::OutputSink {
 public:
     void start(ninfer::GenerationStart) override {}
+
+    void progress(ninfer::PromptProgress) override {}
+
+    void timing(ninfer::GenerationTimingObservation) override {}
 
     void publish(ninfer::OutputDelta delta) override {
         std::ostream& output =
@@ -213,8 +199,7 @@ void print_generation_summary(const ninfer::GenerationResult& result,
 
     const ninfer::SpeculativeStats& speculative = result.speculative;
     if (speculative.enabled) {
-        const std::string backend =
-            speculative.backend == ninfer::SpeculativeBackend::DFlash ? "dflash" : "mtp";
+        const std::string backend = ninfer::product::speculative_backend_name(speculative.backend);
         print_metric(backend + " draft window", std::to_string(speculative.draft_window));
         print_metric(backend + " rounds", std::to_string(speculative.rounds));
         print_metric(backend + " fallback steps", std::to_string(speculative.fallback_steps));
@@ -257,7 +242,10 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    ninfer::product::LoggingRuntime logging({.logger_name = "ninfer"});
+    ninfer::product::LoggingRuntime logging(
+        {.logger_name  = "ninfer",
+         .level        = cli.log_level,
+         .presentation = ninfer::product::LogPresentation::Tool});
     const std::shared_ptr<spdlog::logger> logger = logging.logger();
     ninfer::product::StartupLogRenderer startup_log(logging);
 
@@ -326,8 +314,7 @@ int main(int argc, char** argv) {
         print_generation_summary(result, sampling, engine.memory_summary());
         return 0;
     } catch (const std::exception& error) {
-        logger->error("application status=failed detail={}",
-                      ninfer::product::quote_log_value(error.what()));
+        logger->error("{}", ninfer::product::format_pretty_text(error.what()));
         return 1;
     }
 }

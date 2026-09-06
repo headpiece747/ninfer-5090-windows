@@ -17,22 +17,25 @@ Our primary target is:
 
 ---
 
-## Performance & Features (v1.0.4)
+## Performance & Features (v1.0.5)
 
-The NVFP4 models utilize W4A4 Tensor Core MMA for prefill and A16 NVFP4 kernels for decode. When combined with Multi-Token Prediction (MTP5) and advanced KV caching:
+The NVFP4 models utilize W4A4 Tensor Core MMA for prefill and A16 NVFP4 kernels for decode. When combined with speculative decoding (MTP5 / DFlash2) and advanced KV caching:
 
-* **Generation Throughput**: **207 – 220.8 tok/s** (with ~80% MTP5 acceptance rate).
-* **Deep Context Throughput**: **160 – 194.2 tok/s** sustained throughput on massive deep-context prompts (tested up to 182k+ tokens).
+* **Generation Throughput**:
+  * **MTP5**: **207 – 220.8 tok/s** (~80% acceptance rate).
+  * **DFlash2 (`--spec dflash2 --draft-tokens 7`)**: **265.5 tok/s** on Code, **321.1 tok/s** on Math/Reasoning, and **356.8 tok/s** on Structured JSON.
+* **Deep Context Throughput**: **160 – 194.2 tok/s** sustained throughput on massive deep-context prompts (tested up to 200k+ active tokens).
 * **Quantized KV Cache Options**:
   * **FP8 (`--kv-dtype fp8`)**: Full **262,144-token context** fits in 32GB VRAM alongside the 19.4GB model weights with ~1.2 GiB headroom.
   * **NVFP4 (`--kv-dtype nvfp4`)**: Sub-4-bit FP4 KV cache compression for ultra-low memory footprint.
   * **K8V4 (`--kv-dtype k8v4`)**: Asymmetric 8-bit Key + 4-bit Value hybrid quantization for high precision retention with half value memory.
 * **Host RAM Offloading**: 16GB DDR5 host KV cache offload (`--host-kv-mib 16384`) allows instant context switching across multi-turn sessions.
 * **Kernel & Engine Optimizations**:
-  * Optimized RMSNorm warp unrolling tuned for RTX 5090 (170 SMs).
-  * Fused MoE Gate/Up routing schedule.
+  * **Sparse MoE**: One CTA per token in small-T S2 with warp merge instead of 8 dependent rounds.
+  * **RMSNorm Occupancy**: Warp unrolling tuned for RTX 5090 (170 SMs).
+  * **Exact Agent Prefix Reuse**: Prevents token divergence across multi-turn coding agent tool execution loops (OpenCode Desktop, Cline, Cursor).
   * Value-aware prefix cache reuse and instant streaming cancellation.
-* **Unified Logging**: Fast, asynchronous operational logging powered by `spdlog` with dynamic weight-loading progress bars.
+* **Unified Logging**: Fast, asynchronous operational logging powered by `spdlog` with dynamic weight-loading progress bars and llama.cpp-style request timing.
 
 ---
 
@@ -96,6 +99,7 @@ build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
   --spec mtp --draft-tokens 5 ^
   --lm-head-draft ^
   --preserve-thinking ^
+  --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000
 ```
 
@@ -117,6 +121,7 @@ build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
   --spec mtp --draft-tokens 5 ^
   --lm-head-draft ^
   --preserve-thinking ^
+  --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000
 ```
 
@@ -165,11 +170,6 @@ Edit `~/.config/opencode/opencode.json`:
 }
 ```
 
-### Key Recommendations:
-* **Temperature**: Use `0.6` for precise code construction (e.g. Rust/Tauri) and `1.0` for high-level design planning.
-* **Context Buffer**: A `20480` token compaction buffer ensures room for large outputs without early truncation.
-* **Ignore Bloat**: Add `.opencodeignore` (`node_modules/`, `target/`, `dist/`, `.git/`) to prevent irrelevant files from consuming VRAM.
-
 ---
 
 ## License & Attribution
@@ -180,5 +180,5 @@ This project is licensed under the [Apache License 2.0](LICENSE).
 This repository is a Windows MSVC adaptation of the upstream [Neroued/ninfer](https://github.com/Neroued/ninfer) project, originally authored by **Neroued** and licensed under the [Apache License 2.0](LICENSE).
 
 In accordance with Apache License 2.0 Section 4:
-- Modifications have been made to support native Windows MSVC compilation, C-runtime portability (random generation, thread-safe time handling, build database locks), FP8/NVFP4/K8V4 KV cache and MTP5 execution profiles on RTX 5090 (`sm_120a`), and Windows dependency tooling.
+- Modifications have been made to support native Windows MSVC compilation, C-runtime portability (random generation, thread-safe time handling, build database locks), FP8/NVFP4/K8V4 KV cache and MTP5/DFlash2 execution profiles on RTX 5090 (`sm_120a`), and Windows dependency tooling.
 - All original attribution and copyright notices are retained. See the [NOTICE](NOTICE) file for third-party software details (`cpp-httplib`, `nlohmann/json`, `utf8proc`, `spdlog`, and FFmpeg).

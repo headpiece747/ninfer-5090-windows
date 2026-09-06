@@ -283,6 +283,19 @@ int main() {
     };
     const RequestLogContext context =
         make_request_log_context(7, "openai_chat_completions", request, metadata, prepared);
+    const OperationalRecord pretty_start = render_request_start(context);
+    failures += check(
+        pretty_start.message ==
+            "req#7 started | openai-chat non-stream | 2 messages | max output 4,096 | thinking "
+            "xhigh, budget 256 | media 1, prepared 120 ms | preserve thinking",
+        "pretty request-start record mismatch");
+    RequestLogContext default_thinking = context;
+    default_thinking.resolved_reasoning_effort.reset();
+    default_thinking.thinking_budget.reset();
+    const std::string default_thinking_start = render_request_start(default_thinking).message;
+    failures += check(default_thinking_start.find("thinking on") != std::string::npos &&
+                          default_thinking_start.find("unresolved") == std::string::npos,
+                      "default thinking state leaks an internal resolution detail");
     const Json started = Json::parse(format_request_start_json("serve-test", 2000, context));
     failures +=
         check(started.at("request").at("request_id") == 7, "request id missing from start record");
@@ -335,14 +348,13 @@ int main() {
                           rejected.at("error").at("message") == preparation_error.message,
                       "preparation rejection API error missing");
     const OperationalRecord client_rejection = render_request_rejected(rejected_context);
-    failures +=
-        check(client_rejection.severity == OperationalSeverity::Info &&
-                  client_rejection.message.find("status=rejected") != std::string::npos &&
-                  client_rejection.message.find("error_code=\"context_length_exceeded\"") !=
-                      std::string::npos &&
-                  client_rejection.message.find("sentinel-client-value") == std::string::npos &&
-                  client_rejection.message.find('\n') == std::string::npos,
-              "operational rejection severity or client-data policy mismatch");
+    failures += check(
+        client_rejection.severity == OperationalSeverity::Info &&
+            client_rejection.message.find("req#8 rejected during prepare") != std::string::npos &&
+            client_rejection.message.find("context length exceeded") != std::string::npos &&
+            client_rejection.message.find("sentinel-client-value") == std::string::npos &&
+            client_rejection.message.find('\n') == std::string::npos,
+        "operational rejection severity or client-data policy mismatch");
     RequestRejectionLogContext overload_context = rejected_context;
     overload_context.error.status               = 429;
     overload_context.error.code                 = "server_overloaded";
@@ -414,6 +426,13 @@ int main() {
                           done.at("result").at("thinking_control_tokens") == 19 &&
                           done.at("result").at("thinking_control_applied") == true,
                       "thinking-control result accounting missing");
+    failures +=
+        check(done.at("result").at("tool_call_parse").at("marker_seen") == false &&
+                  done.at("result").at("tool_call_parse").at("structured_call_count") == 0 &&
+                  done.at("result").at("tool_call_parse").at("empty_arguments_omitted") == 0 &&
+                  done.at("result").at("tool_call_parse").at("schema_mismatch_arguments") == 0 &&
+                  done.at("result").at("tool_call_parse").at("fallback_reason") == "none",
+              "default tool-call parse diagnostics missing");
     outcome.metrics.prefix_reuse_path = ninfer::PrefixReusePath::PrivateResponseReplay;
     const Json response_restore =
         Json::parse(format_request_done_json("serve-test", 3001, context, outcome));
@@ -448,6 +467,61 @@ int main() {
             done.at("engine_timing").at("units").at("prefill") == 4,
         "request Engine timing exposure is incomplete");
 
+    const OperationalRecord pretty_done = render_request_done(context, outcome);
+    failures += check(
+        pretty_done.message ==
+            "req#7 done | openai-chat | output limit | prompt 401 | output 1,024 | cache 101 "
+            "(25.2%, response replay) | TTFT 358 ms | total 5.7s | prefill 1.28k tok/s | "
+            "decode 191.4 tok/s | mtp accepted 720/900 (80.0%) | thinking 256/256, control 19",
+        "pretty request-done record mismatch");
+
+    GenerationOutcome normalized_tool_outcome = outcome;
+    normalized_tool_outcome.tool_calls.push_back(
+        ninfer::GeneratedToolCall{.name = "Edit", .arguments_json = R"({"file_path":"x"})"});
+    normalized_tool_outcome.tool_call_parse = {
+        .marker_seen               = true,
+        .structured_call_count     = 1,
+        .empty_arguments_omitted   = 1,
+        .schema_mismatch_arguments = 2,
+        .fallback_reason           = ninfer::ToolCallParseFallbackReason::None,
+    };
+    const Json normalized_tool_done =
+        Json::parse(format_request_done_json("serve-test", 3002, context, normalized_tool_outcome));
+    failures += check(
+        normalized_tool_done.at("result").at("tool_call_count") == 1 &&
+            normalized_tool_done.at("result").at("tool_call_parse").at("structured_call_count") ==
+                1 &&
+            normalized_tool_done.at("result").at("tool_call_parse").at("empty_arguments_omitted") ==
+                1 &&
+            normalized_tool_done.at("result")
+                    .at("tool_call_parse")
+                    .at("schema_mismatch_arguments") == 2 &&
+            normalized_tool_done.at("result").at("tool_call_parse").at("fallback_reason") ==
+                "none" &&
+            !render_tool_call_fallback(context, normalized_tool_outcome),
+        "successful tool-call normalization diagnostics are incomplete or noisy");
+
+    GenerationOutcome fallback_outcome = outcome;
+    fallback_outcome.tool_call_parse   = {
+          .marker_seen               = true,
+          .structured_call_count     = 0,
+          .empty_arguments_omitted   = 0,
+          .schema_mismatch_arguments = 0,
+          .fallback_reason           = ninfer::ToolCallParseFallbackReason::DuplicateParameter,
+    };
+    const Json fallback_done =
+        Json::parse(format_request_done_json("serve-test", 3003, context, fallback_outcome));
+    failures += check(fallback_done.at("result").at("tool_call_parse").at("marker_seen") &&
+                          fallback_done.at("result").at("tool_call_parse").at("fallback_reason") ==
+                              "duplicate_parameter",
+                      "tool-call text fallback diagnostics missing from JSONL");
+    const std::optional<OperationalRecord> fallback_warning =
+        render_tool_call_fallback(context, fallback_outcome);
+    failures += check(
+        fallback_warning && fallback_warning->severity == OperationalSeverity::Warning &&
+            fallback_warning->message == "req#7 tool markup returned as text | duplicate parameter",
+        "tool-call text fallback warning is absent or exposes raw content");
+
     const Json error =
         Json::parse(format_request_error_json("serve-test", 4000, context, "generation failed"));
     failures += check(error.at("event") == "request_error", "request error event mismatch");
@@ -464,7 +538,8 @@ int main() {
     const OperationalRecord disconnected = render_request_failure(
         context, make_client_disconnected_failure(RequestFailurePhase::Transport));
     failures += check(disconnected.severity == OperationalSeverity::Info &&
-                          disconnected.message.find("status=cancelled") != std::string::npos,
+                          disconnected.message.find("req#7 cancelled during transport") !=
+                              std::string::npos,
                       "client disconnect is not an informational cancellation");
 
     ThroughputReport throughput;
@@ -515,6 +590,29 @@ int main() {
                                .context_progress_invocations  = 4,
                                .stats_publication_invocations = 5,
     };
+    const std::string pretty_throughput = render_throughput(throughput).message;
+    failures +=
+        check(pretty_throughput ==
+                  "throughput | 2.0s | prefill 50.0 tok/s (100 tok) | decode 20.0 tok/s (40 tok) | "
+                  "running 2 (prefill 1, decode-ready 1) | waiting 3 | materializing 1 | "
+                  "capture-pending 1 | terminal-pending 1 | batch 1.80 | host 0.8% (15.0 ms)",
+              "pretty throughput record mismatch");
+    ThroughputReport single_decode;
+    single_decode.interval_seconds                     = 5.000168;
+    single_decode.committed_decode_tokens              = 1025;
+    single_decode.decode_rounds                        = 1025;
+    single_decode.decode_row_rounds                    = 1025;
+    single_decode.current.running_requests             = 1;
+    single_decode.current.decode_ready_requests        = 1;
+    single_decode.current.host_work.engine_boundary_ns = 69'241'000;
+    const std::string single_decode_pretty             = render_throughput(single_decode).message;
+    failures += check(
+        single_decode_pretty ==
+                "throughput | 5.0s | decode 205.0 tok/s (1,025 tok) | running 1 (decode-ready 1) | "
+                "batch 1.00 | host 1.4% (69.2 ms)" &&
+            single_decode_pretty.find("prefill") == std::string::npos &&
+            single_decode_pretty.find("waiting") == std::string::npos,
+        "single-request pretty throughput is noisy or incomplete");
     const Json throughput_json =
         Json::parse(format_throughput_json("serve-test", 5000, throughput));
     failures += check(throughput_json.at("event") == "throughput", "throughput event mismatch");

@@ -208,6 +208,8 @@ struct ResourceCandidateState {
     // target can release Host replicas instead of being mistaken for a structurally invalid node.
     std::size_t blocked_host_allocation_bytes = 0;
     detail::PhysicalDemand demand;
+    // Resources released by consuming this private owner alone. Shared aliases are intentionally
+    // absent; complete pressure targets settle their joint reference graph separately.
     detail::PhysicalResources source_resources;
     NINFER_QWEN36_RUNTIME_NS::ReusePath reuse = NINFER_QWEN36_RUNTIME_NS::ReusePath::Root;
     std::uint32_t reuse_base                  = 0;
@@ -427,7 +429,6 @@ struct SequenceState {
     std::array<TokenId, qwen3_6::kMtpDecodeMaximumDrafts> mtp_drafts{};
     std::uint32_t mtp_draft_count = 0;
     bool tail_hidden_valid        = false;
-    bool state_source_retained    = false;
     bool endpoint_valid           = false;
     RewriteCheckpoint rewrite_checkpoint;
     std::vector<LongAnchorCheckpoint> long_anchors;
@@ -596,6 +597,7 @@ public:
     [[nodiscard]] runtime::ExecutionTiming
     append_forced_tokens(std::span<const SequenceHandle> sequences,
                          std::span<const TokenId> row_major_tokens, std::uint32_t row_stride,
+                         std::span<const std::optional<std::uint32_t>> prefix_execution_splits,
                          runtime::ExecutionTiming* failed_timing);
     [[nodiscard]] CommitResult commit(PendingBatch&& pending,
                                       std::span<const runtime::CommitDecision> decisions,
@@ -1005,6 +1007,7 @@ private:
     [[nodiscard]] runtime::ExecutionTiming resolve_pending_raw(
         std::span<const std::uint32_t> lanes, std::span<const std::uint32_t> accepted_tokens,
         std::span<const std::uint8_t> terminal, std::span<const std::uint8_t> cancelled,
+        std::span<const std::optional<std::uint32_t>> prefix_execution_splits,
         runtime::ExecutionTiming* failed_timing);
     [[nodiscard]] bool valid_sequence(SequenceHandle handle) const noexcept;
     [[nodiscard]] bool valid_continuation(const ContinuationHandle& handle) const noexcept;
@@ -1014,9 +1017,12 @@ private:
                                             std::uint64_t generation) const noexcept;
     [[nodiscard]] bool has_unsettled_state_fork() const noexcept;
     [[nodiscard]] bool valid_pending(const PendingBatch& pending) const noexcept;
-    [[nodiscard]] detail::PhysicalResources resident_resources(const SequenceState& sequence) const;
+    // Per-owner resources are intentionally distinct from global physical occupancy: an aliased
+    // allocation contributes only when removing this owner would release it.
     [[nodiscard]] detail::PhysicalResources
-    resident_resources(const SharedPrefixState& shared) const;
+    owner_exclusive_resources(const SequenceState& sequence) const;
+    [[nodiscard]] detail::PhysicalResources
+    owner_exclusive_resources(const SharedPrefixState& shared) const;
     [[nodiscard]] detail::PhysicalResources physical_occupancy() const noexcept;
     [[nodiscard]] bool physical_peak_fits(detail::PhysicalResources peak) const noexcept;
     [[nodiscard]] StateImageHandle
@@ -1146,7 +1152,8 @@ private:
     void clear_lane_best_effort(SequenceState& sequence, RequestControl& request) noexcept;
     void ordered_reset(SequenceState& sequence);
     [[nodiscard]] StateImageSelectors state_selectors(const SequenceState& sequence) const;
-    [[nodiscard]] std::uint32_t state_footprint(const SequenceState& sequence) const noexcept;
+    [[nodiscard]] detail::PhysicalResources
+    sequence_exclusive_state_resources(const SequenceState& sequence) const;
     [[nodiscard]] std::uint32_t owned_checkpoint_references(const SequenceState& sequence,
                                                             StateImageHandle state) const noexcept;
     [[nodiscard]] bool state_exclusive_to_sequence(const SequenceState& sequence,
@@ -1195,9 +1202,14 @@ private:
     void set_device_i32(Tensor& tensor, std::int32_t value);
     void copy_tail(SequenceState& sequence, const Tensor& source);
     void copy_round_token();
+    void
+    commit_generated_prefix_identity(SequenceState& sequence, std::uint32_t base_ledger_frontier,
+                                     std::span<const TokenId> accepted_tokens,
+                                     std::optional<std::uint32_t> prefix_execution_split_after);
     [[nodiscard]] runtime::ExecutionTiming
     resolve_non_speculative_pending(SequenceState& sequence, RequestControl& request,
                                     std::uint32_t accepted_tokens, bool terminal,
+                                    std::optional<std::uint32_t> prefix_execution_split_after,
                                     runtime::ExecutionTiming* failed_timing);
     [[nodiscard]] runtime::PrefillStepResult
     advance_prefill(SequenceState& sequence, RequestControl& request,
@@ -1223,7 +1235,7 @@ private:
                                         std::uint32_t backend_pages);
     void bind_sequence_kv(SequenceState& sequence);
     void unbind_sequence_kv(SequenceState& sequence) noexcept;
-    void materialize_sequence_kv(SequenceState& sequence, std::uint32_t main_tokens,
+    void ensure_sequence_kv_mapped(SequenceState& sequence, std::uint32_t main_tokens,
                                  std::uint32_t backend_tokens = 0);
     void trim_sequence_kv(SequenceState& sequence, std::uint32_t main_tokens,
                           std::uint32_t backend_tokens = 0);
