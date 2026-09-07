@@ -192,6 +192,79 @@ Edit `~/.config/opencode/opencode.json`:
 
 ---
 
+## Client Compatibility & Known API Limitations
+
+NInfer is strictly tuned for raw single-GPU autoregressive throughput on the RTX 5090 (`sm_120a`). To maximize performance and keep kernel execution paths minimal, its HTTP server enforces strict OpenAI and Anthropic API validation and intentionally omits non-generation endpoints.
+
+### Summary Compatibility Matrix
+
+| Category / Feature | NInfer Support | Status with Common Clients |
+| :--- | :--- | :--- |
+| **OpenAI Chat Completions (`/v1/chat/completions`)** |  Full Support | OpenCode Desktop, Aider, Cline, Chat UIs (OpenAI mode). |
+| **Anthropic Messages (`/v1/messages`)** |  Supported (Text & Images) | OpenCode Desktop, standard Anthropic chat clients. |
+| **Inline Autocomplete (`/v1/completions`)** | ❌ **Not Implemented (404)** | Continue.dev tab completion, Cursor ghost-text, Tabby. |
+| **Embeddings (`/v1/embeddings`)** | ❌ **Not Implemented (404)** | RAG tools (AnythingLLM, Dify, Obsidian Smart Connections). |
+| **JSON Mode (`response_format: json_object`)** | ❌ **Not Supported (400)** | Instructor, Pydantic structured output, LangChain structured output. |
+| **Constrained Decoding (`grammar`, `guided_*`)** | ❌ **Not Supported (400)** | Outlines, Guidance, lm-format-enforcer. |
+| **Forced Tools (`tool_choice: "required"`)** | ❌ **Not Supported (400)** | Agent frameworks forcing tool execution (CrewAI, AutoGen). |
+| **Sequential Tools (`parallel_tool_calls: false`)** | ❌ **Not Supported (400)** | Agents disabling parallel tool execution. |
+| **Logprobs & Logit Bias (`logprobs`, `logit_bias`)** | ❌ **Not Supported (400)** | lm-eval, perplexity runners, SillyTavern token bans. |
+| **Multiple Samples (`n > 1`)** | ❌ **Not Supported (400)** | Self-consistency / tree-of-thought multi-candidate sampling. |
+| **Browser Web UIs (CORS)** | ⚠️ Requires `--cors` | Open WebUI, LibreChat, LobeChat (fail without `--cors`). |
+| **Anthropic Server Tools / Native Documents** | ❌ **Not Supported (400)** | Claude Code CLI (`claude`), Anthropic PDF document blocks. |
+
+---
+
+### Known Breakages & How to Work Around Them
+
+#### 1. Tab Autocomplete & Inline Code Suggestions (Fails: 404 Not Found)
+* **Affected Tools**: **Continue.dev (Tab Autocomplete)**, **Cursor (Inline Autocomplete)**, **Tabby**, **Supermaven/Copilot proxies**.
+* **Reason**: Inline code completion relies on raw Fill-In-the-Middle (FIM) via the legacy `/v1/completions` endpoint (`prompt` with `<|fim_prefix|>...<|fim_suffix|>`). NInfer only implements `/v1/chat/completions`.
+* **Workaround**: Use Continue or Cursor for chat/agent tasks (via `/v1/chat/completions`), but route inline tab completions to a server that supports `/v1/completions` (such as `llama.cpp` or Ollama).
+
+#### 2. RAG, Vector Search, & Knowledge Bases (Fails: 404 Not Found)
+* **Affected Tools**: **AnythingLLM**, **Dify**, **Flowise**, **Obsidian Smart Connections**, **PrivateGPT**, **LangChain/LlamaIndex vector stores**.
+* **Reason**: Document ingestion, chunking, and semantic search require `/v1/embeddings`. NInfer is an autoregressive generative model engine and does not provide an embedding endpoint.
+* **Workaround**: Configure the application's embedding engine to use a local embedding server (e.g. Ollama running `nomic-embed-text` or Hugging Face Text Embeddings Inference), while using NInfer as the chat/generation LLM.
+
+#### 3. Structured Output & Schema Enforcement (Fails: 400 Bad Request)
+* **Affected Tools**: **Instructor** (`instructor.from_openai`), **Outlines**, **Guidance**, **LangChain/LlamaIndex** (`with_structured_output`), **Aider** (with `--openai-json-object` / JSON mode), **OpenAI SDK** (`beta.chat.completions.parse`).
+* **Reason**: NInfer strictly validates request parameters in `src/serve/openai_chat_request.cpp`:
+  * `response_format` other than `{"type": "text"}` returns `400 response_format_not_supported`.
+  * Passing `grammar`, `guided_json`, `guided_regex`, `guided_choice`, or `structured_outputs` returns `400 constrained_decoding_not_supported`.
+* **Workaround**: Direct the model to output JSON via plain text prompts and system instructions rather than using strict API-level schema constraints.
+
+#### 4. Advanced Agent Frameworks & Tool Orchestrators (Fails: 400 Bad Request)
+* **Affected Tools**: **CrewAI**, **AutoGen**, **LangGraph**, **OpenAI Agents SDK / LiteLLM**.
+* **Reason**:
+  * **Forced Tools**: Forcing tool execution via `tool_choice: "required"` or `tool_choice: {"type": "function", ...}` returns `400 tool_choice_not_supported` (only `"auto"` or `"none"` is supported).
+  * **Sequential Tool Execution**: Setting `parallel_tool_calls: false` returns `400 parallel_tool_calls_not_supported`.
+  * **Legacy Functions**: Passing legacy `functions` / `function_call` returns `400 legacy_tools_not_supported`.
+* **Workaround**: Configure agent frameworks to use `tool_choice: "auto"` and enable parallel tool calls (`parallel_tool_calls: true`).
+
+#### 5. Web-Based Chat Frontends & Web UIs (CORS & Ollama Protocol)
+* **Affected Tools**: **Open WebUI**, **LibreChat**, **LobeChat**, **Chatbot UI**, **NextChat**.
+* **Reason**:
+  * If NInfer is launched without the `--cors` flag, web browser security policies block cross-origin requests (`http://localhost:3000`), failing preflight `OPTIONS` with `404`.
+  * If Open WebUI is connected using its native "Ollama" provider instead of "OpenAI", it fails because NInfer does not implement Ollama's `/api/tags` or `/api/generate`.
+* **Workaround**: Always include the `--cors` flag in your startup command (included by default in `start_ninfer_5090.bat`) and connect frontends using their **OpenAI-compatible** provider settings.
+
+#### 6. LLM Evaluation & Benchmarking Suites (Fails: 400 Bad Request)
+* **Affected Tools**: **EleutherAI LM-Evaluation-Harness (`lm-eval`)**, **Perplexity evaluators**, **SillyTavern** (with token penalty rules).
+* **Reason**:
+  * Benchmarking suites requesting `logprobs: true` or `top_logprobs > 0` return `400 logprobs_not_supported`.
+  * Passing non-zero `logit_bias` (e.g. token ban lists) returns `400 logit_bias_not_supported`.
+  * Requesting multiple candidate completions per prompt (`n > 1`) returns `400 n_not_supported`.
+  * Specifying non-neutral `repetition_penalty != 1.0` returns `400 repetition_penalty_not_supported`.
+
+#### 7. Anthropic CLI Agents & Native PDF Blocks (Fails: 400 Bad Request)
+* **Affected Tools**: **Claude Code CLI (`claude`)**, PDF document upload clients.
+* **Reason**:
+  * While NInfer exposes `/v1/messages`, it rejects server execution tools (such as Claude Code's `server_tool_use` bash executor) with `400 server tool content blocks require an executor that NInfer does not provide`.
+  * Passing Anthropic `document` blocks (PDF uploads) returns `400 document blocks require document and citation semantics that NInfer does not provide`.
+
+---
+
 ## License & Attribution
 
 This project is licensed under the [Apache License 2.0](LICENSE).
