@@ -484,7 +484,27 @@ void HttpServer::handle_models(const httplib::Request&, httplib::Response& res) 
 
 void HttpServer::handle_model(const httplib::Request& req, httplib::Response& res) const {
     const std::string id = req.matches.size() > 1 ? req.matches[1].str() : std::string();
-    if (id != public_model_id_) {
+    bool valid = (id == public_model_id_);
+    if (!valid && !id.empty()) {
+        constexpr std::string_view kKnownAliases[] = {
+            "qwen3.8-27b",
+            "qwen3.8-27b-dflash2",
+            "qwen3.8-27b-vision",
+            "qwen3.8-27b-dflash2-vision",
+            "qwen3.8",
+            "default"
+        };
+        for (const auto alias : kKnownAliases) {
+            if (id == alias) {
+                valid = true;
+                break;
+            }
+        }
+        if (!valid && (id.rfind("qwen", 0) == 0 || id.rfind("ninfer", 0) == 0 || id.rfind("local", 0) == 0)) {
+            valid = true;
+        }
+    }
+    if (!valid) {
         ApiError error;
         error.status  = 404;
         error.type    = "invalid_request_error";
@@ -493,7 +513,10 @@ void HttpServer::handle_model(const httplib::Request& req, httplib::Response& re
         write_openai_error(res, error);
         return;
     }
-    res.set_content(make_model_object(public_model_id_, unix_time_now(), options_.max_context),
+    const std::uint32_t ctx = (id.find("vision") != std::string::npos)
+                                  ? std::min(options_.max_context, 131072u)
+                                  : options_.max_context;
+    res.set_content(make_model_object(id, unix_time_now(), ctx),
                     "application/json");
 }
 

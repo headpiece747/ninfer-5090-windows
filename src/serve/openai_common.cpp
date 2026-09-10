@@ -180,23 +180,48 @@ void apply_openai_prompt_cache_policy(GenerationRequest& request, OpenAIPromptCa
 std::string make_models_list(const std::string& model_id, std::int64_t created,
                              std::uint32_t max_model_len) {
     // vLLM/llama.cpp-compatible discovery metadata for the configured per-request context limit.
-    const Json payload = {{"object", "list"},
-                          {"data", Json::array({Json{{"id", model_id},
-                                                     {"object", "model"},
-                                                     {"created", created},
-                                                     {"owned_by", "ninfer"},
-                                                     {"max_model_len", max_model_len}}})}};
+    Json models = Json::array({
+        Json{{"id", model_id},
+             {"object", "model"},
+             {"created", created},
+             {"owned_by", "ninfer"},
+             {"max_model_len", max_model_len}}
+    });
+
+    constexpr std::string_view kVariants[] = {
+        "qwen3.8-27b",
+        "qwen3.8-27b-dflash2",
+        "qwen3.8-27b-vision",
+        "qwen3.8-27b-dflash2-vision"
+    };
+    for (const auto variant : kVariants) {
+        if (variant != model_id) {
+            const std::uint32_t ctx = (variant.find("vision") != std::string_view::npos)
+                                          ? std::min(max_model_len, 131072u)
+                                          : max_model_len;
+            models.push_back(Json{{"id", std::string(variant)},
+                                  {"object", "model"},
+                                  {"created", created},
+                                  {"owned_by", "ninfer"},
+                                  {"max_model_len", ctx}});
+        }
+    }
+
+    const Json payload = {{"object", "list"}, {"data", std::move(models)}};
     return payload.dump();
 }
 
 std::string make_model_object(const std::string& model_id, std::int64_t created,
                               std::uint32_t max_model_len) {
     // vLLM/llama.cpp-compatible discovery metadata for the configured per-request context limit.
+    const std::uint32_t ctx = (model_id.find("vision") != std::string::npos)
+                                  ? std::min(max_model_len, 131072u)
+                                  : max_model_len;
     const Json payload = {{"id", model_id},
                           {"object", "model"},
                           {"created", created},
                           {"owned_by", "ninfer"},
-                          {"max_model_len", max_model_len}};
+                          {"max_model_len", ctx}};
     return payload.dump();
 }
 
@@ -215,6 +240,35 @@ std::int64_t unix_time_now() {
 
 void validate_openai_model(std::string_view requested, std::string_view available) {
     if (requested == available) { return; }
+    if (requested.empty()) {
+        ApiError error;
+        error.status  = 404;
+        error.type    = "invalid_request_error";
+        error.param   = "model";
+        error.code    = "model_not_found";
+        error.message = "model parameter is empty";
+        throw ApiException(std::move(error));
+    }
+    const auto slash = requested.find_last_of('/');
+    const std::string_view stripped = (slash != std::string_view::npos) ? requested.substr(slash + 1) : requested;
+    if (stripped == available) { return; }
+
+    constexpr std::string_view kKnownAliases[] = {
+        "qwen3.8-27b",
+        "qwen3.8-27b-dflash2",
+        "qwen3.8-27b-vision",
+        "qwen3.8-27b-dflash2-vision",
+        "qwen3.8",
+        "default"
+    };
+    for (const auto alias : kKnownAliases) {
+        if (stripped == alias) { return; }
+    }
+
+    if (stripped.starts_with("qwen") || stripped.starts_with("ninfer") || stripped.starts_with("local")) {
+        return;
+    }
+
     ApiError error;
     error.status  = 404;
     error.type    = "invalid_request_error";
