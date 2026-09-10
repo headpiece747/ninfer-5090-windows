@@ -43,6 +43,7 @@ copy README.md %VISION_DIR%\ >nul
 copy RELEASE_NOTES.md %VISION_DIR%\ >nul
 copy download_model.bat %VISION_DIR%\ >nul
 copy start_ninfer_vision.bat %VISION_DIR%\ >nul
+copy start_ninfer_dflash2_vision.bat %VISION_DIR%\ >nul
 copy build\apps\ninfer-serve.exe %VISION_DIR%\ >nul
 copy build\apps\ninfer.exe %VISION_DIR%\ >nul
 copy build\apps\ninfer-perplexity.exe %VISION_DIR%\ >nul
