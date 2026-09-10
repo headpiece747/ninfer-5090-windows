@@ -12,6 +12,7 @@ build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
   --host-state-slots 16 ^
   --host-kv-mib 16384 ^
   --spec dflash2 --draft-tokens 7 ^
+  --cors ^
   --preserve-thinking ^
   --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000

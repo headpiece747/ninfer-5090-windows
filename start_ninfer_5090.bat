@@ -13,6 +13,7 @@ build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
   --host-kv-mib 16384 ^
   --spec mtp --draft-tokens 5 ^
   --lm-head-draft ^
+  --cors ^
   --preserve-thinking ^
   --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000

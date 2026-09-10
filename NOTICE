@@ -38,3 +38,18 @@ Third-Party Software and Attributions:
 5. FFmpeg Windows Shared Binaries (used in multimodal / vision builds)
    Developed by the FFmpeg developers (https://ffmpeg.org/)
    Binaries distributed via BtbN/FFmpeg-Builds (GPL v3.0 / LGPL v2.1)
+
+6. DFlash2 Speculative Decoding Architecture (z-lab/Qwen3.8-27B-DFlash2)
+   Developed by z-lab contributors (https://huggingface.co/z-lab)
+   License: Apache License 2.0
+
+========================================================================
+Notice of Modified Files (Apache License 2.0, Section 4b):
+========================================================================
+The following files contain modifications from the original Neroued/ninfer:
+- src/artifact/reader.cpp (Windows memory-mapped file I/O via Win32 API)
+- src/media/decode/decode.cpp (MSVC string formatting for av_err2str)
+- src/product/logging/logging.cpp (MSVC thread-safe localtime_s and formatting)
+- src/product/media_acquire/acquire.cpp (MSVC thread-safe localtime_s)
+- CMakeLists.txt & src/CMakeLists.txt (Windows MSVC compiler & CUDA options)
+

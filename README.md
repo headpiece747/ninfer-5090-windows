@@ -200,8 +200,10 @@ NInfer is strictly tuned for raw single-GPU autoregressive throughput on the RTX
 
 | Category / Feature | NInfer Support | Status with Common Clients |
 | :--- | :--- | :--- |
-| **OpenAI Chat Completions (`/v1/chat/completions`)** |  Full Support | OpenCode Desktop, Aider, Cline, Chat UIs (OpenAI mode). |
-| **Anthropic Messages (`/v1/messages`)** |  Supported (Text & Images) | OpenCode Desktop, standard Anthropic chat clients. |
+| **OpenAI Chat Completions (`/v1/chat/completions`)** |  Full Support | OpenCode Desktop, Aider, Cline, Roo Code, VS Code extensions (OpenAI mode). |
+| **Anthropic Messages (`/v1/messages`)** |  Supported (Text & Images) | OpenCode Desktop, Roo Code, Cline, standard Anthropic chat clients. |
+| **VS Code Extensions (Chat & Agent Mode)** |  Supported | GitHub Copilot (custom endpoint), Continue, Roo Code, Cline (all working for chat/agent). |
+| **Roo Code & Cline (Coding Agents)** |  Supported | Fully functional via OpenAI-compatible or Anthropic-compatible provider (`tool_choice: "auto"`). |
 | **Inline Autocomplete (`/v1/completions`)** | ❌ **Not Implemented (404)** | Continue.dev tab completion, Cursor ghost-text, Tabby. |
 | **Embeddings (`/v1/embeddings`)** | ❌ **Not Implemented (404)** | RAG tools (AnythingLLM, Dify, Obsidian Smart Connections). |
 | **JSON Mode (`response_format: json_object`)** | ❌ **Not Supported (400)** | Instructor, Pydantic structured output, LangChain structured output. |
@@ -210,7 +212,7 @@ NInfer is strictly tuned for raw single-GPU autoregressive throughput on the RTX
 | **Sequential Tools (`parallel_tool_calls: false`)** | ❌ **Not Supported (400)** | Agents disabling parallel tool execution. |
 | **Logprobs & Logit Bias (`logprobs`, `logit_bias`)** | ❌ **Not Supported (400)** | lm-eval, perplexity runners, SillyTavern token bans. |
 | **Multiple Samples (`n > 1`)** | ❌ **Not Supported (400)** | Self-consistency / tree-of-thought multi-candidate sampling. |
-| **Browser Web UIs (CORS)** | ⚠️ Requires `--cors` | Open WebUI, LibreChat, LobeChat (fail without `--cors`). |
+| **Browser Web UIs (CORS)** |  Supported (via `--cors`) | Open WebUI, LibreChat, LobeChat (included by default in all batch scripts). |
 | **Anthropic Server Tools / Native Documents** | ❌ **Not Supported (400)** | Claude Code CLI (`claude`), Anthropic PDF document blocks. |
 
 ---
@@ -247,7 +249,7 @@ NInfer is strictly tuned for raw single-GPU autoregressive throughput on the RTX
 * **Reason**:
   * If NInfer is launched without the `--cors` flag, web browser security policies block cross-origin requests (`http://localhost:3000`), failing preflight `OPTIONS` with `404`.
   * If Open WebUI is connected using its native "Ollama" provider instead of "OpenAI", it fails because NInfer does not implement Ollama's `/api/tags` or `/api/generate`.
-* **Workaround**: Always include the `--cors` flag in your startup command (included by default in `start_ninfer_5090.bat`) and connect frontends using their **OpenAI-compatible** provider settings.
+* **Resolution**: The `--cors` flag is included by default in all bundled Windows batch scripts (`start_ninfer_5090.bat`, `start_ninfer_dflash2.bat`, `start_ninfer_vision.bat`). Connect frontends using their **OpenAI-compatible** provider settings.
 
 #### 6. LLM Evaluation & Benchmarking Suites (Fails: 400 Bad Request)
 * **Affected Tools**: **EleutherAI LM-Evaluation-Harness (`lm-eval`)**, **Perplexity evaluators**, **SillyTavern** (with token penalty rules).
@@ -262,6 +264,12 @@ NInfer is strictly tuned for raw single-GPU autoregressive throughput on the RTX
 * **Reason**:
   * While NInfer exposes `/v1/messages`, it rejects server execution tools (such as Claude Code's `server_tool_use` bash executor) with `400 server tool content blocks require an executor that NInfer does not provide`.
   * Passing Anthropic `document` blocks (PDF uploads) returns `400 document blocks require document and citation semantics that NInfer does not provide`.
+
+#### 8. Client API Quirks (Seed, Tool Call IDs, Reasoning Effort)
+* **`seed` Return Value**: NInfer accepts `seed` for deterministic generation, but does not echo `seed` or `system_fingerprint` in the response payload. Clients with strict response model validation (e.g. Pydantic v2 strict models) should ignore missing fingerprint fields.
+* **Tool Call ID Formats**: NInfer generates standard numeric/string IDs (`call_0`, `call_1`, etc. for OpenAI, and alphanumeric strings for Anthropic). Avoid client-side regex validators that mandate UUID-v4 tool IDs.
+* **`reasoning_effort` Constraints**: Supported values are `low`, `medium`, `high`, and `xhigh`. Passing custom effort strings or unsupported values returns `400 invalid reasoning_effort`.
+
 
 ---
 

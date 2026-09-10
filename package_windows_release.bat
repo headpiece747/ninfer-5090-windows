@@ -29,6 +29,7 @@ echo Copying common files...
 copy NOTICE %TEXT_DIR%\ >nul
 copy LICENSE %TEXT_DIR%\ >nul
 copy README.md %TEXT_DIR%\ >nul
+copy RELEASE_NOTES.md %TEXT_DIR%\ >nul
 copy download_model.bat %TEXT_DIR%\ >nul
 copy start_ninfer_5090.bat %TEXT_DIR%\ >nul
 copy start_ninfer_dflash2.bat %TEXT_DIR%\ >nul
@@ -39,6 +40,7 @@ copy build\apps\ninfer-perplexity.exe %TEXT_DIR%\ >nul
 copy NOTICE %VISION_DIR%\ >nul
 copy LICENSE %VISION_DIR%\ >nul
 copy README.md %VISION_DIR%\ >nul
+copy RELEASE_NOTES.md %VISION_DIR%\ >nul
 copy download_model.bat %VISION_DIR%\ >nul
 copy start_ninfer_vision.bat %VISION_DIR%\ >nul
 copy build\apps\ninfer-serve.exe %VISION_DIR%\ >nul
