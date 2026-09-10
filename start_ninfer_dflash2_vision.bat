@@ -18,6 +18,7 @@ if not exist "%MODEL%" set MODEL=%~dp0qwen3_8_27b_nvfp4.ninfer
   --host-state-slots 16 ^
   --host-kv-mib 16384 ^
   --spec dflash2 --draft-tokens 7 ^
+  --lm-head-draft ^
   --cors ^
   --preserve-thinking ^
   --default-thinking-budget 4096 ^

@@ -21,5 +21,6 @@ if not exist "%MODEL%" set MODEL=%~dp0qwen3_8_27b_nvfp4.ninfer
   --lm-head-draft ^
   --cors ^
   --preserve-thinking ^
+  --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000
 pause
