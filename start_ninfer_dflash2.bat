@@ -1,6 +1,11 @@
 @echo off
 echo Starting NInfer on RTX 5090 (Full 262k Context + FP8 + DFlash2 Profile)
-build\apps\ninfer-serve.exe qwen3_8_27b_nvfp4.ninfer ^
+
+set BIN=%~dp0build\apps\ninfer-serve.exe
+set MODEL=%~dp0..\models\qwen3_8_27b_nvfp4.ninfer
+if not exist "%MODEL%" set MODEL=%~dp0qwen3_8_27b_nvfp4.ninfer
+
+"%BIN%" "%MODEL%" ^
   --host 127.0.0.1 ^
   --port 8080 ^
   --max-context 262144 ^
