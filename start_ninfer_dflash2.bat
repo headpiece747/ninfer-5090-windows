@@ -9,8 +9,8 @@ if not exist "%MODEL%" set MODEL=%~dp0qwen3_8_27b_nvfp4.ninfer
   --host 127.0.0.1 ^
   --port 8080 ^
   --model-id qwen3.8-27b-dflash2 ^
-  --max-context 262144 ^
-  --kv-capacity 262144 ^
+  --max-context 240000 ^
+  --kv-capacity 240000 ^
   --max-concurrency 1 ^
   --kv-dtype fp8 ^
   --prefill-chunk 1024 ^
