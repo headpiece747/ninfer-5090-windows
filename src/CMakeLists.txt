@@ -326,14 +326,17 @@ target_compile_definitions(ninfer_text PUBLIC UTF8PROC_STATIC)
 add_library(ninfer_media_decode STATIC
   media/decode/decode.cpp)
 ninfer_internal_includes(ninfer_media_decode)
-target_link_libraries(ninfer_media_decode PRIVATE PkgConfig::FFMPEG)
+if(NINFER_BUILD_MEDIA_ACQUIRE)
+  target_link_libraries(ninfer_media_decode PRIVATE PkgConfig::FFMPEG)
+  target_compile_definitions(ninfer_media_decode PRIVATE NINFER_HAVE_FFMPEG)
+endif()
 
 if(NINFER_BUILD_MEDIA_ACQUIRE)
   # Product-only path/data/HTTP acquisition. No target package links this library.
   add_library(ninfer_media_acquire STATIC
     product/media_acquire/acquire.cpp)
   ninfer_internal_includes(ninfer_media_acquire)
-  target_link_libraries(ninfer_media_acquire PRIVATE PkgConfig::LIBCURL)
+  # target_link_libraries(ninfer_media_acquire PRIVATE PkgConfig::LIBCURL)
   if(WIN32)
     target_link_libraries(ninfer_media_acquire PRIVATE ws2_32)
   endif()

@@ -24,19 +24,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)        # clangd / IDE tooling
-if(MSVC)
-  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
-  add_compile_options(
-    $<$<COMPILE_LANGUAGE:C,CXX>:/Zc:preprocessor>
-    $<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>
-    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
-    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>)
-  # CUDA's static runtime requests LIBCMT even when the application and vcpkg dependencies use
-  # the project-wide /MD runtime. Keep one CRT in the final process.
-  add_link_options(/NODEFAULTLIB:LIBCMT)
-endif()
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
+endif()
+
+if(MSVC)
+  add_compile_definitions(NOMINMAX UTF8PROC_STATIC)
+  add_compile_options(
+    $<$<COMPILE_LANGUAGE:C>:/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:C>:/FS>
+    $<$<COMPILE_LANGUAGE:C>:/utf-8>
+    $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:CXX>:/FS>
+    $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/FS>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>
+  )
 endif()
 
 if(CMAKE_GENERATOR MATCHES "Ninja")
@@ -66,11 +70,18 @@ if(NINFER_BUILD_APPS OR BUILD_TESTING)
 endif()
 
 find_package(CUDAToolkit REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-  libavformat>=60 libavcodec>=60 libavutil>=58 libswscale>=7)
-if(NINFER_BUILD_MEDIA_ACQUIRE)
-  pkg_check_modules(LIBCURL REQUIRED IMPORTED_TARGET libcurl>=7.85)
+if(MSVC)
+  add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
+  target_include_directories(PkgConfig::FFMPEG INTERFACE "${PROJECT_SOURCE_DIR}/ffmpeg/include")
+  target_link_directories(PkgConfig::FFMPEG INTERFACE "${PROJECT_SOURCE_DIR}/ffmpeg/lib")
+  target_link_libraries(PkgConfig::FFMPEG INTERFACE avcodec avformat avutil swscale swresample)
+else()
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+    libavformat>=60 libavcodec>=60 libavutil>=58 libswscale>=7)
+  if(NINFER_BUILD_MEDIA_ACQUIRE)
+    pkg_check_modules(LIBCURL REQUIRED IMPORTED_TARGET libcurl>=7.85)
+  endif()
 endif()
 find_package(Threads REQUIRED)
 
