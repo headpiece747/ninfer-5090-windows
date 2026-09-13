@@ -29,7 +29,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 if(MSVC)
-  add_compile_definitions(NOMINMAX UTF8PROC_STATIC)
+  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN UTF8PROC_STATIC)
   add_compile_options(
     $<$<COMPILE_LANGUAGE:C>:/Zc:preprocessor>
     $<$<COMPILE_LANGUAGE:C>:/FS>
