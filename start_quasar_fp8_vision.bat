@@ -15,7 +15,7 @@ echo.
   --vision ^
   --host 127.0.0.1 ^
   --port 8080 ^
-  --model-id qwen3.8-27b-nvfp4qat ^
+  --model-id qwen3.8-27b-quasar ^
   %QUASAR_ARGS% ^
   --lm-head-draft ^
   --prefill-chunk 1024 ^
