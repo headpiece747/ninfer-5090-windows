@@ -1,0 +1,17 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "image",
+          "image": "C:/ai/ninfer-quasar-5090/test_image.png"
+        },
+        {
+          "type": "text",
+          "text": "Describe the shapes, colors, and symbols in this image in two concise sentences."
+        }
+      ]
+    }
+  ]
+}

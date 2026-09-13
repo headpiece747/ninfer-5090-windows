@@ -38,7 +38,6 @@ NumericFormat endpoint_format(WeightsProfile weights_profile) {
         return NumericFormat::Q6G64_F16S;
     case WeightsProfile::Qwen38GroupwiseInt:
     case WeightsProfile::Qwen36Nvfp4:
-    case WeightsProfile::Qwen38Nvfp4Full:
     case WeightsProfile::Qwen38Nvfp4Qat:
         return NumericFormat::W8G32_F16S;
     case WeightsProfile::Qwen38Nvfp4:
@@ -414,76 +413,6 @@ void bind_qwen38_nvfp4_text_layers(artifact::Binder& binder, BindingPlan& out) {
     }
 }
 
-// The fuller Qwen3.8 NVFP4 allocation: every text linear parent encoded as
-// NVFP4 with single-divisor blockscale parents, the BF16 exception layers of
-// the mixed profile, and this target's fused GDN control parent.
-void bind_qwen38_nvfp4full_text_layers(artifact::Binder& binder, BindingPlan& out) {
-    for (std::size_t layer = 0; layer < kTextLayers; ++layer) {
-        TextLayerPlan& target    = out.text_layers[layer];
-        const std::string prefix = "text/layers/" + std::to_string(layer) + "/";
-        target.input_norm        = artifact::bind_device_tensor(binder, prefix + "input_norm",
-                                                                NumericFormat::BF16, {5120});
-        target.is_full_attention = is_full_layer(layer);
-        if (target.is_full_attention) {
-            WeightPlan input;
-            if (is_early_attention_input(layer)) {
-                input = bind_weight(binder, prefix + "attention/query_key_gate_value",
-                                    NumericFormat::BF16, {14336, 5120});
-            } else {
-                input = bind_nvfp4_weight(
-                    binder, prefix + "attention/query_key_gate_value", 14336, 5120,
-                    prefix + "attention/input_projection/input_scale_divisor");
-            }
-            target.attention.projection =
-                FusedAttentionProjectionPlan{.query_key_gate_value = input};
-            target.attention.query_norm = artifact::bind_device_tensor(
-                binder, prefix + "attention/query_norm", NumericFormat::BF16, {256});
-            target.attention.key_norm = artifact::bind_device_tensor(
-                binder, prefix + "attention/key_norm", NumericFormat::BF16, {256});
-            if (is_bf16_attention_output(layer)) {
-                target.attention.output = bind_weight(binder, prefix + "attention/output",
-                                                      NumericFormat::BF16, {5120, 6144});
-            } else {
-                target.attention.output =
-                    bind_nvfp4_weight(binder, prefix + "attention/output", 5120, 6144,
-                                      prefix + "attention/output_projection/input_scale_divisor");
-            }
-        } else {
-            target.gdn.a_log       = artifact::bind_device_tensor(binder, prefix + "gdn/a_log",
-                                                                  NumericFormat::FP32, {48});
-            target.gdn.dt_bias     = artifact::bind_device_tensor(binder, prefix + "gdn/dt_bias",
-                                                                  NumericFormat::FP32, {48});
-            target.gdn.convolution = artifact::bind_device_tensor(
-                binder, prefix + "gdn/convolution", NumericFormat::BF16, {4, 10240});
-            target.gdn.control_projection = FusedGdnControlProjectionPlan{
-                .a_b_projection = bind_weight(binder, prefix + "gdn/a_b_projection",
-                                              NumericFormat::BF16, {96, 5120}),
-            };
-            target.gdn.input_projection = FusedGdnInputProjectionPlan{
-                .query_key_value_z =
-                    bind_nvfp4_weight(binder, prefix + "gdn/query_key_value_z", 16384, 5120,
-                                      prefix + "gdn/input_projection/input_scale_divisor"),
-            };
-            target.gdn.norm = artifact::bind_device_tensor(binder, prefix + "gdn/norm",
-                                                           NumericFormat::BF16, {128});
-            if (is_bf16_gdn_output(layer)) {
-                target.gdn.output =
-                    bind_weight(binder, prefix + "gdn/output", NumericFormat::BF16, {5120, 6144});
-            } else {
-                target.gdn.output =
-                    bind_nvfp4_weight(binder, prefix + "gdn/output", 5120, 6144,
-                                      prefix + "gdn/output_projection/input_scale_divisor");
-            }
-        }
-        target.post_attention_norm = artifact::bind_device_tensor(
-            binder, prefix + "post_attention_norm", NumericFormat::BF16, {5120});
-        target.mlp.gate_up =
-            bind_nvfp4_weight(binder, prefix + "mlp/gate_up", 34816, 5120,
-                              prefix + "mlp/gate_up_projection/input_scale_divisor");
-        target.mlp.down = bind_nvfp4_weight(binder, prefix + "mlp/down", 5120, 17408,
-                                            prefix + "mlp/down_projection/input_scale_divisor");
-    }
-}
 
 // The QAT-sourced Qwen3.8 NVFP4 allocation: every text linear parent is NVFP4
 // with no BF16 exception sites; the fused GDN control parent stays BF16.
@@ -665,9 +594,6 @@ ArtifactLoadPlan bind_artifact(artifact::Binder& binder, WeightsProfile weights_
         break;
     case WeightsProfile::Qwen38Nvfp4:
         bind_qwen38_nvfp4_text_layers(binder, out);
-        break;
-    case WeightsProfile::Qwen38Nvfp4Full:
-        bind_qwen38_nvfp4full_text_layers(binder, out);
         break;
     case WeightsProfile::Qwen38Nvfp4Qat:
         bind_qwen38_nvfp4qat_text_layers(binder, out);

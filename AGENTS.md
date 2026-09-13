@@ -29,7 +29,7 @@ approval requirements beyond the user's instructions and the actual execution en
 
 NInfer is a from-scratch C++/CUDA inference engine for maximum single-GPU performance on explicitly
 registered artifacts. Current identities are `qwen3.6-27b/groupwise-int`, `qwen3.6-27b/nvfp4`,
-`qwen3.8-27b/groupwise-int`, `qwen3.8-27b/nvfp4`, and `qwen3.6-35b-a3b/groupwise-int`.
+`qwen3.8-27b/groupwise-int`, `qwen3.8-27b/nvfp4`, `qwen3.8-27b/nvfp4qat`, and `qwen3.6-35b-a3b/groupwise-int`.
 The implementation targets `sm_120a` and is tuned on NVIDIA GeForce RTX 5090.
 
 Generation uses one GPU, one resident model, startup-fixed concurrency of one to eight requests,

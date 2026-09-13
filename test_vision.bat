@@ -1,8 +1,8 @@
 @echo off
 setlocal
 echo =======================================================
-echo Testing Qwen 3.8 27B QUASAR QAT via CLI (RTX 5090)
-echo Mode: Vision Enabled + FP8 KV + MTP-3 Speculation
+echo Testing Qwen 3.8 27B QUASAR QAT Vision Input (RTX 5090)
+echo Mode: Multimodal Vision + FP8 KV Cache (262k) + MTP-3
 echo =======================================================
 
 set "ROOT=%~dp0"
@@ -24,14 +24,16 @@ if not exist "%MODEL%" (
 
 echo Executable: %BIN%
 echo Model:      %MODEL%
+echo Image:      %ROOT%test_image.png
+echo Messages:   %ROOT%test_vision_messages.json
 echo.
 
 "%BIN%" "%MODEL%" ^
   --vision ^
-  --prompt "Explain quantum computing in three clear, concise bullet points." ^
+  --messages "%ROOT%test_vision_messages.json" ^
   --max-context 262144 ^
   --kv-capacity auto ^
-  --max-new 256 ^
+  --max-new 128 ^
   --kv-dtype fp8 ^
   --spec mtp ^
   --draft-tokens 3
