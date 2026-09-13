@@ -9,7 +9,7 @@ EXPECTED_SHA256 = "df3c9c3a3660d688f0c2158d54fef8c66f21d723bd7a1b0b12acc908e86d1
 REPO_ID = "cometkim/Qwen3.8-27B-nvfp4qat-NInfer"
 FILENAME = "qwen3_8_27b_nvfp4qat.ninfer"
 LOCAL_DIR = r"C:\ai\models"
-FILE_PATH = os.path.join(LOCAL_DIR, FILENAME)
+DEFAULT_DEST = os.environ.get("MODEL", os.path.join(LOCAL_DIR, FILENAME))
 
 
 def compute_sha256(path: str) -> str:
@@ -60,32 +60,37 @@ def verify_file(path: str) -> bool:
 def main():
     parser = argparse.ArgumentParser(description="Download and verify Qwen 3.8 27B QUASAR QAT model.")
     parser.add_argument("--verify-only", action="store_true", help="Only verify the existing file without downloading.")
+    parser.add_argument("--dest", default=DEFAULT_DEST, help="Path to destination model file.")
     args = parser.parse_args()
 
-    print(f"[INFO] Python interpreter: {sys.executable} (Python {sys.version.split()[0]})")
+    target_file = os.path.abspath(args.dest)
+    target_dir = os.path.dirname(target_file)
 
-    if os.path.exists(FILE_PATH) and os.path.getsize(FILE_PATH) == EXPECTED_SIZE:
-        if args.verify_only:
-            ok = verify_file(FILE_PATH)
-            sys.exit(0 if ok else 1)
-        else:
-            print(f"Found existing file at {FILE_PATH}.")
-            ok = verify_file(FILE_PATH)
-            if ok:
-                print("File is already fully downloaded and verified!")
-                sys.exit(0)
-            print("Existing file hash did not match. Re-downloading...")
+    print(f"[INFO] Python interpreter: {sys.executable} (Python {sys.version.split()[0]})")
+    print(f"[INFO] Target model path:  {target_file}")
+
+    if args.verify_only:
+        ok = verify_file(target_file)
+        sys.exit(0 if ok else 1)
+
+    if os.path.exists(target_file) and os.path.getsize(target_file) == EXPECTED_SIZE:
+        print(f"Found existing file at {target_file}.")
+        if verify_file(target_file):
+            print("File is already fully downloaded and verified!")
+            sys.exit(0)
+        print("Existing file hash did not match. Re-downloading...")
 
     os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
     from huggingface_hub import hf_hub_download
 
-    print(f"Starting ultra-fast download of {FILENAME} from {REPO_ID} to {LOCAL_DIR}...")
+    print(f"Starting ultra-fast download of {FILENAME} from {REPO_ID} to {target_dir}...")
     start_time = time.time()
     try:
+        os.makedirs(target_dir, exist_ok=True)
         path = hf_hub_download(
             repo_id=REPO_ID,
             filename=FILENAME,
-            local_dir=LOCAL_DIR,
+            local_dir=target_dir,
         )
     except Exception as e:
         print(f"Error downloading: {e}")
