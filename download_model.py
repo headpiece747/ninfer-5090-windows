@@ -62,6 +62,8 @@ def main():
     parser.add_argument("--verify-only", action="store_true", help="Only verify the existing file without downloading.")
     args = parser.parse_args()
 
+    print(f"[INFO] Python interpreter: {sys.executable} (Python {sys.version.split()[0]})")
+
     if os.path.exists(FILE_PATH) and os.path.getsize(FILE_PATH) == EXPECTED_SIZE:
         if args.verify_only:
             ok = verify_file(FILE_PATH)

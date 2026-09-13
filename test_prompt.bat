@@ -5,10 +5,8 @@ echo Testing Qwen 3.8 27B QUASAR QAT via CLI (RTX 5090)
 echo Mode: Vision Enabled + FP8 KV + MTP-3 Speculation
 echo =======================================================
 
-set "ROOT=%~dp0"
+call "%~dp0launcher_env.bat"
 cd /d "%ROOT%"
-set "BIN=%ROOT%build\apps\ninfer.exe"
-set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.ninfer"
 
 if not exist "%BIN%" (
     echo [ERROR] Cannot find ninfer CLI executable at %BIN%

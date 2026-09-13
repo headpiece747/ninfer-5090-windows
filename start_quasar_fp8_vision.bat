@@ -5,13 +5,12 @@ echo Starting Qwen 3.8 27B QUASAR QAT on RTX 5090
 echo Mode: Vision Multimodal + FP8 KV Cache (262k Context) + MTP-3
 echo =======================================================
 
-set "ROOT=%~dp0"
+call "%~dp0launcher_env.bat"
 cd /d "%ROOT%"
-set "BIN=%ROOT%build\apps\ninfer-serve.exe"
-set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.ninfer"
 
-if not exist "%BIN%" (
-    echo [ERROR] Cannot find ninfer-serve executable. Please run build_windows.bat first.
+if not exist "%SERVE_BIN%" (
+    echo [ERROR] Cannot find ninfer-serve executable at %SERVE_BIN%
+    echo Please run build_windows.bat first.
     pause
     exit /b 1
 )
@@ -24,11 +23,11 @@ if not exist "%MODEL%" (
     exit /b 1
 )
 
-echo Executable: %BIN%
+echo Executable: %SERVE_BIN%
 echo Model:      %MODEL%
 echo.
 
-"%BIN%" "%MODEL%" ^
+"%SERVE_BIN%" "%MODEL%" ^
   --vision ^
   --host 127.0.0.1 ^
   --port 8080 ^

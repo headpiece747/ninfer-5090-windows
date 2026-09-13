@@ -360,7 +360,9 @@ std::vector<std::uint8_t> acquire_bytes(const Source& source, const Policy& poli
 
     if (source.kind == SourceKind::Url) {
 #if defined(NINFER_HAVE_LIBCURL)
-        return fetch_url(source.value, policy);
+        std::vector<std::uint8_t> bytes = fetch_url(source.value, policy);
+        if (bytes.empty()) { throw std::invalid_argument("media source contains no data"); }
+        return bytes;
 #else
         throw std::invalid_argument("ninfer compiled without curl. Remote URLs are unsupported.");
 #endif
