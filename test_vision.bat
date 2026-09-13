@@ -1,30 +1,14 @@
 @echo off
 setlocal
+call "%~dp0launcher_env.bat" verify_cli || exit /b 1
+cd /d "%ROOT%"
+
+if not exist "%ROOT%test_image.png" call :create_image
+
 echo =======================================================
 echo Testing Qwen 3.8 27B QUASAR QAT Vision Input (RTX 5090)
 echo Mode: Multimodal Vision + FP8 KV Cache (262k) + MTP-3
 echo =======================================================
-
-call "%~dp0launcher_env.bat"
-cd /d "%ROOT%"
-
-if not exist "%BIN%" (
-    echo [ERROR] Cannot find ninfer CLI executable at %BIN%
-    echo Please run build_windows.bat first.
-    pause
-    exit /b 1
-)
-
-if not exist "%MODEL%" (
-    echo [ERROR] Model artifact not found at:
-    echo   %MODEL%
-    echo Please run download_model.bat first to download the model artifact.
-    pause
-    exit /b 1
-)
-
-if not exist "%ROOT%test_image.png" call :create_image
-
 echo Executable: %BIN%
 echo Model:      %MODEL%
 echo Image:      %ROOT%test_image.png
@@ -34,12 +18,8 @@ echo.
 "%BIN%" "%MODEL%" ^
   --vision ^
   --messages "%ROOT%test_vision_messages.json" ^
-  --max-context 262144 ^
-  --kv-capacity auto ^
   --max-new 128 ^
-  --kv-dtype fp8 ^
-  --spec mtp ^
-  --draft-tokens 3
+  %QUASAR_ARGS%
 
 echo.
 pause
@@ -47,7 +27,7 @@ exit /b 0
 
 :create_image
 if not defined PYTHON_EXE (
-    echo [ERROR] Python not found in PATH to generate sample test image.
+    echo [ERROR] Python 3.11+ not found in PATH to generate sample test image.
     exit /b 1
 )
 echo Generating sample test image using %PYTHON_EXE%...

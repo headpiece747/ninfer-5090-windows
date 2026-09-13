@@ -31,12 +31,9 @@ endif()
 if(MSVC)
   add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN UTF8PROC_STATIC)
   add_compile_options(
-    $<$<COMPILE_LANGUAGE:C>:/Zc:preprocessor>
-    $<$<COMPILE_LANGUAGE:C>:/FS>
-    $<$<COMPILE_LANGUAGE:C>:/utf-8>
-    $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>
-    $<$<COMPILE_LANGUAGE:CXX>:/FS>
-    $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
+    $<$<COMPILE_LANGUAGE:C,CXX>:/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:C,CXX>:/FS>
+    $<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/FS>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>

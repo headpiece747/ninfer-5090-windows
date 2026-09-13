@@ -5,7 +5,7 @@ echo ========================================================
 
 if not exist ffmpeg (
     echo [1/4] Downloading FFmpeg Windows dev binaries...
-    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip' -OutFile 'ffmpeg.zip'"
+    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-08-13-14/ffmpeg-master-latest-win64-gpl-shared.zip' -OutFile 'ffmpeg.zip'"
     
     echo [2/4] Extracting FFmpeg...
     powershell -Command "Expand-Archive -Path 'ffmpeg.zip' -DestinationPath 'ffmpeg_temp' -Force"
@@ -27,7 +27,7 @@ call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliar
 echo.
 echo [4/4] Compiling NInfer with Vision Support (-DNINFER_BUILD_MEDIA_ACQUIRE=ON)...
 cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DCMAKE_BUILD_TYPE=Release -DNINFER_BUILD_MEDIA_ACQUIRE=ON
-cmake --build build --config Release
+cmake --build build --config Release -j
 
 echo.
 echo Copying FFmpeg DLLs to the build folder so the executable can find them...
