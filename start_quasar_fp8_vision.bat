@@ -7,11 +7,7 @@ echo =======================================================
 
 set "ROOT=%~dp0"
 set "BIN=%ROOT%build\apps\ninfer-serve.exe"
-if not exist "%BIN%" set "BIN=%ROOT%build_vision\apps\ninfer-serve.exe"
-if not exist "%BIN%" set "BIN=%ROOT%build_vision\apps\ninfer-serve-vision.exe"
-
 set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.ninfer"
-if not exist "%MODEL%" set "MODEL=%ROOT%qwen3_8_27b_nvfp4qat.ninfer"
 
 if not exist "%BIN%" (
     echo [ERROR] Cannot find ninfer-serve executable. Please run build_windows.bat first.
@@ -37,7 +33,7 @@ echo.
   --port 8080 ^
   --model-id qwen3.8-27b-nvfp4qat ^
   --max-context 262144 ^
-  --kv-capacity 262144 ^
+  --kv-capacity auto ^
   --kv-dtype fp8 ^
   --spec mtp ^
   --draft-tokens 3 ^

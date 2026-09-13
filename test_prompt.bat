@@ -8,16 +8,18 @@ echo =======================================================
 set "ROOT=%~dp0"
 set "BIN=%ROOT%build\apps\ninfer.exe"
 set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.ninfer"
-if not exist "%MODEL%" set "MODEL=%ROOT%qwen3_8_27b_nvfp4qat.ninfer"
 
 if not exist "%BIN%" (
     echo [ERROR] Cannot find ninfer CLI executable at %BIN%
+    echo Please run build_windows.bat first.
     pause
     exit /b 1
 )
 
 if not exist "%MODEL%" (
-    echo [ERROR] Model artifact not found at %MODEL%
+    echo [ERROR] Model artifact not found at:
+    echo   %MODEL%
+    echo Please run download_model.bat first to download the model artifact.
     pause
     exit /b 1
 )

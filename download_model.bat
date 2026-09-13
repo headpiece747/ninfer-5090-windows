@@ -53,7 +53,7 @@ if %ERRORLEVEL% equ 0 (
     python "%~dp0download_model.py" --verify-only
 ) else (
     echo Verifying SHA-256 checksum (Expected: df3c9c3a3660d688f0c2158d54fef8c66f21d723bd7a1b0b12acc908e86d12b7)...
-    certutil -hashfile "%DEST_FILE%" SHA256
+    powershell -NoProfile -Command "$expected = 'df3c9c3a3660d688f0c2158d54fef8c66f21d723bd7a1b0b12acc908e86d12b7'; $actual = (Get-FileHash -Algorithm SHA256 '%DEST_FILE%').Hash.ToLower(); if ($actual -eq $expected) { Write-Host '[SUCCESS] SHA-256 verified successfully!' } else { Write-Error ('[FAIL] Hash mismatch: ' + $actual); exit 1 }"
 )
 echo =======================================================
 pause

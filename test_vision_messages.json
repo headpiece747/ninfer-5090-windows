@@ -5,7 +5,7 @@
       "content": [
         {
           "type": "image",
-          "image": "C:/ai/ninfer-quasar-5090/test_image.png"
+          "image": "test_image.png"
         },
         {
           "type": "text",
