@@ -79,8 +79,9 @@ KvCapacityResolution resolve_kv_capacity(const KvCapacityPolicy& policy,
                                          std::size_t available_runtime_bytes) {
     validate_curve(curve);
 
-    std::uint32_t pages         = curve.minimum_main_page_groups;
-    std::size_t capacity_budget = available_runtime_bytes;
+    std::uint32_t pages            = curve.minimum_main_page_groups;
+    std::size_t capacity_budget    = available_runtime_bytes;
+    std::size_t effective_headroom = policy.automatic_headroom_bytes;
     switch (policy.mode) {
     case KvCapacityMode::Explicit:
         if (policy.automatic_headroom_bytes != 0) {
@@ -89,18 +90,25 @@ KvCapacityResolution resolve_kv_capacity(const KvCapacityPolicy& policy,
         pages = explicit_page_groups(policy, curve);
         break;
     case KvCapacityMode::Automatic:
-        if (available_runtime_bytes < policy.automatic_headroom_bytes) {
+#ifdef _WIN32
+        // On Windows with WDDM, unallocated headroom prevents driver graph memory and DWM
+        // swapchain allocations from spilling over PCIe into shared host memory.
+        if (available_runtime_bytes > (1024ULL << 20)) {
+            effective_headroom = std::max(effective_headroom, static_cast<std::size_t>(512ULL << 20));
+        }
+#endif
+        if (available_runtime_bytes < effective_headroom) {
             throw std::invalid_argument(
                 "automatic KV headroom requires " +
-                std::to_string(policy.automatic_headroom_bytes) + " bytes, but only " +
+                std::to_string(effective_headroom) + " bytes, but only " +
                 std::to_string(available_runtime_bytes) + " bytes are available after weights");
         }
-        capacity_budget -= policy.automatic_headroom_bytes;
+        capacity_budget -= effective_headroom;
         if (capacity_budget < curve.minimum_device_reservation_bytes) {
             throw std::invalid_argument(
                 "minimum Engine runtime reservation requires " +
                 std::to_string(curve.minimum_device_reservation_bytes) + " bytes in addition to " +
-                std::to_string(policy.automatic_headroom_bytes) +
+                std::to_string(effective_headroom) +
                 " bytes of automatic headroom, but only " +
                 std::to_string(available_runtime_bytes) + " bytes are available after weights");
         }
@@ -123,7 +131,7 @@ KvCapacityResolution resolve_kv_capacity(const KvCapacityPolicy& policy,
         throw std::invalid_argument("requested Engine runtime reservation requires " +
                                     std::to_string(reservation) + " bytes, but only " +
                                     std::to_string(capacity_budget) +
-                                    " bytes are available for runtime capacity");
+                                    " bytes are available under the configured budget");
     }
 
     return KvCapacityResolution{
@@ -135,7 +143,7 @@ KvCapacityResolution resolve_kv_capacity(const KvCapacityPolicy& policy,
         .bytes_per_additional_main_page_group = curve.bytes_per_additional_main_page_group,
         .runtime_reservation_bytes            = reservation,
         .available_after_weights_bytes        = available_runtime_bytes,
-        .automatic_headroom_bytes             = policy.automatic_headroom_bytes,
+        .automatic_headroom_bytes             = effective_headroom,
         .planned_slack_bytes                  = available_runtime_bytes - reservation,
     };
 }

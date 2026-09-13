@@ -18,6 +18,17 @@ project(ninfer LANGUAGES C CXX CUDA)
 option(NINFER_BUILD_APPS "Build the NInfer CLI and server" ON)
 option(BUILD_TESTING "Build NInfer tests" OFF)
 option(NINFER_BUILD_BENCHMARKS "Build NInfer benchmarks" OFF)
+option(NINFER_ENABLE_AVX2 "Enable AVX2 instruction set on host" OFF)
+if(NINFER_ENABLE_AVX2)
+  if(MSVC)
+    add_compile_options(
+      $<$<COMPILE_LANGUAGE:C>:/arch:AVX2>
+      $<$<COMPILE_LANGUAGE:CXX>:/arch:AVX2>
+    )
+  else()
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-mavx2>)
+  endif()
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

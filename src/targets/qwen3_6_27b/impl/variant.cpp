@@ -345,113 +345,91 @@ std::size_t Variant::mtp_q_gate_projection_workspace_capacity_bytes(std::int32_t
     return 0;
 }
 
+namespace {
+
+struct ProjectionProfileTraits {
+    QType qtype;
+    ops::LinearPolicy policy;
+    bool is_groupwise;
+};
+
+ProjectionProfileTraits get_projection_traits(WeightsProfile profile) {
+    switch (profile) {
+    case WeightsProfile::Qwen36GroupwiseInt:
+    case WeightsProfile::Qwen38GroupwiseInt:
+        return {QType::Q5G64_F16S, ops::LinearPolicy::A16Only, true};
+    case WeightsProfile::Qwen36Nvfp4:
+        return {QType::NVFP4, kNvfp4TextPolicy, false};
+    case WeightsProfile::Qwen38Nvfp4:
+        return {QType::FP8_E4M3FN_ROW_BF16S, kFp8TextPolicy, false};
+    }
+    throw std::logic_error("invalid 27B weights profile");
+}
+
+} // namespace
+
 std::size_t Variant::attention_projection_workspace_capacity_bytes(WeightsProfile weights_profile,
                                                                    qwen3_6::TextPhase,
                                                                    std::int32_t first,
                                                                    std::int32_t last) {
     validate_token_interval(first, last);
-    switch (weights_profile) {
-    case WeightsProfile::Qwen36GroupwiseInt:
-    case WeightsProfile::Qwen38GroupwiseInt:
-        return 0;
-    case WeightsProfile::Qwen36Nvfp4:
-        return ops::attn_input_proj_workspace_capacity_bytes(
-            QType::NVFP4, 14336, TextConfig::hidden, kNvfp4TextPolicy, first, last);
-    case WeightsProfile::Qwen38Nvfp4:
-        return ops::attn_input_proj_workspace_capacity_bytes(
-            QType::FP8_E4M3FN_ROW_BF16S, 14336, TextConfig::hidden, kFp8TextPolicy, first, last);
-    }
-    throw std::logic_error("invalid 27B weights profile");
+    const auto traits = get_projection_traits(weights_profile);
+    if (traits.is_groupwise) { return 0; }
+    return ops::attn_input_proj_workspace_capacity_bytes(
+        traits.qtype, 14336, TextConfig::hidden, traits.policy, first, last);
 }
 
 std::size_t Variant::attention_output_projection_workspace_capacity_bytes(
     WeightsProfile weights_profile, qwen3_6::TextPhase, std::int32_t first, std::int32_t last) {
     validate_token_interval(first, last);
-    switch (weights_profile) {
-    case WeightsProfile::Qwen36GroupwiseInt:
-    case WeightsProfile::Qwen38GroupwiseInt:
-        return ops::linear_add_workspace_capacity_bytes(QType::Q5G64_F16S, TextConfig::hidden,
-                                                        TextConfig::query_size,
-                                                        ops::LinearPolicy::A16Only, first, last);
-    case WeightsProfile::Qwen36Nvfp4:
-        return ops::linear_add_workspace_capacity_bytes(QType::NVFP4, TextConfig::hidden,
-                                                        TextConfig::query_size, kNvfp4TextPolicy,
-                                                        first, last);
-    case WeightsProfile::Qwen38Nvfp4:
-        return ops::linear_add_workspace_capacity_bytes(QType::FP8_E4M3FN_ROW_BF16S,
-                                                        TextConfig::hidden, TextConfig::query_size,
-                                                        kFp8TextPolicy, first, last);
-    }
-    throw std::logic_error("invalid 27B weights profile");
+    const auto traits = get_projection_traits(weights_profile);
+    return ops::linear_add_workspace_capacity_bytes(
+        traits.qtype, TextConfig::hidden, TextConfig::query_size, traits.policy, first, last);
 }
 
 std::size_t Variant::gdn_input_projection_workspace_capacity_bytes(WeightsProfile weights_profile,
-                                                                   qwen3_6::TextPhase,
-                                                                   std::int32_t first,
-                                                                   std::int32_t last) {
+                                                                    qwen3_6::TextPhase,
+                                                                    std::int32_t first,
+                                                                    std::int32_t last) {
     validate_token_interval(first, last);
-    switch (weights_profile) {
-    case WeightsProfile::Qwen36GroupwiseInt:
-    case WeightsProfile::Qwen38GroupwiseInt:
-        return 0;
-    case WeightsProfile::Qwen36Nvfp4:
-        return ops::gdn_input_proj_workspace_capacity_bytes(QType::NVFP4, 16384, TextConfig::hidden,
-                                                            kNvfp4TextPolicy, first, last);
-    case WeightsProfile::Qwen38Nvfp4:
-        return ops::gdn_input_proj_workspace_capacity_bytes(
-            QType::FP8_E4M3FN_ROW_BF16S, 16384, TextConfig::hidden, kFp8TextPolicy, first, last);
-    }
-    throw std::logic_error("invalid 27B weights profile");
+    const auto traits = get_projection_traits(weights_profile);
+    if (traits.is_groupwise) { return 0; }
+    return ops::gdn_input_proj_workspace_capacity_bytes(
+        traits.qtype, 16384, TextConfig::hidden, traits.policy, first, last);
 }
 
 std::size_t Variant::gdn_input_projection_snapshot_workspace_capacity_bytes(
     WeightsProfile weights_profile, qwen3_6::TextPhase, std::int32_t batch_size, std::int32_t first,
     std::int32_t last) {
     validate_token_interval(first, last);
-    switch (weights_profile) {
-    case WeightsProfile::Qwen36GroupwiseInt:
-    case WeightsProfile::Qwen38GroupwiseInt:
+    const auto traits = get_projection_traits(weights_profile);
+    if (traits.is_groupwise) {
         return std::max(kMinimumLeafWorkspaceBytes,
                         ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
                             TextConfig::key_dim, TextConfig::key_dim, TextConfig::value_dim,
                             batch_size, first, last));
-    case WeightsProfile::Qwen36Nvfp4:
-        return std::max(kMinimumLeafWorkspaceBytes,
-                        ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
-                            QType::NVFP4, 16384, TextConfig::hidden, kNvfp4TextPolicy, batch_size,
-                            first, last));
-    case WeightsProfile::Qwen38Nvfp4:
-        return std::max(kMinimumLeafWorkspaceBytes,
-                        ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
-                            QType::FP8_E4M3FN_ROW_BF16S, 16384, TextConfig::hidden, kFp8TextPolicy,
-                            batch_size, first, last));
     }
-    throw std::logic_error("invalid 27B weights profile");
+    return std::max(kMinimumLeafWorkspaceBytes,
+                    ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
+                        traits.qtype, 16384, TextConfig::hidden, traits.policy, batch_size,
+                        first, last));
 }
 
 std::size_t Variant::gdn_input_projection_record_workspace_capacity_bytes(
     WeightsProfile weights_profile, qwen3_6::TextPhase, std::int32_t batch_size, std::int32_t first,
     std::int32_t last) {
     validate_token_interval(first, last);
-    switch (weights_profile) {
-    case WeightsProfile::Qwen36GroupwiseInt:
-    case WeightsProfile::Qwen38GroupwiseInt:
+    const auto traits = get_projection_traits(weights_profile);
+    if (traits.is_groupwise) {
         return std::max(kMinimumLeafWorkspaceBytes,
                         ops::gdn_input_proj_conv_record_workspace_capacity_bytes(
                             TextConfig::key_dim, TextConfig::key_dim, TextConfig::value_dim,
                             batch_size, first, last));
-    case WeightsProfile::Qwen36Nvfp4:
-        return std::max(kMinimumLeafWorkspaceBytes,
-                        ops::gdn_input_proj_conv_record_workspace_capacity_bytes(
-                            QType::NVFP4, 16384, TextConfig::hidden, kNvfp4TextPolicy, batch_size,
-                            first, last));
-    case WeightsProfile::Qwen38Nvfp4:
-        return std::max(kMinimumLeafWorkspaceBytes,
-                        ops::gdn_input_proj_conv_record_workspace_capacity_bytes(
-                            QType::FP8_E4M3FN_ROW_BF16S, 16384, TextConfig::hidden, kFp8TextPolicy,
-                            batch_size, first, last));
     }
-    throw std::logic_error("invalid 27B weights profile");
+    return std::max(kMinimumLeafWorkspaceBytes,
+                    ops::gdn_input_proj_conv_record_workspace_capacity_bytes(
+                        traits.qtype, 16384, TextConfig::hidden, traits.policy, batch_size,
+                        first, last));
 }
 
 std::size_t Variant::gdn_output_projection_workspace_capacity_bytes(WeightsProfile weights_profile,
@@ -459,21 +437,9 @@ std::size_t Variant::gdn_output_projection_workspace_capacity_bytes(WeightsProfi
                                                                     std::int32_t first,
                                                                     std::int32_t last) {
     validate_token_interval(first, last);
-    switch (weights_profile) {
-    case WeightsProfile::Qwen36GroupwiseInt:
-    case WeightsProfile::Qwen38GroupwiseInt:
-        return ops::linear_add_workspace_capacity_bytes(QType::Q5G64_F16S, TextConfig::hidden,
-                                                        TextConfig::value_dim,
-                                                        ops::LinearPolicy::A16Only, first, last);
-    case WeightsProfile::Qwen36Nvfp4:
-        return ops::linear_add_workspace_capacity_bytes(
-            QType::NVFP4, TextConfig::hidden, TextConfig::value_dim, kNvfp4TextPolicy, first, last);
-    case WeightsProfile::Qwen38Nvfp4:
-        return ops::linear_add_workspace_capacity_bytes(QType::FP8_E4M3FN_ROW_BF16S,
-                                                        TextConfig::hidden, TextConfig::value_dim,
-                                                        kFp8TextPolicy, first, last);
-    }
-    throw std::logic_error("invalid 27B weights profile");
+    const auto traits = get_projection_traits(weights_profile);
+    return ops::linear_add_workspace_capacity_bytes(
+        traits.qtype, TextConfig::hidden, TextConfig::value_dim, traits.policy, first, last);
 }
 
 std::size_t Variant::gdn_norm_control_projection_workspace_capacity_bytes(std::int32_t first,
@@ -486,23 +452,20 @@ std::size_t Variant::post_mixer_workspace_capacity_bytes(WeightsProfile weights_
                                                          qwen3_6::TextPhase, std::int32_t first,
                                                          std::int32_t last) {
     validate_token_interval(first, last);
-    switch (weights_profile) {
-    case WeightsProfile::Qwen36GroupwiseInt:
-    case WeightsProfile::Qwen38GroupwiseInt:
+    const auto traits = get_projection_traits(weights_profile);
+    if (traits.is_groupwise) {
         return post_mixer_workspace_bytes(QType::Q4G64_F16S, QType::Q5G64_F16S,
                                           ops::LinearPolicy::A16Only, first, last);
-    case WeightsProfile::Qwen36Nvfp4:
+    }
+    if (weights_profile == WeightsProfile::Qwen36Nvfp4) {
         return post_mixer_workspace_bytes(QType::NVFP4, QType::NVFP4, kNvfp4TextPolicy, first,
                                           last);
-    case WeightsProfile::Qwen38Nvfp4: {
-        const std::size_t nvfp4 =
-            post_mixer_workspace_bytes(QType::NVFP4, QType::NVFP4, kNvfp4TextPolicy, first, last);
-        const std::size_t fp8 = post_mixer_workspace_bytes(
-            QType::FP8_E4M3FN_ROW_BF16S, QType::FP8_E4M3FN_ROW_BF16S, kFp8TextPolicy, first, last);
-        return std::max(nvfp4, fp8);
     }
-    }
-    throw std::invalid_argument("qwen3_6_27b: invalid weights profile");
+    const std::size_t nvfp4 =
+        post_mixer_workspace_bytes(QType::NVFP4, QType::NVFP4, kNvfp4TextPolicy, first, last);
+    const std::size_t fp8 = post_mixer_workspace_bytes(
+        QType::FP8_E4M3FN_ROW_BF16S, QType::FP8_E4M3FN_ROW_BF16S, kFp8TextPolicy, first, last);
+    return std::max(nvfp4, fp8);
 }
 
 std::size_t Variant::mtp_post_mixer_workspace_capacity_bytes(std::int32_t first,

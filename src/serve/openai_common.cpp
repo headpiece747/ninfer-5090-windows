@@ -238,20 +238,16 @@ std::int64_t unix_time_now() {
         .count();
 }
 
-void validate_openai_model(std::string_view requested, std::string_view available) {
-    if (requested == available) { return; }
-    if (requested.empty()) {
-        ApiError error;
-        error.status  = 404;
-        error.type    = "invalid_request_error";
-        error.param   = "model";
-        error.code    = "model_not_found";
-        error.message = "model parameter is empty";
-        throw ApiException(std::move(error));
-    }
+std::string_view strip_model_prefix(std::string_view requested) noexcept {
     const auto slash = requested.find_last_of('/');
-    const std::string_view stripped = (slash != std::string_view::npos) ? requested.substr(slash + 1) : requested;
-    if (stripped == available) { return; }
+    return (slash != std::string_view::npos) ? requested.substr(slash + 1) : requested;
+}
+
+bool is_valid_model_id(std::string_view requested, std::string_view available) noexcept {
+    if (requested.empty()) { return false; }
+    if (requested == available) { return true; }
+    const std::string_view stripped = strip_model_prefix(requested);
+    if (stripped == available) { return true; }
 
     constexpr std::string_view kKnownAliases[] = {
         "qwen3.8-27b",
@@ -262,10 +258,26 @@ void validate_openai_model(std::string_view requested, std::string_view availabl
         "default"
     };
     for (const auto alias : kKnownAliases) {
-        if (stripped == alias) { return; }
+        if (stripped == alias) { return true; }
     }
 
     if (stripped.starts_with("qwen") || stripped.starts_with("ninfer") || stripped.starts_with("local")) {
+        return true;
+    }
+    return false;
+}
+
+void validate_openai_model(std::string_view requested, std::string_view available) {
+    if (requested.empty()) {
+        ApiError error;
+        error.status  = 404;
+        error.type    = "invalid_request_error";
+        error.param   = "model";
+        error.code    = "model_not_found";
+        error.message = "model parameter is empty";
+        throw ApiException(std::move(error));
+    }
+    if (is_valid_model_id(requested, available)) {
         return;
     }
 

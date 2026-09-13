@@ -309,11 +309,23 @@ public:
         }
 #ifdef _WIN32
         std::size_t total = 0;
+        HANDLE event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (event == nullptr) {
+            throw std::system_error(static_cast<int>(::GetLastError()), std::system_category(),
+                                    "CreateEventW failed for direct read");
+        }
+        struct EventGuard {
+            HANDLE h;
+            ~EventGuard() { if (h != nullptr) { ::CloseHandle(h); } }
+        } event_guard{event};
+
         while (total < destination.size()) {
             constexpr std::size_t max_read = 1ULL << 30;
             const auto amount = static_cast<DWORD>(std::min(max_read, destination.size() - total));
             const std::uint64_t offset = absolute_offset + total;
+            ::ResetEvent(event);
             OVERLAPPED operation{};
+            operation.hEvent     = event;
             operation.Offset     = static_cast<DWORD>(offset & 0xffffffffULL);
             operation.OffsetHigh = static_cast<DWORD>(offset >> 32U);
 
@@ -323,9 +335,13 @@ public:
             if (!started) {
                 const auto error = ::GetLastError();
                 if (error == ERROR_HANDLE_EOF) { break; }
-                if (error != ERROR_IO_PENDING ||
-                    !::GetOverlappedResult(direct_file_, &operation, &bytes, TRUE)) {
-                    const auto final_error = error == ERROR_IO_PENDING ? ::GetLastError() : error;
+                if (error != ERROR_IO_PENDING) {
+                    throw std::system_error(static_cast<int>(error), std::system_category(),
+                                            "direct artifact read");
+                }
+                if (!::GetOverlappedResult(direct_file_, &operation, &bytes, TRUE)) {
+                    const auto final_error = ::GetLastError();
+                    if (final_error == ERROR_HANDLE_EOF) { break; }
                     throw std::system_error(static_cast<int>(final_error), std::system_category(),
                                             "direct artifact read");
                 }

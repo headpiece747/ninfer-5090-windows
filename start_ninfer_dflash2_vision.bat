@@ -1,7 +1,15 @@
 @echo off
 echo Starting NInfer on RTX 5090 (Vision + 131k Context + FP8 + DFlash2)
 
-set BIN=%~dp0build\apps\ninfer-serve.exe
+if exist "%~dp0ninfer-serve-vision.exe" (
+    set "BIN=%~dp0ninfer-serve-vision.exe"
+) else if exist "%~dp0ninfer-serve.exe" (
+    set "BIN=%~dp0ninfer-serve.exe"
+) else if exist "%~dp0build_vision\apps\ninfer-serve-vision.exe" (
+    set "BIN=%~dp0build_vision\apps\ninfer-serve-vision.exe"
+) else (
+    set "BIN=%~dp0build\apps\ninfer-serve.exe"
+)
 set MODEL=%~dp0..\models\qwen3_8_27b_nvfp4.ninfer
 if not exist "%MODEL%" set MODEL=%~dp0qwen3_8_27b_nvfp4.ninfer
 

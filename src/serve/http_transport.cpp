@@ -5,6 +5,9 @@
 #if defined(__linux__)
 #    include <netinet/tcp.h>
 #    include <sys/socket.h>
+#elif defined(_WIN32)
+#    include <winsock2.h>
+#    include <mstcpip.h>
 #endif
 
 #include <stdexcept>
@@ -22,6 +25,15 @@ constexpr unsigned int kTcpUserTimeoutMilliseconds = 15000;
 template <class T>
 void set_socket_option(socket_t socket, int level, int option, const T& value) noexcept {
     (void)::setsockopt(socket, level, option, &value, sizeof(value));
+}
+#elif defined(_WIN32)
+constexpr int kKeepAliveIdleSeconds                = 10;
+constexpr int kKeepAliveIntervalSeconds            = 3;
+constexpr int kKeepAliveProbeCount                 = 3;
+
+template <class T>
+void set_socket_option(socket_t socket, int level, int option, const T& value) noexcept {
+    (void)::setsockopt(socket, level, option, reinterpret_cast<const char*>(&value), sizeof(value));
 }
 #endif
 
@@ -86,6 +98,21 @@ void configure_http_server_socket(socket_t socket) noexcept {
     set_socket_option(socket, IPPROTO_TCP, TCP_KEEPINTVL, kKeepAliveIntervalSeconds);
     set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, kKeepAliveProbeCount);
     set_socket_option(socket, IPPROTO_TCP, TCP_USER_TIMEOUT, kTcpUserTimeoutMilliseconds);
+#elif defined(_WIN32)
+    const BOOL enabled = TRUE;
+    set_socket_option(socket, SOL_SOCKET, SO_KEEPALIVE, enabled);
+#    if defined(TCP_KEEPIDLE)
+    const DWORD idle = kKeepAliveIdleSeconds;
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPIDLE, idle);
+#    endif
+#    if defined(TCP_KEEPINTVL)
+    const DWORD intvl = kKeepAliveIntervalSeconds;
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPINTVL, intvl);
+#    endif
+#    if defined(TCP_KEEPCNT)
+    const DWORD cnt = kKeepAliveProbeCount;
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, cnt);
+#    endif
 #endif
 }
 

@@ -168,12 +168,23 @@ httplib::Server::HandlerResponse handle_unrendered_http_error(const ServeOptions
         error.code    = "request_too_large";
         error.message = "request body exceeds the configured payload limit of " +
                         std::to_string(options.max_request_bytes) + " bytes";
-    } else if (response.status == 404 && request.path.rfind("/v1/messages", 0) == 0) {
+    } else if (response.status == 404) {
         error.status  = 404;
+        error.type    = "invalid_request_error";
         error.code    = "not_found";
-        error.message = "requested Anthropic resource was not found";
+        error.message = (request.path.rfind("/v1/messages", 0) == 0)
+                            ? "requested Anthropic resource was not found"
+                            : "The requested resource was not found on this server.";
+    } else if (response.status == 405) {
+        error.status  = 405;
+        error.type    = "invalid_request_error";
+        error.code    = "method_not_allowed";
+        error.message = "The requested method is not allowed for this endpoint.";
     } else {
-        return httplib::Server::HandlerResponse::Unhandled;
+        error.status  = response.status != 0 ? response.status : 500;
+        error.type    = "api_error";
+        error.code    = "internal_error";
+        error.message = "An HTTP error occurred (" + std::to_string(error.status) + ")";
     }
     if (request.path.rfind("/v1/messages", 0) == 0) {
         write_anthropic_error(response, error, new_anthropic_request_id());
@@ -226,6 +237,10 @@ HttpServer::HttpServer(ServeOptions options, std::shared_ptr<spdlog::logger> log
     };
     server_.set_socket_options(configure_http_server_socket);
     server_.set_payload_max_length(options_.max_request_bytes);
+    const time_t timeout_sec = static_cast<time_t>(
+        std::max<std::uint32_t>(300, (options_.pending_timeout_ms / 1000) + 60));
+    server_.set_read_timeout(timeout_sec);
+    server_.set_write_timeout(timeout_sec);
     register_routes();
 }
 
@@ -342,7 +357,9 @@ void HttpServer::register_routes() {
              {"Access-Control-Expose-Headers", "x-request-id, request-id"},
              {"Access-Control-Allow-Headers",
               "Authorization, Content-Type, X-API-Key, anthropic-version, anthropic-beta, "
-              "anthropic-user-profile-id"},
+              "anthropic-user-profile-id, x-stainless-lang, x-stainless-package-version, "
+              "x-stainless-os, x-stainless-arch, x-stainless-runtime, x-stainless-runtime-version, "
+              "traceparent, baggage, x-request-id"},
              {"Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS"}});
         // CORS preflight: browsers send OPTIONS with no credentials before the real
         // request; answer it without auth so the actual GET/POST can carry the key.
@@ -484,27 +501,7 @@ void HttpServer::handle_models(const httplib::Request&, httplib::Response& res) 
 
 void HttpServer::handle_model(const httplib::Request& req, httplib::Response& res) const {
     const std::string id = req.matches.size() > 1 ? req.matches[1].str() : std::string();
-    bool valid = (id == public_model_id_);
-    if (!valid && !id.empty()) {
-        constexpr std::string_view kKnownAliases[] = {
-            "qwen3.8-27b",
-            "qwen3.8-27b-dflash2",
-            "qwen3.8-27b-vision",
-            "qwen3.8-27b-dflash2-vision",
-            "qwen3.8",
-            "default"
-        };
-        for (const auto alias : kKnownAliases) {
-            if (id == alias) {
-                valid = true;
-                break;
-            }
-        }
-        if (!valid && (id.rfind("qwen", 0) == 0 || id.rfind("ninfer", 0) == 0 || id.rfind("local", 0) == 0)) {
-            valid = true;
-        }
-    }
-    if (!valid) {
+    if (!is_valid_model_id(id, public_model_id_)) {
         ApiError error;
         error.status  = 404;
         error.type    = "invalid_request_error";

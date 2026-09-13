@@ -6,7 +6,7 @@ echo ========================================================
 
 set VERSION=%1
 if "%VERSION%"=="" (
-    set VERSION=v1.0.5
+    set VERSION=v1.0.6
 )
 
 echo Packaging version: %VERSION%
@@ -44,17 +44,36 @@ copy RELEASE_NOTES.md %VISION_DIR%\ >nul
 copy download_model.bat %VISION_DIR%\ >nul
 copy start_ninfer_vision.bat %VISION_DIR%\ >nul
 copy start_ninfer_dflash2_vision.bat %VISION_DIR%\ >nul
-copy build\apps\ninfer-serve.exe %VISION_DIR%\ >nul
+
+if exist build_vision\apps\ninfer-serve-vision.exe (
+    copy build_vision\apps\ninfer-serve-vision.exe %VISION_DIR%\ >nul
+    copy build_vision\apps\ninfer-serve-vision.exe %VISION_DIR%\ninfer-serve.exe >nul
+) else (
+    copy build\apps\ninfer-serve.exe %VISION_DIR%\ >nul
+)
 copy build\apps\ninfer.exe %VISION_DIR%\ >nul
 copy build\apps\ninfer-perplexity.exe %VISION_DIR%\ >nul
 
 if exist ffmpeg\bin (
     echo Copying FFmpeg DLLs...
+    copy ffmpeg\bin\avcodec-*.dll %TEXT_DIR%\ >nul 2>nul
+    copy ffmpeg\bin\avformat-*.dll %TEXT_DIR%\ >nul 2>nul
+    copy ffmpeg\bin\avutil-*.dll %TEXT_DIR%\ >nul 2>nul
+    copy ffmpeg\bin\swscale-*.dll %TEXT_DIR%\ >nul 2>nul
+    copy ffmpeg\bin\swresample-*.dll %TEXT_DIR%\ >nul 2>nul
     copy ffmpeg\bin\avcodec-*.dll %VISION_DIR%\ >nul 2>nul
     copy ffmpeg\bin\avformat-*.dll %VISION_DIR%\ >nul 2>nul
     copy ffmpeg\bin\avutil-*.dll %VISION_DIR%\ >nul 2>nul
     copy ffmpeg\bin\swscale-*.dll %VISION_DIR%\ >nul 2>nul
     copy ffmpeg\bin\swresample-*.dll %VISION_DIR%\ >nul 2>nul
+)
+
+if exist "%CUDA_PATH%\bin" (
+    echo Copying CUDA Runtime DLLs...
+    copy "%CUDA_PATH%\bin\cudart64_*.dll" %TEXT_DIR%\ >nul 2>nul
+    copy "%CUDA_PATH%\bin\nvtx64_*.dll" %TEXT_DIR%\ >nul 2>nul
+    copy "%CUDA_PATH%\bin\cudart64_*.dll" %VISION_DIR%\ >nul 2>nul
+    copy "%CUDA_PATH%\bin\nvtx64_*.dll" %VISION_DIR%\ >nul 2>nul
 )
 
 echo Compressing archives...

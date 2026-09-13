@@ -1,4 +1,20 @@
-﻿# NInfer Windows Release Notes
+# NInfer Windows Release Notes
+
+## Version 1.0.6 (2026-09-13)
+
+### Client Compatibility & Serving Protocol
+* **Compliant JSON Error Envelopes**: Formatted all unrendered 404, 405 (`method_not_allowed`), and generic server errors into OpenAI/Anthropic JSON error payloads (`application/json`) with `x-request-id`, preventing client JSON parser crashes across VS Code, OpenCode Desktop, Cline, Roo Code, and Continue.
+* **Modern CORS & Distributed Tracing**: Added support for Stainless SDK headers (`x-stainless-*`) and W3C trace context (`traceparent`, `baggage`), with a dedicated preflight 204 handler.
+* **Socket Resilience & TCP Keepalive**: Configured explicit read and write timeouts matching request budgets, eliminating `cpp-httplib`'s default 5-second socket drop during long-running prefill and generation streams. Enabled native Winsock TCP keepalive probes on Windows sockets.
+* **Model Alias Deduplication**: Centralized and exported `strip_model_prefix` and `is_valid_model_id` across model listing, retrieval, and completion endpoints.
+
+### Windows Runtime & Systems Safety
+* **Direct I/O Multi-Thread Safety**: Allocated dedicated Win32 event handles (`CreateEventW`) per read operation with RAII `EventGuard` lifecycle management, eliminating multi-threaded handle race conditions and cleanly detecting EOF.
+* **WDDM VRAM Headroom Protection**: Enforced a 512 MiB minimum automatic VRAM headroom under Windows WDDM drivers when available runtime bytes exceed 1 GiB to protect against GPU driver paging and system memory spillover.
+* **Non-FFmpeg Decoders**: Added `inspect_image` and `inspect_video` stubs in non-FFmpeg build paths to guarantee clean symbol resolution.
+* **Portable Release Launchers**: Updated all startup batch scripts to probe `%~dp0` root binaries before falling back to `build\apps\`, allowing packaged ZIP releases to run standalone without developer build trees. Bundled FFmpeg and CUDA runtime DLLs directly into release packaging.
+
+---
 
 ## Version 1.0.5 (2026-09-07)
 

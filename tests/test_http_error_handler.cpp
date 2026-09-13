@@ -131,13 +131,26 @@ int main() {
                           authored_response.get_header_value("x-request-id") == "req_existing",
                       "application-authored 413 or its request ID was overwritten");
 
-    httplib::Response other_response;
-    other_response.status = 400;
-    const auto other_result =
-        ninfer::serve::handle_unrendered_http_error(options, openai_request, other_response);
-    failures += check(other_result == httplib::Server::HandlerResponse::Unhandled &&
-                          other_response.body.empty(),
-                      "non-413 response was changed by the payload-limit handler");
+    httplib::Response not_allowed_response;
+    not_allowed_response.status = 405;
+    const auto not_allowed_result =
+        ninfer::serve::handle_unrendered_http_error(options, openai_request, not_allowed_response);
+    const Json not_allowed_body = Json::parse(not_allowed_response.body);
+    failures += check(not_allowed_result == httplib::Server::HandlerResponse::Handled &&
+                          not_allowed_response.status == 405 &&
+                          not_allowed_body.at("error").at("code") == "method_not_allowed",
+                      "unrendered 405 was not formatted as OpenAI JSON error");
+
+    httplib::Response generic_response;
+    generic_response.status = 500;
+    const auto generic_result =
+        ninfer::serve::handle_unrendered_http_error(options, openai_request, generic_response);
+    const Json generic_body = Json::parse(generic_response.body);
+    failures += check(generic_result == httplib::Server::HandlerResponse::Handled &&
+                          generic_response.status == 500 &&
+                          generic_body.at("error").at("type") == "api_error" &&
+                          generic_body.at("error").at("code") == "internal_error",
+                      "unrendered 500 was not formatted as OpenAI JSON error");
 
     if (failures == 0) { std::cout << "ok\n"; }
     return failures == 0 ? 0 : 1;
