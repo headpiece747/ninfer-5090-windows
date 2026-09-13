@@ -5,50 +5,31 @@ cd /d "%ROOT%"
 
 echo =======================================================
 echo Downloading Qwen 3.8 27B QUASAR QAT NVFP4 Model...
-echo Source: https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer
 echo Destination: %MODEL%
 echo File Size: ~17.35 GiB (18,638,209,796 bytes)
 echo =======================================================
 
+if not defined PYTHON_EXE (
+    echo [ERROR] Python 3.11 is required but not found.
+    echo Please ensure Python 3.11 is installed or available in PATH.
+    pause
+    exit /b 1
+)
+
 for %%I in ("%MODEL%") do set "DEST_DIR=%%~dpI"
 if not exist "%DEST_DIR%" mkdir "%DEST_DIR%"
 
-if defined PYTHON_EXE (
-    echo Using Python + huggingface_hub (hf_transfer Rust engine) for maximum download speed...
-    "%PYTHON_EXE%" "%ROOT%download_model.py" --dest "%MODEL%"
-    if %ERRORLEVEL% equ 0 (
-        echo.
-        echo =======================================================
-        echo [SUCCESS] Model artifact downloaded and verified!
-        echo =======================================================
-        pause
-        exit /b 0
-    )
-    echo Python download failed or module missing. Falling back to curl...
-)
-
-set "URL=https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer/resolve/main/qwen3_8_27b_nvfp4qat.ninfer"
-
-echo.
-echo Starting download (curl with resume support)...
-curl.exe -L -C - --retry 5 --retry-delay 3 -o "%MODEL%" "%URL%"
-
+echo Using Python 3.11 + huggingface_hub for download and bit-for-bit SHA-256 verification...
+"%PYTHON_EXE%" "%ROOT%download_model.py" --dest "%MODEL%"
 if %ERRORLEVEL% neq 0 (
     echo.
-    echo [ERROR] Download encountered an error. You can run this script again to resume.
+    echo [ERROR] Download or verification failed.
     pause
     exit /b %ERRORLEVEL%
 )
 
 echo.
 echo =======================================================
-echo Download complete! Verifying file integrity...
-if defined PYTHON_EXE (
-    "%PYTHON_EXE%" "%ROOT%download_model.py" --verify-only
-) else (
-    echo [ERROR] Python 3.11+ is required to verify file integrity.
-    pause
-    exit /b 1
-)
+echo [SUCCESS] Model artifact downloaded and verified!
 echo =======================================================
 pause

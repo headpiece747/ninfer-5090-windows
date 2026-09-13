@@ -2,16 +2,10 @@
 set "ROOT=%~dp0"
 set "BIN=%ROOT%build\apps\ninfer.exe"
 set "SERVE_BIN=%ROOT%build\apps\ninfer-serve.exe"
-set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.ninfer"
+if not defined MODEL set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.ninfer"
 set "QUASAR_ARGS=--max-context 262144 --kv-capacity auto --kv-dtype fp8 --spec mtp --draft-tokens 3"
 
-if not exist "%MODEL%" (
-    if exist "%ROOT%models\qwen3_8_27b_nvfp4qat.ninfer" (
-        set "MODEL=%ROOT%models\qwen3_8_27b_nvfp4qat.ninfer"
-    )
-)
-
-:: Validate and select Python interpreter (prioritize Python 3.11 per AGENTS.md)
+:: Select Python 3.11 interpreter explicitly per AGENTS.md
 set "PYTHON_EXE="
 if exist "%USERPROFILE%\AppData\Roaming\uv\python\cpython-3.11.15-windows-x86_64-none\python.exe" (
     set "PYTHON_EXE=%USERPROFILE%\AppData\Roaming\uv\python\cpython-3.11.15-windows-x86_64-none\python.exe"
@@ -29,17 +23,6 @@ if not defined PYTHON_EXE (
         python -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 11) else 1)" >nul 2>&1
         if %ERRORLEVEL% equ 0 set "PYTHON_EXE=python"
     )
-)
-if not defined PYTHON_EXE (
-    where python >nul 2>&1
-    if %ERRORLEVEL% equ 0 (
-        python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1
-        if %ERRORLEVEL% equ 0 set "PYTHON_EXE=python"
-    )
-)
-if not defined PYTHON_EXE (
-    where py >nul 2>&1
-    if %ERRORLEVEL% equ 0 set "PYTHON_EXE=py"
 )
 
 :: Execute action if requested via argument
