@@ -10,9 +10,12 @@ echo Destination: %MODEL%
 echo File Size: ~17.35 GiB (18,638,209,796 bytes)
 echo =======================================================
 
+for %%I in ("%MODEL%") do set "DEST_DIR=%%~dpI"
+if not exist "%DEST_DIR%" mkdir "%DEST_DIR%"
+
 if defined PYTHON_EXE (
     echo Using Python + huggingface_hub (hf_transfer Rust engine) for maximum download speed...
-    "%PYTHON_EXE%" "%ROOT%download_model.py"
+    "%PYTHON_EXE%" "%ROOT%download_model.py" --dest "%MODEL%"
     if %ERRORLEVEL% equ 0 (
         echo.
         echo =======================================================
@@ -23,9 +26,6 @@ if defined PYTHON_EXE (
     )
     echo Python download failed or module missing. Falling back to curl...
 )
-
-set "DEST_DIR=C:\ai\models"
-if not exist "%DEST_DIR%" mkdir "%DEST_DIR%"
 
 set "URL=https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer/resolve/main/qwen3_8_27b_nvfp4qat.ninfer"
 

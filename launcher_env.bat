@@ -11,10 +11,24 @@ if not exist "%MODEL%" (
     )
 )
 
-:: Validate and select Python interpreter (prioritize Python 3.11 maintainer environment)
+:: Validate and select Python interpreter (prioritize Python 3.11 per AGENTS.md)
 set "PYTHON_EXE="
 if exist "%USERPROFILE%\AppData\Roaming\uv\python\cpython-3.11.15-windows-x86_64-none\python.exe" (
     set "PYTHON_EXE=%USERPROFILE%\AppData\Roaming\uv\python\cpython-3.11.15-windows-x86_64-none\python.exe"
+)
+if not defined PYTHON_EXE (
+    where py >nul 2>&1
+    if %ERRORLEVEL% equ 0 (
+        py -3.11 -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 11) else 1)" >nul 2>&1
+        if %ERRORLEVEL% equ 0 set "PYTHON_EXE=py -3.11"
+    )
+)
+if not defined PYTHON_EXE (
+    where python >nul 2>&1
+    if %ERRORLEVEL% equ 0 (
+        python -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 11) else 1)" >nul 2>&1
+        if %ERRORLEVEL% equ 0 set "PYTHON_EXE=python"
+    )
 )
 if not defined PYTHON_EXE (
     where python >nul 2>&1
