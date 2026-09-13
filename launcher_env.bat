@@ -3,7 +3,7 @@ set "ROOT=%~dp0"
 set "BIN=%ROOT%build\apps\ninfer.exe"
 set "SERVE_BIN=%ROOT%build\apps\ninfer-serve.exe"
 if not defined MODEL set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.ninfer"
-set "QUASAR_ARGS=--max-context 262144 --kv-capacity auto --kv-dtype fp8 --spec mtp --draft-tokens 3"
+set "QUASAR_ARGS=--max-context 262144 --kv-capacity auto --kv-dtype fp8 --spec mtp --draft-tokens 5"
 
 :: Select Python 3.11 interpreter explicitly per AGENTS.md
 set "PYTHON_EXE="
