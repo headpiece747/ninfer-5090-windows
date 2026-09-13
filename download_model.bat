@@ -6,7 +6,7 @@ cd /d "%ROOT%"
 echo =======================================================
 echo Downloading Qwen 3.8 27B QUASAR QAT NVFP4 Model...
 echo Destination: %MODEL%
-echo File Size: ~17.35 GiB (18,638,209,796 bytes)
+echo File Size: ~17.35 GiB
 echo =======================================================
 
 if not defined PYTHON_EXE (

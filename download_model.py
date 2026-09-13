@@ -73,12 +73,12 @@ def main():
         ok = verify_file(target_file)
         sys.exit(0 if ok else 1)
 
-    if os.path.exists(target_file) and os.path.getsize(target_file) == EXPECTED_SIZE:
-        print(f"Found existing file at {target_file}.")
+    if os.path.exists(target_file):
+        print(f"Checking existing file at {target_file}...")
         if verify_file(target_file):
             print("File is already fully downloaded and verified!")
             sys.exit(0)
-        print("Existing file hash did not match. Re-downloading...")
+        print("Existing file invalid or incomplete. Re-downloading...")
 
     os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
     from huggingface_hub import hf_hub_download

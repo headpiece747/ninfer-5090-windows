@@ -31,11 +31,7 @@ cmake --build build --config Release -j
 
 echo.
 echo Copying FFmpeg DLLs to the build folder so the executable can find them...
-copy ffmpeg\bin\avcodec-*.dll build\apps\ >nul 2>nul
-copy ffmpeg\bin\avformat-*.dll build\apps\ >nul 2>nul
-copy ffmpeg\bin\avutil-*.dll build\apps\ >nul 2>nul
-copy ffmpeg\bin\swscale-*.dll build\apps\ >nul 2>nul
-copy ffmpeg\bin\swresample-*.dll build\apps\ >nul 2>nul
+for %%D in (avcodec avformat avutil swscale swresample) do copy /y "ffmpeg\bin\%%D-*.dll" "build\apps\" >nul 2>nul
 
 echo.
 echo ========================================================
