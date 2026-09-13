@@ -6,6 +6,7 @@ echo Mode: Vision Multimodal + FP8 KV Cache (262k Context) + MTP-3
 echo =======================================================
 
 set "ROOT=%~dp0"
+cd /d "%ROOT%"
 set "BIN=%ROOT%build\apps\ninfer-serve.exe"
 set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.ninfer"
 

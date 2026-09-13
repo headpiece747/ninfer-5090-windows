@@ -6,6 +6,7 @@ echo Mode: Vision Enabled + FP8 KV + MTP-3 Speculation
 echo =======================================================
 
 set "ROOT=%~dp0"
+cd /d "%ROOT%"
 set "BIN=%ROOT%build\apps\ninfer.exe"
 set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.ninfer"
 

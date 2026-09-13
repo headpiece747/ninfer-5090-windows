@@ -326,10 +326,7 @@ target_compile_definitions(ninfer_text PUBLIC UTF8PROC_STATIC)
 add_library(ninfer_media_decode STATIC
   media/decode/decode.cpp)
 ninfer_internal_includes(ninfer_media_decode)
-if(NINFER_BUILD_MEDIA_ACQUIRE)
-  target_link_libraries(ninfer_media_decode PRIVATE PkgConfig::FFMPEG)
-  target_compile_definitions(ninfer_media_decode PRIVATE NINFER_HAVE_FFMPEG)
-endif()
+target_link_libraries(ninfer_media_decode PRIVATE PkgConfig::FFMPEG)
 
 if(NINFER_BUILD_MEDIA_ACQUIRE)
   # Product-only path/data/HTTP acquisition. No target package links this library.
