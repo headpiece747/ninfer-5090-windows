@@ -9,6 +9,7 @@
 
 #include <cuda_runtime.h>
 
+#include <array>
 #include <algorithm>
 #include <cstdint>
 #include <optional>

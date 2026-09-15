@@ -336,3 +336,9 @@ The Qwen3.8-27B NVFP4 artifact also uses the fixed mixed FP8/NVFP4 weights from
 [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4). These source
 repositories are distributed under Apache-2.0. Vendored dependencies retain their own license files
 under `third_party/`.
+
+<!-- ninfer:features:start -->
+| feat branch | stacked on | status | squashed on dev as |
+|---|---|---|---|
+| [`feat/msvc-test-constexpr`](docs/features/msvc-test-constexpr.md) | `master` | C++20/MSVC test fixes for sqrt constant expressions and explicit array headers. | `squash(feat/msvc-test-constexpr)` |
+<!-- ninfer:features:end -->
