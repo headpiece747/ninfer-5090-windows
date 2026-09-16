@@ -1,9 +1,10 @@
-#include "core/weight.h"
+﻿#include "core/weight.h"
 #include "ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_plan.h"
 
 #include "core/layout.h"
 #include "ninfer/ops/silu_mul.h"
 #include "ops/linear/nvfp4/nvfp4_config.h"
+#include "ops/linear/nvfp4/nvfp4_geometry.h"
 #include "ops/linear/nvfp4/nvfp4_w4a4_plan.h"
 #include "ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_w4a4_tma_launch.h"
 
@@ -96,7 +97,7 @@ std::size_t nvfp4_linear_swiglu_workspace_capacity_bytes(LinearPolicy policy,
         // Beyond the fused A16 small-T family the route materializes the gate/up projection.
         if (max_tokens > 16) {
             WorkspaceLayoutBuilder layout;
-            layout.alloc(DType::BF16, {Nvfp4MlpGateUpGeometry::kOutputRows, max_tokens}, 256);
+            layout.alloc(DType::BF16, {Nvfp4Geometry<34816, 5120>::kOutputRows, max_tokens}, 256);
             maximum = layout.peak_bytes(1);
         }
         return maximum;
@@ -135,9 +136,9 @@ void nvfp4_linear_swiglu_dispatch(const Tensor& x, const Weight& weight, Tensor&
     case Nvfp4LinearSwiGluRoute::LinearA16Post: {
         auto scope     = workspace.scope();
         Tensor projected =
-            workspace.alloc(DType::BF16, {Nvfp4MlpGateUpGeometry::kOutputRows, x.ne[1]}, 256);
+            workspace.alloc(DType::BF16, {Nvfp4Geometry<34816, 5120>::kOutputRows, x.ne[1]}, 256);
         linear(x, weight, projected, LinearPolicy::A16Only, workspace, stream);
-        constexpr std::int32_t kIntermediate = Nvfp4MlpGateUpGeometry::kOutputRows / 2;
+        constexpr std::int32_t kIntermediate = Nvfp4Geometry<34816, 5120>::kOutputRows / 2;
         silu_mul(projected.slice(0, 0, kIntermediate),
                  projected.slice(0, kIntermediate, kIntermediate), out, stream);
         return;
