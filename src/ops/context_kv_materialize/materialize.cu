@@ -2,7 +2,9 @@
 #include "core/device.h"
 #include "ops/common/memory.cuh"
 #include "ops/common/mma.cuh"
-#include "ops/linear/w8/w8_small_t_mma.cuh"
+#include "ops/linear/q8/q8_ksplit_mma.cuh"
+#include "ops/common/warp.cuh"
+#include "ops/common/dflash_rope.cuh"
 #include "ops/context_kv_materialize/context_kv_common.cuh"
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
@@ -94,7 +96,7 @@ __global__ __launch_bounds__(Rows / 16 * ColumnWarps * 32, 1) void context_kv_mm
             }
         };
 
-        // Signed W8 codes are exactly representable in BF16. Apply the exact stored FP16
+        // Signed Q8 codes are exactly representable in BF16. Apply the exact stored FP16
         // scale in FP32 after each 32-wide MMA group; never round a scaled weight to BF16.
         const auto decode_signed_codes = [&]() {
             constexpr int kChunksPerRow = kBlockK / 8;
@@ -309,7 +311,7 @@ struct ContextPrefixColumns {
 };
 
 template <int Columns, int KWarps = 8>
-using GroupedSchedule = W8SmallTMmaSchedule<KWarps, Columns, 1, W8SmallTMmaScaleAccess::Shared>;
+using GroupedSchedule = Q8KSplitSchedule<KWarps, Columns, 1, Q8KSplitScaleAccess::Shared>;
 
 template <int Columns, int KWarps = 8>
 __global__ __launch_bounds__(KWarps * 32, 1) void context_kv_grouped_kernel(
@@ -322,10 +324,10 @@ __global__ __launch_bounds__(KWarps * 32, 1) void context_kv_grouped_kernel(
     const auto* scales = value ? layer.value_scales : layer.key_scales;
     const MaterializeProjectionEpilogue epilogue{layer, positions, counts,    slots,     scratch, l,
                                                  width, batch,     min_count, max_count, value};
-    w8_small_t_mma<W8LinearGeometry<1024, 5120>, Columns, GroupedSchedule<Columns, KWarps>,
-                   W8ContiguousOutput, MaterializeProjectionEpilogue, W8SmallTMmaIdentityRows, true,
-                   true>(x, codes, scales, {nullptr, 0}, epilogue, {}, max_count * batch,
-                         ContextPrefixColumns{width, max_count});
+    q8_ksplit_mma<Q8LinearGeometry<1024, 5120>, Columns, GroupedSchedule<Columns, KWarps>,
+                  Q8ContiguousOutput, MaterializeProjectionEpilogue, Q8KSplitIdentityRows, true,
+                  true>(x, codes, scales, {nullptr, 0}, epilogue, {}, max_count * batch,
+                        ContextPrefixColumns{width, max_count});
 }
 
 template <int Columns, int KWarps = 8>

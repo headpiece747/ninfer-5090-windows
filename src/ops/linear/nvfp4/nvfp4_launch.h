@@ -1,10 +1,13 @@
 #pragma once
-
+#include "core/weight.h"
 #include "core/tensor.h"
-
 #include <cuda_runtime.h>
 
 namespace ninfer::ops::detail {
+
+// Declared launcher entry points (shared by the shape table and the fork-format
+// DFlash2 routes).
+using Nvfp4Launch = void (*)(const Tensor&, const Weight&, Tensor&, cudaStream_t);
 
 void launch_nvfp4_decode(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t stream);
 void launch_nvfp4_small_t(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t stream);
