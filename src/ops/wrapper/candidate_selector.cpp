@@ -1,4 +1,4 @@
-#include "ninfer/ops/candidate_selector.h"
+﻿#include "ninfer/ops/candidate_selector.h"
 
 #include "ops/candidate_selector/bf16/candidate_selector_path_plan.h"
 #include "ops/candidate_selector/nvfp4/candidate_selector_path_nvfp4.h"
@@ -56,7 +56,7 @@ void require_codebook(const Weight& codebook, const char* label) {
     }
     constexpr std::uint64_t kPayloadBytes =
         static_cast<std::uint64_t>(kCodebookRows) * kRank * sizeof(std::uint16_t);
-    if (codebook.qtype != QType::BF16_CTRL || codebook.layout != QuantLayout::Contiguous ||
+    if (codebook.qtype != QType::BF16 || codebook.layout != QuantLayout::Contiguous ||
         codebook.ndim != 2 || codebook.n != kCodebookRows || codebook.k != kRank ||
         codebook.shape[0] != kCodebookRows || codebook.shape[1] != kRank ||
         codebook.padded_shape[0] != kCodebookRows || codebook.padded_shape[1] != kRank ||

@@ -5,7 +5,7 @@
 #include "ops/linear/nvfp4/nvfp4_config.h"
 #include "ops/linear/nvfp4/nvfp4_gemv.cuh"
 #include "ops/linear/nvfp4/nvfp4_output.cuh"
-#include "ops/linear/nvfp4/nvfp4_small_t.cuh"
+#include "ops/linear/nvfp4/nvfp4_simt.cuh"
 
 #include <algorithm>
 #include <array>
@@ -16,41 +16,45 @@
 namespace ninfer::ops::detail {
 namespace {
 
-using Geometry = Nvfp4DFlash2QkvGeometry;
+using Geometry = Nvfp4Geometry<6144, 5120>;
 using Output   = Nvfp4SplitOutput3<4096, 1024>;
 using Launch   = void (*)(const Tensor&, const Weight&, Tensor&, Tensor&, Tensor&, cudaStream_t);
 
+// The simt body serves extents 2..32; a single token uses the GEMV route below, matching the
+// four-output attention route.
+constexpr std::int32_t kFirstSmallTokens = 2;
+constexpr std::int32_t kLastSmallTokens  = 32;
+
 // The split-output epilogue owns the family's measured low-T warp mapping; see the four-output
-// route above for the crossover rationale.
+// route for the crossover rationale.
 template <int ActiveTokens>
 struct Nvfp4DFlash2AttentionSmallTProductionSchedule {
-    static_assert(ActiveTokens >= kNvfp4FirstSmallT);
-    static_assert(ActiveTokens <= kNvfp4LastSmallT);
+    static_assert(ActiveTokens >= kFirstSmallTokens);
+    static_assert(ActiveTokens <= kLastSmallTokens);
     static constexpr int kWarpsPerCta       = ActiveTokens >= 17 ? 4 : (ActiveTokens >= 8 ? 16 : 8);
     static constexpr int kValuesPerLane     = ActiveTokens >= 17 && ActiveTokens <= 20 ? 8 : 16;
     static constexpr auto kActivationAccess = ActiveTokens <= 4
-                                                  ? Nvfp4SmallTActivationAccess::SharedPhase
-                                                  : Nvfp4SmallTActivationAccess::TokenPacked;
+                                                  ? Nvfp4SimtActivationAccess::SharedPhase
+                                                  : Nvfp4SimtActivationAccess::TokenPacked;
     using Type =
-        Nvfp4SmallTSchedule<kWarpsPerCta, 1, 2, kValuesPerLane, ActiveTokens, 1, kActivationAccess,
-                            Nvfp4ScaleAccess::Direct, Nvfp4CodeCache::Default, 1,
-                            Nvfp4SmallTBlockOrder::RowsContiguous, 1>;
+        Nvfp4SimtSchedule<kWarpsPerCta, 1, 2, kValuesPerLane, ActiveTokens, 1, kActivationAccess,
+                          Nvfp4ScaleAccess::Direct, Nvfp4CodeCache::Default, 1,
+                          Nvfp4SimtBlockOrder::RowsContiguous, 1>;
 };
 
 void launch_decode(const Tensor& x, const Weight& weight, Tensor& q, Tensor& k, Tensor& v,
                    cudaStream_t stream) {
-    using Schedule = typename Nvfp4LinearDecodeProductionSchedule<Geometry>::Type;
+    using Schedule =
+        Nvfp4GemvSchedule<8, 2, 16, 4, Nvfp4ScaleAccess::StagedRaw, Nvfp4CodeCache::Default, 2>;
 
     const Output output{static_cast<__nv_bfloat16*>(q.data), static_cast<__nv_bfloat16*>(k.data),
                         static_cast<__nv_bfloat16*>(v.data)};
     constexpr int kBlocks              = Geometry::kOutputRows / Schedule::kRowsPerCta;
     const float inverse_weight_divisor = 1.0F / weight.weight_scale_divisor;
-    nvfp4_gemv_kernel<Geometry, Schedule, Nvfp4IdentityEpilogue, Output>
-        <<<dim3(kBlocks), dim3(Schedule::kThreads), 0, stream>>>(
-            static_cast<const __nv_bfloat16*>(x.data),
-            static_cast<const std::uint8_t*>(weight.qdata),
-            static_cast<const std::uint8_t*>(weight.scales), inverse_weight_divisor,
-            Nvfp4IdentityEpilogue{}, output);
+    nvfp4_gemv_kernel<Geometry, Schedule><<<kBlocks, Schedule::kThreads, 0, stream>>>(
+        static_cast<const __nv_bfloat16*>(x.data), static_cast<const std::uint8_t*>(weight.qdata),
+        static_cast<const std::uint8_t*>(weight.scales), inverse_weight_divisor,
+        Nvfp4IdentityEpilogue{}, output);
     CUDA_CHECK(cudaGetLastError());
 }
 
@@ -64,8 +68,8 @@ void launch_exact(const Tensor& x, const Weight& weight, Tensor& q, Tensor& k, T
     const Output output{static_cast<__nv_bfloat16*>(q.data), static_cast<__nv_bfloat16*>(k.data),
                         static_cast<__nv_bfloat16*>(v.data)};
     const float inverse_weight_divisor = 1.0F / weight.weight_scale_divisor;
-    nvfp4_small_t_kernel<Geometry, ActiveTokens, Schedule, Nvfp4IdentityEpilogue, Output>
-        <<<dim3(kBlocks), dim3(Schedule::kThreads), 0, stream>>>(
+    nvfp4_simt_kernel<Geometry, ActiveTokens, Schedule>
+        <<<kBlocks, Schedule::kThreads, 0, stream>>>(
             static_cast<const __nv_bfloat16*>(x.data),
             static_cast<const std::uint8_t*>(weight.qdata),
             static_cast<const std::uint8_t*>(weight.scales), inverse_weight_divisor,
@@ -76,17 +80,17 @@ void launch_exact(const Tensor& x, const Weight& weight, Tensor& q, Tensor& k, T
 template <std::size_t... Offsets>
 constexpr auto make_launchers(std::index_sequence<Offsets...>) {
     return std::array<Launch, sizeof...(Offsets)>{
-        &launch_exact<kNvfp4FirstSmallT + static_cast<int>(Offsets)>...};
+        &launch_exact<kFirstSmallTokens + static_cast<int>(Offsets)>...};
 }
 
 constexpr auto kLaunchers =
-    make_launchers(std::make_index_sequence<kNvfp4LastSmallT - kNvfp4FirstSmallT + 1>{});
+    make_launchers(std::make_index_sequence<kLastSmallTokens - kFirstSmallTokens + 1>{});
 
 } // namespace
 
 void nvfp4_dflash2_attn_input(const Tensor& x, const Weight& weight, Tensor& q, Tensor& k,
                               Tensor& v, cudaStream_t stream) {
-    constexpr std::int32_t kChunk = kNvfp4LastSmallT;
+    constexpr std::int32_t kChunk = kLastSmallTokens;
     for (std::int32_t token_begin = 0; token_begin < x.ne[1]; token_begin += kChunk) {
         const std::int32_t active = std::min(kChunk, x.ne[1] - token_begin);
         const Tensor x_slice      = x.slice(1, token_begin, active);
@@ -96,7 +100,7 @@ void nvfp4_dflash2_attn_input(const Tensor& x, const Weight& weight, Tensor& q, 
         if (active == 1) {
             launch_decode(x_slice, weight, q_slice, k_slice, v_slice, stream);
         } else {
-            kLaunchers[active - kNvfp4FirstSmallT](x_slice, weight, q_slice, k_slice, v_slice,
+            kLaunchers[active - kFirstSmallTokens](x_slice, weight, q_slice, k_slice, v_slice,
                                                    stream);
         }
     }
