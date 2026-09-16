@@ -33,6 +33,14 @@ public:
                             [&] { return ops::prepare_linear_weight(model_.input(id)); });
     }
 
+    // Weight-only matrices (the NVFP4 draft codebooks) materialize through the same
+    // native-weight path the linear projections use.
+    Weight weight(WeightId id) const {
+        const auto& bound = model_.weight(id);
+        return with_context(bound.name,
+                            [&] { return ops::prepare_linear_weight(model_.input(id)).weight; });
+    }
+
     Tensor tensor(WeightId id) const {
         const auto& bound = model_.weight(id);
         return with_context(bound.name, [&] {
@@ -245,8 +253,8 @@ public:
         }
         if (w.selector) {
             out.selector = SelectorParameters{linear(w.selector->hidden_projection),
-                                              tensor(w.selector->predecessor_codebook),
-                                              tensor(w.selector->successor_codebook)};
+                                              weight(w.selector->predecessor_codebook),
+                                              weight(w.selector->successor_codebook)};
         }
         return out;
     }

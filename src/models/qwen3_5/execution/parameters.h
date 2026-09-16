@@ -110,7 +110,7 @@ struct DraftBlockParameters {
 
 struct SelectorParameters {
     LinearParameters hidden_projection;
-    Tensor predecessor_codebook, successor_codebook;
+    Weight predecessor_codebook, successor_codebook;
 };
 
 struct DraftParameters {

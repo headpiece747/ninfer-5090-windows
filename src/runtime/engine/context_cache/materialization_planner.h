@@ -1,4 +1,5 @@
-#pragma once
+﻿#pragma once
+#include "core/uint128.h"
 
 #include "runtime/engine/context_cache/context_cost.h"
 #include "runtime/engine/context_cache/context_portfolio_value.h"
