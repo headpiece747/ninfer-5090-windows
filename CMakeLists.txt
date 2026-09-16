@@ -28,6 +28,19 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# --- Windows / MSVC port settings (headpiece747 Windows build) ---------------
+if(MSVC)
+  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN UTF8PROC_STATIC)
+  add_compile_options(
+    $<$<COMPILE_LANGUAGE:C,CXX>:/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:C,CXX>:/FS>
+    $<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/FS>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>
+  )
+endif()
+
 if(CMAKE_GENERATOR MATCHES "Ninja")
   set_property(GLOBAL PROPERTY JOB_POOLS ninfer_link=1)
   set(CMAKE_JOB_POOL_LINK ninfer_link)
