@@ -1,7 +1,6 @@
 #include "core/weight.h"
 #include "ops/dynamic_grouped_conv/q8/q8_dynamic_grouped_conv_add_kernels.h"
 #include "core/device.h"
-#include "ops/dynamic_grouped_conv/dynamic_grouped_conv_add_finish.h"
 #include "ops/linear/q8/q8_ksplit_config.h"
 #include "ops/linear/q8/q8_launch.h"
 #include "ops/linear/q8/q8_rowsplit_output.cuh"
@@ -14,7 +13,20 @@
 
 namespace ninfer::ops::detail {
 namespace {
-constexpr int kRows = 5120;
+constexpr int kRows = 5120, kGroups = 320;
+
+__device__ __forceinline__ void finish_value(int row, int col, int width, float current,
+                                             float previous, const __nv_bfloat16* base,
+                                             const __nv_bfloat16* delta, __nv_bfloat16* residual) {
+    const int index = col * kRows + row, di = col * 2 * kGroups + row / 16;
+    float value = fmaf(__bfloat162float(base[2 * kRows + row]) + __bfloat162float(delta[di]),
+                       current, __bfloat162float(residual[index]));
+    if (col % width != 0)
+        value =
+            fmaf(__bfloat162float(base[3 * kRows + row]) + __bfloat162float(delta[di + kGroups]),
+                 previous, value);
+    residual[index] = __float2bfloat16_rn(value);
+}
 
 using Launch = Q8Launch;
 
@@ -85,7 +97,12 @@ void materialized(Q8DynamicConvAddSchedule schedule, const Tensor& x, const Weig
         launch_q8_mma_r64x32_c64_k128_a1(flat, weight, result, stream);
         break;
     }
-    dynamic_grouped_conv_add_finish_launch(projected, base, delta, residual, stream);
+    const dim3 grid((kRows + 255) / 256, tokens);
+    finish_kernel<<<grid, 256, 0, stream>>>(static_cast<const __nv_bfloat16*>(projected.data),
+                                            static_cast<const __nv_bfloat16*>(base.data),
+                                            static_cast<const __nv_bfloat16*>(delta.data),
+                                            static_cast<__nv_bfloat16*>(residual.data), x.ne[1]);
+    CUDA_CHECK(cudaGetLastError());
 }
 } // namespace
 
