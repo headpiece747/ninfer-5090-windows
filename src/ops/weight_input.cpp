@@ -168,8 +168,10 @@ SingleProjectionWeight prepare_attn_input_proj_weights(const WeightInput& query,
             "QKV input projection: unsupported logical geometry");
     const std::array inputs{query, key, value};
     auto result = single(inputs);
-    require(result.weight.qtype == QType::Q8_G32_FP16,
-            "QKV input projection: native form requires Q8");
+    // Q8 serves the main model's QKV projection; the fork-format DFlash2 drafter stores
+    // its QKV as weight-only NVFP4, which attn_input_proj dispatches to the NVFP4 route.
+    require(result.weight.qtype == QType::Q8_G32_FP16 || result.weight.qtype == QType::NVFP4,
+            "QKV input projection: native form requires Q8 or NVFP4");
     return result;
 }
 
