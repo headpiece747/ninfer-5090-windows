@@ -1,4 +1,4 @@
-#include "ninfer/ops/candidate_selector.h"
+﻿#include "ninfer/ops/candidate_selector.h"
 
 #include "ops/op_tester.h"
 #include "core/decode_graph.h"
@@ -443,7 +443,7 @@ int run(bool ties = false, bool dependent = false) {
         weight.payload      = data;
         weight.payload_bytes =
             static_cast<std::uint64_t>(kCodebookRows) * kRank * sizeof(std::uint16_t);
-        weight.qtype      = QType::BF16_CTRL;
+        weight.qtype      = QType::BF16;
         weight.ndim       = 2;
         weight.qdata      = data;
         weight.n          = kCodebookRows;

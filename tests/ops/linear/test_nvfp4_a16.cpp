@@ -29,7 +29,7 @@ int run_nvfp4_a16() {
     failures += run_shape("NVFP4_A16", ActivationCompute::A16, make_nvfp4_weight,
                           {5120, 17408, 707U, Comparison::Sampled, true, invocations});
     // DFlash2 drafter problems (A16 weight-only).
-    constexpr std::array dflash2_invocations{
+    std::vector<Invocation> dflash2_invocations{
         Invocation{1, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{8, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{33, CallForm::Policy, ops::LinearPolicy::A16Only},
