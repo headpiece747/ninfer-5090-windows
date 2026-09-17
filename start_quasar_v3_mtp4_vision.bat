@@ -1,15 +1,12 @@
 @echo off
 REM ============================================================================
-REM  Qwen3.8-27B QUASAR QAT on the v3 engine line (Windows) - DFlash2 K=7
+REM  QUASAR QAT + MTP4 + Vision
 REM
-REM  The v3 line: upstream v3 artifact architecture merged onto the Windows port,
-REM  with the fork's fused-NVFP4 DFlash2 draft support re-expressed on upstream's
-REM  shape table.
+REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
+REM      context 262,144   decode 225.4 tok/s   draft acceptance 65.3%
+REM      runtime 10.4 GiB   free VRAM 3.08 GiB
 REM
-REM  Measured (this machine, 32 GB RTX 5090):
-REM      context 262,144 (fp8 KV, auto)   free VRAM 3.04 GiB
-REM      decode  ~250-278 tok/s (DFlash2 K=7)     engine ready 5.6 s
-REM      prefill 3,682 tok/s @ 200,061-token prompt
+REM  Lower-VRAM QUASAR profile; MTP4 measured fastest of MTP 2-5 on QUASAR.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_v3.cmd); without them the process exits 0xC0000135.
@@ -19,15 +16,29 @@ setlocal
 set "V3=C:\AI\ninfer-v3-windows"
 set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 
+if not exist "%V3%\build\apps\ninfer-serve.exe" (
+    echo [ERROR] Engine not found at %V3%\build\apps\ninfer-serve.exe
+    echo         Run build_windows.bat first.
+    pause
+    exit /b 1
+)
+if not exist "%MODEL%" (
+    echo [ERROR] Artifact not found at %MODEL%
+    pause
+    exit /b 1
+)
+
 "%V3%\build\apps\ninfer-serve.exe" "%MODEL%" ^
   --vision ^
+  --spec mtp ^
+  --draft-tokens 4 ^
+  --lm-head-draft ^
   --host 127.0.0.1 ^
-  --port 8086 ^
-  --model-id qwen3.8-27b-quasar-v3 ^
+  --port 8087 ^
+  --model-id qwen3.8-27b-quasar-v3-mtp4-vision ^
   --max-context 262144 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^
-  --spec dflash2 --draft-tokens 7 ^
   --prefill-chunk 8192 ^
   --max-concurrency 1 ^
   --device-state-slots 1 ^
@@ -37,3 +48,5 @@ set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
   --preserve-thinking ^
   --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000
+
+pause

@@ -231,6 +231,55 @@ Two build notes specific to Windows:
 - MSVC has no `__int128`; the runtime contract's 128-bit cost arithmetic goes through
   `ninfer::Uint128` (`src/core/uint128.h`).
 
+### Profiles and launchers
+
+Six launchers ship for the RTX 5090, one per measured-optimal profile. Every number below was
+measured on this machine with the exact argument set the launcher uses. The QUASAR artifact is
+vision-only here because Vision measured free on it, so no degraded text-only variant ships.
+
+| Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
+| --- | --- | --- | --- | --- | --- | --- |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **331 tok/s** | 61.8% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 225 tok/s | 65.3% |
+| `start_ninfer_v3_dflash2.bat` | NVFP4 | DFlash2 (7) | no | 180,224 | 258 tok/s | 59.4% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4 | DFlash2 (7) | yes | 163,840 | 257 tok/s | 59.4% |
+| `start_ninfer_v3_mtp5.bat` | NVFP4 | MTP (5) | no | 240,000 | 206 tok/s | 61.7% |
+| `start_ninfer_v3_mtp5_vision.bat` | NVFP4 | MTP (5) | yes | 212,992 | 205 tok/s | 61.7% |
+
+Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
+runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after
+weights, and it reports the byte counts when it refuses. The NVFP4 artifact carries 19.7 GiB of
+weights against QUASAR's 16.1, which is what caps it.
+
+`--lm-head-draft` is set per profile because its value is not uniform:
+
+- QUASAR: +9% (DFlash2) and +18% (MTP depth 4);
+- NVFP4 MTP: +34% at depth 5;
+- NVFP4 DFlash2: **off**. With it the profile loses about 13% throughput, 11 points of draft
+  acceptance and 16,384 of context (258 tok/s at 180,224 without, against 225 tok/s at
+  163,840 with).
+
+MTP depth is chosen per artifact from measurement rather than convention: depth 4 is fastest on
+QUASAR, depth 5 on NVFP4. Acceptance rate does not predict throughput, because tokens committed
+per round matters more than the proportion accepted, so depth is selected on measured decode
+rate.
+
+### Two behaviours to know before relying on them
+
+- **Speculative decoding is not bit-identical to plain decoding.** Greedy output differs
+  between no-spec, every MTP depth and DFlash2, deterministically and reproducibly. This is
+  documented engine behaviour rather than a porting defect: acceptance compares a proposal
+  token against the target argmax for its verify column, and the maintainer notes state that
+  speculation "does not impose token or logits equality between different quantization, prefill
+  or kernel paths" — the batched verify kernel is not the single-token decode path, so a
+  near-tie can flip and the continuation diverges. Speculation measured 3-4x faster
+  (67-83 tok/s without it against 258-331 with it).
+- **Vision costs context, not throughput.** On QUASAR, Vision measured free in both respects
+  (331.3 tok/s with against 333.0 without, 262,144 either way). On NVFP4 it costs
+  27,392-33,280 tokens of context (240,000 to 212,992 on MTP, 180,224 to 163,840 on DFlash2)
+  but leaves decode rate unchanged. The Vision runtime also has its own input envelope of
+  32,768 merged tokens (131,072 raw patches) per request.
+
 ## Docker
 
 Build the runtime image on a host with the NVIDIA Container Toolkit:
