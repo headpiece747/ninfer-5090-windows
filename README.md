@@ -280,6 +280,21 @@ rate.
   but leaves decode rate unchanged. The Vision runtime also has its own input envelope of
   32,768 merged tokens (131,072 raw patches) per request.
 
+### Context-cache bounds are set deliberately, and they matter
+
+The launchers pass `--max-shared-prefixes 7 --max-private-continuations 8
+--max-long-anchors-per-continuation 4`. At `--max-concurrency 1` the defaults are
+`max(1,4)` shared, 2 private and 2 anchors, and that is quietly expensive: measured on five
+distinct ~530-token prompts sent and then resent, the defaults gave **1/5 round-2 cache hits
+at a 19.8% token-level hit rate**, with four of the five prompts re-prefilling in full on
+every call and no error or degradation signal anywhere. Raising the shared-prefix bound
+alone changed nothing; the anchor and private-continuation bounds were the binding
+constraints. All three together gave **5/5 hits at 99.1%**.
+
+The bounds cost nothing measurable: KV capacity stays 262,144 and runtime stays 10.7 GiB.
+The failure mode is silent, so it is worth setting these even when a single repeated prompt
+appears to cache perfectly — a lone resident prefix masks it.
+
 ## Docker
 
 Build the runtime image on a host with the NVIDIA Container Toolkit:

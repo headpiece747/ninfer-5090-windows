@@ -10,6 +10,13 @@ REM  Highest-context nvfp4 profile; slower than DFlash2 by ~20% for 60k more con
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_v3.cmd); without them the process exits 0xC0000135.
+REM
+REM  The three context-cache bounds are deliberate. With max-concurrency 1 the defaults
+REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~530-token
+REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
+REM  four of five prompts re-prefilling in full on every call and no error. Raising the
+REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
+REM  They cost no context or VRAM: KV stays 262,144 and runtime stays 10.7 GiB.
 REM ============================================================================
 setlocal
 
@@ -43,6 +50,9 @@ if not exist "%MODEL%" (
   --device-state-slots 1 ^
   --host-state-slots 8 ^
   --host-kv-mib 8192 ^
+  --max-shared-prefixes 7 ^
+  --max-private-continuations 8 ^
+  --max-long-anchors-per-continuation 4 ^
   --cors ^
   --preserve-thinking ^
   --default-thinking-budget 4096 ^
