@@ -405,4 +405,5 @@ under `third_party/`.
 | feat branch | stacked on | status | squashed on dev as |
 |---|---|---|---|
 | [`feat/msvc-test-constexpr`](docs/features/msvc-test-constexpr.md) | `master` | C++20/MSVC test fixes for sqrt constant expressions and explicit array headers. | `squash(feat/msvc-test-constexpr)` |
+| [`feat/nvfp4-dflash2`](docs/features/nvfp4-dflash2.md) | `master` | Standalone 34-object weight-only NVFP4 DFlash2 execution, including subview-scale and codebook binding corrections. | — |
 <!-- ninfer:features:end -->

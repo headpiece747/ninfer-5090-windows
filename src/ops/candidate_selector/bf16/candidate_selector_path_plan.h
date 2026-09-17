@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "core/weight.h"
 #include "core/tensor.h"
+#include "core/weight.h"
 #include "core/layout.h"
 #include "core/arena.h"
 #include "ninfer/ops/sampling.h"

@@ -255,6 +255,7 @@ void attn_input_proj(const Tensor& x, const Weight& query_key_value_weight, Tens
     require_matrix(q, kQRows, cols, "q");
     require_matrix(k, kKvRows, cols, "k");
     require_matrix(v, kKvRows, cols, "v");
+
     if (query_key_value_weight.qtype == QType::NVFP4) {
         if (hidden != 5120 || query_key_value_weight.n != kRows ||
             query_key_value_weight.k != hidden) {
@@ -266,6 +267,7 @@ void attn_input_proj(const Tensor& x, const Weight& query_key_value_weight, Tens
     }
 
     require_q8_rowsplit(query_key_value_weight, kRows, hidden, "query/key/value weight");
+
     detail::q8_attn_input_dispatch(x, query_key_value_weight, q, k, v, stream);
 }
 

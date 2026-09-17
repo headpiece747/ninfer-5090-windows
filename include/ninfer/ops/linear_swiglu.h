@@ -26,11 +26,12 @@ namespace ninfer::ops {
                                                                  std::int32_t max_tokens);
 
 /**
- * Policy-bearing capacity query. Q4/Q8 admit A16Only. NVFP4 admits A16Only at every
- * positive T - fused through T=16, then a linear-then-silu_mul decomposition that
- * materializes the gate/up projection - and AllowA4 for every positive T. Row-scaled FP8
- * admits A16Only and AllowA8 for every positive T. A permissive policy covers whichever
- * qualified route the private resolver selects across the requested interval.
+ * Policy-bearing capacity query. Q4/Q8 use A16 under every policy. NVFP4 uses A16 under
+ * A16Only/AllowA8 at every positive T — fused through T=16, then a linear-then-silu_mul
+ * decomposition that materializes the gate/up projection — and AllowA4 accepts every positive
+ * T. Row-scaled FP8 accepts all policies, with A8 permitted by AllowA8/AllowA4.
+ * A permissive policy covers whichever qualified route the private resolver selects across the
+ * requested interval.
  */
 [[nodiscard]] std::size_t
 linear_swiglu_workspace_capacity_bytes(QType qtype, std::int32_t gate_up_rows,
@@ -77,9 +78,9 @@ void linear_swiglu(const Tensor& x, const Weight& gate_up_weight, Tensor& out, L
                    WorkspaceArena& ws, cudaStream_t stream);
 
 /**
- * A16-only convenience form. Q4/Q8 and row-scaled FP8 retain their complete positive-T
- * domain. NVFP4 keeps the complete positive-T domain: the fused small-T family through
- * T=16, then the workspace-bearing linear-then-silu_mul decomposition.
+ * A16-only convenience form. Q4/Q8 and row-scaled FP8 retain their complete positive-T domain.
+ * NVFP4 keeps the complete positive-T domain: the fused small-T family through T=16, then the
+ * workspace-bearing linear-then-silu_mul decomposition.
  */
 void linear_swiglu(const Tensor& x, const Weight& gate_up_weight, Tensor& out, WorkspaceArena& ws,
                    cudaStream_t stream);

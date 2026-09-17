@@ -3,6 +3,7 @@
 #include "core/weight.h"
 
 #include "core/tensor.h"
+#include "core/weight.h"
 #include "core/arena.h"
 #include "ninfer/ops/sampling.h"
 

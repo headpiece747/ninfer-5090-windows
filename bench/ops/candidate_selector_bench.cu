@@ -151,7 +151,7 @@ struct Fixture {
             weight.payload      = data;
             weight.payload_bytes =
                 static_cast<std::uint64_t>(kCodebookRows) * kRank * sizeof(std::uint16_t);
-            weight.qtype            = QType::BF16_CTRL;
+            weight.qtype            = QType::BF16;
             weight.ndim             = 2;
             weight.qdata            = data;
             weight.n                = kCodebookRows;

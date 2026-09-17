@@ -70,7 +70,8 @@ std::uint64_t required_q8_payload_bytes(std::int32_t input_rows) {
 void require_finish_projection_weight(const Weight& weight, std::int32_t input_rows) {
     if (weight.qtype == QType::NVFP4) {
         if (weight.n != kHidden || weight.k != input_rows) {
-            throw std::invalid_argument("linear dynamic grouped conv add: invalid projection_weight");
+            throw std::invalid_argument(
+                "linear dynamic grouped conv add: invalid projection_weight");
         }
         return; // the full NVFP4 payload contract is validated by the linear route
     }

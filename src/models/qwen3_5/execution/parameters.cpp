@@ -19,36 +19,6 @@ auto with_context(const std::string& context, Function&& function) {
     }
 }
 
-// Row-view of a packed NVFP4 weight. Codes are K/2 bytes per row; the block-16 scales
-// are tiled in 128-row blocks of (K/64)*512 bytes (see weight_scale_offset). Only
-// 128-row-aligned row_begin values are representable, which is what the fused draft
-// parent's query/key/value split uses.
-[[nodiscard]] Weight nvfp4_row_view(const Weight& parent, std::int32_t row_begin,
-                                    std::int32_t rows) {
-    if (parent.qtype != QType::NVFP4 || parent.layout != QuantLayout::BlockScaleK16M128x4 ||
-        row_begin % 128 != 0 || rows % 128 != 0 || row_begin + rows > parent.shape[0]) {
-        throw std::invalid_argument("nvfp4_row_view: unsupported parent or row range");
-    }
-    const std::size_t row_codes   = static_cast<std::size_t>(parent.k) / 2;
-    const std::size_t row_scales  = static_cast<std::size_t>(parent.k) / 16;
-    const std::size_t code_advance  = static_cast<std::size_t>(row_begin) * row_codes;
-    const std::size_t scale_advance = static_cast<std::size_t>(row_begin / 128) *
-                                      (static_cast<std::size_t>(parent.k) / 64) * 512;
-    const auto* codes = static_cast<const std::uint8_t*>(parent.qdata) + code_advance;
-    Weight view = parent;
-    view.payload = codes;
-    view.qdata   = codes;
-    // The slice's payload spans its code plane and its scale plane; the consumers assert
-    // payload_bytes >= codes + scales + sizeof(float) (the trailing weight divisor).
-    view.payload_bytes = static_cast<std::uint64_t>(rows) * (row_codes + row_scales) +
-                         static_cast<std::uint64_t>(sizeof(float));
-    view.scales          = static_cast<const std::uint8_t*>(parent.scales) + scale_advance;
-    view.shape[0]        = rows;
-    view.padded_shape[0] = rows;
-    view.n               = rows;
-    return view;
-}
-
 class Prepare {
 public:
     explicit Prepare(const Model& model) : model_(model) {}
@@ -61,14 +31,6 @@ public:
     LinearParameters linear(WeightUseId id) const {
         return with_context(model_.weight(id.parameter).name,
                             [&] { return ops::prepare_linear_weight(model_.input(id)); });
-    }
-
-    // Weight-only matrices (the NVFP4 draft codebooks) materialize through the same
-    // native-weight path the linear projections use.
-    Weight weight(WeightId id) const {
-        const auto& bound = model_.weight(id);
-        return with_context(bound.name,
-                            [&] { return ops::prepare_linear_weight(model_.input(id)).weight; });
     }
 
     Tensor tensor(WeightId id) const {
@@ -266,30 +228,10 @@ public:
                     DraftBlockParameters result;
                     result.input_norm          = tensor(layer.input_norm);
                     result.post_attention_norm = tensor(layer.post_attention_norm);
-                    // The artifact binds the fused parent whole; preparing it directly avoids
-                    // reassembling packed NVFP4 sub-views.
-                    result.query_key_value = linear(a.query_key_value);
-                    // The context attention reuses the fused parent's key/value rows on a different
-                    // input. Derive them by pointer arithmetic: a partial NVFP4 binding is not
-                    // representable. Q8 keeps its own sub-view bindings.
-                    if (result.query_key_value.weight.qtype == QType::NVFP4) {
-                        // The parent is the concatenation [query | key | value]; take the widths
-                        // from the draft geometry so another head configuration cannot silently
-                        // slice the wrong rows.
-                        const auto& attention = model_.config().draft->attention;
-                        const auto  query_rows = static_cast<std::int32_t>(attention.query_width());
-                        const auto  key_rows   = static_cast<std::int32_t>(attention.key_width());
-                        result.context_key = ops::SingleProjectionWeight{
-                            nvfp4_row_view(result.query_key_value.weight, query_rows, key_rows),
-                            result.query_key_value.policy};
-                        result.context_value = ops::SingleProjectionWeight{
-                            nvfp4_row_view(result.query_key_value.weight, query_rows + key_rows,
-                                           key_rows),
-                            result.query_key_value.policy};
-                    } else {
-                        result.context_key   = linear(a.context_key);
-                        result.context_value = linear(a.context_value);
-                    }
+                    result.query_key_value     = ops::prepare_attn_input_proj_weights(
+                        model_.input(a.query), model_.input(a.key), model_.input(a.value));
+                    result.context_key   = linear(a.context_key);
+                    result.context_value = linear(a.context_value);
                     result.query_norm    = tensor(a.query_norm);
                     result.key_norm      = tensor(a.key_norm);
                     result.output        = linear(a.output);
@@ -302,9 +244,18 @@ public:
                 }));
         }
         if (w.selector) {
+            // Codebooks are lookup tables, not activation-bearing projections. Their
+            // representation may be BF16 or NVFP4; the selector owns the A16-only walk.
+            const auto codebook = [&](WeightId id) {
+                const auto& bound = model_.weight(id);
+                return with_context(bound.name, [&] {
+                    return ops::prepare_linear_weight(
+                        {bound.view, ops::LinearPolicy::A16Only, 1.0F});
+                });
+            };
             out.selector = SelectorParameters{linear(w.selector->hidden_projection),
-                                              weight(w.selector->predecessor_codebook),
-                                              weight(w.selector->successor_codebook)};
+                                              codebook(w.selector->predecessor_codebook),
+                                              codebook(w.selector->successor_codebook)};
         }
         return out;
     }
