@@ -255,6 +255,7 @@ class ChatTemplates(unittest.TestCase):
         result = subprocess.run(
             [str(RENDERER), "--render"],
             text=True,
+            encoding="utf-8",  # the renderer is a C++ binary; locale cp1252 cannot carry the JSON
             capture_output=True,
             check=True,
             input="".join(

@@ -8,8 +8,10 @@
 #include <array>
 #include <cstddef>
 #include <chrono>
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <span>
@@ -148,6 +150,13 @@ struct Fixture {
             header[16]      = std::byte{0x71};
             const auto path = i == 0 ? entry : directory / record.at("path").get<std::string>();
             std::ofstream file(path, std::ios::binary | std::ios::trunc);
+            if (!file) {
+                // An ofstream constructor never throws, so exceptions(failbit) would report a
+                // bare stream error with the cause thrown away.
+                throw std::runtime_error("cannot open fixture file: " + path.string() +
+                                         " (errno " + std::to_string(errno) + ": " +
+                                         std::strerror(errno) + ")");
+            }
             file.exceptions(std::ios::badbit | std::ios::failbit);
             file.write(reinterpret_cast<const char*>(header.data()), header.size());
             if (i == 0) { file.write(text.data(), static_cast<std::streamsize>(text.size())); }

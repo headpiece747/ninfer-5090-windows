@@ -34,7 +34,11 @@ namespace {
 }
 
 HANDLE open_read(const std::filesystem::path& path, DWORD extra_flags) {
-    HANDLE handle = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+    // POSIX enforces no share mode, so a reader never blocks a writer. Sharing read, write
+    // and delete keeps that behaviour: the artifact tests rewrite a file while the reader
+    // holds it, and the engine re-validates on the next open.
+    constexpr DWORD kShareMode = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    HANDLE handle = ::CreateFileW(path.c_str(), GENERIC_READ, kShareMode, nullptr,
                                   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | extra_flags, nullptr);
     if (handle == INVALID_HANDLE_VALUE) { fail(path, "CreateFileW"); }
     return handle;

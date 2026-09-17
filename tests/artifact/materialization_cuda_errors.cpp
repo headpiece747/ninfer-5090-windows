@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <iostream>
 #include <utility>
 
 namespace {
@@ -31,6 +32,16 @@ bool active() { return trace.failure != Failure::None; }
 } // namespace
 
 // Link-time wrappers affect only this test executable. The production path has no fault hooks.
+//
+// GNU ld --wrap is what makes this work: references to cudaMalloc are rewritten to
+// __wrap_cudaMalloc, and __real_cudaMalloc reaches the genuine function. MSVC has no
+// --wrap, and an import-address patch cannot substitute: the CUDA runtime resolves
+// statically here, so call sites reference the plain symbol directly (verified with
+// dumpbin on materializer.cpp.obj). Defining that name in the test would collide with the
+// archive member the linker pulls anyway, and there is no second name for the real
+// function. The injected-failure cases are therefore skipped on MSVC -- see
+// materialization_cuda_errors below.
+#ifndef _MSC_VER
 extern "C" {
 cudaError_t CUDARTAPI __real_cudaMalloc(void**, std::size_t);
 cudaError_t CUDARTAPI __real_cudaMallocHost(void**, std::size_t);
@@ -102,6 +113,7 @@ cudaError_t CUDARTAPI __wrap_cudaStreamSynchronize(cudaStream_t stream) {
     return status;
 }
 }
+#endif // !_MSC_VER
 
 namespace ninfer::test {
 
@@ -110,6 +122,13 @@ void materialization_cuda_errors(DeviceContext& device) {
     using namespace artifact_fixture;
     Fixture fixture;
     fixture.write();
+#if defined(_MSC_VER)
+    // Link-time injection needs GNU ld --wrap and a dynamically resolved CUDA runtime;
+    // neither is available in this build, so the injected cases are not exercised here.
+    // Reported rather than silently skipped so the gap stays visible.
+    std::cerr << "SKIP: CUDA failure injection is unavailable on MSVC (no --wrap, static "
+                 "cudart); injected-failure cases not exercised\n";
+#else
     for (const auto failure : {Failure::EventCreation, Failure::EventRecord}) {
         Reader reader(fixture.entry);
         Binder binder(reader);
@@ -131,6 +150,7 @@ void materialization_cuda_errors(DeviceContext& device) {
             require(result.uploads > 0, "event failure did not exercise an in-flight upload");
         }
     }
+#endif
     Reader reader(fixture.entry);
     Binder binder(reader);
     (void)binder.parameter("matrix", {2, 130});
