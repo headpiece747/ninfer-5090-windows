@@ -188,6 +188,49 @@ GPU residency is fixed at process startup. `--spec` selects speculative decoding
 `--vision` independently selects Vision residency. Qwen3.6-35B-A3B DFlash can be combined with
 Vision; it accelerates generated-text decode after multimodal prefill, not Vision encode itself.
 
+## Windows
+
+Upstream builds on 64-bit Linux only. This tree carries a Windows layer that compiles the
+same engine natively on Windows 11 x64 with MSVC and CUDA, with no WSL2 or Docker.
+
+### Requirements
+
+- Windows 11 x64 and an NVIDIA GeForce RTX 5090 (`sm_120a`);
+- a CUDA 13.3-compatible NVIDIA driver and the CUDA Toolkit (13.3 verified);
+- Visual Studio with the **Desktop development with C++** workload — the build enters the
+  MSVC x64 environment, and the VS installer ships the CMake and Ninja it uses;
+- the FFmpeg shared development tree staged in `ffmpeg/` at the repository root
+  (`include/` and `lib/`, from an `ffmpeg-master-latest-win64-gpl-shared` build).
+
+### Build
+
+```bat
+call "<VisualStudio>\VC\Auxiliary\Build\vcvars64.bat" x64
+cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES=120a ^
+      -DNINFER_ENABLE_AVX2=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j
+```
+
+producing `build/apps/ninfer-serve.exe`.
+
+Two build notes specific to Windows:
+
+- FFmpeg is located through the local `ffmpeg/` tree instead of `pkg-config`, and is exposed
+  to consumers as the **`PkgConfig::FFMPEG`** target, so the upstream targets that link it
+  need no changes.
+- The FFmpeg runtime DLLs must sit beside the executables. Copy `ffmpeg\bin\*.dll` into
+  `build\apps\` after building; without them the process exits immediately with
+  `0xC0000135` (`STATUS_DLL_NOT_FOUND`) and prints nothing.
+
+### Runtime notes
+
+- Artifact I/O uses Win32 memory-mapped and unbuffered positional reads
+  (`CreateFileW` with `FILE_FLAG_NO_BUFFERING`), the counterpart of POSIX `O_DIRECT`/`pread`.
+- The Blackwell NVFP4 TMA kernels pass their descriptor block by **device pointer**, because
+  MSVC cannot pass an `alignas(128)` struct by value as a kernel parameter (`C2719`).
+- MSVC has no `__int128`; the runtime contract's 128-bit cost arithmetic goes through
+  `ninfer::Uint128` (`src/core/uint128.h`).
+
 ## Docker
 
 Build the runtime image on a host with the NVIDIA Container Toolkit:
