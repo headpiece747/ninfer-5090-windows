@@ -16,7 +16,7 @@
 
 namespace ninfer::ops::detail {
 
-struct alignas(128) Nvfp4W4a4TmaDescriptors {
+struct Nvfp4W4a4TmaDescriptors {
     CUtensorMap a_codes;
     CUtensorMap b_codes;
     CUtensorMap a_scales;
@@ -182,17 +182,13 @@ __device__ __forceinline__ void nvfp4_tma_load_2d(void* destination, const CUten
 }
 
 
-// Windows/MSVC a by-value alignas(128) kernel parameter cannot be laid out by the MSVC ABI
-// (C2719 in the cudafe1 host launcher), so the launcher copies the descriptor block to a
-// device buffer and passes a pointer. On other hosts the __grid_constant__ by-value parameter
-// keeps the map in parameter space. All kernel translation units must share this spelling, so
-// it is a macro rather than a constexpr type.
+// The descriptor travels by value in parameter space, which is also what makes it safe under
+// CUDA Graph capture: the bytes are part of the kernel node, so a replay sees them again. A
+// device buffer filled by cudaMemcpyAsync would instead leave a captured memcpy node reading a
+// caller stack frame that no longer exists at replay. All kernel translation units must share
+// this spelling, so it is a macro rather than a constexpr type.
 #ifndef NINFER_NVFP4_TMA_DESCRIPTOR_PARAM
-#ifdef _WIN32
-#define NINFER_NVFP4_TMA_DESCRIPTOR_PARAM const Nvfp4W4a4TmaDescriptors* __restrict__
-#else
 #define NINFER_NVFP4_TMA_DESCRIPTOR_PARAM const __grid_constant__ Nvfp4W4a4TmaDescriptors
-#endif
 #endif
 
 template <class Geometry, class Schedule, class Epilogue, class OutputPolicy>
@@ -230,11 +226,7 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void nvfp4_w4a4
             asm volatile("setmaxnreg.dec.sync.aligned.u32 40;" : : : "memory");
         }
         if (threadIdx.x == 0) {
-#ifdef _WIN32
-            const Nvfp4W4a4TmaDescriptors* descriptor_block = descriptors;
-#else
             const Nvfp4W4a4TmaDescriptors* descriptor_block = &descriptors;
-#endif
 #pragma unroll 1
             for (int k_tile = 0; k_tile < kKTiles; ++k_tile) {
                 const int stage                 = k_tile % Schedule::kStages;

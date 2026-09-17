@@ -87,11 +87,7 @@ __global__ __launch_bounds__(
             asm volatile("setmaxnreg.dec.sync.aligned.u32 40;" : : : "memory");
         }
         if (threadIdx.x == 0) {
-#ifdef _WIN32
-            const Nvfp4W4a4TmaDescriptors* descriptor_block = descriptors;
-#else
             const Nvfp4W4a4TmaDescriptors* descriptor_block = &descriptors;
-#endif
 #pragma unroll 1
             for (int k_tile = 0; k_tile < kKTiles; ++k_tile) {
                 const int stage                 = k_tile % Schedule::kStages;
