@@ -26,9 +26,11 @@ void bind_dflash2(Bindings& b, DraftWeights& weights, const DraftConfig& config,
                         // codebooks while the QUASAR checkpoint stores NVFP4 ones, and the
                         // selector dispatches on the resolved weight's qtype.
                         b.parameter("dflash2/candidate_selector/predecessor_codebook",
-                                    {target.vocab_size, extra.selector_rank}),
+                                    {target.vocab_size, extra.selector_rank},
+                                    {"dflash2/final_hidden"}),
                         b.parameter("dflash2/candidate_selector/successor_codebook",
-                                    {target.vocab_size, extra.selector_rank})};
+                                    {target.vocab_size, extra.selector_rank},
+                                    {"dflash2/final_hidden"})};
 }
 
 } // namespace ninfer::models::qwen3_5::loading

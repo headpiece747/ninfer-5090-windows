@@ -95,6 +95,9 @@ struct VisionWeights {
 };
 
 struct DraftAttentionWeights {
+    // Fused query+key+value parent, bound whole: a packed NVFP4 parameter cannot be
+    // expressed as byte ranges, so the draft attention consumes it in one piece.
+    WeightId query_key_value;
     WeightId query, key, value, context_key, context_value;
     WeightId query_norm, key_norm, output;
 };
