@@ -273,11 +273,18 @@ public:
                     // input. Derive them by pointer arithmetic: a partial NVFP4 binding is not
                     // representable. Q8 keeps its own sub-view bindings.
                     if (result.query_key_value.weight.qtype == QType::NVFP4) {
+                        // The parent is the concatenation [query | key | value]; take the widths
+                        // from the draft geometry so another head configuration cannot silently
+                        // slice the wrong rows.
+                        const auto& attention = model_.config().draft->attention;
+                        const auto  query_rows = static_cast<std::int32_t>(attention.query_width());
+                        const auto  key_rows   = static_cast<std::int32_t>(attention.key_width());
                         result.context_key = ops::SingleProjectionWeight{
-                            nvfp4_row_view(result.query_key_value.weight, 4096, 1024),
+                            nvfp4_row_view(result.query_key_value.weight, query_rows, key_rows),
                             result.query_key_value.policy};
                         result.context_value = ops::SingleProjectionWeight{
-                            nvfp4_row_view(result.query_key_value.weight, 5120, 1024),
+                            nvfp4_row_view(result.query_key_value.weight, query_rows + key_rows,
+                                           key_rows),
                             result.query_key_value.policy};
                     } else {
                         result.context_key   = linear(a.context_key);
