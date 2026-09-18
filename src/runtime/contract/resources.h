@@ -41,7 +41,9 @@ struct PrefillWork {
     const ninfer::Uint128 suffix      = suffix_tokens;
     const ninfer::Uint128 linear      = ninfer::Uint128(prefix_tokens) * suffix;
     const ninfer::Uint128 triangular  = suffix * (suffix + 1U) / 2U;
-    const ninfer::Uint128 maximum     = ~ninfer::Uint128(0);
+    // Uint128 is a fully constexpr type on MSVC, so this sentinel stays a constant expression
+    // exactly as it is in the original.
+    constexpr ninfer::Uint128 maximum = ~ninfer::Uint128(0);
     const ninfer::Uint128 attention =
         triangular > maximum - linear ? maximum : linear + triangular;
     result.attention_pairs = attention > std::numeric_limits<std::uint64_t>::max()
