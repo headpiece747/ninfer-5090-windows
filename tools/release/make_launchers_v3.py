@@ -29,7 +29,8 @@ REM
 REM  {note}
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
-REM  build_windows.bat); without them the process exits 0xC0000135.
+REM  build_windows.bat). This launcher checks for them and refuses with a readable
+REM  message, rather than letting the process exit 0xC0000135 having printed nothing.
 REM
 REM  The three context-cache bounds are deliberate. With max-concurrency 1 the defaults
 REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~530-token
@@ -63,6 +64,43 @@ if not exist "%MODEL%" (
     exit /b 1
 )
 
+REM --- Preflight ---------------------------------------------------------------------------
+REM Each check replaces a failure that is otherwise cryptic: a missing FFmpeg DLL makes the
+REM process exit 0xC0000135 before printing a reason, a busy port yields a bare bind error, and
+REM a second model on this 32 GB card yields a runtime-reservation FATAL.
+for %%F in ("%SERVE%") do set "SERVE_DIR=%%~dpF"
+
+for %%D in (avcodec avformat avutil swscale swresample) do (
+    if not exist "%SERVE_DIR%%%D-*.dll" (
+        echo [ERROR] FFmpeg runtime DLL missing: %%D-*.dll
+        echo         The engine needs all five beside the executable, in:
+        echo             %SERVE_DIR%
+        echo         build_windows.bat stages them from the ffmpeg\\bin directory it downloads.
+        echo         Without them the engine exits 0xC0000135 without printing a reason.
+        pause
+        exit /b 1
+    )
+)
+
+netstat -ano | findstr ":{port}" | findstr /I "LISTENING" >nul 2>&1
+if not errorlevel 1 (
+    echo [ERROR] Port {port} is already in use.
+    echo         Something is already listening there. Stop it, or change the --port flag
+    echo         in this launcher. To see what holds it:
+    echo             netstat -ano ^| findstr ":{port}"
+    pause
+    exit /b 1
+)
+
+tasklist /FI "IMAGENAME eq ninfer-serve.exe" 2>nul | find /I "ninfer-serve.exe" >nul
+if not errorlevel 1 (
+    echo [WARN]  A ninfer-serve.exe process is already running.
+    echo         This card holds one model at a time, so starting another may fail with a
+    echo         runtime-reservation error, or the running server may stop answering.
+    choice /C YN /N /M "Continue anyway? [Y/N] "
+    if errorlevel 2 exit /b 1
+)
+
 "%SERVE%" "%MODEL%" ^{flags}
 
 pause
@@ -82,7 +120,7 @@ def render(profile: dict) -> str:
         label=profile["label"], note=profile["note"], ctx=profile["ctx"],
         ctx_h=f"{profile['ctx']:,}", tok=profile["tok"], acc=profile["acc"],
         runtime=profile["runtime"], free=profile["free"], v3=V3, models=MODELS,
-        art=profile["art"], flags=flags,
+        art=profile["art"], flags=flags, port=profile["port"],
     )
 
 
