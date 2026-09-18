@@ -93,6 +93,77 @@ a property of the model.
    against the same cap as the answer; a tight cap silently truncates the answer and looks
    like a model failure.
 
+## Running xhigh: what the effort levels actually are
+
+The artifact's `frontend/chat_template.jinja` decides this, and it is not what the names
+suggest:
+
+```jinja
+{%- set resolved_reasoning_effort = reasoning_effort|default('xhigh') %}
+{%- if resolved_reasoning_effort not in ('xhigh', 'medium', 'low') %}
+    {{- raise_exception('Unexpected reasoning effort ...') }}
+```
+
+- **`xhigh` is the artifact's default**, not an extra tier.
+- **Only `xhigh`, `medium` and `low` exist.** They are *prompt instructions*, not token
+  budgets: `xhigh` appends "think carefully through the task, validate key assumptions,
+  consider plausible alternatives", `low` appends "keep your thinking brief".
+- **`none` bypasses this block** by setting `enable_thinking: false`, which is why it is
+  accepted despite not being in the list.
+- **No budget comes from the template.** The thinking cap is purely the server's
+  `--default-thinking-budget`.
+
+That last point matters: every earlier effort comparison ran three *instruction* variants
+under one 4096-token cap. Measured reasoning peaked at ~4.4k tokens, right at the cap, so
+the budget was binding. Varying it:
+
+| thinking budget | pass | mean time | reasoning chars |
+| --- | --- | --- | --- |
+| 4,096 | 3/4 | 10.7 s | 8,977 |
+| 16,384 | 3/4 | 35.3 s | 32,476 |
+| 32,768 | 3/4 | 49.6 s | 49,489 |
+| `none`, any budget | 3/4 | 1.1 s | 0 |
+
+**Un-clipping `xhigh` produced 5.5x the reasoning and 5x the time for an identical score.**
+So `--default-thinking-budget 4096` is not a defect to correct; it is the setting that keeps
+`xhigh` affordable. Raise it only if you have evidence a specific task needs more.
+
+Worth knowing which task fails, because the two settings fail differently:
+`xhigh` solves `rooms_needed` (needs a sweep or heap) but fails `evaluate`, while `none`
+passes `evaluate` and fails `rooms_needed`. Neither dominates, and the `xhigh` failures were
+a different exception each run — long thinking made it less reproducible on that task, not
+more correct.
+
+## Best settings for xhigh
+
+Server (launcher):
+
+```
+--default-thinking-budget 4096      # keep; raising it costs 5x time for no measured gain
+--spec dflash2 --draft-tokens 7     # fastest decode, and xhigh generates a lot of tokens
+--lm-head-draft
+--vision
+--max-context 262144
+--kv-dtype fp8
+```
+
+opencode:
+
+```jsonc
+"qwen3.8-27b-quasar-v3-dflash2-vision": {
+  "options": { "reasoningEffort": "xhigh" },
+  "limit": { "context": 262144, "input": 229376, "output": 32768 }
+}
+```
+
+Two rules that matter more than the numbers:
+
+1. **`output` must exceed the thinking budget plus the answer.** Reasoning is billed
+   against the same cap; a tight cap truncates the answer and looks like a model failure.
+   With a 4096 budget, 32768 leaves ample room.
+2. **Use the fastest decoder.** `xhigh` turns a 1 s task into a 10-50 s one, so decode
+   speed is what you feel: DFlash2 (331 tok/s) over MTP (225 tok/s).
+
 ## Recommended opencode settings
 
 Default to `none` for speed, and expose a variant for work that needs deliberation:

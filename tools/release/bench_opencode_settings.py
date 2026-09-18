@@ -274,7 +274,7 @@ def kill() -> None:
     subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"], capture_output=True, text=True)
 
 
-def start(profile: dict) -> tuple[subprocess.Popen, Path]:
+def start(profile: dict, thinking_budget: int = 4096) -> tuple[subprocess.Popen, Path]:
     kill()
     time.sleep(3)
     port = profile["port"]
@@ -287,7 +287,7 @@ def start(profile: dict) -> tuple[subprocess.Popen, Path]:
             "--kv-dtype", "fp8", "--prefill-chunk", "8192", "--max-concurrency", "1",
             "--device-state-slots", "1", "--host-state-slots", "8", "--host-kv-mib", "8192",
             "--request-log-jsonl", str(jsonl),
-            "--preserve-thinking", "--default-thinking-budget", "4096"]
+            "--preserve-thinking", "--default-thinking-budget", str(thinking_budget)]
     if profile["vision"]:
         args.append("--vision")
     args += ["--spec", profile["spec"], "--draft-tokens", str(profile["draft"])]
@@ -356,6 +356,8 @@ def main() -> int:
     ap.add_argument("--models", nargs="*", default=list(PROFILES))
     ap.add_argument("--efforts", nargs="*", default=EFFORTS)
     ap.add_argument("--tasks", nargs="*", default=[t["name"] for t in TASKS])
+    ap.add_argument("--thinking-budget", type=int, default=4096,
+                    help="server cap on reasoning tokens; the chat template sets none")
     ap.add_argument("--output-tokens", type=int, default=2048,
                     help="completion cap; reasoning tokens are billed against it")
     args = ap.parse_args()
@@ -365,7 +367,7 @@ def main() -> int:
     for name in args.models:
         profile = PROFILES[name]
         print(f"\n=== {name} ({profile['spec']} d{profile['draft']}, {profile['ctx']:,} ctx)")
-        proc, jsonl = start(profile)
+        proc, jsonl = start(profile, args.thinking_budget)
         if proc.poll() is not None:
             print("   FAILED to start")
             continue
@@ -379,7 +381,7 @@ def main() -> int:
                     ok, detail, elapsed, extra = False, f"{type(error).__name__}", 0.0, {}
                 record = dict(model=name, effort=effort, task=task["name"], pass_=ok,
                               detail=detail, seconds=round(elapsed, 1),
-                              output_tokens=args.output_tokens, **extra)
+                              output_tokens=args.output_tokens, thinking_budget=args.thinking_budget, **extra)
                 results.append(record)
                 mark = "PASS" if ok else "FAIL"
                 print(f"   {effort:<6} {task['name']:<18} {mark}  {elapsed:5.1f}s  "
