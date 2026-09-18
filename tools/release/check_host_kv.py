@@ -20,9 +20,13 @@ import time
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from profiles import PROFILES, launcher_args  # noqa: E402
+
 CWD = r"C:\AI\ninfer-v3-windows"
 EXE = CWD + r"\build\apps\ninfer-serve.exe"
-MODEL = r"C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
+PROFILE = PROFILES[0]  # QUASAR DFlash2, the profile the cache bounds were measured on
+MODEL = rf"C:\AI\models\{PROFILE['art']}"
 MODEL_ID = "hostkv-probe"
 PORT = 8106
 BASE = f"http://127.0.0.1:{PORT}"
@@ -52,15 +56,10 @@ def main() -> int:
     kill()
     time.sleep(3)
     log = Path(r"C:\AI\bench") / f"hostkv_{host_kv}_{slots}.txt"
-    args = [EXE, MODEL, "--host", "127.0.0.1", "--port", str(PORT), "--model-id", MODEL_ID,
-            "--max-context", "262144", "--kv-capacity", "auto", "--kv-dtype", "fp8",
-            "--prefill-chunk", "8192", "--max-concurrency", "1",
-            "--device-state-slots", "1", "--host-state-slots", slots,
-            "--host-kv-mib", host_kv,
-            "--max-shared-prefixes", "7", "--max-private-continuations", "8",
-            "--max-long-anchors-per-continuation", "4",
-            "--preserve-thinking", "--default-thinking-budget", "4096",
-            "--vision", "--spec", "dflash2", "--draft-tokens", "7", "--lm-head-draft"]
+    # The profile's shipped flags, with this harness's own port and model id. The two host
+    # values under test are appended, since they are what this script varies.
+    args = [EXE, MODEL] + launcher_args(PROFILE, port=PORT, model_id=MODEL_ID) + [
+        "--host-state-slots", slots, "--host-kv-mib", host_kv]
     handle = log.open("w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(args, cwd=CWD, stdin=subprocess.DEVNULL, stdout=handle,
                             stderr=subprocess.STDOUT)

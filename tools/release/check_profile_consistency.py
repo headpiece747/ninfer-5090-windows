@@ -133,9 +133,30 @@ def main() -> int:
         check(f"{retired} not on disk", not (WT / retired).exists())
 
     print("\n=== harness profile tables ===")
+    # The bench harness no longer names the artifacts: it derives its profile dict from the
+    # module, which is the point. Assert the derivation, not the literal strings.
     bench = read(WT / "tools" / "release" / "bench_opencode_settings.py")
-    check("bench harness uses the NVFP4-full artifact", NVFP4FULL in bench)
-    check("bench harness uses the QUASAR artifact", QUASAR in bench)
+    check("bench harness derives its profiles from the module",
+          "from profiles import PROFILES as SHIPPED" in bench)
+    check("bench harness does not restate the artifact filenames",
+          "qwen3_8_27b_" not in bench)
+
+    print("\n=== harnesses cross the module seam ===")
+    # Each of these built its own argument list, and theirs omitted the cache bounds, the
+    # thinking budget and the pending timeout -- so their records came from flags no launcher
+    # ships. They must compose from the module instead.
+    for name in ("v3_profile_matrix.py", "bench_opencode_settings.py", "check_host_kv.py",
+                 "probe_reasoning_effort.py"):
+        body = read(WT / "tools" / "release" / name)
+        check(f"{name} imports from profiles", "from profiles import" in body)
+        check(f"{name} does not hand-write the cache bounds",
+              "--max-shared-prefixes" not in body or "INVARIANT_FLAGS" in body
+              or "launcher_args" in body)
+
+    # The matrix explores combinations no profile covers, so it composes the invariants rather
+    # than calling launcher_args. Assert that specifically.
+    matrix = read(WT / "tools" / "release" / "v3_profile_matrix.py")
+    check("matrix composes INVARIANT_FLAGS", "INVARIANT_FLAGS" in matrix)
 
     for note in notes:
         print(f"\n   note: {note}")

@@ -116,16 +116,36 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     return out
 
 
-def launcher_args(profile: dict[str, Any]) -> list[str]:
+def launcher_args(profile: dict[str, Any], port: int | None = None,
+                  model_id: str | None = None, max_context: int | None = None) -> list[str]:
     """The serve argument list for a profile, exactly as the launcher passes it.
 
     This is the interface the measurement harnesses should use. When they build their own
     argument list instead, their records stop describing what ships -- which happened: the
-    bounds, the thinking budget and the model ids were all missing from the harness, so its
-    numbers came from flags no launcher ships.
+    cache bounds, the thinking budget and the model ids were all missing from the harness, so
+    its numbers came from flags no launcher ships.
+
+    Three overrides exist because a harness genuinely differs from a launcher, and each has
+    more than one caller, so the seam is real rather than hypothetical:
+
+    - ``port``: a harness must bind its own port, because the shipped one may already be
+      serving. Every harness overrides it.
+    - ``model_id``: the engine enforces the id on every request, so a harness needs one it
+      controls. Every harness overrides it.
+    - ``max_context``: the matrix probes a descending ladder and the effort probe uses a small
+      context. Two callers.
+
+    Anything else a harness needs -- a request log, a different thinking budget -- it appends,
+    which is why this returns a plain list.
     """
     args: list[str] = []
     for flag, value in ordered_flags(profile):
+        if flag == "--port" and port is not None:
+            value = str(port)
+        elif flag == "--model-id" and model_id is not None:
+            value = model_id
+        elif flag == "--max-context" and max_context is not None:
+            value = str(max_context)
         if value is None and " " not in flag:
             args.append(flag)
         else:

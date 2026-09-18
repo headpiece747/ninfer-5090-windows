@@ -28,18 +28,17 @@ EXE = CWD + r"\build\apps\ninfer-serve.exe"
 MODELS = r"C:\AI\models"
 RECORDS = Path(r"C:\AI\bench\opencode_settings.jsonl")
 
-# The four shipped models, with each launcher's verified argument set reduced to what
-# matters here: artifact, spec, vision, ceiling, and the per-profile lm-head choice.
+# The shipped profiles, keyed for this harness. The values come from profiles.py, so this is a
+# view rather than a second copy: the harness needs its own ports (a launcher may already hold
+# the shipped one) and short keys for --models, and nothing else differs.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from profiles import PROFILES as SHIPPED, launcher_args  # noqa: E402
+
+_HARNESS_PORTS = [8101, 8102, 8103, 8104]
 PROFILES = {
-    "quasar-dflash2": dict(art="qwen3_8_27b_nvfp4qat.v3.ninfer", ctx=262144, vision=True,
-                           spec="dflash2", draft=7, lm_head=True, port=8101),
-    "quasar-mtp4": dict(art="qwen3_8_27b_nvfp4qat.v3.ninfer", ctx=262144, vision=True,
-                        spec="mtp", draft=4, lm_head=True, port=8102),
-    "nvfp4full-dflash2-vision": dict(art="qwen3_8_27b_nvfp4full.v3.ninfer", ctx=262144,
-                                     vision=True, spec="dflash2", draft=7, lm_head=True,
-                                     port=8103),
-    "nvfp4full-mtp5-vision": dict(art="qwen3_8_27b_nvfp4full.v3.ninfer", ctx=262144,
-                                  vision=True, spec="mtp", draft=5, lm_head=True, port=8104),
+    profile["file"].replace("start_", "").replace("_vision.bat", "").replace("_", "-"):
+        dict(profile, port=port)
+    for profile, port in zip(SHIPPED, _HARNESS_PORTS)
 }
 
 # The artifact's chat template (artifact:chat_template.jinja line 55) implements exactly
@@ -282,18 +281,10 @@ def start(profile: dict, thinking_budget: int = 4096) -> tuple[subprocess.Popen,
     log = Path(r"C:\AI\bench") / f"settings_{port}.txt"
     jsonl = Path(r"C:\AI\bench") / f"settings_{port}.jsonl"
     jsonl.unlink(missing_ok=True)
-    args = [EXE, str(Path(MODELS) / profile["art"]), "--host", "127.0.0.1",
-            "--port", str(port), "--model-id", "settings-probe",
-            "--max-context", str(profile["ctx"]), "--kv-capacity", "auto",
-            "--kv-dtype", "fp8", "--prefill-chunk", "8192", "--max-concurrency", "1",
-            "--device-state-slots", "1", "--host-state-slots", "8", "--host-kv-mib", "8192",
-            "--request-log-jsonl", str(jsonl),
-            "--preserve-thinking", "--default-thinking-budget", str(thinking_budget)]
-    if profile["vision"]:
-        args.append("--vision")
-    args += ["--spec", profile["spec"], "--draft-tokens", str(profile["draft"])]
-    if profile["lm_head"]:
-        args.append("--lm-head-draft")
+    args = [EXE, str(Path(MODELS) / profile["art"])] + launcher_args(
+        profile, port=port, model_id="settings-probe") + [
+        "--request-log-jsonl", str(jsonl),
+        "--default-thinking-budget", str(thinking_budget)]
     handle = log.open("w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(args, cwd=CWD, stdin=subprocess.DEVNULL, stdout=handle,
                             stderr=subprocess.STDOUT)

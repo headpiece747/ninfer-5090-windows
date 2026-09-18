@@ -32,6 +32,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from profiles import INVARIANT_FLAGS  # noqa: E402
+
 EXE = Path(r"C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe")
 MODELS = Path(r"C:\AI\models")
 OUT = Path(r"C:\AI\bench")
@@ -310,26 +313,34 @@ def refusal_reason(text: str) -> str:
 def build_args(art: str, spec: str, draft: int, vision: bool, max_context: int,
                log_jsonl: Path, greedy: bool = False, kv_capacity: str = "auto",
                lm_head: bool = True) -> list[str]:
+    """Arguments for one probe run.
+
+    This harness explores combinations the four shipped profiles do not cover -- spec "none",
+    arbitrary draft depths, and a descending context ladder -- so it cannot take a profile
+    directly. It composes the invariant flags from profiles.INVARIANT_FLAGS instead, which is
+    what stops the cache bounds, the thinking budget and the pending timeout going missing
+    again: they were absent here, so every record this harness produced came from flags no
+    launcher ships while its own header claimed the opposite.
+    """
     a = [str(EXE), str(MODELS / ARTS[art]),
          "--host", "127.0.0.1", "--port", str(PORT),
          "--model-id", f"{art}-v3-{spec}",
-         "--max-context", str(max_context),
-         "--kv-capacity", kv_capacity,
-         "--kv-dtype", "fp8",
-         "--prefill-chunk", "8192",
-         "--max-concurrency", "1",
-         "--device-state-slots", "1",
-         "--host-state-slots", "8",
-         "--host-kv-mib", "8192",
-         "--log-stats-interval-ms", "2000",
-         "--request-log-jsonl", str(log_jsonl),
-         "--seed", "1234"]
+         "--max-context", str(max_context)]
+    # The per-profile flags this probe varies, then the shipped invariants.
     if spec != "none":
         a += ["--spec", spec, "--draft-tokens", str(draft)]
         if lm_head:
             a += ["--lm-head-draft"]
     if vision:
         a += ["--vision"]
+    a += ["--kv-capacity", kv_capacity]
+    for flag, value in INVARIANT_FLAGS:
+        if flag == "--kv-capacity":
+            continue  # already emitted above, from the caller's value
+        a.append(flag) if value is None else a.extend([flag, value])
+    a += ["--log-stats-interval-ms", "2000",
+          "--request-log-jsonl", str(log_jsonl),
+          "--seed", "1234"]
     if greedy:
         a += ["--greedy"]
     return a

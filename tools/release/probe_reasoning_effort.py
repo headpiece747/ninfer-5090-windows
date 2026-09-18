@@ -17,9 +17,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from profiles import PROFILES, launcher_args  # noqa: E402
+
 CWD = r"C:\AI\ninfer-v3-windows"
 EXE = CWD + r"\build\apps\ninfer-serve.exe"
-MODEL = r"C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
+PROFILE = PROFILES[0]  # QUASAR DFlash2; the effort question is not profile-specific
+MODEL = rf"C:\AI\models\{PROFILE['art']}"
 PORT = 8105
 BASE = f"http://127.0.0.1:{PORT}"
 EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"]
@@ -33,11 +37,10 @@ def kill() -> None:
 def main() -> int:
     kill()
     time.sleep(3)
-    args = [EXE, MODEL, "--host", "127.0.0.1", "--port", str(PORT),
-            "--model-id", "effort-probe", "--max-context", "32768", "--kv-capacity", "auto",
-            "--kv-dtype", "fp8", "--prefill-chunk", "8192", "--max-concurrency", "1",
-            "--preserve-thinking", "--default-thinking-budget", "4096",
-            "--vision", "--spec", "dflash2", "--draft-tokens", "7", "--lm-head-draft"]
+    # The profile's shipped flags. Context is overridden small because this probe only needs
+    # one short reply, and the port and model id are this harness's own.
+    args = [EXE, MODEL] + launcher_args(PROFILE, port=PORT, model_id="effort-probe",
+                                        max_context=32768)
     log = Path(r"C:\AI\bench\effort_probe.txt")
     handle = log.open("w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(args, cwd=CWD, stdin=subprocess.DEVNULL, stdout=handle,
