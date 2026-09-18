@@ -11,6 +11,12 @@ Layout follows the v1.0.x releases, with two deliberate changes:
     rather than a second binary;
   * five FFmpeg DLLs, matching the five components cmake/Dependencies.cmake links
     (avcodec, avformat, avutil, swscale, swresample), rather than everything staged locally.
+
+Packaging runs tools/release/check_test_baseline.py first and refuses to build an archive when the
+suite has regressed. The suite is not green -- one case is a documented upstream disagreement --
+which is exactly why the gate compares against a recorded baseline instead of demanding green:
+the previous release was cut while a test was failing and nobody noticed. Pass --skip-test-gate to
+override deliberately.
 """
 from __future__ import annotations
 
@@ -49,7 +55,22 @@ def sha256(path: Path) -> str:
 
 
 def main() -> int:
-    version = sys.argv[1] if len(sys.argv) > 1 else "v1.1.0"
+    positional = [argument for argument in sys.argv[1:] if not argument.startswith("--")]
+    skip_gate = "--skip-test-gate" in sys.argv[1:]
+    version = positional[0] if positional else "v1.1.0"
+
+    if skip_gate:
+        print("  test gate  : SKIPPED (--skip-test-gate)")
+    else:
+        print("  test gate  : running tools/release/check_test_baseline.py")
+        gate = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent / "check_test_baseline.py")],
+            cwd=REPO)
+        if gate.returncode != 0:
+            print("  RELEASE REFUSED: the suite regressed against the recorded baseline.")
+            print("  Fix the regression, or pass --skip-test-gate to accept it deliberately.")
+            return 1
+
     stage = RELEASES / f"stage-{version}"
     if stage.exists():
         shutil.rmtree(stage)

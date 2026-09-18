@@ -6,9 +6,15 @@ REM FFmpeg runtime DLLs must be copied beside the test executables. Without that
 REM tests exit 0xC0000135 (STATUS_DLL_NOT_FOUND) before printing anything, which looks like a
 REM crash rather than a missing DLL.
 REM
-REM Expected result on this port: 120 of 121 pass. ninfer_resource_manager_test asserts an
-REM eviction ordering against a 5 ms wall-clock search budget, so it is timing-sensitive by
-REM construction. See docs/upstream-reports/ninfer-tma-descriptor-graph-capture.md.
+REM Expected result on this port: 121 of 122 pass. The one failure is
+REM ninfer_resource_manager_test, case test_candidate_search_prefers_deep_reuse_without_eviction,
+REM which asserts a guarantee that upstream's maintainer document disclaims
+REM (docs/maintainer/resource-scheduling-and-context-cache.md, section 8.8: the stop reasons do not
+REM assert global optimality of the target graph). It is deterministic planner policy, not timing:
+REM a caller-supplied clock leaves the outcome unchanged.
+REM
+REM After a suite run, tools\release\check_test_baseline.py confirms no NEW failure appeared. The
+REM recorded baseline and its reasoning are in tools\release\test_baseline.json.
 setlocal
 set "REPO=%~dp0..\.."
 
