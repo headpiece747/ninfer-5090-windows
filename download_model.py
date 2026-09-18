@@ -84,6 +84,13 @@ def verify_file(path: str, spec: dict) -> bool:
         print("[SUCCESS] SHA-256 verified.")
         return True
     print(f"[FAIL] SHA-256 mismatch.\n  Expected: {spec['sha256']}\n  Actual:   {actual}")
+    print()
+    print("  Two causes, and they need different fixes:")
+    print("    1. The download is corrupt or partial. Delete the file and download again.")
+    print("    2. The publisher replaced the file under the same name. Then this pin is stale:")
+    print(f"       update ARTIFACTS[{spec['source']!r}] in this script with the hash above,")
+    print("       and check whether the container changed too -- a v3 file must not be fed to")
+    print("       the v2 upgrader, and a v2 file must not be handed to a v3 engine.")
     return False
 
 
