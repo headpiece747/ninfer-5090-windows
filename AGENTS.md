@@ -163,12 +163,10 @@ port targets MSVC 14.51 and CUDA 13.3, and the Python used for tooling is
 `C:\vllm-env\Scripts\python.exe`. What ships is governed by `tools/release/profiles.py`, and the
 release surface is documented in the Windows section of `README.md`.
 
-Seven rules, each earned by a failure rather than chosen:
+Eight rules, each earned by a failure rather than chosen:
 
-- **Never inline a script through PowerShell.** Quotes inside quotes break the argument splitting;
-  that happened five times in one session and the fix was always to write a file first. The same
-  applies to `git commit -m` with a multi-paragraph message: use `-F <file>`, or the message is
-  split into pathspecs and the commit silently does not happen.
+- **Never inline a script through PowerShell.** Quotes inside quotes break the argument splitting.
+  That happened five times in one session and the fix was always to write a file first.
 - **Do not guard with string presence over prose.** A check for a token that also appears in a
   comment, a docstring or a filename misfires. That happened four times. Assert the specific call
   site instead.
@@ -183,5 +181,10 @@ Seven rules, each earned by a failure rather than chosen:
 - **Profile values come from `profiles.py`.** Run `tools/release/check_profile_consistency.py`
   after touching a launcher, a doc table, an opencode provider entry or a harness. Fixing tables by
   hand once touched three files and missed two.
+- **Confirm a commit landed.** Two commands reported success while committing nothing this
+  session: a multi-paragraph message passed with `-m` split on its own quotes and became
+  pathspecs, and a file under `tools/build/` was silently ignored because `.gitignore` has
+  `build/` with no leading slash, which matches at any depth. Use `git commit -F <file>` for
+  anything longer than a line, and check `git log -1` or `git status` after every commit.
 - **Prove an extraction by byte-identity.** Regenerating output that must not change is stronger
   evidence than re-running the behavior, because it rules out any change at all.
