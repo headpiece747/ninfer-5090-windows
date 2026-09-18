@@ -2,6 +2,10 @@ ninfer_add_test(ninfer_media_decode_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_media_decode.cpp"
   LIBRARIES ninfer_media_decode)
 
+ninfer_add_test(ninfer_media_acquire_test
+  SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_media_acquire.cpp"
+  LIBRARIES ninfer_media_acquire)
+
 ninfer_add_test(ninfer_prompt_input_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_prompt_input.cpp"
   LIBRARIES ninfer_product_prompt_input)
