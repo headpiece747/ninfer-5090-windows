@@ -30,12 +30,11 @@ EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"]
 PROMPT = "Reply with the single word OK."
 
 
-def kill() -> None:
-    subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"], capture_output=True, text=True)
+from engine import kill_servers, start_engine, stop_engine  # noqa: E402
 
 
 def main() -> int:
-    kill()
+    kill_servers()
     time.sleep(3)
     # The profile's shipped flags. Context is overridden small because this probe only needs
     # one short reply, and the port and model id are this harness's own.
@@ -79,8 +78,7 @@ def main() -> int:
         except Exception as error:  # noqa: BLE001
             print(f"   {effort:<8} {type(error).__name__}: {str(error)[:150]}")
 
-    proc.kill()
-    kill()
+    stop_engine(proc)
     return 0
 
 

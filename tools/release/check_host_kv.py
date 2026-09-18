@@ -45,15 +45,14 @@ BODY = (
 )
 
 
-def kill() -> None:
-    subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"], capture_output=True, text=True)
+from engine import kill_servers, start_engine, stop_engine  # noqa: E402
 
 
 def main() -> int:
     host_kv = sys.argv[1] if len(sys.argv) > 1 else "8192"
     slots = sys.argv[2] if len(sys.argv) > 2 else "8"
 
-    kill()
+    kill_servers()
     time.sleep(3)
     log = Path(r"C:\AI\bench") / f"hostkv_{host_kv}_{slots}.txt"
     # The profile's shipped flags, with this harness's own port and model id. The two host
@@ -76,8 +75,7 @@ def main() -> int:
             time.sleep(2)
     if not ready:
         print(f"   host-kv-mib={host_kv} slots={slots}: FAILED TO START")
-        proc.kill()
-        kill()
+        stop_engine(proc)
         return 1
 
     cache_line = ""
@@ -114,8 +112,7 @@ def main() -> int:
     print(f"   host-kv-mib={host_kv:<6} slots={slots:<3} hits {hits}/5  "
           f"token hit rate {rate:5.1f}%   | {tail[:60]}")
 
-    proc.kill()
-    kill()
+    stop_engine(proc)
     return 0
 
 
