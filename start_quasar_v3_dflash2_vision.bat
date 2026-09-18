@@ -90,11 +90,11 @@ if not errorlevel 1 (
   --port 8086 ^
   --model-id qwen3.8-27b-quasar-v3-dflash2-vision ^
   --max-context 262144 ^
+  --device-state-slots 8 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^
   --prefill-chunk 8192 ^
   --max-concurrency 1 ^
-  --device-state-slots 1 ^
   --host-state-slots 8 ^
   --host-kv-mib 8192 ^
   --max-shared-prefixes 7 ^

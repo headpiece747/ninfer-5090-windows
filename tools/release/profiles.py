@@ -32,22 +32,22 @@ QUASAR = "qwen3_8_27b_nvfp4qat.v3.ninfer"
 NVFP4FULL = "qwen3_8_27b_nvfp4full.v3.ninfer"
 
 PROFILES: list[dict[str, Any]] = [
-    dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR,
+    dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=8,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
          tok=331.3, acc="61.8%", runtime="10.7 GiB", free="2.52 GiB",
          note="Flagship: fastest measured configuration, at full context."),
-    dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR,
+    dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=8,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
          tok=225.4, acc="65.3%", runtime="10.4 GiB", free="3.08 GiB",
          note="Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR."),
-    dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL,
+    dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL, device_state_slots=4,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
          tok=326.6, acc="63.7%", runtime="10.7 GiB", free="1.74 GiB",
          note="Second artifact, same reach as QUASAR: 262,144 with Vision. This is the\nREM  tightest profile in the set; dropping --lm-head-draft buys 0.33 GiB at ~2% slower."),
-    dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL,
+    dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=4,
          label="NVFP4-full + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
          tok=236.3, acc="64.2%", runtime="10.4 GiB", free="2.28 GiB",
@@ -62,7 +62,6 @@ INVARIANT_FLAGS: list[tuple[str, str | None]] = [
     ("--kv-dtype", "fp8"),
     ("--prefill-chunk", "8192"),
     ("--max-concurrency", "1"),
-    ("--device-state-slots", "1"),
     ("--host-state-slots", "8"),
     ("--host-kv-mib", "8192"),
     ("--max-shared-prefixes", "7"),
@@ -108,10 +107,21 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     positions matter: the per-profile flags come first, then the bound ones.
     """
     out: list[tuple[str, str | None]] = [(token, None) for token in varying_flags(profile)]
+    # --device-state-slots is per profile because it is VRAM-bound, not a shared constant. It is
+    # "extra checkpoint capacity beyond active lanes": how many conversations can keep a cached
+    # state at once. The engine has NO eviction for them, so once they are exhausted prefix reuse
+    # stops permanently until restart (upstream issue #251, "no LRU eviction observed",
+    # reproduced here: with 1, reuse held for 3 conversations and every later request re-prefilled
+    # from the root -- 4x slower TTFT, silently). This is a mitigation, not a cure: with no
+    # eviction any finite value still ends in that cliff. Measured: 1 -> 3/6 conversations reused,
+    # 4 -> 4/6, 8 -> 6/6. Higher is better where it fits, and it does not fit everywhere: 8 needs
+    # ~1.3 GiB more runtime than 1, and NVFP4-full + DFlash2 fails to start with 8
+    # ("minimum Engine runtime reservation requires 12894831873 bytes") but starts with 4.
     out.extend([("--host", "127.0.0.1"),
                 ("--port", str(profile["port"])),
                 ("--model-id", profile["model_id"]),
-                ("--max-context", str(profile["ctx"]))])
+                ("--max-context", str(profile["ctx"])),
+                ("--device-state-slots", str(profile["device_state_slots"]))])
     out.extend(INVARIANT_FLAGS)
     return out
 

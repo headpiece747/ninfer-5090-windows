@@ -90,11 +90,11 @@ if not errorlevel 1 (
   --port 8089 ^
   --model-id qwen3.8-27b-nvfp4-v3-mtp5-vision ^
   --max-context 262144 ^
+  --device-state-slots 4 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^
   --prefill-chunk 8192 ^
   --max-concurrency 1 ^
-  --device-state-slots 1 ^
   --host-state-slots 8 ^
   --host-kv-mib 8192 ^
   --max-shared-prefixes 7 ^
