@@ -9,7 +9,7 @@ REM
 REM  Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
-REM  build_v3.cmd); without them the process exits 0xC0000135.
+REM  build_windows.bat); without them the process exits 0xC0000135.
 REM
 REM  The three context-cache bounds are deliberate. With max-concurrency 1 the defaults
 REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~530-token
