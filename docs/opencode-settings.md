@@ -48,35 +48,70 @@ budget.
 | ninfer-mtp5 | medium | 6/6 | 4.1 s | 2616 | 0 |
 | ninfer-mtp5 | xhigh | 3/6 | 8.2 s | 4922 | 3 |
 
+## Hard tasks change the answer
+
+The table above is short-function work. Re-running four genuinely multi-step tasks (an
+arithmetic expression evaluator with precedence and validation, Levenshtein distance, a
+minimum-meeting-rooms scheduler, and debugging a subtly wrong binary search) at a 16,384
+output cap gives a different picture:
+
+| task | none | low | medium | xhigh |
+| --- | --- | --- | --- | --- |
+| `evaluate` (parser + validation) | 2/2 | 1/2 | 2/2 | 2/2 |
+| `edit_distance` | 2/2 | 2/2 | 2/2 | 2/2 |
+| `debug_first_index` | 2/2 | 2/2 | 2/2 | 2/2 |
+| **`rooms_needed` (interval scheduling)** | **0/2** | **2/2** | **2/2** | **2/2** |
+| mean seconds | **0.8-1.4** | 7-12 | 11-19 | 11-28 |
+
+**Thinking is not useless — it is required for algorithmic work.** `rooms_needed` needs a
+sweep or a heap, and without thinking both models produced code that either crashed or got
+the overlap rule wrong. With `low` or above, both passed every time. Everything else was
+solved without thinking.
+
+**And low is enough**: `low`, `medium` and `xhigh` scored identically on every hard task,
+while `low` took 7-12 s against 11-28 s. Extra effort bought time, not correctness.
+
+### The truncation trap, confirmed
+
+Running the same `xhigh` hard tasks at the earlier 2,048-token cap reproduces the failure
+mode exactly: `NameError: name 'evaluate' is not defined`, with 4-9k characters of
+reasoning. Same tasks, same model, same effort — the only difference is the output cap. So
+the earlier "thinking makes things worse" result was entirely a configuration artifact, not
+a property of the model.
+
 ## What this says
 
-1. **None of the four models is better than the others at coding.** Every one scores the
-   same. Pick by context and speed, not by expectation of quality.
-2. **`none` is the best default.** Full pass rate at 0.6-0.8 s, versus 2.4-3.6 s for `low`
-   and 5.4-8.2 s for `xhigh` — a 7-10x cost for thinking, with no correctness gained.
-3. **More thinking made things worse, and the mechanism is truncation, not reasoning.**
-   Every `xhigh` failure is `NameError: name '<fn>' is not defined` — the code block never
-   arrived. 4-8k characters of reasoning against `max_tokens: 2048` consumed the entire
-   output budget. **If you raise `reasoningEffort`, raise `limit.output` with it**, or you
-   will trade a correct short answer for a truncated long one.
-4. **`medium` is the sweet spot if you want thinking at all**, and it only stayed clean on
-   the two ninfer profiles.
+1. **None of the four models is better than the others at coding** — every one scores the
+   same on both grids. Pick by context and speed.
+2. **Use `none` for routine work.** It matches every other setting on recall-shaped tasks at
+   0.6-1.4 s against 7-28 s, and it never truncated.
+3. **Turn thinking on for anything algorithmic.** `none` scored 0/2 on the one task that
+   needed a real algorithm. This is the case thinking exists for.
+4. **`low` is the right thinking level.** Identical results to `medium` and `xhigh` on every
+   hard task, at a third of the time.
+5. **Never lower `limit.output` below the thinking budget.** Reasoning tokens are billed
+   against the same cap as the answer; a tight cap silently truncates the answer and looks
+   like a model failure.
 
 ## Recommended opencode settings
+
+Default to `none` for speed, and expose a variant for work that needs deliberation:
 
 ```jsonc
 "qwen3.8-27b-quasar-v3-dflash2-vision": {
   "options": { "reasoningEffort": "none" },
-  "limit": { "context": 262144, "input": 229376, "output": 32768 }
+  "limit": { "context": 262144, "input": 229376, "output": 32768 },
+  "variants": {
+    "think": { "reasoningEffort": "low" }
+  }
 }
 ```
 
-Rationale for `output: 32768` rather than a tight cap: reasoning tokens are billed to the
-same budget as the answer, so a small cap silently truncates whenever thinking is on. 32k
-leaves room either way.
+Switch with the `variant_cycle` keybind. `output: 32768` rather than a tight cap on
+purpose: reasoning bills against it, so a small cap silently truncates whenever thinking is
+on.
 
-If you want a thinking ladder, opencode variants are the right mechanism — one model entry,
-selectable profiles, no duplicate model keys.
+Do not add variants named `minimal` or `high` — the chat template rejects those values.
 
 ## Which model when
 
