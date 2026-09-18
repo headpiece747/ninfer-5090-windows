@@ -50,7 +50,9 @@ Python 3 interpreter. Both presets use `build/` and explicitly reset the build o
 Machine-specific compiler and Python paths belong in the ignored `CMakeUserPresets.json`.
 See [build organization and configuration](docs/maintainer/build-system.md) for details.
 
-There is no install target or packaged binary distribution; run NInfer from its source build tree.
+Upstream targets Linux and ships no packaged binary distribution; it runs from its source build
+tree. This Windows port is different: see the Windows section below, which ships a packaged
+archive with the engine, its runtime DLLs and one launcher per profile.
 Python tools run independently of CMake; the standalone HBM probe has its own
 [build command](tools/README.md#standalone-hbm-probe).
 

@@ -31,7 +31,8 @@ Vision is free on it (331.3 with against 333.0 without, same context).
 
 `download_model.bat` fetches the recommended QUASAR QAT artifact and verifies its SHA-256.
 The QUASAR profile comes from `cometkim/Qwen3.8-27B-nvfp4qat-NInfer`, published as a v2
-container that the downloader upgrades for you; the NVFP4-full profiles use
+container that needs one offline upgrade, which the downloader explains and this archive
+ships the tool for; the NVFP4-full profiles use
 `cometkim/Qwen3.8-27B-nvfp4full-NInfer`, which is already v3. Both are fetched and SHA-256
 verified by `download_model.bat`, which offers the choice.
 
@@ -49,7 +50,7 @@ python3 tools/upgrade_ninfer_v2_to_v3.py INPUT.ninfer OUTPUT.ninfer
 
 That upgrade is offline and preserves the weight bytes. On Windows this now works; in
 earlier builds the script called POSIX-only `os.posix_fadvise`/`os.fdatasync` and died with
-`AttributeError`. (The tool ships in the source tree, not in this archive.)
+`AttributeError`. The tool ships in this archive, beside the `chat_templates/` data it reads.
 
 ## Speculative decoding is not bit-identical to plain decoding
 
