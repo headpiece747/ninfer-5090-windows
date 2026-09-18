@@ -164,6 +164,66 @@ Two rules that matter more than the numbers:
 2. **Use the fastest decoder.** `xhigh` turns a 1 s task into a 10-50 s one, so decode
    speed is what you feel: DFlash2 (331 tok/s) over MTP (225 tok/s).
 
+## Compaction
+
+Compaction replaces older context with a generated checkpoint so a long session can
+continue. It is **global config, not per-model**, but the trigger reads each model's own
+`limit.input`, so per-model behaviour comes from the model entries above.
+
+The V2 trigger is:
+
+```
+estimated >= min(input_limit - buffer, context_limit - max(output_reserve, buffer))
+```
+
+and **the output reserve is capped at 32,000 tokens**. That cap is the key detail here: our
+`limit.input` already holds back exactly 32,768 (`context - 32768`), so the default
+`buffer: 20000` stacks on top of a reserve we have already paid for. It was costing about
+12,000 tokens of usable context per model for nothing.
+
+Applied:
+
+```jsonc
+"compaction": { "auto": true, "keep": { "tokens": 20000 }, "buffer": 8000 }
+```
+
+| model | triggers at | was | context |
+| --- | --- | --- | --- |
+| quasar-v3-dflash2-vision | 221,376 | 209,376 | 262,144 |
+| quasar-v3-mtp4-vision | 221,376 | 209,376 | 262,144 |
+| nvfp4-v3-mtp5 | 199,232 | 187,232 | 240,000 |
+| nvfp4-v3-mtp5-vision | 172,224 | 160,224 | 212,992 |
+| nvfp4-v3-dflash2 | 139,456 | 127,456 | 180,224 |
+| nvfp4-v3-dflash2-vision | 123,072 | 111,072 | 163,840 |
+
+- **`buffer: 8000`** rather than the 20,000 default. The buffer is the margin the compaction
+  call itself needs — its summary prompt plus output allowance must fit — so it should not
+  be zero, but it should not double-count the output reserve either.
+- **`keep.tokens: 20000`** rather than 15,000. `keep` is how much of the newest conversation
+  survives beside the summary. In coding sessions that is the code just written and the
+  diffs just reviewed, which is the worst thing for a summary to lose.
+- **`prune` is accepted by the V2 schema but has no runtime effect**, so leave it alone.
+- **`auto: true`** stays. Disabling it does not avoid compaction, it just replaces it with a
+  hard overflow error.
+
+### The cost of compacting, and why the ceiling matters
+
+Compaction rewrites the conversation prefix, so **it invalidates the engine's prefix cache**
+and the next request re-prefills from scratch. Prefill slows as context grows — measured at
+~10,075 tok/s for a 30k prompt but ~3,682 tok/s at 200k — so a post-compaction re-prefill of
+a nearly-full 262k session is on the order of **50 seconds** of stall.
+
+That is the argument for pushing the trigger as late as the numbers allow: fewer
+compactions, and each one cheaper to get back from. It is also a reason to keep the
+prefix-cache bounds set, since the post-compaction prefix becomes a new catalog entry rather
+than a miss forever.
+
+**Caveat, because it matters:** the trigger arithmetic above is exact — it follows the
+documented formula and our configured limits — but I have not measured compaction itself.
+Driving the opencode agent loop is outside what I can test from here, so treat the ~50 s
+re-prefill figure as an estimate derived from measured prefill rates, not as a measurement
+of compaction.
+
 ## Recommended opencode settings
 
 Default to `none` for speed, and expose a variant for work that needs deliberation:
