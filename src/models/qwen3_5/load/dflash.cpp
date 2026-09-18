@@ -23,9 +23,6 @@ DraftWeights bind_draft(Bindings& b, const DraftConfig& config, const TextConfig
         DraftBlockWeights layer;
         layer.input_norm          = b.direct(p + "input_norm", {h});
         layer.post_attention_norm = b.direct(p + "post_attention_norm", {h});
-        layer.attention.query_key_value =
-            b.parameter(p + "attention/query_key_value", {q + 2 * k, h},
-                        {p + "query_projection_input"});
         layer.attention.query =
             b.parameter(p + "attention/query", {q, h}, {p + "query_projection_input"});
         layer.attention.key =

@@ -24,13 +24,14 @@ void bind_dflash2(Bindings& b, DraftWeights& weights, const DraftConfig& config,
                                     {extra.selector_rank, h}, {"dflash2/final_hidden"}),
                         // Bound without an exact format: the official artifact stores BF16
                         // codebooks while the QUASAR checkpoint stores NVFP4 ones, and the
-                        // selector dispatches on the resolved weight's qtype.
+                        // selector dispatches on the resolved weight's qtype. No input use is
+                        // required either: the codebooks are lookup tables that nothing calls
+                        // model_.input() on, and the published images disagree on the name
+                        // (absent upstream, candidate_walk in nvfp4full, final_hidden here).
                         b.parameter("dflash2/candidate_selector/predecessor_codebook",
-                                    {target.vocab_size, extra.selector_rank},
-                                    {"dflash2/final_hidden"}),
+                                    {target.vocab_size, extra.selector_rank}),
                         b.parameter("dflash2/candidate_selector/successor_codebook",
-                                    {target.vocab_size, extra.selector_rank},
-                                    {"dflash2/final_hidden"})};
+                                    {target.vocab_size, extra.selector_rank})};
 }
 
 } // namespace ninfer::models::qwen3_5::loading

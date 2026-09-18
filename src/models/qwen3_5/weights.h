@@ -95,9 +95,10 @@ struct VisionWeights {
 };
 
 struct DraftAttentionWeights {
-    // Fused query+key+value parent, bound whole: a packed NVFP4 parameter cannot be
-    // expressed as byte ranges, so the draft attention consumes it in one piece.
-    WeightId query_key_value;
+    // The draft attention consumes one fused query+key+value parent, but the artifact only
+    // has to declare the three logical parameters: parameters.cpp assembles the parent with
+    // ops::prepare_attn_input_proj_weights. Requiring a fused parameter of its own would
+    // reject every upstream-generated artifact, since the converter groups the three.
     WeightId query, key, value, context_key, context_value;
     WeightId query_norm, key_norm, output;
 };
