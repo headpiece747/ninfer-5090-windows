@@ -63,10 +63,16 @@ class SafetensorsSource:
             )
             if index.is_file():
                 data = json.loads(index.read_text())
-                self.weight_map = {
-                    name: index.parent / file
-                    for name, file in data["weight_map"].items()
-                }
+                # A community artifact supplies index.json, so the file names are untrusted: an
+                # anchored path, or ../.., would replace the root when joined.
+                root = self.root.resolve()
+                weight_map = {}
+                for name, file in data["weight_map"].items():
+                    resolved = (index.parent / file).resolve()
+                    if not resolved.is_relative_to(root):
+                        raise ValueError(f"{file}: weight file escapes the artifact root")
+                    weight_map[name] = resolved
+                self.weight_map = weight_map
             else:
                 file = self.root / "model.safetensors"
                 if file.is_file():

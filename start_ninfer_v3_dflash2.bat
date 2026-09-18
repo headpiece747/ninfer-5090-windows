@@ -53,7 +53,6 @@ if not exist "%MODEL%" (
   --max-shared-prefixes 7 ^
   --max-private-continuations 8 ^
   --max-long-anchors-per-continuation 4 ^
-  --cors ^
   --preserve-thinking ^
   --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000

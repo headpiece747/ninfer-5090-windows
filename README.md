@@ -276,7 +276,7 @@ rate.
   (67-83 tok/s without it against 258-331 with it).
 - **Vision costs context, not throughput.** On QUASAR, Vision measured free in both respects
   (331.3 tok/s with against 333.0 without, 262,144 either way). On NVFP4 it costs
-  27,392-33,280 tokens of context (240,000 to 212,992 on MTP, 180,224 to 163,840 on DFlash2)
+  16,384-27,008 tokens of context (240,000 to 212,992 on MTP, a 27,008-token loss; 180,224 to 163,840 on DFlash2, a 16,384-token loss)
   but leaves decode rate unchanged. The Vision runtime also has its own input envelope of
   32,768 merged tokens (131,072 raw patches) per request.
 
@@ -291,7 +291,7 @@ every call and no error or degradation signal anywhere. Raising the shared-prefi
 alone changed nothing; the anchor and private-continuation bounds were the binding
 constraints. All three together gave **5/5 hits at 99.1%**.
 
-The bounds cost nothing measurable: KV capacity stays 262,144 and runtime stays 10.7 GiB.
+The bounds cost nothing measurable in the profile they were measured on (QUASAR DFlash2 with Vision at 262,144, runtime 10.7 GiB). `--kv-capacity auto` sizes each pool from the VRAM left after weights, so every profile's capacity is its own measured ceiling, not a shared number.
 The failure mode is silent, so it is worth setting these even when a single repeated prompt
 appears to cache perfectly — a lone resident prefix masks it.
 

@@ -5,7 +5,7 @@ cd /d "%ROOT%"
 
 echo =======================================================
 echo Starting Qwen 3.8 27B QUASAR QAT on RTX 5090
-echo Mode: Vision Multimodal + FP8 KV Cache (262k Context) + MTP-5
+echo Mode: Vision Multimodal + FP8 KV Cache (262k Context) + MTP-4
 echo =======================================================
 echo Executable: %SERVE_BIN%
 echo Model:      %MODEL%

@@ -14,8 +14,35 @@ import os
 from pathlib import Path
 import re
 import struct
+import sys
 import tempfile
 import uuid
+
+if sys.platform == "win32":
+    # posix_fadvise and fdatasync are POSIX page-cache and durability controls with no
+    # Windows equivalent. Skipping the advice changes only how long clean pages linger;
+    # the bytes written are identical. fsync is the portable durability call.
+    def discard_cached_pages(fd: int, offset: int = 0, count: int | None = None) -> None:
+        return
+
+    def sync_file(fd: int) -> None:
+        os.fsync(fd)
+
+else:
+    def discard_cached_pages(fd: int, offset: int = 0, count: int | None = None) -> None:
+        page = os.sysconf("SC_PAGE_SIZE")
+        if count is None:
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            return
+        if count <= 0:
+            return
+        begin = offset // page * page
+        end = (offset + count + page - 1) // page * page
+        os.posix_fadvise(fd, begin, end - begin, os.POSIX_FADV_DONTNEED)
+
+    def sync_file(fd: int) -> None:
+        os.fdatasync(fd)
+
 
 FORMATS = {
     "BF16": "bf16",
@@ -828,11 +855,8 @@ def upgrade(input_path, output_path):
                             )
                             if not chunk:
                                 raise ValueError("v2 payload ended prematurely")
-                            os.posix_fadvise(
-                                source.fileno(),
-                                source.tell() - len(chunk),
-                                len(chunk),
-                                os.POSIX_FADV_DONTNEED,
+                            discard_cached_pages(
+                                source.fileno(), source.tell() - len(chunk), len(chunk)
                             )
                         elif cursor < template_offset:
                             chunk = bytes(min(remaining, template_offset - cursor))
@@ -845,15 +869,13 @@ def upgrade(input_path, output_path):
                         pending += len(chunk)
                         if pending >= WRITEBACK:
                             output.flush()
-                            os.fdatasync(output.fileno())
-                            os.posix_fadvise(
-                                output.fileno(), 0, 0, os.POSIX_FADV_DONTNEED
-                            )
+                            sync_file(output.fileno())
+                            discard_cached_pages(output.fileno())
                             pending = 0
                     output.flush()
-                    os.fdatasync(output.fileno())
-                    os.posix_fadvise(output.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
-            os.posix_fadvise(source.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+                    sync_file(output.fileno())
+                    discard_cached_pages(output.fileno())
+            discard_cached_pages(source.fileno())
         for index in [*range(1, len(targets)), 0]:
             os.link(temporary[index], targets[index])
             published.append(targets[index])
