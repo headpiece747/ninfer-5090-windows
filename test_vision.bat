@@ -7,7 +7,7 @@ if not exist "%ROOT%test_image.png" call :create_image
 
 echo =======================================================
 echo Testing Qwen 3.8 27B QUASAR QAT Vision Input (RTX 5090)
-echo Mode: Multimodal Vision + FP8 KV Cache (262k) + MTP-3
+echo Mode: Multimodal Vision + FP8 KV Cache (262k) + MTP-4
 echo =======================================================
 echo Executable: %BIN%
 echo Model:      %MODEL%

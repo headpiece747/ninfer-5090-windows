@@ -155,5 +155,30 @@ def launcher_args(profile: dict[str, Any], port: int | None = None,
     return args
 
 
+def cli_args(profile: dict[str, Any]) -> list[str]:
+    """The flag subset the offline CLI accepts, for test_prompt.bat and test_vision.bat.
+
+    The CLI is a different interface from the server: it takes a prompt or messages file and
+    rejects --host, --port, --model-id, --max-concurrency, the state slots, the host KV pool,
+    the cache bounds and the timeouts. Generating the server's argument list into QUASAR_ARGS
+    was wrong for exactly that reason, and running the helper is what showed it.
+
+    The flags kept here are the ones both interfaces share, plus the proposal head, which the
+    CLI does accept and the earlier hand-written value omitted.
+    """
+    out: list[str] = []
+    if profile["vision"]:
+        out.append("--vision")
+    if profile["spec"] != "none":
+        out.extend(["--spec", profile["spec"], "--draft-tokens", str(profile["draft"])])
+        if profile["lm_head"]:
+            out.append("--lm-head-draft")
+    out.extend(["--max-context", str(profile["ctx"]),
+                "--kv-capacity", "auto",
+                "--kv-dtype", "fp8",
+                "--prefill-chunk", "8192"])
+    return out
+
+
 def all_profiles() -> Iterable[dict[str, Any]]:
     return iter(PROFILES)

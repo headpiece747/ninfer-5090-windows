@@ -5,7 +5,7 @@ cd /d "%ROOT%"
 
 echo =======================================================
 echo Testing Qwen 3.8 27B QUASAR QAT via CLI (RTX 5090)
-echo Mode: Vision Enabled + FP8 KV + MTP-3 Speculation
+echo Mode: Vision Enabled + FP8 KV + MTP-4 Speculation
 echo =======================================================
 echo Executable: %BIN%
 echo Model:      %MODEL%

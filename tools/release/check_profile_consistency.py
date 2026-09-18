@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from profiles import PROFILES, QUASAR, NVFP4FULL  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, launcher_args  # noqa: E402
 
 WT = Path(r"C:\AI\ninfer-v3-windows")
 OPENCODE = Path(r"C:\Users\tobia\.config\opencode\opencode.json")
@@ -123,10 +123,22 @@ def main() -> int:
 
     env = read(WT / "launcher_env.bat")
     check("launcher_env.bat names the QUASAR artifact", QUASAR in env)
-    if "QUASAR_ARGS" in env:
-        notes.append("launcher_env.bat QUASAR_ARGS is still a third, divergent MTP4 profile "
-                     "missing nine flags the shipped launcher passes; moving it onto the module "
-                     "is the next slice")
+
+    # QUASAR_ARGS feeds test_prompt.bat and test_vision.bat, which invoke ninfer.exe -- the
+    # offline CLI, a different interface from the server. It rejects --host, --port, --model-id,
+    # --max-concurrency, the state slots, the host KV pool, the cache bounds and the timeouts.
+    # It is generated from profiles.cli_args now; assert it matches that, not the server's list.
+    mtp4 = next(p for p in PROFILES if "mtp4" in p["file"])
+    line = next((l for l in env.splitlines() if l.startswith('set "QUASAR_ARGS=')), "")
+    tokens = line.split("QUASAR_ARGS=", 1)[1].rstrip('"').split() if line else []
+    check("QUASAR_ARGS matches the CLI flag set", tokens == cli_args(mtp4),
+          f"{len(tokens)} tokens against {len(cli_args(mtp4))} generated")
+    for flag in ("--vision", "--lm-head-draft", "--prefill-chunk", "--max-context",
+                 "--kv-capacity", "--kv-dtype"):
+        check(f"QUASAR_ARGS passes {flag}", flag in tokens)
+    for flag in ("--host", "--port", "--model-id", "--max-concurrency",
+                 "--host-kv-mib", "--pending-timeout-ms"):
+        check(f"QUASAR_ARGS omits the server-only {flag}", flag not in tokens)
 
     print("\n=== retired launchers absent from the tree ===")
     for retired in RETIRED:

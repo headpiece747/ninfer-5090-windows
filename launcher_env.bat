@@ -6,7 +6,7 @@ if not defined MODEL REM Relative first so a released archive is self-contained;
 REM the source-tree workflow unchanged.
 set "MODEL=%~dp0models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 if not exist "%MODEL%" set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
-set "QUASAR_ARGS=--max-context 262144 --kv-capacity auto --kv-dtype fp8 --spec mtp --draft-tokens 4 --max-shared-prefixes 7 --max-private-continuations 8 --max-long-anchors-per-continuation 4"
+set "QUASAR_ARGS=--vision --spec mtp --draft-tokens 4 --lm-head-draft --max-context 262144 --kv-capacity auto --kv-dtype fp8 --prefill-chunk 8192"
 
 :: Select Python 3.11 interpreter explicitly per AGENTS.md
 set "PYTHON_EXE="
