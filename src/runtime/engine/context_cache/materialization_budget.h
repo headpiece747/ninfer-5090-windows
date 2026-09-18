@@ -45,13 +45,21 @@ struct PlanningAllowance {
 
 // Integer timestamps make wall-budget decisions reproducible without sleeping in policy tests.
 // Estimates control optional work only; they never certify feasibility or a search bound.
+// The absolute ceiling on the optional search's initial grant. It was 5 ms, which pinned the grant
+// flat: a root incumbent's cost is in seconds, so its /20 term is in the hundreds of milliseconds
+// and never bound, and the search verified only ~10 targets before admission fell back to the root
+// incumbent and re-prefilled the whole prompt. Upstream issue #229 reports exactly that, with
+// TTFT 142 s -> 1.2 s once the grant stops being pinned at the floor. The economic term below is
+// still the real governor, and the allowance bound still caps it in a busy boundary.
 class MaterializationSearchBudget {
 public:
+    static constexpr std::uint64_t kMaximumGrantNs = 250'000'000;
+
     MaterializationSearchBudget(PlanningAllowance allowance, std::uint64_t started,
                                 std::uint64_t initial_cost) noexcept
         : allowance_(allowance), started_(started),
           granted_(std::min(
-              {std::uint64_t{5'000'000}, economic(initial_cost), allowance.remaining(started)})) {}
+              {kMaximumGrantNs, economic(initial_cost), allowance.remaining(started)})) {}
 
     [[nodiscard]] bool allow(std::uint64_t now, std::uint64_t next_operation_ns,
                              std::uint64_t completion_ns, std::uint64_t gain_ns,
