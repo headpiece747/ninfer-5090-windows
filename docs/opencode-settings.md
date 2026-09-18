@@ -39,14 +39,14 @@ budget.
 | quasar-mtp4 | low | 11/11 | 3.6 s | 2599 | 0 |
 | quasar-mtp4 | medium | 6/6 | 4.5 s | 3060 | 1 |
 | quasar-mtp4 | xhigh | 3/6 | 6.9 s | 4700 | 3 |
-| ninfer-dflash2 | **none** | **11/11** | **0.6 s** | 0 | 0 |
-| ninfer-dflash2 | low | 11/11 | 2.7 s | 2169 | 0 |
-| ninfer-dflash2 | medium | 6/6 | 2.9 s | 2383 | 0 |
-| ninfer-dflash2 | xhigh | 4/6 | 5.8 s | 4095 | 2 |
-| ninfer-mtp5 | **none** | **11/11** | **0.8 s** | 0 | 0 |
-| ninfer-mtp5 | low | 11/11 | 3.1 s | 2039 | 0 |
-| ninfer-mtp5 | medium | 6/6 | 4.1 s | 2616 | 0 |
-| ninfer-mtp5 | xhigh | 3/6 | 8.2 s | 4922 | 3 |
+| nvfp4 (retired image) | **none** | **11/11** | **0.6 s** | 0 | 0 |
+| nvfp4 (retired image) | low | 11/11 | 2.7 s | 2169 | 0 |
+| nvfp4 (retired image) | medium | 6/6 | 2.9 s | 2383 | 0 |
+| nvfp4 (retired image) | xhigh | 4/6 | 5.8 s | 4095 | 2 |
+| nvfp4full mtp5 | **none** | **11/11** | **0.8 s** | 0 | 0 |
+| nvfp4full mtp5 | low | 11/11 | 3.1 s | 2039 | 0 |
+| nvfp4full mtp5 | medium | 6/6 | 4.1 s | 2616 | 0 |
+| nvfp4full mtp5 | xhigh | 3/6 | 8.2 s | 4922 | 3 |
 
 ## Hard tasks change the answer
 
@@ -191,10 +191,8 @@ Applied:
 | --- | --- | --- | --- |
 | quasar-v3-dflash2-vision | 221,376 | 209,376 | 262,144 |
 | quasar-v3-mtp4-vision | 221,376 | 209,376 | 262,144 |
-| nvfp4-v3-mtp5 | 199,232 | 187,232 | 240,000 |
-| nvfp4-v3-mtp5-vision | 172,224 | 160,224 | 212,992 |
-| nvfp4-v3-dflash2 | 139,456 | 127,456 | 180,224 |
-| nvfp4-v3-dflash2-vision | 123,072 | 111,072 | 163,840 |
+| nvfp4-v3-dflash2-vision | 221,376 | 209,376 | 262,144 |
+| nvfp4-v3-mtp5-vision | 221,376 | 209,376 | 262,144 |
 
 - **`buffer: 8000`** rather than the 20,000 default. The buffer is the margin the compaction
   call itself needs — its summary prompt plus output allowance must fit — so it should not
@@ -250,8 +248,8 @@ Do not add variants named `minimal` or `high` — the chat template rejects thos
 | --- | --- | --- |
 | quasar-dflash2 | 262,144 | fastest measured (331 tok/s) and the largest context; the default |
 | quasar-mtp4 | 262,144 | lowest-VRAM QUASAR profile; 225 tok/s |
-| ninfer-mtp5 | 240,000 | longest context on the NVFP4 line |
-| ninfer-dflash2 | 180,224 | NVFP4 with the fastest spec route |
+| nvfp4full dflash2 | 262,144 | second artifact, same reach as QUASAR |
+| nvfp4full mtp5 | 262,144 | the MTP lane on the second artifact |
 
 ## Caveats
 

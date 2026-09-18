@@ -455,7 +455,7 @@ def mode_correct(art: str, vision: bool) -> None:
     rows: list[tuple[str, str, int]] = []
     plan = [("none", 0), ("mtp", 2), ("mtp", 3), ("mtp", 4), ("mtp", 5), ("dflash2", 7)]
     for spec, draft in plan:
-        ctx = CEILINGS.get((art, spec, vision), CEILINGS[(art, "mtp", vision)])
+        ctx = ceiling_of(art, spec, vision, True)
         rec = run_profile(art, spec, draft, vision, ctx, measure=True, greedy=True)
         label = f"{spec} d{draft}" if spec != "none" else "none (control)"
         rows.append((label, rec.get("digest", "?"), rec.get("digest_tokens", 0)))

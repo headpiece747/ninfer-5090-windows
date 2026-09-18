@@ -2,7 +2,7 @@
 
 v2 was tuned over a long period, so its `.bat` files are a record of accumulated knowledge.
 Diffing every flag in both generations (`tools/release/diff_v2_v3_flags.py`, 15 v2 files
-across both repositories against the six v3 launchers plus `launcher_env.bat`) shows what v3
+across both repositories against the four v3 launchers plus `launcher_env.bat`) shows what v3
 dropped and whether any of it was worth keeping.
 
 ## Only in v2
@@ -24,13 +24,13 @@ gave 1/5 round-2 hits at a 19.8% token-level rate; with them, 5/5 at 99.1%.
 
 | flag | v2 | v3 | why v3 |
 | --- | --- | --- | --- |
-| `--max-context` | 131072, 240000, 262144 | 163840, 180224, 212992, 240000, 262144 | each is the measured maximum that serves per profile |
+| `--max-context` | 131072, 240000, 262144 | 262144 | each is the measured maximum that serves per profile |
 | `--draft-tokens` | 5, 7 | 4, 5, 7 | per artifact: depth 4 is fastest on QUASAR, 5 on NVFP4 |
 | `--prefill-chunk` | 1024, 4096, 8192 | 8192 | measured best |
 | `--kv-capacity` | explicit values and `auto` | `auto` | sizes each pool from the VRAM left after weights |
 | `--host-kv-mib` | **16384** | 8192 | measured: no effect on cache hits (below) |
 | `--host-state-slots` | **16** | 8 | measured: no effect on cache hits (below) |
-| `--port`, `--model-id` | one port, v2 naming | six ports, `-v3` suffixed | six profiles run side by side |
+| `--port`, `--model-id` | one port, v2 naming | four ports, `-v3` suffixed | four profiles run side by side |
 
 Identical in both: `--host`, `--kv-dtype fp8`, `--max-concurrency 1`,
 `--device-state-slots 1`, `--spec`, `--vision`, `--lm-head-draft`, `--preserve-thinking`,
