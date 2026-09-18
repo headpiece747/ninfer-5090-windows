@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "core/uint128.h"
 
 #include "runtime/engine/context_cache/context_cost.h"
@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdint>
 #include <limits>
+#include <functional>
 #include <optional>
 #include <span>
 #include <tuple>
@@ -51,6 +52,8 @@ public:
     using PressureTargetHandle   = typename ModelContract::PressureTargetHandle;
     using AssessedPressureTarget = typename ModelContract::AssessedPressureTarget;
     using Clock                  = SearchClock;
+    // A time source the caller can supply. Empty means the real clock.
+    using NowFn                  = std::function<std::uint64_t()>;
 
     struct CandidateInput {
         AdmissionCandidate* candidate = nullptr;
@@ -97,7 +100,14 @@ public:
          const ContextMachineCostModel& machine_cost, std::span<const CandidateInput> candidates,
          std::uint32_t root_candidate_index, PressureInputsFn&& pressure_inputs,
          LogicalGoalFn&& logical_goal, FinalScheduleFn&& final_schedule,
-         Clock::time_point planning_started, PlanningAllowance allowance = {}) {
+         Clock::time_point planning_started, PlanningAllowance allowance = {},
+         NowFn now = {}) {
+        // The time source is a parameter, as it already is for MaterializationSearchBudget::allow.
+        // Without it the optional search is bounded by real wall-clock, so a caller cannot assert
+        // anything about how far the search got. The default preserves the production behaviour.
+        const auto now_ns = [&]() -> std::uint64_t {
+            return now ? now() : planning_now_ns<Clock>();
+        };
         if (candidates.empty() || root_candidate_index >= candidates.size()) {
             throw std::invalid_argument("materialization planning problem has no root candidate");
         }
@@ -165,7 +175,7 @@ public:
                 std::any_of(roots.begin(), roots.end(),
                             [](const IdentityRoot& root) { return root.expandable; });
             const bool no_allowance =
-                allowance.remaining(planning_now_ns<Clock>()) == 0 ||
+                allowance.remaining(now_ns()) == 0 ||
                 identity_best->cost.total_ns / 20U / std::max(1U, allowance.affected_requests) == 0;
             if (!needs_optional_search || no_allowance) {
                 const CandidateInput& selected = candidates[identity_best->candidate_index];
@@ -195,7 +205,7 @@ public:
                                                     ? MaterializationSearchPhase::Setup
                                                     : MaterializationSearchPhase::None;
                 diagnostics.search_boundary_limited =
-                    needs_optional_search && allowance.remaining(planning_now_ns<Clock>()) == 0;
+                    needs_optional_search && allowance.remaining(now_ns()) == 0;
                 Result result;
                 result.plan             = std::move(*sealed);
                 result.candidate        = candidates[identity_best->candidate_index].id;
@@ -288,7 +298,7 @@ public:
                 budget_exhausted = true;
                 return false;
             }
-            if (!search_budget.allow(planning_now_ns<Clock>(), operation, completion, gain,
+            if (!search_budget.allow(now_ns(), operation, completion, gain,
                                      complete, search_work, discovery_eligible)) {
                 stop_reason      = search_budget.stop_reason();
                 budget_exhausted = stop_reason == MaterializationStopReason::TimeBudget;
@@ -548,7 +558,7 @@ public:
                     if (!allow_work(option_step_ns, completion, gain, complete,
                                     !candidate_seeded[path.candidate_index])) {
                         search_stopped = search_work >= work_limit ||
-                                         allowance.remaining(planning_now_ns<Clock>()) == 0;
+                                         allowance.remaining(now_ns()) == 0;
                         path.cursor.reset();
                         break;
                     }
@@ -608,7 +618,7 @@ public:
                                             chosen.unsatisfied_constraints == 0,
                                         !candidate_seeded[path.candidate_index])) {
                             search_stopped = search_work >= work_limit ||
-                                             allowance.remaining(planning_now_ns<Clock>()) == 0;
+                                             allowance.remaining(now_ns()) == 0;
                             path.cursor.reset();
                             break;
                         }
@@ -664,7 +674,7 @@ public:
                             !candidate_seeded[assess_pending ? pending_.front().candidate_index
                                                              : queue_.front().candidate_index])) {
                 if (search_work >= work_limit ||
-                    allowance.remaining(planning_now_ns<Clock>()) == 0) {
+                    allowance.remaining(now_ns()) == 0) {
                     break;
                 }
                 // A forecast that cannot justify another window must not starve a different source.
@@ -755,13 +765,13 @@ public:
          const ContextMachineCostModel& machine_cost, std::span<const CandidateInput> candidates,
          std::uint32_t root_candidate_index, PressureInputsFn&& pressure_inputs,
          LogicalGoalFn&& logical_goal, Clock::time_point planning_started,
-         PlanningAllowance allowance = {}) {
+         PlanningAllowance allowance = {}, NowFn now = {}) {
         const auto no_optional_schedule = [](PlanningCandidateId, const RequestPlanSummary&,
                                              const auto&) { return std::vector<std::uint32_t>{}; };
         return plan(program, prompt, machine_cost, candidates, root_candidate_index,
                     std::forward<PressureInputsFn>(pressure_inputs),
                     std::forward<LogicalGoalFn>(logical_goal), no_optional_schedule,
-                    planning_started, allowance);
+                    planning_started, allowance, std::move(now));
     }
 
 private:
