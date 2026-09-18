@@ -67,3 +67,6 @@ profiles/
 ffmpeg/
 *.dll
 test_image.png
+
+# CodeGraph index - local to each machine
+.codegraph/
