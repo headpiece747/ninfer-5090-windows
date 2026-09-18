@@ -17,7 +17,9 @@ if not defined PYTHON_EXE (
     where py >nul 2>&1
     if %ERRORLEVEL% equ 0 (
         py -3.11 -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 11) else 1)" >nul 2>&1
-        if %ERRORLEVEL% equ 0 set "PYTHON_EXE=py -3.11"
+        if %ERRORLEVEL% equ 0 REM Resolve to a single quotable path: "py -3.11" cannot be used inside quotes, so
+REM download_model.bat would fail on a machine where the launcher is the only interpreter.
+for /f "delims=" %%p in ('py -3.11 -c "import sys;print(sys.executable)" 2^>nul') do set "PYTHON_EXE=%%p"
     )
 )
 if not defined PYTHON_EXE (

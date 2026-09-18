@@ -1,12 +1,12 @@
 @echo off
 REM ============================================================================
-REM  NVFP4 + MTP5 + Vision
+REM  NVFP4-full + MTP5 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 212,992   decode 204.8 tok/s   draft acceptance 61.7%
-REM      runtime 8.77 GiB   free VRAM 1.03 GiB
+REM      context 262,144   decode 236.3 tok/s   draft acceptance 64.2%
+REM      runtime 10.4 GiB   free VRAM 2.28 GiB
 REM
-REM  Vision again costs context only, not throughput.
+REM  MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_v3.cmd); without them the process exits 0xC0000135.
@@ -24,8 +24,8 @@ REM Resolve beside this launcher first, so the released archive is portable wher
 REM extracted, then fall back to the source tree so the same file works while developing.
 set "SERVE=%~dp0ninfer-serve.exe"
 if not exist "%SERVE%" set "SERVE=C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe"
-set "MODEL=%~dp0models\qwen3_8_27b_nvfp4.v3.ninfer"
-if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4.v3.ninfer"
+set "MODEL=%~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer"
+if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer"
 
 if not exist "%SERVE%" (
     echo [ERROR] Engine not found.
@@ -36,8 +36,8 @@ if not exist "%SERVE%" (
 )
 if not exist "%MODEL%" (
     echo [ERROR] Artifact not found.
-    echo         Expected %~dp0models\qwen3_8_27b_nvfp4.v3.ninfer
-    echo         or C:\AI\models\qwen3_8_27b_nvfp4.v3.ninfer
+    echo         Expected %~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer
+    echo         or C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer
     echo         Run download_model.bat to fetch it.
     pause
     exit /b 1
@@ -49,9 +49,9 @@ if not exist "%MODEL%" (
   --draft-tokens 5 ^
   --lm-head-draft ^
   --host 127.0.0.1 ^
-  --port 8091 ^
+  --port 8089 ^
   --model-id qwen3.8-27b-nvfp4-v3-mtp5-vision ^
-  --max-context 212992 ^
+  --max-context 262144 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^
   --prefill-chunk 8192 ^

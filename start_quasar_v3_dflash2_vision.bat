@@ -6,7 +6,7 @@ REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
 REM      context 262,144   decode 331.3 tok/s   draft acceptance 61.8%
 REM      runtime 10.7 GiB   free VRAM 2.52 GiB
 REM
-REM  Flagship profile: fastest measured configuration at full context.
+REM  Flagship: fastest measured configuration, at full context.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_v3.cmd); without them the process exits 0xC0000135.

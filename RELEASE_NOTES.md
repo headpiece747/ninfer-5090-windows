@@ -1,7 +1,7 @@
 # NInfer Windows v1.1.0 (RTX 5090)
 
 First Windows release on the **v3 artifact line**, with speculative decoding working on
-upstream-shaped artifacts, six measured-optimal launchers, and two production bugs fixed
+upstream-shaped artifacts, four measured-optimal launchers, and two production bugs fixed
 that earlier builds shipped.
 
 ## Requirements
@@ -17,10 +17,8 @@ that earlier builds shipped.
 | --- | --- | --- | --- | --- | --- | --- |
 | `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **331 tok/s** | 61.8% |
 | `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | 225 tok/s | 65.3% |
-| `start_ninfer_v3_dflash2.bat` | NVFP4 | DFlash2 (7) | no | 180,224 | 258 tok/s | 59.4% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4 | DFlash2 (7) | yes | 163,840 | 257 tok/s | 59.4% |
-| `start_ninfer_v3_mtp5.bat` | NVFP4 | MTP (5) | no | 240,000 | 206 tok/s | 61.7% |
-| `start_ninfer_v3_mtp5_vision.bat` | NVFP4 | MTP (5) | yes | 212,992 | 205 tok/s | 61.7% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **327 tok/s** | 63.7% |
+| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 236 tok/s | 64.2% |
 
 Every number was measured on an RTX 5090 with the exact arguments the launcher passes, and
 every context ceiling is the highest value the engine accepts for that configuration — the
@@ -32,8 +30,10 @@ Vision is free on it (331.3 with against 333.0 without, same context).
 ## Getting a model
 
 `download_model.bat` fetches the recommended QUASAR QAT artifact and verifies its SHA-256.
-Artifacts live at `huggingface.co/neroued`; the NVFP4 profiles use
-`Qwen3.8-27B-nvfp4-NInfer`.
+The QUASAR profile comes from `cometkim/Qwen3.8-27B-nvfp4qat-NInfer`, published as a v2
+container that the downloader upgrades for you; the NVFP4-full profiles use
+`cometkim/Qwen3.8-27B-nvfp4full-NInfer`, which is already v3. Both are fetched and SHA-256
+verified by `download_model.bat`, which offers the choice.
 
 Put the `.ninfer` file at `C:\AI\models\` (the path `launcher_env.bat` expects), then double
 click the launcher you want. Each launcher checks the engine and the artifact exist before
@@ -58,7 +58,7 @@ is documented engine behaviour rather than a defect: acceptance compares a propo
 against the target argmax for its verify column, and the maintainer notes state that
 speculation "does not impose token or logits equality between different quantization,
 prefill or kernel paths" — the batched verify kernel is not the single-token decode path,
-so a near-tie can flip. Speculation measured 3-4x faster (67-83 tok/s without it, 258-331
+so a near-tie can flip. Speculation measured 3-4x faster (67-83 tok/s without it, 225-331
 with it).
 
 ## Fixed in this release
@@ -95,5 +95,6 @@ with it).
 - `resource_manager` in the source test suite asserts an eviction ordering that depends on
   a 5 ms wall-clock search budget, so it is timing-sensitive by construction. It is not an
   engine defect; every other test passes.
-- The NVFP4 artifact is capped below 262,144 by its weight size. QUASAR reaches the full
-  context.
+- All four profiles reach the full 262,144 context with Vision. Earlier builds capped the
+  NVFP4 lane because that artifact carried 19.7 GiB of device weights; the one shipped now
+  carries 17.0 GiB.

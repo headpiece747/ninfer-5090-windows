@@ -1,13 +1,13 @@
 @echo off
 REM ============================================================================
-REM  NVFP4 + DFlash2 + Vision
+REM  NVFP4-full + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 163,840   decode 257.2 tok/s   draft acceptance 59.4%
-REM      runtime 7.71 GiB   free VRAM 1.14 GiB
+REM      context 262,144   decode 326.6 tok/s   draft acceptance 63.7%
+REM      runtime 10.7 GiB   free VRAM 1.74 GiB
 REM
-REM  Vision costs context here, not speed: 163,840 with Vision against 180,224
-REM  without. Dropping --lm-head-draft recovers 32,768 versus the flagged run.
+REM  Second artifact, same reach as QUASAR: 262,144 with Vision. This is the
+REM  tightest profile in the set; dropping --lm-head-draft buys 0.33 GiB at ~2% slower.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_v3.cmd); without them the process exits 0xC0000135.
@@ -25,8 +25,8 @@ REM Resolve beside this launcher first, so the released archive is portable wher
 REM extracted, then fall back to the source tree so the same file works while developing.
 set "SERVE=%~dp0ninfer-serve.exe"
 if not exist "%SERVE%" set "SERVE=C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe"
-set "MODEL=%~dp0models\qwen3_8_27b_nvfp4.v3.ninfer"
-if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4.v3.ninfer"
+set "MODEL=%~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer"
+if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer"
 
 if not exist "%SERVE%" (
     echo [ERROR] Engine not found.
@@ -37,8 +37,8 @@ if not exist "%SERVE%" (
 )
 if not exist "%MODEL%" (
     echo [ERROR] Artifact not found.
-    echo         Expected %~dp0models\qwen3_8_27b_nvfp4.v3.ninfer
-    echo         or C:\AI\models\qwen3_8_27b_nvfp4.v3.ninfer
+    echo         Expected %~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer
+    echo         or C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer
     echo         Run download_model.bat to fetch it.
     pause
     exit /b 1
@@ -48,10 +48,11 @@ if not exist "%MODEL%" (
   --vision ^
   --spec dflash2 ^
   --draft-tokens 7 ^
+  --lm-head-draft ^
   --host 127.0.0.1 ^
-  --port 8089 ^
+  --port 8088 ^
   --model-id qwen3.8-27b-nvfp4-v3-dflash2-vision ^
-  --max-context 163840 ^
+  --max-context 262144 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^
   --prefill-chunk 8192 ^

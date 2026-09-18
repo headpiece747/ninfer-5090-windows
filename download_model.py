@@ -1,110 +1,169 @@
+#!/usr/bin/env python3
+"""Fetch a v3 artifact for the launchers, verifying it before and after.
+
+Two problems with the original: it was hardcoded to one artifact, and it saved the file
+under the repository's name (qwen3_8_27b_nvfp4qat.ninfer) while every launcher looks for the
+.v3. form. A user following the README would download 17 GiB and then be told the artifact
+was missing.
+
+Artifact naming is also not uniform across publishers. cometkim's fuller-NVFP4 repository
+already ships v3, so it downloads and runs directly. The QUASAR QAT repository ships the v2
+container, which a v3 engine rejects outright -- the fix for that is the offline upgrader,
+which this archive ships alongside.
+
+Usage: download_model.py [--artifact quasar|nvfp4full] [--dest PATH] [--verify-only]
+"""
+from __future__ import annotations
+
 import argparse
 import hashlib
 import os
 import sys
 import time
 
-EXPECTED_SIZE = 18_638_209_796
-EXPECTED_SHA256 = "df3c9c3a3660d688f0c2158d54fef8c66f21d723bd7a1b0b12acc908e86d12b7"
-REPO_ID = "cometkim/Qwen3.8-27B-nvfp4qat-NInfer"
-FILENAME = "qwen3_8_27b_nvfp4qat.ninfer"
-LOCAL_DIR = r"C:\ai\models"
-DEFAULT_DEST = os.environ.get("MODEL", os.path.join(LOCAL_DIR, FILENAME))
+LOCAL_DIR = r"C:\AI\models"
+
+ARTIFACTS = {
+    "quasar": {
+        "repo": "cometkim/Qwen3.8-27B-nvfp4qat-NInfer",
+        "source": "qwen3_8_27b_nvfp4qat.ninfer",
+        # Downloaded as v2 under its own name; the upgrader produces the .v3. path the
+        # launchers use. Pointing the download at the .v3. path would let a re-run
+        # overwrite an already-upgraded artifact with v2 content.
+        "target": "qwen3_8_27b_nvfp4qat.v2.ninfer",
+        "upgrade_to": "qwen3_8_27b_nvfp4qat.v3.ninfer",
+        "size": 18_638_209_796,
+        "sha256": "df3c9c3a3660d688f0c2158d54fef8c66f21d723bd7a1b0b12acc908e86d12b7",
+        "container": "v2",
+        "note": "QUASAR QAT is published as a v2 container; upgrade it after download.",
+    },
+    "nvfp4full": {
+        "repo": "cometkim/Qwen3.8-27B-nvfp4full-NInfer",
+        "source": "qwen3_8_27b_nvfp4full.ninfer",
+        "target": "qwen3_8_27b_nvfp4full.v3.ninfer",
+        "size": 19_407_229_188,
+        "sha256": "ac98cd392c84a04b2a21c2f5c3988dece88d20a697ba1de663fb32d5998b8ee9",
+        "container": "v3",
+        "note": None,
+    },
+}
 
 
 def compute_sha256(path: str) -> str:
-    h = hashlib.sha256()
-    total_size = os.path.getsize(path)
-    processed = 0
-    start = time.time()
-    with open(path, "rb") as f:
-        while chunk := f.read(64 * 1024 * 1024):
-            h.update(chunk)
-            processed += len(chunk)
-            pct = (processed / total_size) * 100
-            elapsed = time.time() - start
-            mb_s = (processed / (1024 * 1024)) / max(elapsed, 0.001)
-            print(
-                f"\rVerifying SHA-256: {pct:5.1f}% ({processed / (1024**3):.2f}/{total_size / (1024**3):.2f} GiB) at {mb_s:.0f} MB/s...",
-                end="",
-                flush=True,
-            )
+    digest = hashlib.sha256()
+    total = os.path.getsize(path)
+    done = 0
+    started = time.time()
+    with open(path, "rb") as handle:
+        while chunk := handle.read(64 * 1024 * 1024):
+            digest.update(chunk)
+            done += len(chunk)
+            print(f"\rVerifying SHA-256: {done / total * 100:5.1f}% "
+                  f"({done / 1024 ** 3:.2f}/{total / 1024 ** 3:.2f} GiB) at "
+                  f"{(done / 1024 ** 2) / max(time.time() - started, 0.001):.0f} MB/s...",
+                  end="", flush=True)
     print()
-    return h.hexdigest()
+    return digest.hexdigest()
 
 
-def verify_file(path: str) -> bool:
+def verify_file(path: str, spec: dict) -> bool:
     if not os.path.exists(path):
         print(f"[ERROR] File not found: {path}")
         return False
-
     size = os.path.getsize(path)
     print(f"Checking file: {path}")
-    print(f"File size: {size} bytes ({size / (1024**3):.2f} GiB)")
-    if size != EXPECTED_SIZE:
-        print(f"[FAIL] Size mismatch: expected {EXPECTED_SIZE}, got {size}")
+    print(f"File size: {size} bytes ({size / 1024 ** 3:.2f} GiB)")
+    if size != spec["size"]:
+        print(f"[FAIL] Size mismatch: expected {spec['size']}, got {size}")
         return False
     print("[OK] Size matches expected size.")
-
-    print(f"Computing SHA-256 hash (expected: {EXPECTED_SHA256})...")
-    actual_sha = compute_sha256(path)
-    print(f"Computed SHA-256: {actual_sha}")
-    if actual_sha.lower() == EXPECTED_SHA256.lower():
-        print("[SUCCESS] SHA-256 checksum verified perfectly!")
+    print(f"Computing SHA-256 (expected: {spec['sha256']})...")
+    actual = compute_sha256(path)
+    print(f"Computed SHA-256: {actual}")
+    if actual.lower() == spec["sha256"].lower():
+        print("[SUCCESS] SHA-256 verified.")
         return True
-    else:
-        print(f"[FAIL] SHA-256 mismatch!\n  Expected: {EXPECTED_SHA256}\n  Actual:   {actual_sha}")
-        return False
+    print(f"[FAIL] SHA-256 mismatch.\n  Expected: {spec['sha256']}\n  Actual:   {actual}")
+    return False
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Download and verify Qwen 3.8 27B QUASAR QAT model.")
-    parser.add_argument("--verify-only", action="store_true", help="Only verify the existing file without downloading.")
-    parser.add_argument("--dest", default=DEFAULT_DEST, help="Path to destination model file.")
+def print_upgrade_instructions(v2_path: str, spec: dict) -> None:
+    """Print a command the user can paste, from wherever this script was run.
+
+    The archive ships the upgrader under tools/ beside its chat_templates data, which the
+    upgrade needs. Printing %MODEL% would not work: it is cmd syntax set inside
+    launcher_env.bat's setlocal, so it is gone by the time the user could paste it.
+    """
+    launcher_name = os.path.basename(spec["upgrade_to"])
+    upgraded = os.path.join(os.path.dirname(v2_path), launcher_name)
+    print()
+    print(f"[ACTION REQUIRED] {spec['note']}")
+    print("  The downloaded file is a v2 container; a v3 engine rejects it outright.")
+    print("  Upgrade it with the tool shipped in this archive:")
+    print()
+    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "upgrade_ninfer_v2_to_v3.py")
+    print(f'    "{sys.executable}" "{tool}" "{v2_path}" "{upgraded}"')
+    print()
+    print(f"  That writes {launcher_name}, which is what the launchers look for.")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Download and verify a NInfer v3 model artifact.")
+    parser.add_argument("--artifact", choices=sorted(ARTIFACTS), default="quasar",
+                        help="quasar (recommended, v2 container to upgrade) or nvfp4full (already v3)")
+    parser.add_argument("--dest", default=None, help="Override the destination model file path.")
+    parser.add_argument("--verify-only", action="store_true",
+                        help="Only verify the existing file, do not download.")
     args = parser.parse_args()
 
-    target_file = os.path.abspath(args.dest)
-    target_dir = os.path.dirname(target_file)
+    spec = ARTIFACTS[args.artifact]
+    target = os.path.abspath(args.dest or os.environ.get("MODEL")
+                             or os.path.join(LOCAL_DIR, spec["target"]))
+    target_dir = os.path.dirname(target)
 
-    print(f"[INFO] Python interpreter: {sys.executable} (Python {sys.version.split()[0]})")
-    print(f"[INFO] Target model path:  {target_file}")
+    print(f"[INFO] Artifact: {args.artifact} ({spec['container']} container, from {spec['repo']})")
+    print(f"[INFO] Target:   {target}")
 
     if args.verify_only:
-        ok = verify_file(target_file)
-        sys.exit(0 if ok else 1)
+        return 0 if verify_file(target, spec) else 1
 
-    if os.path.exists(target_file):
-        print(f"Checking existing file at {target_file}...")
-        if verify_file(target_file):
-            print("File is already fully downloaded and verified!")
-            sys.exit(0)
-        print("Existing file invalid or incomplete. Re-downloading...")
+    if os.path.exists(target) and verify_file(target, spec):
+        print("Already downloaded and verified.")
+        if spec["container"] != "v3":
+            print_upgrade_instructions(target, spec)
+        return 0
 
-    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+    # huggingface_hub 1.x ignores HF_HUB_ENABLE_HF_TRANSFER, and on 0.x it raises when
+    # hf_transfer is not installed -- which the broad except below would turn into a
+    # failed download rather than a fallback.
+    import importlib.util
+    if importlib.util.find_spec("hf_transfer"):
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
     from huggingface_hub import hf_hub_download
 
-    print(f"Starting ultra-fast download of {FILENAME} from {REPO_ID} to {target_dir}...")
-    start_time = time.time()
+    print(f"Downloading {spec['source']} from {spec['repo']}...")
+    started = time.time()
+    os.makedirs(target_dir, exist_ok=True)
     try:
-        os.makedirs(target_dir, exist_ok=True)
-        path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename=FILENAME,
-            local_dir=target_dir,
-        )
-    except Exception as e:
-        print(f"Error downloading: {e}")
-        sys.exit(1)
+        path = hf_hub_download(repo_id=spec["repo"], filename=spec["source"],
+                               local_dir=target_dir)
+    except Exception as error:  # noqa: BLE001
+        print(f"Error downloading: {error}")
+        return 1
+    print(f"Downloaded in {time.time() - started:.1f}s: {path}")
 
-    elapsed = time.time() - start_time
-    size = os.path.getsize(path)
-    print(f"Download complete in {elapsed:.1f}s!")
-    print(f"File path: {path}")
-    print(f"File size: {size} bytes ({size / (1024**3):.2f} GiB)")
+    # The repositories name their files differently from the launchers' convention.
+    if os.path.abspath(path) != target:
+        os.replace(path, target)  # overwrites atomically; no remove window
+        print(f"Renamed to the launcher convention: {target}")
 
-    if not verify_file(path):
-        sys.exit(1)
+    if not verify_file(target, spec):
+        return 1
+
+    if spec["container"] != "v3":
+        print_upgrade_instructions(target, spec)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

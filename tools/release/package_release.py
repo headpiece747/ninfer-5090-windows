@@ -32,9 +32,12 @@ ROOT_FILES = ["README.md", "RELEASE_NOTES.md", "LICENSE"]
 LAUNCHER_FILES = [
     "launcher_env.bat", "download_model.bat", "download_model.py",
     "start_quasar_v3_dflash2_vision.bat", "start_quasar_v3_mtp4_vision.bat",
-    "start_ninfer_v3_dflash2.bat", "start_ninfer_v3_dflash2_vision.bat",
-    "start_ninfer_v3_mtp5.bat", "start_ninfer_v3_mtp5_vision.bat",
+    "start_ninfer_v3_dflash2_vision.bat", "start_ninfer_v3_mtp5_vision.bat",
 ]
+
+# Shipped from tools/ rather than the root. The QUASAR artifact is published as a v2
+# container, so download_model.py sends the user to this offline upgrader; it has to be here.
+TOOL_FILES = ["upgrade_ninfer_v2_to_v3.py", "chat_templates"]
 
 
 def sha256(path: Path) -> str:
@@ -54,14 +57,19 @@ def main() -> int:
 
     missing: list[str] = []
     total = 0
-    for group, location in ((EXES + DLLS, BUILD), (ROOT_FILES, REPO), (LAUNCHER_FILES, REPO)):
+    for group, location in ((EXES + DLLS, BUILD), (ROOT_FILES, REPO),
+                            (LAUNCHER_FILES, REPO), (TOOL_FILES, REPO / "tools")):
         for name in group:
             source = location / name
             if not source.exists():
                 missing.append(f"{name} (from {location})")
                 continue
-            shutil.copy2(source, stage / name)
-            total += source.stat().st_size
+            if source.is_dir():
+                shutil.copytree(source, stage / name, dirs_exist_ok=True)
+                total += sum(f.stat().st_size for f in source.rglob("*") if f.is_file())
+            else:
+                shutil.copy2(source, stage / name)
+                total += source.stat().st_size
     if NOTICE_SOURCE.exists():
         shutil.copy2(NOTICE_SOURCE, stage / "NOTICE")
     else:
@@ -74,7 +82,6 @@ def main() -> int:
         return 1
 
     names = sorted(p.name for p in stage.iterdir() if p.is_file())
-    sums = REPO / "build" / "SHA256SUMS"
     lines = [f"{sha256(stage / n)}  {n}" for n in names]
     (stage / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
 

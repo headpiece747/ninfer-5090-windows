@@ -35,10 +35,11 @@ PROFILES = {
                            spec="dflash2", draft=7, lm_head=True, port=8101),
     "quasar-mtp4": dict(art="qwen3_8_27b_nvfp4qat.v3.ninfer", ctx=262144, vision=True,
                         spec="mtp", draft=4, lm_head=True, port=8102),
-    "ninfer-dflash2": dict(art="qwen3_8_27b_nvfp4.v3.ninfer", ctx=180224, vision=False,
-                           spec="dflash2", draft=7, lm_head=False, port=8103),
-    "ninfer-mtp5": dict(art="qwen3_8_27b_nvfp4.v3.ninfer", ctx=240000, vision=False,
-                        spec="mtp", draft=5, lm_head=True, port=8104),
+    "nvfp4full-dflash2-vision": dict(art="qwen3_8_27b_nvfp4full.v3.ninfer", ctx=262144,
+                                     vision=True, spec="dflash2", draft=7, lm_head=True,
+                                     port=8103),
+    "nvfp4full-mtp5-vision": dict(art="qwen3_8_27b_nvfp4full.v3.ninfer", ctx=262144,
+                                  vision=True, spec="mtp", draft=5, lm_head=True, port=8104),
 }
 
 # The artifact's chat template (artifact:chat_template.jinja line 55) implements exactly

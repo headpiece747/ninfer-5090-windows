@@ -45,7 +45,7 @@ ARTS = {
     "ninfer": "qwen3_8_27b_nvfp4.v3.ninfer",
     # cometkim's fuller-NVFP4 profile: 18.07 GiB, NVFP4 DFlash2 module, upstream-shaped
     # draft bindings (no fused query_key_value), 17.03 GiB device weights with DFlash2.
-    "nvfp4full": "qwen3_8_27b_nvfp4full.ninfer",
+    "nvfp4full": "qwen3_8_27b_nvfp4full.v3.ninfer",
 }
 LADDER = [262144, 240000, 212992, 180224, 163840, 131072]
 MTP_DEPTHS = [2, 3, 4, 5]

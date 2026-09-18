@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import struct
 import subprocess
 import time
@@ -32,10 +33,8 @@ RECORDS = Path(r"C:\AI\bench") / "launcher_verify.jsonl"
 CASES = [
     ("start_quasar_v3_dflash2_vision.bat", 8086, "qwen3.8-27b-quasar-v3-dflash2-vision", True, "dflash2"),
     ("start_quasar_v3_mtp4_vision.bat", 8087, "qwen3.8-27b-quasar-v3-mtp4-vision", True, "mtp"),
-    ("start_ninfer_v3_dflash2.bat", 8088, "qwen3.8-27b-nvfp4-v3-dflash2", False, "dflash2"),
-    ("start_ninfer_v3_dflash2_vision.bat", 8089, "qwen3.8-27b-nvfp4-v3-dflash2-vision", True, "dflash2"),
-    ("start_ninfer_v3_mtp5.bat", 8090, "qwen3.8-27b-nvfp4-v3-mtp5", False, "mtp"),
-    ("start_ninfer_v3_mtp5_vision.bat", 8091, "qwen3.8-27b-nvfp4-v3-mtp5-vision", True, "mtp"),
+    ("start_ninfer_v3_dflash2_vision.bat", 8088, "qwen3.8-27b-nvfp4-v3-dflash2-vision", True, "dflash2"),
+    ("start_ninfer_v3_mtp5_vision.bat", 8089, "qwen3.8-27b-nvfp4-v3-mtp5-vision", True, "mtp"),
 ]
 
 PROBE_PROMPT = "Reply with the single word OK."
@@ -110,12 +109,37 @@ def main() -> int:
         print(f"\n=== {bat}  (port {port})")
         kill()
         time.sleep(3)
+        log = Path(r"C:\AI\bench") / f"launcher_verify_{port}.txt"
+        handle = log.open("w", encoding="utf-8", errors="replace")
         proc = subprocess.Popen(["cmd", "/c", str(V3 / bat)], cwd=str(V3),
                                 stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                stdout=handle, stderr=subprocess.STDOUT)
         ready, secs = wait_ready(port)
         rec: dict = {"bat": bat, "port": port, "model_id": model_id, "vision": vision,
                      "spec": spec, "ready": ready, "startup_seconds": round(secs, 1)}
+        # The engine reports the KV it actually committed, which is the real ceiling.
+        capacity = 0
+        runtime = free = ""
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "capacity |" not in line:
+                continue
+            match = re.search(r"KV ([\d,]+) tokens", line)
+            if match:
+                capacity = int(match.group(1).replace(",", ""))
+            for part in line.split("|"):
+                part = part.strip()
+                if part.startswith("runtime"):
+                    runtime = part
+                elif part.startswith("free"):
+                    free = part
+        rec["kv_committed"] = capacity
+        rec["runtime"] = runtime
+        rec["free"] = free
+        rec["ceiling_ok"] = capacity >= 262144
+        print(f"  KV committed       : {capacity:,}  {'OK' if rec['ceiling_ok'] else 'BELOW 262,144'}"
+              f"  ({runtime}, {free})")
+        handle.close()
+
         if not ready:
             print("  FAILED to serve")
             proc.kill()
@@ -189,11 +213,12 @@ def main() -> int:
     ok = 0
     for r in results:
         good = (r.get("ready") and r.get("model_id_ok") and r.get("text_status") == 200
-                and r.get("image_ok"))
+                and r.get("image_ok") and r.get("ceiling_ok"))
         ok += bool(good)
         print(f"  {'PASS' if good else 'FAIL'}  {r['bat']:<42} "
               f"ready={r.get('ready')} id={r.get('model_id_ok')} "
-              f"text={r.get('text_status')} image={r.get('image_status')}")
+              f"text={r.get('text_status')} image={r.get('image_status')} "
+              f"kv={r.get('kv_committed', 0):,}")
     print(f"  {ok}/{len(results)} launchers verified")
     print(f"  records: {RECORDS}")
     return 0 if ok == len(results) else 1

@@ -31,39 +31,33 @@ V3 = r"C:\AI\ninfer-v3-windows"
 MODELS = r"C:\AI\models"
 
 QUASAR = "qwen3_8_27b_nvfp4qat.v3.ninfer"
-NVFP4 = "qwen3_8_27b_nvfp4.v3.ninfer"
+# cometkim's fuller-NVFP4 image: 18.07 GiB on disk, 17.03 GiB of device weights with
+# DFlash2, and it reaches the native 262,144 in every combination where our own nvfp4 image
+# is capped at 240,000 by its 22.1 GB of weights. Verified against SHA-256 ac98cd39... here.
+NVFP4FULL = "qwen3_8_27b_nvfp4full.v3.ninfer"
 
+# Four profiles: two artifacts, both spec routes, Vision everywhere, all at 262,144.
 PROFILES = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
          tok=331.3, acc="61.8%", runtime="10.7 GiB", free="2.52 GiB",
-         note="Flagship profile: fastest measured configuration at full context."),
+         note="Flagship: fastest measured configuration, at full context."),
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
          tok=225.4, acc="65.3%", runtime="10.4 GiB", free="3.08 GiB",
-         note="Lower-VRAM QUASAR profile; MTP4 measured fastest of MTP 2-5 on QUASAR."),
-    dict(file="start_ninfer_v3_dflash2.bat", port=8088, art=NVFP4,
-         label="NVFP4 + DFlash2 (no Vision)", model_id="qwen3.8-27b-nvfp4-v3-dflash2",
-         spec="dflash2", draft=7, vision=False, lm_head=False, ctx=180224,
-         tok=258.2, acc="59.4%", runtime="8.06 GiB", free="1.06 GiB",
-         note="Highest-speed nvfp4 profile. --lm-head-draft is OFF: measured faster and\nREM  a full ladder step more context than with it (258.2 @180,224 vs 225.0 @163,840)."),
-    dict(file="start_ninfer_v3_dflash2_vision.bat", port=8089, art=NVFP4,
-         label="NVFP4 + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
-         spec="dflash2", draft=7, vision=True, lm_head=False, ctx=163840,
-         tok=257.2, acc="59.4%", runtime="7.71 GiB", free="1.14 GiB",
-         note="Vision costs context here, not speed: 163,840 with Vision against 180,224\nREM  without. Dropping --lm-head-draft recovers 32,768 versus the flagged run."),
-    dict(file="start_ninfer_v3_mtp5.bat", port=8090, art=NVFP4,
-         label="NVFP4 + MTP5 (no Vision)", model_id="qwen3.8-27b-nvfp4-v3-mtp5",
-         spec="mtp", draft=5, vision=False, lm_head=True, ctx=240000,
-         tok=206.0, acc="61.7%", runtime="9.49 GiB", free="0.58 GiB",
-         note="Highest-context nvfp4 profile; slower than DFlash2 by ~20% for 60k more context."),
-    dict(file="start_ninfer_v3_mtp5_vision.bat", port=8091, art=NVFP4,
-         label="NVFP4 + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
-         spec="mtp", draft=5, vision=True, lm_head=True, ctx=212992,
-         tok=204.8, acc="61.7%", runtime="8.77 GiB", free="1.03 GiB",
-         note="Vision again costs context only, not throughput."),
+         note="Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR."),
+    dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL,
+         label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
+         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
+         tok=326.6, acc="63.7%", runtime="10.7 GiB", free="1.74 GiB",
+         note="Second artifact, same reach as QUASAR: 262,144 with Vision. This is the\nREM  tightest profile in the set; dropping --lm-head-draft buys 0.33 GiB at ~2% slower."),
+    dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL,
+         label="NVFP4-full + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
+         spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
+         tok=236.3, acc="64.2%", runtime="10.4 GiB", free="2.28 GiB",
+         note="MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here."),
 ]
 
 TEMPLATE = """@echo off
