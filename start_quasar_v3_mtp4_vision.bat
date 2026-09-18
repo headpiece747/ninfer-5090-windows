@@ -20,22 +20,30 @@ REM  They cost no context or VRAM: KV stays 262,144 and runtime stays 10.7 GiB.
 REM ============================================================================
 setlocal
 
-set "V3=C:\AI\ninfer-v3-windows"
-set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
+REM Resolve beside this launcher first, so the released archive is portable wherever it is
+REM extracted, then fall back to the source tree so the same file works while developing.
+set "SERVE=%~dp0ninfer-serve.exe"
+if not exist "%SERVE%" set "SERVE=C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe"
+set "MODEL=%~dp0models\qwen3_8_27b_nvfp4qat.v3.ninfer"
+if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 
-if not exist "%V3%\build\apps\ninfer-serve.exe" (
-    echo [ERROR] Engine not found at %V3%\build\apps\ninfer-serve.exe
-    echo         Run build_windows.bat first.
+if not exist "%SERVE%" (
+    echo [ERROR] Engine not found.
+    echo         Expected ninfer-serve.exe beside this launcher,
+    echo         or a source build at C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe
     pause
     exit /b 1
 )
 if not exist "%MODEL%" (
-    echo [ERROR] Artifact not found at %MODEL%
+    echo [ERROR] Artifact not found.
+    echo         Expected %~dp0models\qwen3_8_27b_nvfp4qat.v3.ninfer
+    echo         or C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer
+    echo         Run download_model.bat to fetch it.
     pause
     exit /b 1
 )
 
-"%V3%\build\apps\ninfer-serve.exe" "%MODEL%" ^
+"%SERVE%" "%MODEL%" ^
   --vision ^
   --spec mtp ^
   --draft-tokens 4 ^

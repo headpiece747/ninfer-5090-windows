@@ -2,7 +2,10 @@
 set "ROOT=%~dp0"
 set "BIN=%ROOT%build\apps\ninfer.exe"
 set "SERVE_BIN=%ROOT%build\apps\ninfer-serve.exe"
-if not defined MODEL set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
+if not defined MODEL REM Relative first so a released archive is self-contained; the absolute path keeps
+REM the source-tree workflow unchanged.
+set "MODEL=%~dp0models\qwen3_8_27b_nvfp4qat.v3.ninfer"
+if not exist "%MODEL%" set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 set "QUASAR_ARGS=--max-context 262144 --kv-capacity auto --kv-dtype fp8 --spec mtp --draft-tokens 4 --max-shared-prefixes 7 --max-private-continuations 8 --max-long-anchors-per-continuation 4"
 
 :: Select Python 3.11 interpreter explicitly per AGENTS.md

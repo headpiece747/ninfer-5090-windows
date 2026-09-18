@@ -1,0 +1,524 @@
+#!/usr/bin/env python3
+"""v3 profile matrix: context ceilings, MTP depth sweep, and verification.
+
+Every measurement is taken the way a launcher will actually start the engine, so the
+numbers written into the launchers come from the same arg set the launcher ships.
+
+Modes
+  ceiling  probe a descending max-context ladder per profile; record what serves and
+           what is refused, with the engine's own runtime/free-VRAM accounting
+  sweep    for one profile, measure decode tok/s and spec statistics at each draft
+           depth, plus a deterministic digest for output-preservation checks
+  verify   start one profile exactly as its launcher will and check it end to end
+
+Records append to matrix_v3.jsonl so a long sweep can be resumed or inspected.
+
+Notes
+  - Kills every ninfer-serve.exe before each start; only one 32 GB card is present.
+  - Waits for VRAM to fall before starting, so a leaked process cannot silently
+    turn a real refusal into a false one.
+  - --request-log-jsonl captures full-precision per-request records, which is the
+    measurement substrate for acceptance and throughput.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+EXE = Path(r"C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe")
+MODELS = Path(r"C:\AI\models")
+OUT = Path(r"C:\AI\bench")
+PORT = 8095
+BASE = f"http://127.0.0.1:{PORT}"
+RECORDS = OUT / "matrix_v3.jsonl"
+CURRENT_MODEL_ID = ""  # the engine enforces --model-id, so requests must match it
+
+ARTS = {
+    "quasar": "qwen3_8_27b_nvfp4qat.v3.ninfer",
+    "ninfer": "qwen3_8_27b_nvfp4.v3.ninfer",
+    # cometkim's fuller-NVFP4 profile: 18.07 GiB, NVFP4 DFlash2 module, upstream-shaped
+    # draft bindings (no fused query_key_value), 17.03 GiB device weights with DFlash2.
+    "nvfp4full": "qwen3_8_27b_nvfp4full.ninfer",
+}
+LADDER = [262144, 240000, 212992, 180224, 163840, 131072]
+MTP_DEPTHS = [2, 3, 4, 5]
+
+# Measured 2026-09-17. Key is (artifact, spec, vision, lm_head_draft).
+#
+# --lm-head-draft is NOT uniformly good: measured, it is worth +9% (DFlash2) and +18%
+# (MTP d4) on QUASAR, but on nvfp4 it costs ~14% throughput, 11pp acceptance and a full
+# ladder step of context (163,840 -> 180,224 on DFlash2). So the ceilings below differ
+# per artifact AND per flag, and both must be probed with the flag the launcher ships.
+CEILINGS = {
+    ("quasar", "mtp", False, True): 262144,
+    ("quasar", "mtp", True, True): 262144,
+    ("quasar", "dflash2", False, True): 262144,
+    ("quasar", "dflash2", True, True): 262144,
+    ("ninfer", "mtp", False, True): 240000,
+    ("ninfer", "mtp", True, True): 212992,
+    ("ninfer", "dflash2", False, True): 163840,
+    ("ninfer", "dflash2", True, True): 131072,
+    # nvfp4 with the flag off: higher, because the optimized head is not resident.
+    ("ninfer", "mtp", False, False): 240000,
+    ("ninfer", "mtp", True, False): 212992,
+    # nvfp4full (cometkim's fuller-NVFP4 profile), measured 2026-09-17: reachable at the
+    # native 262,144 in every combination, where our nvfp4 image tops out at 240,000 for
+    # MTP and 163,840/131,072 for DFlash2 with and without Vision.
+    ("nvfp4full", "mtp", False, True): 262144,
+    ("nvfp4full", "mtp", True, True): 262144,
+    ("nvfp4full", "dflash2", False, True): 262144,
+    ("nvfp4full", "dflash2", True, True): 262144,
+}
+
+
+def ceiling_of(art: str, spec: str, vision: bool, lm_head: bool) -> int:
+    """Measured ceiling for the exact flag combination, falling back to the
+    with-flag measurement when that combination has not been probed yet."""
+    return (CEILINGS.get((art, spec, vision, lm_head))
+            or CEILINGS.get((art, spec, vision, True))
+            or 131072)
+
+CODE_PROMPT = (
+    "Write a Python module with: a dataclass Point(x, y), a function distance(a, b) "
+    "returning Euclidean distance, and a function closest_pair(points) returning the two "
+    "closest points. Include type hints. Code only, no explanation."
+)
+PROBE_PROMPT = "Reply with the single word OK."
+
+
+# ---------------------------------------------------------------- process control
+
+def kill() -> None:
+    subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"],
+                   capture_output=True, text=True)
+
+
+def gpu_used_mib() -> int:
+    out = subprocess.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader"],
+                         capture_output=True, text=True).stdout
+    return int("".join(c for c in out if c.isdigit()) or 0)
+
+
+def wait_free(limit: int = 2000, timeout: int = 120) -> bool:
+    end = time.time() + timeout
+    while time.time() < end:
+        if gpu_used_mib() < limit:
+            return True
+        time.sleep(3)
+    return False
+
+
+def wait_ready(proc=None, timeout: int = 240) -> bool:
+    """Poll the models endpoint until the engine answers.
+
+    A refused profile exits in about four seconds, so stop as soon as the process is
+    gone instead of burning the whole timeout on a port that will never open.
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        if proc is not None and proc.poll() is not None:
+            return False
+        try:
+            with urllib.request.urlopen(f"{BASE}/v1/models", timeout=5) as r:
+                r.read()
+            return True
+        except Exception:  # noqa: BLE001
+            time.sleep(2)
+    return False
+
+
+def start(args: list[str], log: Path):
+    log.parent.mkdir(parents=True, exist_ok=True)
+    fh = log.open("w", encoding="utf-8", errors="replace")
+    proc = subprocess.Popen(args, stdout=fh, stderr=subprocess.STDOUT,
+                            cwd=str(EXE.parent))
+    return proc, fh
+
+
+# ---------------------------------------------------------------------- requests
+
+def post(payload: dict, timeout: int = 1800) -> tuple[dict, float]:
+    req = urllib.request.Request(
+        BASE + "/v1/chat/completions",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    t0 = time.time()
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        resp = json.loads(r.read())
+    return resp, time.time() - t0
+
+
+def run_once_gen(prompt: str, max_tokens: int, sampling: str = "default") -> tuple[int, float, str]:
+    """Send one completion.
+
+    sampling "default" is the realistic profile run; "zero" pins temperature 0; "none"
+    sends no sampling fields at all, which is the only way the server's --greedy flag
+    governs (the docs are explicit that request fields override server flags).
+    """
+    body = {
+        "model": CURRENT_MODEL_ID,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+    }
+    if sampling == "default":
+        body["temperature"] = 0.6
+        body["top_p"] = 0.95
+    elif sampling == "zero":
+        body["temperature"] = 0
+        body["top_p"] = 1
+    resp, dt = post(body)
+    tokens = resp["usage"]["completion_tokens"]
+    msg = resp["choices"][0]["message"]
+    text = (msg.get("reasoning_content") or "") + (msg.get("content") or "")
+    return tokens, dt, text
+
+
+def measure_decode(runs: int = 3, jsonl: Path | None = None, greedy: bool = False) -> dict:
+    """One warmup, `runs` realistic decode runs, then one deterministic pass.
+
+    Acceptance is taken only from the realistic runs: the deterministic pass uses
+    temperature 0, which inflates draft acceptance and would flatter every depth
+    equally. The digest comes from that deterministic pass and is what proves spec
+    decoding is output-preserving across depths.
+    """
+    ct, dt, _ = run_once_gen(PROBE_PROMPT, 16, "default")
+    warmup = ct / dt if dt else 0.0
+
+    rates = []
+    for _ in range(runs):
+        ct, dt, _ = run_once_gen(CODE_PROMPT, 400, "default")
+        rates.append(ct / dt if dt else 0.0)
+
+    out = {
+        "warmup_tps": round(warmup, 1),
+        "decode_tps": [round(r, 1) for r in rates],
+        "decode_avg": round(sum(rates) / len(rates), 1) if rates else 0.0,
+    }
+
+    if jsonl is not None:
+        out.update(parse_spec_jsonl(jsonl))
+
+    _, _, text = run_once_gen(CODE_PROMPT, 400, "none" if greedy else "zero")
+    out["digest"] = hashlib.sha256(text.encode()).hexdigest()[:16]
+    out["digest_tokens"] = len(text)
+    return out
+
+
+# ------------------------------------------------------------------- log parsing
+
+def _to_gib(part: str) -> float:
+    """'runtime 9.49 GiB' or 'free 584.7 MiB' -> GiB. The engine mixes units."""
+    fields = part.split()
+    try:
+        value = float(fields[1])
+        unit = fields[2] if len(fields) > 2 else "GiB"
+        return round(value if unit.startswith("Gi") else value / 1024.0, 3)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def parse_capacity(text: str) -> dict:
+    out: dict = {}
+    for line in text.splitlines():
+        if "capacity |" not in line:
+            continue
+        try:
+            seg = line.split("capacity |", 1)[1]
+            kv = seg.split("KV", 1)[1].split("tokens", 1)[0].strip()
+            out["kv_tokens"] = int(kv.replace(",", ""))
+            for part in seg.split("|"):
+                part = part.strip()
+                if part.startswith("runtime"):
+                    out["runtime_gib"] = _to_gib(part)
+                elif part.startswith("free"):
+                    out["free_gib"] = _to_gib(part)
+                elif part.startswith("pages"):
+                    out["pages"] = part.split()[1]
+        except Exception:  # noqa: BLE001
+            pass
+        break
+    return out
+
+
+def parse_spec(text: str) -> list[str]:
+    hits = []
+    for line in text.splitlines():
+        low = line.lower()
+        if any(k in low for k in ("accept", "speculative", "draft token", "proposal")):
+            hits.append(line.strip()[:200])
+    return hits[-8:]
+
+
+def parse_spec_jsonl(path: Path) -> dict:
+    """Aggregate speculative and decode counters from the request log.
+
+    Accepted/drafted is the acceptance rate behind the throughput number: a depth can
+    raise decode tok/s while lowering acceptance, and only the ratio shows which.
+    """
+    if not path.exists():
+        return {}
+    acc = dra = rnd = fallback = gens = 0
+    backend = window = ""
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except Exception:  # noqa: BLE001
+            continue
+        sp = rec.get("speculative")
+        if not sp:
+            continue
+        acc += sp.get("accepted_tokens", 0)
+        dra += sp.get("drafted_tokens", 0)
+        rnd += sp.get("rounds", 0)
+        fallback += sp.get("fallback_steps", 0)
+        backend = sp.get("backend", backend)
+        window = sp.get("draft_window", window)
+        gens += 1
+    if not gens:
+        return {}
+    return {
+        "spec_backend": backend,
+        "spec_window": window,
+        "spec_rounds": rnd,
+        "spec_accepted": acc,
+        "spec_drafted": dra,
+        "spec_fallback_steps": fallback,
+        "accept_rate": round(acc / dra, 4) if dra else 0.0,
+        "gen_records": gens,
+    }
+
+
+def refusal_reason(text: str) -> str:
+    for line in reversed(text.splitlines()):
+        if "FATAL" in line or "ERROR" in line or "refus" in line.lower():
+            return line.strip()[:220]
+    return ""
+
+
+# ------------------------------------------------------------------ one profile run
+
+def build_args(art: str, spec: str, draft: int, vision: bool, max_context: int,
+               log_jsonl: Path, greedy: bool = False, kv_capacity: str = "auto",
+               lm_head: bool = True) -> list[str]:
+    a = [str(EXE), str(MODELS / ARTS[art]),
+         "--host", "127.0.0.1", "--port", str(PORT),
+         "--model-id", f"{art}-v3-{spec}",
+         "--max-context", str(max_context),
+         "--kv-capacity", kv_capacity,
+         "--kv-dtype", "fp8",
+         "--prefill-chunk", "8192",
+         "--max-concurrency", "1",
+         "--device-state-slots", "1",
+         "--host-state-slots", "8",
+         "--host-kv-mib", "8192",
+         "--log-stats-interval-ms", "2000",
+         "--request-log-jsonl", str(log_jsonl),
+         "--seed", "1234"]
+    if spec != "none":
+        a += ["--spec", spec, "--draft-tokens", str(draft)]
+        if lm_head:
+            a += ["--lm-head-draft"]
+    if vision:
+        a += ["--vision"]
+    if greedy:
+        a += ["--greedy"]
+    return a
+
+
+def run_profile(art: str, spec: str, draft: int, vision: bool, max_context: int,
+                measure: bool = True, greedy: bool = False, lm_head: bool = True) -> dict:
+    tag = (f"{art}-v3-{spec}-d{draft}{'-vision' if vision else ''}-ctx{max_context}"
+           f"{'' if lm_head else '-nolmh'}")
+    log = OUT / f"sweep_{tag}.txt"
+    jsonl = OUT / f"req_{tag}.jsonl"
+    jsonl.unlink(missing_ok=True)  # the server appends; a stale file would average runs
+    kill()
+    freed = wait_free()
+    kv_before = gpu_used_mib()
+
+    global CURRENT_MODEL_ID
+    CURRENT_MODEL_ID = f"{art}-v3-{spec}"
+    args = build_args(art, spec, draft, vision, max_context, jsonl, greedy=greedy,
+                      lm_head=lm_head)
+    proc, fh = start(args, log)
+    ready = wait_ready(proc)
+    time.sleep(3)  # let the capacity/stats lines flush
+    text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+
+    record: dict = {
+        "tag": tag, "art": art, "spec": spec, "draft": draft, "vision": vision,
+        "max_context": max_context, "ready": ready,
+        "vram_before_mib": kv_before, "vram_freed": freed,
+        "log": log.name,
+    }
+    record.update(parse_capacity(text))
+    record["spec_lines"] = parse_spec(text)
+
+    if ready and measure:
+        try:
+            record.update(measure_decode(jsonl=jsonl, greedy=greedy))
+        except urllib.error.HTTPError as e:
+            record["measure_error"] = f"HTTP {e.code} {e.read().decode('utf-8', 'replace')[:150]}"
+        except Exception as e:  # noqa: BLE001
+            record["measure_error"] = f"{type(e).__name__}: {e}"
+        try:
+            record["vram_peak_mib"] = gpu_used_mib()
+        except Exception:  # noqa: BLE001
+            pass
+    elif not ready:
+        record["refusal"] = refusal_reason(text)
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    fh.close()
+    kill()
+
+    with RECORDS.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+    return record
+
+
+def show(rec: dict) -> None:
+    head = rec["tag"]
+    if rec.get("ready"):
+        cap = f"KV {rec.get('kv_tokens', 0):,}"
+        print(f"  SERVES  {head:<42} {cap:>14} | runtime {rec.get('runtime_gib', '?')} GiB"
+              f" | free {rec.get('free_gib', '?')} GiB")
+        if "decode_avg" in rec:
+            acc = (f"accept {rec['accept_rate'] * 100:5.1f}% "
+                   f"({rec['spec_accepted']}/{rec['spec_drafted']})"
+                   if "accept_rate" in rec else "accept n/a")
+            print(f"          decode {rec['decode_avg']:>7.1f} tok/s  (runs "
+                  f"{rec['decode_tps']}) | {acc} | digest {rec.get('digest', '')}")
+        else:
+            print("          no generation")
+    else:
+        print(f"  REFUSED {head:<42} {rec.get('refusal', '')[:95]}")
+
+
+# ------------------------------------------------------------------------- modes
+
+def mode_ceiling(arts: list[str], specs: list[str], visions: list[bool],
+                 lm_head: bool = True) -> None:
+    for art in arts:
+        for spec in specs:
+            for vision in visions:
+                depth = 5 if spec == "mtp" else 7
+                print(f"\n=== ceiling: {art} / {spec} / vision={vision} / lm_head={lm_head}")
+                for ctx in LADDER:
+                    rec = run_profile(art, spec, depth, vision, ctx, measure=False,
+                                      lm_head=lm_head)
+                    show(rec)
+                    if rec["ready"]:
+                        print(f"     -> CEILING {ctx:,}")
+                        break
+                else:
+                    print("     -> no candidate served")
+
+
+def mode_sweep(art: str, vision: bool, lm_head: bool = True) -> None:
+    """Every MTP depth at this profile's measured ceiling, plus a DFlash2 baseline,
+    so the depth choice and the backend choice are answered from one comparable run set."""
+    ctx = ceiling_of(art, "mtp", vision, lm_head)
+    print(f"\n=== MTP depth sweep: {art} / vision={vision} / lm_head={lm_head} @ {ctx:,}")
+    for depth in MTP_DEPTHS:
+        rec = run_profile(art, "mtp", depth, vision, ctx, measure=True, lm_head=lm_head)
+        show(rec)
+    dctx = ceiling_of(art, "dflash2", vision, lm_head)
+    print(f"  --- DFlash2 baseline @ {dctx:,}")
+    show(run_profile(art, "dflash2", 7, vision, dctx, measure=True, lm_head=lm_head))
+
+
+def mode_correct(art: str, vision: bool) -> None:
+    """Is speculative decoding output-preserving on this artifact?
+
+    The depth sweep showed depths producing different digests, but request-level
+    temperature 0 is not exact argmax (the server's default top_k still applies), so
+    this pass runs the server with --greedy and sends no sampling fields: the only
+    configuration where "identical tokens" is a meaningful claim. No-spec is the
+    control; every speculative configuration is compared against it.
+    """
+    print(f"\n=== correctness, greedy, no request sampling: {art} / vision={vision}")
+    rows: list[tuple[str, str, int]] = []
+    plan = [("none", 0), ("mtp", 2), ("mtp", 3), ("mtp", 4), ("mtp", 5), ("dflash2", 7)]
+    for spec, draft in plan:
+        ctx = CEILINGS.get((art, spec, vision), CEILINGS[(art, "mtp", vision)])
+        rec = run_profile(art, spec, draft, vision, ctx, measure=True, greedy=True)
+        label = f"{spec} d{draft}" if spec != "none" else "none (control)"
+        rows.append((label, rec.get("digest", "?"), rec.get("digest_tokens", 0)))
+        print(f"  {label:<16} digest {rec.get('digest', '?')} "
+              f"| {rec.get('digest_tokens', 0):>5} chars | decode {rec.get('decode_avg')} tok/s")
+    control = rows[0][1]
+    match = [r[0] for r in rows[1:] if r[1] == control]
+    differ = [r[0] for r in rows[1:] if r[1] != control]
+    print(f"  -> match control: {match if match else 'none'}")
+    print(f"  -> differ from control: {differ if differ else 'none'}")
+
+
+def mode_verify(art: str, spec: str, draft: int, vision: bool, max_context: int,
+                lm_head: bool = True) -> None:
+    print(f"\n=== verify: {art} / {spec} d{draft} / vision={vision} / ctx {max_context:,}"
+          f" / lm-head-draft={lm_head}")
+    rec = run_profile(art, spec, draft, vision, max_context, measure=True, lm_head=lm_head)
+    show(rec)
+    for line in rec.get("spec_lines", [])[-4:]:
+        print(f"           | {line[:150]}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("mode", choices=["ceiling", "sweep", "verify", "correct"])
+    ap.add_argument("--art", dest="arts", action="append",
+                    choices=sorted(ARTS), help="repeatable; default both")
+    ap.add_argument("--spec", dest="specs", action="append",
+                    choices=["mtp", "dflash2"], help="ceiling mode; default both")
+    ap.add_argument("--vision", action="store_true", help="sweep/verify: vision profile")
+    ap.add_argument("--no-vision", action="store_true", help="sweep/verify: text profile")
+    ap.add_argument("--draft", type=int, default=None)
+    ap.add_argument("--max-context", type=int, default=262144)
+    ap.add_argument("--no-lm-head", action="store_true",
+                    help="verify mode: omit --lm-head-draft")
+    args = ap.parse_args()
+
+    if not EXE.exists():
+        print(f"missing engine: {EXE}")
+        return 1
+
+    if args.mode == "ceiling":
+        mode_ceiling(args.arts or sorted(ARTS), args.specs or ["mtp", "dflash2"],
+                     [False, True], lm_head=not args.no_lm_head)
+    elif args.mode == "sweep":
+        visions = [True] if args.vision else [False] if args.no_vision else [False, True]
+        for art in (args.arts or sorted(ARTS)):
+            for vision in visions:
+                mode_sweep(art, vision, lm_head=not args.no_lm_head)
+    elif args.mode == "correct":
+        visions = [True] if args.vision else [False] if args.no_vision else [False, True]
+        for art in (args.arts or sorted(ARTS)):
+            for vision in visions:
+                mode_correct(art, vision)
+    else:
+        spec = (args.specs or ["mtp"])[0]
+        mode_verify((args.arts or ["quasar"])[0], spec,
+                    args.draft if args.draft is not None else (5 if spec == "mtp" else 7),
+                    args.vision, args.max_context, lm_head=not args.no_lm_head)
+
+    print(f"\nrecords: {RECORDS}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
