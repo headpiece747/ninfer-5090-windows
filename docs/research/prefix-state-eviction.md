@@ -155,3 +155,28 @@ protection the predicate depends on.
 
 The next step is therefore to instrument which of those three rejects a full pool, not to write
 new eviction code.
+
+## MEASURED: the reclamation code is never reached
+
+The instrumentation was run (`pressure.cpp`, temporary `std::fprintf` at both rejection points in
+the endpoint `add_state` lambda, rebuilt, driven by `repro_251.py` at 12 conversations against the
+shipped QUASAR DFlash2 profile).
+
+**Result: zero rejections. Neither path executed during the entire run.**
+
+So the three candidates above are all wrong, and so is the framing: the planner does not *attempt*
+to reclaim an endpoint state image and get refused. It never attempts it. The reclamation machinery
+found in `pressure.cpp` is admission-time *pressure relief* -- it runs when the planner is
+resolving a deficit for a specific request's materialization. The `device_state_slots` pool that
+multi-conversation workloads exhaust is evidently managed outside that path, and simply refuses
+when full.
+
+What follows for the fix: **this is not a missing eviction policy inside the planner; it is a cache
+whose admission is not wired to any eviction at all.** The next investigation is where
+`device_state_slots` is actually allocated and refused -- the counter and pool behind
+`usage.device.state_slots` (`pressure.cpp:2639`) -- and whether that cache can consult the
+reclamation machinery that already exists, or needs its own LRU.
+
+Four hypotheses have now been proposed from reading and four disproved by measurement
+(`Uint128` as the planner cause, #229's applicability, #178's applicability, and this "role/pins/
+scope" gate analysis). The lesson worth keeping: **instrument before asserting a mechanism.**
