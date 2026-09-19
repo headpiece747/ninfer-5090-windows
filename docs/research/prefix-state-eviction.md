@@ -324,3 +324,40 @@ eviction policy, no new reference tracking, no changes to `release()`.
 This is a hypothesis again, and the last six were wrong, so it gets instrumented the same way: log
 the physical demand a brand-new conversation presents at admission and whether it contains a
 state-slot component.
+
+## MEASURED: the demand has the slot but never a credit
+
+Instrumented the `plan->demand` construction in `request_plan.cpp` (`~L1068`) and ran the same
+twelve conversations. The reproduction held (100% reuse x6, then 0.0% x6), and the trace is
+decisive:
+
+```
+matches: 6
+[demand] active_d=1 added_d=1 credit_d=0 peak_d=1 removed_d=0     (x6, identical)
+```
+
+Three things follow, and one of them corrects the hypothesis above:
+
+1. **The demand does contain a state slot** (`added_d=1`), so "the requirement is missing from the
+   demand" was wrong. It is present.
+2. **No credit and no removal is ever offered** (`credit_d=0`, `removed_d=0`) for these requests --
+   consistent with the split-only gate at `request_plan.cpp:1040`. So the plan demands a slot it
+   can only satisfy by *consuming* one, never by *reclaiming* one.
+3. **The trace fires exactly six times and then stops**, matching the cliff at conversation 7
+   exactly. Once the pool is full, this admission path is no longer taken at all -- the request
+   proceeds down a different path and simply runs without a cached state, which is why the failure
+   is silent.
+
+So the fix is narrower than "add the requirement to the demand". It is:
+
+> **When a plan demands a state slot (`added_d = 1`) and the store cannot supply one, offer a
+> credit/removal for it** -- let the planner name an existing state to release, exactly as the
+> split case already does at `request_plan.cpp:1040-1047`, and exactly as `release()`/`can_release`
+> already support safely (`state_store.h:661`, gated on `checkpoint_references == 0` and
+> `source_pins == 0`).
+
+The victim choice can reuse the value ordering the planner already applies (fewest affected hits,
+fewest evictions, then recency), so no new policy is needed -- only a removal option where today
+there is none. The remaining question, which is where the next instrumentation should start, is
+*why the path stops being taken* once the pool is full: whether admission takes an early
+"no state available" branch before reaching the demand construction, or fails later.
