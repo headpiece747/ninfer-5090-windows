@@ -4,6 +4,11 @@ Three issues found while working on this port, each written up with a reproducti
 evidence so it can be filed as-is. **None has been posted.** They are drafts, and posting them is
 an outbound action rather than a code change.
 
+**Pulling an upstream release?** Read [`fork-divergence.md`](fork-divergence.md) first. It records
+which of our changes touch files upstream also owns, and which are Windows-permanent and cannot
+conflict. `dev` is a strict superset of `upstream/master` (0 commits behind), so the only risk is
+recognising our own patches when upstream edits the same shared logic.
+
 | Report | Target | What it is | Strength |
 | --- | --- | --- | --- |
 | `ninfer-tma-descriptor-graph-capture.md` | `Neroued/ninfer`, aimed at the open Windows/TMA PRs `#233` and `#82` | the device-buffer TMA descriptor path is not safe under CUDA Graph capture | strongest: a `compute-sanitizer` trace, a named mechanism, and a fix |
