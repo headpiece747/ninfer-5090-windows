@@ -400,3 +400,52 @@ existence:
 That is where the next instrumentation starts, and it is a smaller question than the last: log,
 per admission, which candidate is selected and its `state_slots` credit/removal, and correlate with
 `StateImageStore` occupancy (`device_occupied()` vs `device_capacity()`, `state_store.h:132-137`).
+
+## ANSWERED by the design doc: it is "effect", not "selection"
+
+`docs/maintainer/resource-scheduling-and-context-cache.md`, section 6.1 "Admission reservation",
+lines 440-444 (translated):
+
+> Materialization progress only transitions between allocation and reserved-but-unmapped; **it does
+> not hand capacity to another request.** Active truncate or speculative rollback can release
+> mappings, **but the corresponding capacity still belongs to that active reservation.** Only a
+> **terminal release**, or a resource transition that explicitly shrinks the active entitlement,
+> can **return capacity to the global pool.**
+
+That settles the question, and it settles it in favour of the second possibility:
+
+- A plan's `credit` releases resources **inside that request's own accounting**. It does **not**
+  return capacity to the global pool, so choosing a `credit_d=1` candidate cannot help a *different*
+  conversation -- which is exactly why the trace can show slot-crediting candidates while the pool
+  stays full.
+- Capacity returns to the global pool only on **terminal release** or an **explicit shrink of the
+  active entitlement**.
+- A **retained cache checkpoint is neither**. It is deliberately held so a later turn can reuse it,
+  so the capacity it occupies is not returned.
+
+**So a pool full of retained conversations is a design consequence with no eviction path at all** --
+which is precisely what #251 reports as "no LRU eviction observed", and why only an engine restart
+(which drops every checkpoint at once) restores reuse.
+
+The doc also states the matching accounting rule at 446-450: a borrowed immutable StateImage/KV
+source must not be charged twice through the primary binding, or a legitimate fork is misjudged as
+exceeding the active guarantee. Any fix must preserve that.
+
+### The fix this implies
+
+Eviction must be expressed as **dropping a retained checkpoint** -- the least valuable one by the
+planner's existing ordering -- so that its state image's `checkpoint_references` falls to zero, its
+`can_release` becomes true, and its capacity returns to the global pool. Then `allocate()` can
+succeed for the new conversation.
+
+Every piece of that exists: the planner can drop checkpoints and already values them (fewest
+affected hits, fewest evictions, then recency); `release()`/`can_release()` are safe
+(`state_store.h:661`); and the credit/removal vocabulary is in `PhysicalResources`. What is missing
+is a trigger: a state-slot shortfall for a *new* conversation is not currently a deficit the
+planner will resolve by dropping a checkpoint, because the reclamation it knows about is scoped to
+the request's own materialization (measured: the removal gates in `pressure.cpp` and the split
+credit in `request_plan.cpp` are both unreached for this workload).
+
+**So the fix is a trigger, not a policy**: present "a state slot is needed and the pool is full" to
+the planner as a deficit it may resolve by dropping a checkpoint, and let the machinery that
+already exists do the rest.
