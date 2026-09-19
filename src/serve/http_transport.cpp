@@ -6,8 +6,10 @@
 #    include <netinet/tcp.h>
 #    include <sys/socket.h>
 #elif defined(_WIN32)
-#    include <mstcpip.h>
+// winsock2.h first: mstcpip.h depends on its types, and including them in the other order breaks
+// once anything pulls in windows.h ahead of this header.
 #    include <winsock2.h>
+#    include <mstcpip.h>
 #endif
 
 #include <stdexcept>
