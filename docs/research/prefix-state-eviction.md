@@ -118,43 +118,40 @@ slots to resolve a deficit -- `option.effect.removed.device.state_slots` and
 is not "there is no eviction path" but "the existing removal path does not fire when admission
 needs a slot", which is a much smaller question than adding eviction from scratch.
 
-## Confirmed: what exists, and the exact gap
+## CORRECTION: private-continuation reclamation does exist
 
-The removal path exists, is refcount-gated exactly as the literature prescribes, and is scoped
-narrowly. `pressure.cpp:556-588`:
+The paragraph that stood here was wrong and is retracted. `PressureStateDecision` already carries
+private-continuation actions -- `DropEndpointDeviceDuplicate`, `DemoteEndpointToHost`,
+`DropEndpointHostDuplicate` (and the `Rewrite` trio) at `program_impl.h:114-125` -- and
+`pressure.cpp` builds them at `L760-767` under the same refcount gates as the shared case:
 
 ```cpp
-if (option.state_changes.empty() &&
-    (deficit.device.state_slots != 0 || deficit.host.state_slots != 0) &&
-    state_store->valid(shared.state) &&
-    state_store->role(shared.state) == StateImageRole::CheckpointImmutable &&
-    state_store->source_pins(shared.state) == 0) {          // the refcount gate
+checkpoint_was_dropped || already_changed || !state_store->valid(state) ||
+state_store->role(state) != StateImageRole::CheckpointImmutable ||
+state_store->source_pins(state) != 0 || ...          // pressure.cpp:781-783
 ```
 
-`source_pins == 0` is vLLM's "reference count equals 0"; `checkpoint_references(...) == 1` is the
-same discipline. It chooses between `DropSharedHostDuplicate`, `DropSharedDeviceDuplicate` and
-`DemoteSharedToHost` (device -> host, which frees a device slot).
+Repeated at `L1078-1080` and `L1183-1186`, and dispatched at `L1319-1329`.
 
-**The gap: it only ever considers `shared.state` -- a shared-prefix state, and only as a
-redundant copy or a demotion.** There is no reclamation path for the state image of a **private
-continuation**, which is what our twelve conversations each hold. Those fill `device_state_slots`,
-nothing may reclaim them, and once the pool is full no new conversation can be admitted.
+So this is **not** a missing subsystem, and extending the shared block to private states is **not**
+the cure -- that entry already exists. The open question is narrower and sharper:
 
-Note the neighbouring machinery is not the same thing: `option.evicts_continuation` (around
-`L1263-1279`) drops a whole continuation's KV, and `shared.active_references != 0` gates shared
-KV (`L1171`). Neither reclaims a private continuation's state image.
+> Why does an admitted endpoint state not get reclaimed when `device_state_slots` is full?
 
-## The cure, as a code change
+Candidates, in the order worth testing:
 
-Extend the state-change block above from `shared.state` to also consider **private continuation
-state images**, under the same two gates that are already there:
+1. **Role.** The gates require `StateImageRole::CheckpointImmutable`. If the state our
+   conversations leave behind is a different role, every path above skips it silently, which would
+   look exactly like "no eviction".
+2. **Pins.** `source_pins(state) != 0` excludes it; something may hold a pin longer than expected.
+3. **Scope.** The planner builds pressure options from the sequences and owners of the request
+   being admitted (`L437` also consults `state_exclusive_to_sequence`). If an older conversation's
+   state is outside that scope, no option can ever name it -- and the fix is then about which
+   states are *offerable*, not about the removal itself.
 
-1. unpinned -- no live reference (`source_pins == 0`, and whatever the continuation-level
-   equivalent of `active_references` is);
-2. chosen by recency among the unpinned candidates, so the state a request is about to use is
-   never the one dropped.
+Note `L437` excludes a state that is `state_exclusive_to_sequence(source, state)` for the sequence
+being considered, which is the mechanism that protects a request's own state -- the recency
+protection the predicate depends on.
 
-`PressureStateDecision` lives at `src/models/qwen3_5/program/program_impl.h:114` and would gain the
-new action(s); `continuation_states` / `ContinuationSlotRole` / `continuation_capacity` (L318-418)
-are where private continuation state is tracked. This is an extension of an existing, tested
-discipline rather than a new subsystem, which is why it is the right shape.
+The next step is therefore to instrument which of those three rejects a full pool, not to write
+new eviction code.
