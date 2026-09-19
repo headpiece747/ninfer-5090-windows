@@ -571,3 +571,41 @@ while the store was constructed with **no host pool**, then `host_occupied()` re
 Confirm by logging at store construction (`program_impl.cpp:143`) whether a host pool is supplied
 and with what capacity, and by logging the result of the host reservation itself rather than only
 its occupancy.
+
+## Reading the construction refutes the "no host pool" suspicion
+
+`program_impl.cpp:127-144`: the host pool **is** created when `host_state_slots != 0` and **is**
+passed to the store (`host_state_images.get()`), so `host_` is not null. `host_occ=0` therefore
+means the host pool is genuinely empty -- not missing. The suspicion above was wrong.
+
+The host path is in fact complete:
+
+```
+capture.cpp:705   state_store->begin_device_to_host(transaction.source_state, stream)
+  -> reserve_device_to_host(source)                       state_store.h:462-479
+     -> host_->allocate()                                 state_store.h:470
+```
+
+`HostStatePool` (created at 133-134 with `host_state_slots` capacity, 8 here) does have slots.
+
+So `host_occ = 0` for an entire run means **`host_->allocate()` never succeeded** -- the reservation
+is rejected before it, or returns `nullopt` -- and `capture.cpp:705` does not appear to check the
+return, which is consistent with a silent failure.
+
+Prime suspect, from reading `reserve_device_to_host`'s early gate:
+
+```cpp
+if (host_ == nullptr || object.role != StateImageRole::CheckpointImmutable ||
+    !object.device_slot || object.host_slot || has_pending_replica(object) ||
+    object.source_pins == ...) {
+    return std::nullopt;
+}
+```
+
+The capture allocated its destination with `reserve_logical_destination()`, which assigns neither a
+device slot nor a host slot -- and this gate **requires `object.device_slot`**. That would reject
+every capture demotion.
+
+**But that is a reading, and readings have been wrong ten times this session.** The next run logs
+the result of `begin_device_to_host` plus which clause of that gate rejects, which distinguishes
+"rejected by the gate" from "host pool exhausted" from "called but unchecked".
