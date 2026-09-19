@@ -541,6 +541,7 @@ public:
     [[nodiscard]] FinishResult finish(SequenceHandle sequence) noexcept;
     [[nodiscard]] AbortResult abort(SequenceHandle sequence) noexcept;
     [[nodiscard]] ReleaseResult release_continuation(ContinuationHandle&& continuation) noexcept;
+    [[nodiscard]] bool can_release_continuation(const ContinuationHandle& continuation) noexcept;
     [[nodiscard]] ReleaseResult release_shared_prefix(SharedPrefixHandle&& shared) noexcept;
     void fail_all_cleanup() noexcept;
     [[nodiscard]] detail::PhysicalResources admission_capacity() const noexcept;

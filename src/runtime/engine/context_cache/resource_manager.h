@@ -528,6 +528,17 @@ public:
             private_baseline =
                 program.inspect_capture(offer, nullptr, nullptr, private_replacement, false);
         }
+        if (private_baseline.publishes_private && !private_baseline.physically_feasible &&
+            !private_replacement) {
+            // The capture needs a private State slot but is not physically feasible: the pool is
+            // full, the active sequence has no replaceable long anchor, and the capture has no
+            // shared pressure evidence to give it standing in the planner. Reclaim the oldest
+            // unpinned continuation's slot so the capture is not silently skipped (upstream #251).
+            if (reclaim_oldest_private_continuation(program)) {
+                private_baseline =
+                    program.inspect_capture(offer, nullptr, nullptr, std::nullopt, false);
+            }
+        }
 
         CaptureAssessment candidate =
             program.inspect_capture(offer, nullptr, nullptr, private_replacement, true);
@@ -586,6 +597,19 @@ public:
                 has_shared_candidate_evidence(candidate.shared_evidence,
                                               SharedCandidateEvidence::RequestedAutomatic) ||
                 matching_reuse_domains(candidate.shortlist_key) >= 2U;
+            if (!pressure_evidence) {
+                // Automatic-evidence candidates can only claim vacant slots. Reclaim the oldest
+                // eligible automatic entry first so a saturated catalog cannot freeze them out
+                // permanently.
+                const bool has_vacant_shared_slot =
+                    std::any_of(shared_catalog_.begin(), shared_catalog_.end(),
+                                [](const SharedCatalogEntry& entry) {
+                                    return entry.state == SharedCatalogState::Vacant;
+                                });
+                if (!has_vacant_shared_slot) {
+                    (void)reclaim_oldest_automatic_shared_prefix(program);
+                }
+            }
 
             std::vector<CaptureScenario> scenarios;
             scenarios.reserve(static_cast<std::size_t>(shared_catalog_count_) + 1U);
@@ -1576,6 +1600,90 @@ private:
         advance_revision(entry.revision);
     }
 
+    // LRU eligibility for reclaiming a private continuation at active-capture admission: it is
+    // catalogued, not pinned by any active request's retained source, and not a client-declared
+    // live session. Automatic-evidence captures carry no pressure standing, so the portfolio
+    // planner never offers their replacement; without this, a full Device State pool freezes out
+    // ordinary traffic for the engine's life (upstream #251, "no LRU eviction observed").
+    [[nodiscard]] bool private_continuation_reclaimable(const CatalogEntry& entry,
+                                                        std::uint32_t slot) const noexcept {
+        return entry.state == CatalogState::Catalogued && entry.handle &&
+               entry.retention != RetentionClass::LiveSession && !private_has_active_edge(slot);
+    }
+
+    // Terminal release of the oldest eligible private continuation, returning its State capacity
+    // to the global pool the way the design doc requires: capacity returns only on a terminal
+    // release or an explicit entitlement shrink. The Program's own reference gate decides whether
+    // the release is safe, and it is asked without-consuming first, because moving a handle the
+    // Program then refuses would retire a still-catalogued continuation.
+    [[nodiscard]] bool reclaim_oldest_private_continuation(Program& program) {
+        std::uint32_t victim    = kInvalidCatalogSlot;
+        std::uint64_t oldest_id = std::numeric_limits<std::uint64_t>::max();
+        for (std::uint32_t slot = 0; slot < catalog_count_; ++slot) {
+            const CatalogEntry& entry = catalog_[slot];
+            if (!private_continuation_reclaimable(entry, slot) || entry.id >= oldest_id) {
+                continue;
+            }
+            victim    = slot;
+            oldest_id = entry.id;
+        }
+        if (victim == kInvalidCatalogSlot ||
+            !program.can_release_continuation(*catalog_[victim].handle)) {
+            return false;
+        }
+        CatalogEntry& entry          = catalog_[victim];
+        const std::uint64_t owner_id = entry.id;
+        const auto released          = program.release_continuation(std::move(*entry.handle));
+        if (released.status != ConsumeStatus::Consumed) { return false; }
+        erase_session_if_owner(owner_id);
+        clear_catalog_entry(entry);
+        rebuild_prefix_index();
+        saturating_increment(context_stats_.pressure_private_owners_evicted);
+        return true;
+    }
+
+    // LRU eligibility for automatic-evidence reclamation: catalogued, not holding explicit credit
+    // (client-declared credit ages out through credit_expiry_epoch instead), unpinned by an open
+    // transaction, and with no active reuse edges.
+    [[nodiscard]] bool shared_automatic_reclaimable(const SharedCatalogEntry& entry,
+                                                    std::uint32_t slot) const {
+        return entry.state == SharedCatalogState::Catalogued && entry.handle &&
+               entry.transaction_pins == 0 && shared_active_edge_count(slot) == 0 &&
+               !entry.explicit_credit;
+    }
+
+    [[nodiscard]] std::uint32_t shared_reclaimable_slot_count() const {
+        std::uint32_t count = 0;
+        for (std::uint32_t slot = 0; slot < shared_catalog_count_; ++slot) {
+            if (shared_automatic_reclaimable(shared_catalog_[slot], slot)) { ++count; }
+        }
+        return count;
+    }
+
+    // Reclaims the oldest publication-order eligible shared catalog entry, releasing its physical
+    // state through the Program. Automatic-evidence candidates (ordinary clients) have no pressure
+    // standing -- the portfolio model prices uncredited owners at zero, so pressure planning can
+    // never approve their replacement -- and without this reclamation a saturated shared catalog
+    // freezes them out for the rest of the engine's life. Returns true when a slot became vacant.
+    bool reclaim_oldest_automatic_shared_prefix(Program& program) {
+        std::uint32_t victim    = kInvalidCatalogSlot;
+        std::uint64_t oldest_id = std::numeric_limits<std::uint64_t>::max();
+        for (std::uint32_t slot = 0; slot < shared_catalog_count_; ++slot) {
+            const SharedCatalogEntry& entry = shared_catalog_[slot];
+            if (!shared_automatic_reclaimable(entry, slot) || entry.id >= oldest_id) { continue; }
+            victim    = slot;
+            oldest_id = entry.id;
+        }
+        if (victim == kInvalidCatalogSlot) { return false; }
+        SharedCatalogEntry& entry = shared_catalog_[victim];
+        const auto released       = program.release_shared_prefix(std::move(*entry.handle));
+        if (released.status != ConsumeStatus::Consumed) { return false; }
+        clear_shared_entry(entry);
+        rebuild_prefix_index();
+        saturating_increment(context_stats_.pressure_shared_owners_evicted);
+        return true;
+    }
+
     void rebuild_prefix_index() {
         for (PrefixIndexEntry& entry : prefix_index_) { entry = {}; }
         std::size_t cursor = 0;
@@ -1657,6 +1765,12 @@ private:
             std::count_if(shared_catalog_.begin(), shared_catalog_.end(), [](const auto& entry) {
                 return entry.state == SharedCatalogState::Vacant;
             }));
+        // Automatic-evidence candidates may also reclaim the oldest eligible automatic catalog
+        // entry at capture time; count that slack so the selection stays consistent with what the
+        // capture transaction can actually fulfil instead of silently dropping every automatic
+        // candidate once the catalog saturates.
+        const std::uint32_t shared_publication_slack =
+            vacant_shared_slots + shared_reclaimable_slot_count();
         for (const auto& opportunity : base.context_cache().opportunities) {
             if (opportunity.kind != PromptCacheMarkerKind::SharedStablePrefix ||
                 opportunity.frontier < selected_summary.reusable_prompt_tokens) {
@@ -1685,7 +1799,7 @@ private:
                                               SharedCandidateEvidence::RequestedAutomatic);
             const bool repeated = matching_reuse_domains(*key, provisional_demand) >= 2U;
             const bool surplus_candidate =
-                vacant_shared_slots != 0 &&
+                shared_publication_slack != 0 &&
                 (has_shared_candidate_evidence(opportunity.evidence,
                                                SharedCandidateEvidence::DefaultAutomatic) ||
                  has_shared_candidate_evidence(opportunity.evidence,
@@ -1797,7 +1911,7 @@ private:
                     .target_recovery_ns   = 0,
                 });
             }
-            if (surplus_only_count > vacant_shared_slots) { continue; }
+            if (surplus_only_count > shared_publication_slack) { continue; }
             std::sort(frontiers.begin(), frontiers.end());
             const ContextPortfolioValueResult value = projected_value.fold(owners, checkpoints);
             const std::uint64_t schedule_cost       = split_cost(frontiers);

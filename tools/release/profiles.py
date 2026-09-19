@@ -109,14 +109,16 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     out: list[tuple[str, str | None]] = [(token, None) for token in varying_flags(profile)]
     # --device-state-slots is per profile because it is VRAM-bound, not a shared constant. It is
     # "extra checkpoint capacity beyond active lanes": how many conversations can keep a cached
-    # state at once. The engine has NO eviction for them, so once they are exhausted prefix reuse
-    # stops permanently until restart (upstream issue #251, "no LRU eviction observed",
-    # reproduced here: with 1, reuse held for 3 conversations and every later request re-prefilled
-    # from the root -- 4x slower TTFT, silently). This is a mitigation, not a cure: with no
-    # eviction any finite value still ends in that cliff. Measured: 1 -> 3/6 conversations reused,
-    # 4 -> 4/6, 8 -> 6/6. Higher is better where it fits, and it does not fit everywhere: 8 needs
-    # ~1.3 GiB more runtime than 1, and NVFP4-full + DFlash2 fails to start with 8
-    # ("minimum Engine runtime reservation requires 12894831873 bytes") but starts with 4.
+    # state at once. Until 2026-09-19 the engine had no eviction, so once these were exhausted
+    # prefix reuse stopped permanently until restart (upstream issue #251, "no LRU eviction
+    # observed"; reproduced here with 1: reuse held for 3 conversations, then every later request
+    # re-prefilled from the root, silently). Active-capture admission now reclaims the oldest
+    # unpinned private continuation to free a Device State slot, so a small value no longer ends
+    # in a cliff -- 12/12 conversations reuse at 1+2 slots. The value is still a real capacity
+    # knob (more resident states means more reuse between interleaved conversations), and it does
+    # not fit everywhere: 8 needs ~1.3 GiB more runtime than 1, and NVFP4-full + DFlash2 fails to
+    # start with 8 ("minimum Engine runtime reservation requires 12894831873 bytes") but starts
+    # with 4.
     out.extend([("--host", "127.0.0.1"),
                 ("--port", str(profile["port"])),
                 ("--model-id", profile["model_id"]),

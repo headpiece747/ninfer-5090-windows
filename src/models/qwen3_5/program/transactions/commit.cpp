@@ -702,6 +702,20 @@ ReleaseResult ProgramImpl::release_continuation(ContinuationHandle&& continuatio
     return out;
 }
 
+bool ProgramImpl::can_release_continuation(const ContinuationHandle& continuation) noexcept {
+    const std::uint32_t index      = ContractAccess::index(continuation);
+    const std::uint64_t generation = ContractAccess::epoch(continuation);
+    if (has_context_transaction() || pending_transaction_ || !valid_continuation(continuation) ||
+        materialization_pins(index, generation)) {
+        return false;
+    }
+    try {
+        return can_release_continuation_slot_strict(index);
+    } catch (...) {
+        return false;
+    }
+}
+
 bool ProgramImpl::can_release_shared_prefix_state(std::uint32_t index,
                                                   SharedPrefixSlotRole expected_role) const {
     if (index >= shared_prefix_capacity || !state_store || !text_kv_addresses ||

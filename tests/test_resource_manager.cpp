@@ -1119,6 +1119,22 @@ public:
     release_continuation(FakeContinuationHandle&& continuation) noexcept {
         released_continuations.push_back(continuation.id);
         advance_revision();
+        // Models the Device State slot a terminal release returns: the capture inspection that
+        // follows a reclaim sees the pool as non-full again.
+        if (release_makes_capture_feasible) { capture_assessment.physically_feasible = true; }
+        return FakeReleaseResult{.status = ConsumeStatus::Consumed};
+    }
+
+    [[nodiscard]] bool can_release_continuation(const FakeContinuationHandle&) const noexcept {
+        return true;
+    }
+
+    std::vector<std::uint32_t> released_shared_prefix_keys;
+
+    [[nodiscard]] FakeReleaseResult
+    release_shared_prefix(FakeSharedPrefixHandle&& shared) noexcept {
+        released_shared_prefix_keys.push_back(shared.content_key);
+        advance_revision();
         return FakeReleaseResult{.status = ConsumeStatus::Consumed};
     }
 
@@ -1178,6 +1194,7 @@ public:
     std::vector<std::uint64_t> started_action_ids;
     std::vector<std::uint32_t> selected_shared_capture_frontiers;
     std::vector<std::uint32_t> released_continuations;
+    bool release_makes_capture_feasible = false;
 
 private:
     void advance_revision() noexcept {
@@ -2954,6 +2971,99 @@ void test_repeated_private_reuse_selects_zero_prefill_shared_promotion() {
     (void)finish_active(manager, program, second, 16);
 }
 
+// Drives one full request lifecycle that publishes a shared prefix for `digest` at frontier 64
+// and finishes it, leaving the shared prefix catalogued. No private continuation is published
+// (publish_continuation is cleared) so reuse can only come from the shared catalog.
+void publish_shared_prefix(FakeManager& manager, FakeProgram& program, std::uint32_t digest,
+                           std::uint64_t publication_order, std::uint32_t offer_id,
+                           ninfer::SharedCandidateEvidence evidence) {
+    FakeRequestBasePlan base        = make_base(digest);
+    base.value.publish_continuation = false;
+    base.cache.opportunities.push_back(FakeContextCache::Opportunity{
+        .kind     = ninfer::PromptCacheMarkerKind::SharedStablePrefix,
+        .evidence = evidence,
+        .frontier = 64,
+    });
+    const ActiveRequest active = start_active(manager, program, digest, base, publication_order);
+    program.capture_assessment = FakeCaptureAssessment{
+        .shortlist_key          = FakeShortlistKey{.digest = digest, .frontier = 64},
+        .shared_evidence        = evidence,
+        .protected_rebuild_work = PrefillWork{.tokens = 64},
+        .publishes_shared       = true,
+        .physically_feasible    = true,
+    };
+    const auto reserved = manager.reserve_active_capture(program, active.lane,
+                                                         FakeCaptureOffer{.id = offer_id}, 0, {});
+    require(reserved == FakeManager::ActiveCaptureReserveResult::Reserved,
+            "shared capture was not reserved");
+    auto progress      = manager.progress_context_transaction(program, {});
+    const auto outcome = std::get<FakeManager::ActiveCaptureOutcome>(std::move(progress));
+    require(outcome.status == ContextTransactionStatus::Published,
+            "shared capture was not published");
+    (void)finish_active(manager, program, active);
+}
+
+void require_shared_reuse(FakeManager& manager, FakeProgram& program, std::uint32_t digest,
+                          std::uint64_t publication_order, bool expected, const char* message) {
+    auto inspection = manager.inspect(program, FakePreparedPrompt{digest}, make_base(digest),
+                                      publication_order);
+    require(inspection.choice.has_value(), "reuse inspection produced no admission choice");
+    const bool reused = inspection.choice->summary().prefix_reuse_path ==
+                            ninfer::PrefixReusePath::SharedStablePrefix &&
+                        inspection.choice->summary().reusable_prompt_tokens == 64;
+    require(reused == expected, message);
+}
+
+void test_automatic_shared_capture_reclaims_oldest_catalog_entry() {
+    FakeManager manager = make_manager(1, 4, 2);
+    FakeProgram program;
+
+    publish_shared_prefix(manager, program, 71, 1, 1,
+                          ninfer::SharedCandidateEvidence::DefaultAutomatic);
+    publish_shared_prefix(manager, program, 72, 2, 2,
+                          ninfer::SharedCandidateEvidence::DefaultAutomatic);
+
+    // The catalog (2 slots) is now full of automatic-evidence prefixes. A third distinct
+    // conversation must reclaim the oldest publication instead of losing its shared prefix
+    // forever; today its capture is silently dropped and the catalog stays frozen.
+    publish_shared_prefix(manager, program, 73, 3, 3,
+                          ninfer::SharedCandidateEvidence::DefaultAutomatic);
+    require(program.released_shared_prefix_keys == std::vector<std::uint32_t>{71},
+            "saturated catalog did not reclaim the oldest automatic shared prefix");
+    require_shared_reuse(manager, program, 73, 4, true,
+                         "reclaimed conversation has no shared prefix reuse");
+    require_shared_reuse(manager, program, 71, 5, false,
+                         "reclaimed shared prefix was still offered for reuse");
+
+    // The catalog must keep rotating for every new conversation, not freeze again after one
+    // reclaim.
+    publish_shared_prefix(manager, program, 74, 6, 4,
+                          ninfer::SharedCandidateEvidence::DefaultAutomatic);
+    require(program.released_shared_prefix_keys == std::vector<std::uint32_t>({71, 72}),
+            "second saturated conversation did not reclaim the next-oldest prefix");
+    require_shared_reuse(manager, program, 72, 7, false,
+                         "second reclaimed prefix was still offered for reuse");
+}
+
+void test_explicit_credit_shared_entry_survives_automatic_reclaim() {
+    FakeManager manager = make_manager(1, 4, 2);
+    FakeProgram program;
+
+    publish_shared_prefix(manager, program, 71, 1, 1,
+                          ninfer::SharedCandidateEvidence::ExplicitBoundary);
+    publish_shared_prefix(manager, program, 72, 2, 2,
+                          ninfer::SharedCandidateEvidence::DefaultAutomatic);
+
+    // The explicit-credit entry (71) holds client-declared intent and must not be reclaimed by
+    // ordinary automatic traffic; the automatic entry (72) is the LRU victim instead.
+    publish_shared_prefix(manager, program, 73, 3, 3,
+                          ninfer::SharedCandidateEvidence::DefaultAutomatic);
+    require(program.released_shared_prefix_keys == std::vector<std::uint32_t>{72},
+            "automatic reclaim evicted an explicit-credit shared prefix");
+    require_shared_reuse(manager, program, 71, 4, true,
+                         "explicit-credit shared prefix lost reuse after reclaim");
+}
+
 void test_shared_fanout_keeps_owner_edges_live_across_summary_refresh() {
     FakeManager manager = make_manager(2, 3, 1);
     FakeProgram program;
@@ -3040,6 +3150,43 @@ void test_shared_capture_combines_two_pressure_owners() {
     require(stats.shared_active_references == 1,
             "shared capture publication did not retain the active owner reference");
     program.required_pressure_actions = 0;
+    (void)finish_active(manager, program, active);
+}
+
+void test_full_state_pool_reclaims_oldest_private_continuation_on_capture() {
+    FakeManager manager = make_manager(1, 4);
+    FakeProgram program;
+    const ActiveRequest older = start_active(manager, program, 61, make_base(61), 1);
+    (void)finish_active(manager, program, older);
+    const ActiveRequest newer = start_active(manager, program, 62, make_base(62), 2);
+    (void)finish_active(manager, program, newer);
+    require(manager.catalog_state(0) == FakeManager::CatalogState::Catalogued &&
+                manager.catalog_state(1) == FakeManager::CatalogState::Catalogued,
+            "fixture did not catalogue two private continuations");
+
+    const ActiveRequest active = start_active(manager, program, 63, make_base(63), 3);
+    // A new conversation's capture needs a Device State slot the pool cannot supply, has no
+    // replaceable long anchor, and carries no shared pressure evidence to give it standing in the
+    // planner. It must reclaim the oldest continuation rather than be skipped silently.
+    program.capture_assessment = FakeCaptureAssessment{
+        .shortlist_key          = FakeShortlistKey{.digest = 63, .frontier = 64},
+        .protected_rebuild_work = PrefillWork{.tokens = 64},
+        .publishes_private      = true,
+        .publishes_shared       = false,
+        .physically_feasible    = false,
+    };
+    program.capture_summary.endpoint        = endpoint(63, 64);
+    program.release_makes_capture_feasible  = true;
+
+    const auto reserved =
+        manager.reserve_active_capture(program, active.lane, FakeCaptureOffer{.id = 41}, 0, {});
+    require(reserved == FakeManager::ActiveCaptureReserveResult::Reserved,
+            "a full state pool silently skipped a private capture instead of reclaiming");
+    require(program.released_continuations == std::vector<std::uint32_t>{older.sequence.id},
+            "private capture reclaim did not release the oldest continuation");
+    require(manager.catalog_state(0) == FakeManager::CatalogState::Vacant,
+            "reclaimed continuation did not vacate its catalogue slot");
+    (void)manager.progress_context_transaction(program, {});
     (void)finish_active(manager, program, active);
 }
 
@@ -3509,10 +3656,16 @@ int main() {
              test_observed_shared_candidate_requires_independent_domains);
     run_test("zero-prefill private promotion",
              test_repeated_private_reuse_selects_zero_prefill_shared_promotion);
+    run_test("automatic shared capture LRU reclaim",
+             test_automatic_shared_capture_reclaims_oldest_catalog_entry);
+    run_test("explicit credit survives automatic reclaim",
+             test_explicit_credit_shared_entry_survives_automatic_reclaim);
     run_test("shared fanout owner edges",
              test_shared_fanout_keeps_owner_edges_live_across_summary_refresh);
     run_test("shared capture multi-owner pressure",
              test_shared_capture_combines_two_pressure_owners);
+    run_test("private capture reclaims full state pool",
+             test_full_state_pool_reclaims_oldest_private_continuation_on_capture);
     run_test("aborted shared capture logical rollback",
              test_aborted_shared_capture_start_rolls_back_logical_claims);
     run_test("validate complete capture result before adoption",

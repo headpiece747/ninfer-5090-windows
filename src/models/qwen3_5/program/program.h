@@ -930,6 +930,11 @@ public:
     [[nodiscard]] FinishResult finish(SequenceHandle sequence) noexcept;
     [[nodiscard]] AbortResult abort(SequenceHandle sequence) noexcept;
     [[nodiscard]] ReleaseResult release_continuation(ContinuationHandle&& continuation) noexcept;
+
+    // Non-consuming counterpart: reports whether release_continuation would consume the handle
+    // now. ContinuationHandle's move retires the source, so a reclaim victim must be selected with
+    // this before its handle is moved into a release the Program would refuse.
+    [[nodiscard]] bool can_release_continuation(const ContinuationHandle& continuation) noexcept;
     [[nodiscard]] ReleaseResult release_shared_prefix(SharedPrefixHandle&& shared) noexcept;
     void fail_all_cleanup() noexcept;
 
