@@ -449,3 +449,44 @@ credit in `request_plan.cpp` are both unreached for this workload).
 **So the fix is a trigger, not a policy**: present "a state slot is needed and the pool is full" to
 the planner as a deficit it may resolve by dropping a checkpoint, and let the machinery that
 already exists do the rest.
+
+## The trigger's home, and the exact implementation shape
+
+`capture.cpp:653-656` (`.../program/transactions/capture.cpp`) is where a conversation's state is
+actually captured, and it settles where the trigger belongs:
+
+```cpp
+std::optional<StateImageHandle> destination = state_store->reserve_destination();
+if (!destination) {
+    throw std::logic_error("selected capture has no prepared Device State capacity");
+}
+```
+
+The word **prepared** is decisive: capture treats a missing slot as a *precondition violation*, not
+as a condition to handle. The planning layer is contractually required to have prepared the
+capacity before capture runs. So the fix is not here, and not in `allocate()` -- it is in planning:
+**when a plan will capture a state and the store cannot supply a slot, the planner must make one
+available by dropping a retained checkpoint.**
+
+Concretely, the change is:
+
+1. At the point a plan decides to capture a state image (`capture`'s transaction preparation, or
+   the plan construction that precedes it), ask `StateImageStore` whether a device slot is
+   available (`device_occupied()` vs `device_capacity()`, `state_store.h:132-137`).
+2. If not, include a checkpoint drop in the plan's options -- the victim chosen by the ordering the
+   planner already applies (fewest affected selected hits, fewest explicit shared losses, fewest
+   owner evictions, then recency). Dropping it drives that checkpoint's state image to
+   `checkpoint_references == 0`.
+3. The existing, safe `release()` path then returns its device slot
+   (`can_release`, `state_store.h:661`), so the capture's `reserve_destination()` succeeds.
+
+No new policy, no new reference tracking, no change to `release()`, and no change to the
+`logic_error` contract above -- the contract is correct and should stay; it is the planner that
+must stop violating it.
+
+### Acceptance
+
+`tools/release/repro_251.py --conversations 12` must show **all twelve conversations reusing**,
+where the current build reuses six and then stops permanently. Then the suite
+(`tools/scripts/test_v3.cmd`), the release gate (`check_test_baseline.py`), and a soak
+(`soak.py`), because the change touches checkpoint lifetime.
