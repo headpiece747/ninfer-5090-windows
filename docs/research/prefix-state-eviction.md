@@ -117,3 +117,44 @@ slots to resolve a deficit -- `option.effect.removed.device.state_slots` and
 `option.effect.removed.host.state_slots` around lines 559-583 and 780-800. So the first hypothesis
 is not "there is no eviction path" but "the existing removal path does not fire when admission
 needs a slot", which is a much smaller question than adding eviction from scratch.
+
+## Confirmed: what exists, and the exact gap
+
+The removal path exists, is refcount-gated exactly as the literature prescribes, and is scoped
+narrowly. `pressure.cpp:556-588`:
+
+```cpp
+if (option.state_changes.empty() &&
+    (deficit.device.state_slots != 0 || deficit.host.state_slots != 0) &&
+    state_store->valid(shared.state) &&
+    state_store->role(shared.state) == StateImageRole::CheckpointImmutable &&
+    state_store->source_pins(shared.state) == 0) {          // the refcount gate
+```
+
+`source_pins == 0` is vLLM's "reference count equals 0"; `checkpoint_references(...) == 1` is the
+same discipline. It chooses between `DropSharedHostDuplicate`, `DropSharedDeviceDuplicate` and
+`DemoteSharedToHost` (device -> host, which frees a device slot).
+
+**The gap: it only ever considers `shared.state` -- a shared-prefix state, and only as a
+redundant copy or a demotion.** There is no reclamation path for the state image of a **private
+continuation**, which is what our twelve conversations each hold. Those fill `device_state_slots`,
+nothing may reclaim them, and once the pool is full no new conversation can be admitted.
+
+Note the neighbouring machinery is not the same thing: `option.evicts_continuation` (around
+`L1263-1279`) drops a whole continuation's KV, and `shared.active_references != 0` gates shared
+KV (`L1171`). Neither reclaims a private continuation's state image.
+
+## The cure, as a code change
+
+Extend the state-change block above from `shared.state` to also consider **private continuation
+state images**, under the same two gates that are already there:
+
+1. unpinned -- no live reference (`source_pins == 0`, and whatever the continuation-level
+   equivalent of `active_references` is);
+2. chosen by recency among the unpinned candidates, so the state a request is about to use is
+   never the one dropped.
+
+`PressureStateDecision` lives at `src/models/qwen3_5/program/program_impl.h:114` and would gain the
+new action(s); `continuation_states` / `ContinuationSlotRole` / `continuation_capacity` (L318-418)
+are where private continuation state is tracked. This is an extension of an existing, tested
+discipline rather than a new subsystem, which is why it is the right shape.
