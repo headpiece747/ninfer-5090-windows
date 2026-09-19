@@ -91,3 +91,29 @@ as many conversations as the cache can hold and never permanently stops -- with 
 conversations pushed past capacity (8+), which the current build fails. Then the existing suite
 (`tools/scripts/test_v3.cmd`), the release gate (`check_test_baseline.py`) and a soak
 (`soak.py`) to confirm no concurrency regression, since the change touches state lifetime.
+
+## Pre-change baseline (the "old value" to beat)
+
+Captured 2026-09-18 on the shipped QUASAR DFlash2 profile (`--device-state-slots 8`,
+`--host-state-slots 8`, `--max-concurrency 1`), 12 conversations of ~26,000 tokens each, each
+asked twice with the second request extending the first verbatim:
+
+```
+reuse per conversation: 99.8% 99.8% 99.8% 99.8% 99.8% 99.8% 0.0% 0.0% 0.0% 0.0% 0.0% 0.0%
+```
+
+Six conversations reuse, from the seventh every request re-prefills from the root, permanently,
+until restart. Smaller `--device-state-slots` moves the cliff earlier (1 -> 3 conversations,
+4 -> 4); none removes it.
+
+Acceptance for the cure: **all twelve conversations reuse**, at any count, because each second
+request immediately follows its own first and is therefore the most recently used state -- it must
+never be the entry eviction chooses.
+
+## Where to look first
+
+`src/models/qwen3_5/program/planning/pressure.cpp` already contains machinery that removes state
+slots to resolve a deficit -- `option.effect.removed.device.state_slots` and
+`option.effect.removed.host.state_slots` around lines 559-583 and 780-800. So the first hypothesis
+is not "there is no eviction path" but "the existing removal path does not fire when admission
+needs a slot", which is a much smaller question than adding eviction from scratch.
