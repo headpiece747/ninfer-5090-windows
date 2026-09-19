@@ -69,20 +69,26 @@ def main() -> int:
             for model_id, model in provider.get("models", {}).items():
                 base = provider.get("options", {}).get("baseURL", "")
                 if base.startswith("http://127.0.0.1:80"):
-                    # reasoningEffort may sit on the provider (applying to all its models) or on
-                    # the model itself. Read both, or a check reports a missing setting that is
-                    # present one level up.
-                    effort = (model.get("options", {}).get("reasoningEffort")
-                              or provider.get("options", {}).get("reasoningEffort"))
-                    entries[model_id] = (base, model, effort)
+                    # reasoningEffort belongs on the model. ProviderConfig.options declares a fixed
+                    # property list (apiKey, baseURL, enterpriseUrl, setCacheKey, timeout,
+                    # headerTimeout, chunkTimeout) and reasoningEffort is not in it, so a
+                    # provider-level value is silently ignored rather than applied to its models.
+                    # models.<id>.options is a free-form object, which is where AI SDK call options
+                    # go. Reading both would hide exactly that mistake.
+                    effort = model.get("options", {}).get("reasoningEffort")
+                    provider_effort = provider.get("options", {}).get("reasoningEffort")
+                    entries[model_id] = (base, model, effort, provider_effort)
         for profile in PROFILES:
             found = entries.get(profile["model_id"])
             check(f"opencode has {profile['model_id']}", found is not None)
             if not found:
                 continue
-            base, model, effort = found
+            base, model, effort, provider_effort = found
             check(f"{profile['model_id']} port {profile['port']}",
                   str(profile["port"]) in base, base)
+            check(f"{profile['model_id']} sets reasoningEffort on the model, not the provider",
+                  provider_effort is None,
+                  f"provider.options.reasoningEffort={provider_effort!r} is ignored by the schema")
             limit = model.get("limit", {})
             check(f"{profile['model_id']} context {profile['ctx']}",
                   limit.get("context") == profile["ctx"], str(limit))
