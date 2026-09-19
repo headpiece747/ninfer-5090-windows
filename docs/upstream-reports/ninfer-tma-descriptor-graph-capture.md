@@ -69,12 +69,11 @@ the graph and a source that is stable across replays — not a per-call stack lo
 must supply per-stream buffers") covers streams but not capture, and a persistent buffer
 does not fix this on its own: the memcpy node's **source** is still the caller's frame.
 
-## Related: a timing-dependent test
+## Related: the formerly failing planner test
 
 Unrelated to the above, `tests/test_resource_manager.cpp`'s
-`test_candidate_search_prefers_deep_reuse_without_eviction` asserts an eviction ordering
-while passing `allowance.limit_ns = 5'000'000`. The planner in
-`materialization_planner.h` measures elapsed wall-clock against that budget, so the outcome
-depends on how many candidates fit in 5 ms on the machine running it. It fails here and
-passes elsewhere. Giving the test a budget large enough to complete the search (or a
-deterministic search mode) would make it assert the property it is named for.
+`test_candidate_search_prefers_deep_reuse_without_eviction` used to fail and is now green. It was
+not timing-dependent: the optional materialization search's initial grant was pinned flat at 5 ms,
+which the incumbent's `/20` term never bound, and it now scales up to a 250 ms ceiling
+(`src/runtime/engine/context_cache/materialization_budget.h`, `kMaximumGrantNs`) so the search
+reaches the preserving reuse closure. See `docs/research/prefix-state-eviction.md`.

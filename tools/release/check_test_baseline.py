@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """Release gate: refuse a release whose test suite has regressed.
 
-The suite is not green, and pretending otherwise is how this port shipped with a failing test.
-`ninfer_resource_manager_test` fails for a documented reason (tools/release/test_baseline.json):
-it asserts a guarantee upstream's own maintainer document explicitly disclaims, and the
-equivalent real-engine behaviour is correct. That failure is therefore expected.
-
-What must never happen is a NEW failure sliding in under a known one. This gate compares the
-suite's actual result against the recorded baseline in both directions:
+The suite is green (122/122 since 2026-09-19), and a green run is not self-recording: it proves
+today's tree, not that nothing was skipped or silently disabled. This gate compares the suite's
+actual result against the recorded baseline in both directions:
 
   * a test that fails and is not baselined           -> FAIL (a regression)
   * a test that passes but is baselined as failing   -> FAIL (a stale baseline is worse than

@@ -10,33 +10,26 @@ an outbound action rather than a code change.
 | `codegraph-init-replaces-junction.md` | `@colbymchenry/codegraph` 1.5.0 | `init` replaces a junction/symlink with an empty directory, then reports "No files found to index" | reproduction, no fix |
 | `ninfer-reasoning-effort-mismatch.md` | `Neroued/ninfer` | the engine advertises six `reasoning_effort` values; the artifact's chat template accepts four, so `minimal` and `high` return HTTP 400 after passing validation | a two-line change either way |
 
-## The one failing test, and why it is not being fixed
+## The formerly failing test, and the fix
 
-The suite reports 121 of 122. The failure is `ninfer_resource_manager_test`, specifically
-`test_candidate_search_prefers_deep_reuse_without_eviction`.
+The suite is 122/122. `ninfer_resource_manager_test`'s
+`test_candidate_search_prefers_deep_reuse_without_eviction` used to fail and was recorded in
+`tools/release/test_baseline.json`; that record is now empty.
 
-`tests/test_resource_manager.cpp:3443` sets `allowance.limit_ns = 5'000'000`, a 5 ms **wall-clock**
-search budget. The planner in `src/runtime/engine/context_cache/materialization_planner.h:209`
-starts a clock, and `:700` compares elapsed time against that budget. So the planner explores
-however many candidates fit in 5 ms on the machine running it, and the test then asserts a
-specific eviction ordering. On this machine the search gets less far, a different candidate wins,
-and the assertion fires. It passes on the author's machine.
+The earlier reading here -- a 5 ms **wall-clock** budget, so the outcome depends on the machine --
+was wrong. `950c87cb` had already let the planner take a caller-supplied clock, and the outcome is
+unchanged with it, so the failure was deterministic policy rather than timing. The optional search's
+initial grant was `min(5 ms, incumbent_cost / 20, allowance)`, and the flat 5 ms cap dominated
+because a root incumbent's `/20` term is hundreds of milliseconds and never binds. The search
+verified too few targets to reach the two-action preserving closure, so one-step eviction won the
+incumbent; on a busy engine the same cap let a reuse target go unconfirmed and admission fell back
+to the root incumbent, re-prefilling the whole prompt (upstream issue #229, TTFT 142 s -> 1.2 s
+once the grant scales).
 
-Three ways to make it green, and why none is being taken:
-
-1. **Raise the budget in the test.** One line, but it changes the test to match the machine while
-   still asserting an outcome the planner never promised.
-2. **Add a deterministic search mode to the planner.** Correct in principle, but it is production
-   surface added to satisfy a test, which `AGENTS.md` rules out for hypothetical needs.
-3. **Leave it and record it.** This is the choice.
-
-The reasoning for 3: the test is not in the shipped path. It asserts an internal planner ordering,
-the engine serves correctly at 262,144 across all four profiles, and the failure is a property of
-the test rather than of what ships. A timing-sensitive assertion is the author's to fix, and the
-TMA report already names it so the finding travels upstream with the rest.
-
-If a green suite is ever wanted more than an accurate one, option 1 is the change to make, and the
-commit should say plainly that the budget was raised to match the machine.
+The fix scales the grant up to a 250 ms ceiling (`materialization_budget.h`, `kMaximumGrantNs`),
+with the economic term still governing below the ceiling and the boundary allowance capping both.
+It was committed as `2fcffaa9`, reverted as `7ae7bb40` with no recorded reason, and re-landed here.
+See `docs/research/prefix-state-eviction.md`.
 
 ## Not a bug: the fused DFlash2 binding
 

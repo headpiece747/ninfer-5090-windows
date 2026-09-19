@@ -1,12 +1,6 @@
 {
-  "recorded": "2026-09-18",
+  "recorded": "2026-09-19",
   "suite_size": 122,
-  "known_failures": {
-    "ninfer_resource_manager_test": {
-      "case": "test_candidate_search_prefers_deep_reuse_without_eviction",
-      "why": "Asserts the bounded materialization search returns the cheaper preserving plan. Upstream's own maintainer document (docs/maintainer/resource-scheduling-and-context-cache.md, section 8.8) states the stop reasons describe an actual boundary only and do not assert global optimality of the target graph, so the search is not required to reach that plan.",
-      "measured": "The planner stops after 4 targets with insufficient_expected_gain. The equivalent real-engine scenarios reuse correctly with no maximal fallback: at issue #229's prompt size (129,857 tokens, 4 resident sessions) the pre-7ae7bb40 engine reused 129,852 tokens in 4 targets and 6.8 ms; a six-turn growing conversation reused 19,158 -> 35,021 tokens as the prompt grew 19,163 -> 39,003.",
-      "not_timing_sensitive": "A caller-supplied clock (950c87cb) leaves the outcome unchanged, so this is deterministic planner policy, not wall-clock."
-    }
-  }
+  "known_failures": {},
+  "note": "Green since 2026-09-19. The former failure, test_candidate_search_prefers_deep_reuse_without_eviction, was caused by the optional materialization search's initial grant being pinned flat at 5 ms; a flat cap dominated whenever the incumbent was expensive, so the search verified too few targets and admission could fall back to one-step eviction or to the root incumbent and re-prefill the prompt (upstream issue #229). The grant now scales with the incumbent's cost up to a 250 ms ceiling, governed by the economic term and the boundary allowance (src/runtime/engine/context_cache/materialization_budget.h)."
 }

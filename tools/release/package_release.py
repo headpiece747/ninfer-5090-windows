@@ -13,9 +13,9 @@ Layout follows the v1.0.x releases, with two deliberate changes:
     (avcodec, avformat, avutil, swscale, swresample), rather than everything staged locally.
 
 Packaging runs tools/release/check_test_baseline.py first and refuses to build an archive when the
-suite has regressed. The suite is not green -- one case is a documented upstream disagreement --
-which is exactly why the gate compares against a recorded baseline instead of demanding green:
-the previous release was cut while a test was failing and nobody noticed. Pass --skip-test-gate to
+suite has regressed. The gate compares against a recorded baseline rather than trusting a bare run,
+because a previous release was cut while a test was failing and nobody noticed; the baseline is
+empty now that the suite is green, so any failure blocks the archive. Pass --skip-test-gate to
 override deliberately.
 """
 from __future__ import annotations
