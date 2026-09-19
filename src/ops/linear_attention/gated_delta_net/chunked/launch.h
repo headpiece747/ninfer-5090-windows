@@ -1,11 +1,13 @@
 #pragma once
 
 #include "core/layout.h"
+#include "ops/linear_attention/gated_delta_net/chunked/context_parallel.h"
 #include "ops/linear_attention/gated_delta_net/common.h"
 
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -26,6 +28,14 @@ struct workspace_layout {
     TensorRegion U;
     TensorRegion v_new;
     TensorRegion h_chunk;
+    // Context-parallel scratch, sized for the plan's segment count at this token extent. Bound but
+    // unused when the plan disables CP (segment_count == 1).
+    LayoutRegion cp_segment_begin;   // int32[segments]
+    LayoutRegion cp_segment_count;   // int32[segments]
+    LayoutRegion cp_num_warmup;      // int32[segments * value_heads]
+    LayoutRegion cp_fallback;        // int32[segments * value_heads]
+    LayoutRegion cp_segment_fallback; // int32[segments]
+    LayoutRegion cp_segment_states;  // fp32[(segments + 1) * value_heads * kStateDim * kStateDim]
     std::size_t total_bytes = 0;
 };
 
@@ -41,6 +51,21 @@ inline workspace_layout compute_workspace_layout(std::int32_t value_heads, std::
         builder.add_tensor(DType::BF16, {kStateDim, value_heads, tokens}, kWorkspaceAlign, "v_new");
     w.h_chunk     = builder.add_tensor(DType::BF16, {kStateDim, kStateDim, value_heads, chunks},
                                        kWorkspaceAlign, "h_chunk");
+    const std::int32_t segments = std::max<std::int32_t>(
+        1, plan_cp_segments(value_heads, std::max<std::int32_t>(0, chunks), cp_device_sm_count())
+               .segment_count());
+    const std::size_t segment_bytes =
+        static_cast<std::size_t>(segments) * sizeof(std::int32_t);
+    const std::size_t per_head_bytes = static_cast<std::size_t>(segments) * value_heads *
+                                       sizeof(std::int32_t);
+    w.cp_segment_begin  = builder.add(segment_bytes, kWorkspaceAlign, "cp segment begin");
+    w.cp_segment_count  = builder.add(segment_bytes, kWorkspaceAlign, "cp segment count");
+    w.cp_num_warmup     = builder.add(per_head_bytes, kWorkspaceAlign, "cp warmup chunks");
+    w.cp_fallback       = builder.add(per_head_bytes, kWorkspaceAlign, "cp fallback flags");
+    w.cp_segment_fallback = builder.add(segment_bytes, kWorkspaceAlign, "cp segment fallback");
+    w.cp_segment_states = builder.add(
+        static_cast<std::size_t>(segments + 1) * kStateDim * kStateDim * value_heads * sizeof(float),
+        kWorkspaceAlign, "cp segment states");
     w.total_bytes = builder.finish(kWorkspaceAlign, "Gated DeltaNet chunk workspace");
     return w;
 }
@@ -90,6 +115,10 @@ struct state_passing_config {
     const std::int32_t* segment_begin       = nullptr;
     const std::int32_t* segment_chunk_count = nullptr;
     float* segment_states                   = nullptr;
+    // Optional replay guard: when non-null and `replay_flags[blockIdx.y] == 0`, every block returns
+    // immediately. The launcher launches one guarded replay per segment so the whole Op stays
+    // CUDA-Graph-capturable (no host decision on the correction).
+    const std::int32_t* replay_flags        = nullptr;
 
     cudaStream_t stream = nullptr;
 };

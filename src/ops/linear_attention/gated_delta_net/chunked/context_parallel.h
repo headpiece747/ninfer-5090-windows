@@ -41,24 +41,39 @@ struct cp_segment_plan {
 
 // FlashQLA cp_context.py:63-72: L_cp* is proportional to sqrt(B*H*Lc / P), scaled by 3 and rounded
 // to a power of two, floored at 4. Python's round() is round-half-to-even, so nearbyint matches it.
-[[nodiscard]] inline std::int32_t cp_max_local_chunks(std::int32_t value_heads,
-                                                      std::int32_t total_chunks,
-                                                      std::int32_t sm_count) noexcept {
+// `__host__ __device__` so the device-side segment fill agrees with the host planner bit for bit.
+[[nodiscard]] inline __host__ __device__ std::int32_t
+cp_max_local_chunks(std::int32_t value_heads, std::int32_t total_chunks,
+                    std::int32_t sm_count) noexcept {
     if (value_heads <= 0 || total_chunks <= 0 || sm_count <= 0) { return 4; }
-    const double inner = std::sqrt(static_cast<double>(value_heads) * total_chunks / sm_count) * 3.0;
+    const double inner = ::sqrt(static_cast<double>(value_heads) * total_chunks / sm_count) * 3.0;
     if (!(inner > 0.0)) { return 4; }
-    const int exponent = static_cast<int>(std::nearbyint(std::log2(inner)));
-    const std::int32_t scaled =
-        exponent <= 0 ? 1 : static_cast<std::int32_t>(1) << std::min(exponent, 30);
-    return std::max<std::int32_t>(4, scaled);
+    // Python round() is round-half-to-even; nearbyint matches it. Keep double: the formula sits on
+    // exact halves for some shapes and single precision would diverge from the reference.
+    const int exponent = static_cast<int>(::nearbyint(::log2(inner)));
+    if (exponent <= 0) { return 4; }
+    const std::int32_t scaled = static_cast<std::int32_t>(1) << (exponent > 30 ? 30 : exponent);
+    return scaled < 4 ? 4 : scaled;
 }
 
-// FlashQLA cp_context.py:102-109, for a single sequence (Be = sum(chunks)/max(chunks) = 1):
+// Context parallelism is gated OFF until the exact affine boundary correction exists.
+//
+// FlashQLA's predicate (cp_context.py:102-109, for a single sequence with Be == 1) is
 //   SM90/SM120: use_cp = Be*H <= 40 or (Be*H <= 56 and max(chunks) >= 128)
-[[nodiscard]] inline bool cp_enabled(std::int32_t value_heads,
-                                     std::int32_t total_chunks) noexcept {
-    const std::int64_t be_h = value_heads; // Be == 1 for batch 1
-    return be_h <= 40 || (be_h <= 56 && total_chunks >= 128);
+// but that predicate is only sound together with its `M`-matrix correction, which this port does
+// not implement. Without it a segment whose gate decayed below the warmup threshold keeps the
+// state produced by running the segment from zero, and the dropped incoming state is not
+// negligible at this Op's tolerance: at chunk 64 the residual is ~4.5e-5 against a 1.0e-5
+// gross-absolute criterion, and FlashQLA itself validates CP only to RTOL = 0.02.
+//
+// The exact alternative - replaying every segment from its true predecessor state - is correct but
+// serializes: measured ~632 us of replays at T=8192 against a 143 us CP win, a net loss. The
+// segmented kernel, the planner, the warmup scan and the replay chain remain in the tree as the
+// foundation the exact correction builds on; see docs/adr/ for the decision record and
+// tests/ops/test_gated_delta_net.cpp for the contract that unit 3 must satisfy.
+[[nodiscard]] inline bool cp_enabled(std::int32_t /*value_heads*/,
+                                     std::int32_t /*total_chunks*/) noexcept {
+    return false;
 }
 
 // Cut `total_chunks` at chunk boundaries every max_local_chunks. Returns one whole-range segment
@@ -81,10 +96,17 @@ struct cp_segment_plan {
     return plan;
 }
 
-// The gate warmup threshold, in chunk-log-decay units. FlashQLA defaults to -10.0, i.e. the
-// incoming state's retained fraction is below e^-10 (~4.5e-5). Validated at chunk 32 upstream;
-// re-check at chunk 64 (see the research note's open question 3).
-inline constexpr float kCpWarmupThreshold = -10.0f;
+// The gate warmup threshold, in chunk-log-decay units: a segment whose incoming state has decayed
+// below e^threshold may be seeded from zero without a boundary correction.
+//
+// FlashQLA uses -10.0, which is tuned for its sm120 chunk 32. The residual error of dropping the
+// incoming state is e^threshold * |state|, and this Op's state magnitude reaches O(1), so -10.0
+// leaves ~4.5e-5 - above the 1.0e-5 gross-absolute criterion the Op is qualified against. The
+// threshold must therefore be tighter at chunk 64: -13.0 gives e^-13 * |state| <= 2.3e-6 * |state|,
+// sound for the state magnitudes this recurrence produces. Raising the magnitude makes the guard
+// skip fewer segments (more boundary replays, less parallelism), which is the correct trade: a
+// wrong boundary state is a silent numerical error, a skipped replay is only lost speed.
+inline constexpr float kCpWarmupThreshold = -13.0f;
 
 // Scan `g_cumsum` backward from each segment's last chunk, one value per chunk at its last token.
 // For each (segment, head): `num_warmup_chunks` is how many trailing chunks must be recomputed from
@@ -93,10 +115,22 @@ inline constexpr float kCpWarmupThreshold = -10.0f;
 //
 // All pointers are caller-owned device memory. `g_cumsum` is [chunk][BT][value_heads] with the
 // chunk-local cumulative gate, matching the layout chunked/prepare_wy_wu.cuh writes.
+// Device SM count for the active device, cached after the first query. The CP split heuristic
+// needs it; it is a hardware fact, not part of the Op's semantic inputs.
+[[nodiscard]] std::int32_t cp_device_sm_count() noexcept;
+
+// Fill `segment_begin[i]`/`segment_count[i]` for the plan on the device. Device-side because the
+// chunked Op runs inside CUDA Graph capture, where a pageable host-to-device copy is not permitted.
+void launch_cp_fill_segments(std::int32_t segments, std::int32_t value_heads, std::int32_t chunks,
+                             std::int32_t sm_count, std::int32_t* segment_begin,
+                             std::int32_t* segment_count, cudaStream_t stream);
+
+// `fallback` is per (segment, head); `segment_fallback` is per segment (any head) and must be
+// zero-initialised by the caller, so the replay guard is a single load.
 void launch_cp_gate_warmup(const float* g_cumsum, std::int32_t value_heads, std::int32_t bt,
                            const std::int32_t* segment_begin, const std::int32_t* segment_count,
                            std::int32_t segment_count_n, float threshold,
-                           std::int32_t* num_warmup_chunks, std::uint8_t* fallback,
-                           cudaStream_t stream);
+                           std::int32_t* num_warmup_chunks, std::int32_t* fallback,
+                           std::int32_t* segment_fallback, cudaStream_t stream);
 
 } // namespace ninfer::ops::detail::gated_delta_net::chunked

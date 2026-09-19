@@ -24,7 +24,8 @@ cudaError_t launch_fixed(const state_passing_config& cfg, head_map qk_map, int N
 
     kernel::state_passing_kernel<NStrip><<<grid, block, smem_bytes, cfg.stream>>>(
         cfg.W, cfg.U, cfg.k, cfg.g_cumsum, cfg.state_in, cfg.v_new, cfg.h_chunk, cfg.state_out,
-        cfg.segment_begin, cfg.segment_chunk_count, cfg.segment_states, qk_map, NT);
+        cfg.segment_begin, cfg.segment_chunk_count, cfg.segment_states, cfg.replay_flags, qk_map,
+        NT);
     return cudaGetLastError();
 }
 

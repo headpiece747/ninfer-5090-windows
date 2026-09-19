@@ -177,8 +177,8 @@ __launch_bounds__(kernel_dims<NStrip>::THREADS, kernel_dims<NStrip>::MIN_BLOCKS)
                               __nv_bfloat16* __restrict__ h_chunk, float* state_out,
                               const int* __restrict__ segment_begin,
                               const int* __restrict__ segment_chunk_count,
-                              float* __restrict__ segment_states, head_map qk_map,
-                              int chunks) {
+                              float* __restrict__ segment_states,
+                              const int* __restrict__ replay_flags, head_map qk_map, int chunks) {
     using D                         = kernel_dims<NStrip>;
     using L                         = smem_layout<NStrip>;
     constexpr int N_STRIP_PER_BLOCK = D::N_STRIP_PER_BLOCK;
@@ -259,16 +259,18 @@ __launch_bounds__(kernel_dims<NStrip>::THREADS, kernel_dims<NStrip>::MIN_BLOCKS)
     // segment, its chunk range comes from the caller's arrays, and the incoming/outgoing state
     // lives in its own slice of `segment_states` ([segment_count + 1] slots of [H_v][K][K] FP32,
     // slot 0 = incoming, slot i+1 = segment i's outgoing).
-    const int segment_count = static_cast<int>(gridDim.y);
-    const int segment       = static_cast<int>(blockIdx.y);
-    const int chunk_begin   = segment_count <= 1 ? 0 : segment_begin[segment];
-    const int seg_chunks    = segment_count <= 1 ? chunks : segment_chunk_count[segment];
+    const int segment    = static_cast<int>(blockIdx.y);
+    // Replay guard: a CP correction launch is a no-op when its segment needs no replay. The
+    // condition is uniform per block, so returning here is safe before any barrier.
+    if (replay_flags != nullptr && replay_flags[segment] == 0) { return; }
+    const bool segmented = segment_states != nullptr;
+    const int chunk_begin = segmented ? segment_begin[segment] : 0;
+    const int seg_chunks  = segmented ? segment_chunk_count[segment] : chunks;
     const std::int64_t segment_state_stride = H_v * kStateDim * kStateDim;
     const float* const sin_ptr =
-        segment_count <= 1 ? state_in : segment_states + segment * segment_state_stride;
-    float* const sout_ptr = segment_count <= 1
-                                ? state_out
-                                : segment_states + (segment + 1) * segment_state_stride;
+        segmented ? segment_states + segment * segment_state_stride : state_in;
+    float* const sout_ptr =
+        segmented ? segment_states + (segment + 1) * segment_state_stride : state_out;
 
     // === Phase 0: load state_in (AR-transposed) -> per-warp h_frag ===
     float h_frag[M_TILES_H_PW][4];
