@@ -696,3 +696,112 @@ Two things this establishes:
 2. **The red-herring series cost ~2 hours of reading; the experiment that killed it took 2
    seconds.** Every hypothesis from here is tested in the fast loop *before* any file is read.
 
+## FOUND AND FIXED: the reclaim is missing at active-capture admission
+
+The engine-level admission layer these sections kept stepping around is
+`src/runtime/engine/context_cache/resource_manager.h`, and the defect is there -- not in the
+model's planning layer:
+
+- the only capture path that may offer an existing owner as a pressure victim
+  (`private_owners`/`shared_owners`, `reserve_active_capture` L733-758) is gated on
+  `pressure_evidence` (L583-588), computed from **shared** evidence and the reuse-domain count
+  alone;
+- a plain anonymous turn carries `DefaultAutomatic`/`EngineStructural` evidence and one reuse
+  domain, so `pressure_evidence` is false, the capture planner receives an empty victim list, and
+  a capture "can only claim a vacant slot";
+- the private-only fallback (L801-817) offers only current-sequence long anchors as
+  `private_replacement` (`capture.cpp` L82-104), so another conversation's endpoint is never a
+  candidate;
+- once the Device State pool fills, the capture's `private_baseline.physically_feasible` is false
+  and it is skipped silently. Nothing frees an unpinned old continuation, so reuse stops for the
+  engine's life.
+
+This is exactly the defect upstream #251's unmerged patch fixes for the **shared** catalog
+("candidate carries pressure standing only with explicit or requested evidence... can only claim a
+vacant slot"). The private path had no analogue.
+
+### The fix
+
+At active-capture admission, when the private capture is not physically feasible and the active
+sequence has no replaceable long anchor, reclaim the oldest eligible private continuation:
+
+- `resource_manager.h`: `private_continuation_reclaimable` (catalogued, unpinned by any active
+  retained source, not `LiveSession`) and `reclaim_oldest_private_continuation`, which asks the
+  Program with a new non-consuming `Program::can_release_continuation` before moving the handle,
+  then releases it and clears the catalog slot.
+- `program.h` / `program.cpp` / `program_impl.h` / `commit.cpp`: `can_release_continuation`, the
+  non-consuming counterpart to `release_continuation`. It is required because `ContinuationHandle`
+  move retires the source: moving a handle the Program would then refuse would corrupt a live
+  catalog entry.
+
+The release is a **terminal release**, so it returns capacity to the global pool under
+`docs/maintainer/resource-scheduling-and-context-cache.md` 6.1 -- no new policy, no new reference
+tracking, no `release()` change. Victim choice is oldest publication id (LRU); the state a request
+is about to use is protected by `private_has_active_edge` and by being the newest.
+
+### Measured
+
+Fast loop (`--device-state-slots 2 --host-state-slots 0`, 6 conversations): pre-change
+`99.2%, 0.0% x5` -> post-change `96.3% x6`; twelve conversations `96.3% x12`.
+
+Acceptance, shipped QUASAR DFlash2 profile, 12 conversations x ~26k tokens: pre-change
+`99.8% x6 then 0.0% x6` -> post-change **`99.8% x12`**.
+
+Suite `tools/scripts/test_v3.cmd`: 122/122 (see "The search grant" below for the last case);
+`check_test_baseline.py --from-log` reports GATE PASSED with an empty baseline. A 5-minute
+`soak.py` against the small pool (heavy reclaim churn) ran 495 requests with no failure, p50
+0.48 s / p95 1.47 s.
+
+Regression test at the ResourceManager seam:
+`test_full_state_pool_reclaims_oldest_private_continuation_on_capture` in
+`tests/test_resource_manager.cpp`.
+
+Process note: the decisive structure came from delegating the private-continuation hunt to the
+`explore` agent, and the layer was named by the upstream patch's own diagnosis. More reading of the
+model's planning layer could not have found it, because the reclaim is not there.
+
+## The shared-catalogue analogue, ported
+
+The same pressure-standing gate also freezes the **shared** stable-prefix catalogue, and upstream
+#251 carries an unmerged patch for that (authored in response to this report). It is now ported into
+`resource_manager.h`:
+
+- when an automatic-evidence capture finds no vacant shared slot,
+  `reclaim_oldest_automatic_shared_prefix` releases the oldest eligible entry (catalogued, no
+  explicit credit, no transaction pins, no active reuse edges) through
+  `Program::release_shared_prefix`;
+- `shared_reclaimable_slot_count()` is counted as `shared_publication_slack` during materialization
+  selection, so the automatic candidate survives to the capture transaction instead of being
+  dropped; explicit-credit entries are never reclaimed here (they age out through
+  `credit_expiry_epoch`).
+
+Tests `test_automatic_shared_capture_reclaims_oldest_catalog_entry` and
+`test_explicit_credit_shared_entry_survives_automatic_reclaim`. Both are red without the patch
+("shared capture was not reserved") and green with it, verified by reverting `resource_manager.h`
+to `HEAD` and rebuilding. `repro_251.py` does not exercise this traffic pattern (distinct
+conversations, no repeated shared prefix, no explicit boundaries) -- it is a separate deliverable,
+and the unit tests are its evidence.
+
+## The search grant, and the last failing test
+
+`test_candidate_search_prefers_deep_reuse_without_eviction` had been the suite's one known failure,
+recorded in `test_baseline.json` as an upstream-disclaimed guarantee. It is neither timing nor a
+missing tie-break: the optional materialization search's initial grant was
+`min(5 ms, incumbent_cost / 20, allowance)`, and a flat 5 ms cap dominated whenever the incumbent
+was expensive (a root incumbent's `/20` term is hundreds of milliseconds and never binds). With the
+cap pinned, the search verified too few targets to reach the two-action preserving closure, so
+one-step eviction won the incumbent. On a busy engine the same cap let a reuse target go
+unconfirmed and admission fell back to the root incumbent, re-prefilling the whole prompt --
+upstream issue #229, TTFT 142 s -> 1.2 s once the grant scales.
+
+The fix is `kMaximumGrantNs = 250 ms` in `materialization_budget.h`, with the economic term still
+the governor below the ceiling and the boundary allowance still capping both. It was committed as
+`2fcffaa9`, reverted as `7ae7bb40` (for which no reason was recorded), and re-landed here. The
+budget unit test's scenarios were written against the old 5 ms grant, so their incumbents are
+retuned to 100 ms to reproduce it (`100/20 = 5 ms`) and new assertions pin the scaled policy.
+
+Measured: `ninfer_resource_manager_test` and `ninfer_materialization_budget_test` both green;
+`test_v3.cmd` 122/122; `check_test_baseline.py` GATE PASSED with `known_failures: {}`. The
+"timing-dependent test" paragraph in `docs/upstream-reports/` was wrong: a caller-supplied clock
+(`950c87cb`) already left the 5 ms outcome unchanged, so the failure was deterministic policy.
+
