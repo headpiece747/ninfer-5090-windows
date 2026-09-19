@@ -175,7 +175,10 @@ __launch_bounds__(kernel_dims<NStrip>::THREADS, kernel_dims<NStrip>::MIN_BLOCKS)
                               const float* __restrict__ g_cumsum, const float* state_in,
                               __nv_bfloat16* __restrict__ v_new,
                               __nv_bfloat16* __restrict__ h_chunk, float* state_out,
-                              head_map qk_map, int chunks) {
+                              const int* __restrict__ segment_begin,
+                              const int* __restrict__ segment_chunk_count,
+                              float* __restrict__ segment_states, head_map qk_map,
+                              int chunks) {
     using D                         = kernel_dims<NStrip>;
     using L                         = smem_layout<NStrip>;
     constexpr int N_STRIP_PER_BLOCK = D::N_STRIP_PER_BLOCK;
@@ -251,6 +254,22 @@ __launch_bounds__(kernel_dims<NStrip>::THREADS, kernel_dims<NStrip>::MIN_BLOCKS)
     const int warp_d_global = d_off + warp_d_local;
     const std::int64_t H_v  = qk_map.H_v;
 
+    // Context-parallel segmentation. `segment_count <= 1` is the unchanged single-launch path,
+    // using `state_in`/`state_out` over the whole `chunks`. Otherwise blockIdx.y selects a
+    // segment, its chunk range comes from the caller's arrays, and the incoming/outgoing state
+    // lives in its own slice of `segment_states` ([segment_count + 1] slots of [H_v][K][K] FP32,
+    // slot 0 = incoming, slot i+1 = segment i's outgoing).
+    const int segment_count = static_cast<int>(gridDim.y);
+    const int segment       = static_cast<int>(blockIdx.y);
+    const int chunk_begin   = segment_count <= 1 ? 0 : segment_begin[segment];
+    const int seg_chunks    = segment_count <= 1 ? chunks : segment_chunk_count[segment];
+    const std::int64_t segment_state_stride = H_v * kStateDim * kStateDim;
+    const float* const sin_ptr =
+        segment_count <= 1 ? state_in : segment_states + segment * segment_state_stride;
+    float* const sout_ptr = segment_count <= 1
+                                ? state_out
+                                : segment_states + (segment + 1) * segment_state_stride;
+
     // === Phase 0: load state_in (AR-transposed) -> per-warp h_frag ===
     float h_frag[M_TILES_H_PW][4];
     {
@@ -263,13 +282,13 @@ __launch_bounds__(kernel_dims<NStrip>::THREADS, kernel_dims<NStrip>::MIN_BLOCKS)
             const int col_d0 = warp_d_global + 2 * lane_t;
             const int col_d1 = col_d0 + 1;
             h_frag[m][0] =
-                load_ldg<float>(state_in + st_base + (int64_t)col_d0 * kStateDim + row_g0);
+                load_ldg<float>(sin_ptr + st_base + (int64_t)col_d0 * kStateDim + row_g0);
             h_frag[m][1] =
-                load_ldg<float>(state_in + st_base + (int64_t)col_d1 * kStateDim + row_g0);
+                load_ldg<float>(sin_ptr + st_base + (int64_t)col_d1 * kStateDim + row_g0);
             h_frag[m][2] =
-                load_ldg<float>(state_in + st_base + (int64_t)col_d0 * kStateDim + row_g1);
+                load_ldg<float>(sin_ptr + st_base + (int64_t)col_d0 * kStateDim + row_g1);
             h_frag[m][3] =
-                load_ldg<float>(state_in + st_base + (int64_t)col_d1 * kStateDim + row_g1);
+                load_ldg<float>(sin_ptr + st_base + (int64_t)col_d1 * kStateDim + row_g1);
         }
     }
 
@@ -292,25 +311,28 @@ __launch_bounds__(kernel_dims<NStrip>::THREADS, kernel_dims<NStrip>::MIN_BLOCKS)
     const int64_t g_block_base  = h_v;
     const int64_t g_thread_base = g_block_base + (int64_t)tid * H_v;
 
+    // Loop-carried global bases. `chunk_begin` offsets a CP segment's chunk range; with
+    // segment_count <= 1 it is 0 and these are the original bases.
+    int64_t W_base      = W_block_base + (int64_t)chunk_begin * W_chunk_stride;
+    int64_t k_base      = k_block_base + (int64_t)chunk_begin * k_chunk_stride;
+    int64_t hc_base     = hc_block_base + (int64_t)chunk_begin * hc_chunk_stride;
+    int64_t vn_base     = vn_block_base + (int64_t)chunk_begin * vn_chunk_stride;
+    int64_t g_cs_offset = (int64_t)chunk_begin * g_chunk_step;
+
     // W/K stay native BF16 in shared memory. W is committed first for MM1;
     // K is the later group and remains in flight until MM2. U is expanded
     // synchronously while both async groups make progress.
     {
-        issue_load_w_bf16<THREADS_K>(W_view, W_in + W_block_base, W_stride, tid);
+        issue_load_w_bf16<THREADS_K>(W_view, W_in + W_base, W_stride, tid);
         cp_commit();
-        issue_load_k_bf16<THREADS_K>(k_view, k_in + k_block_base, k_stride, tid);
+        issue_load_k_bf16<THREADS_K>(k_view, k_in + k_base, k_stride, tid);
         cp_commit();
         issue_load_bf16_to_float_vec4<BT, N_STRIP_PER_BLOCK, THREADS_K>(
-            U_view, U_in + W_block_base + d_off, W_stride, tid);
+            U_view, U_in + W_base + d_off, W_stride, tid);
     }
 
     // === Main chunk loop ===
-    int64_t W_base      = W_block_base;
-    int64_t k_base      = k_block_base;
-    int64_t hc_base     = hc_block_base;
-    int64_t vn_base     = vn_block_base;
-    int64_t g_cs_offset = 0;
-    for (int chunk = 0; chunk < chunks; ++chunk) {
+    for (int chunk = 0; chunk < seg_chunks; ++chunk) {
         const int64_t W_base_next = W_base + W_chunk_stride;
         const int64_t k_base_next = k_base + k_chunk_stride;
 
@@ -502,7 +524,7 @@ __launch_bounds__(kernel_dims<NStrip>::THREADS, kernel_dims<NStrip>::MIN_BLOCKS)
 
         // The next chunk repeats the W-then-K async group order used by the
         // prologue. Its Phase A drains W only; Phase E drains K.
-        if (chunk + 1 < chunks) {
+        if (chunk + 1 < seg_chunks) {
             issue_load_w_bf16<THREADS_K>(W_view, W_in + W_base_next, W_stride, tid);
             cp_commit();
             issue_load_k_bf16<THREADS_K>(k_view, k_in + k_base_next, k_stride, tid);
@@ -528,10 +550,10 @@ __launch_bounds__(kernel_dims<NStrip>::THREADS, kernel_dims<NStrip>::MIN_BLOCKS)
         const int k_g1 = k_g0 + 8;
         const int d0   = warp_d_global + 2 * lane_t;
         const int d1   = d0 + 1;
-        state_out[st_base + (int64_t)d0 * kStateDim + k_g0] = h_frag[m][0];
-        state_out[st_base + (int64_t)d1 * kStateDim + k_g0] = h_frag[m][1];
-        state_out[st_base + (int64_t)d0 * kStateDim + k_g1] = h_frag[m][2];
-        state_out[st_base + (int64_t)d1 * kStateDim + k_g1] = h_frag[m][3];
+        sout_ptr[st_base + (int64_t)d0 * kStateDim + k_g0] = h_frag[m][0];
+        sout_ptr[st_base + (int64_t)d1 * kStateDim + k_g0] = h_frag[m][1];
+        sout_ptr[st_base + (int64_t)d0 * kStateDim + k_g1] = h_frag[m][2];
+        sout_ptr[st_base + (int64_t)d1 * kStateDim + k_g1] = h_frag[m][3];
     }
 }
 

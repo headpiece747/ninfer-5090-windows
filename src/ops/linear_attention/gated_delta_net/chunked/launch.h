@@ -81,6 +81,16 @@ struct state_passing_config {
     __nv_bfloat16* h_chunk = nullptr;
     float* state_out       = nullptr;
 
+    // Context parallelism. With segment_count <= 1 the launch uses state_in/state_out over the
+    // whole L, exactly as before. With segment_count > 1, blockIdx.y selects a segment, its chunk
+    // range comes from segment_begin/segment_chunk_count, and the state lives in segment_states
+    // ([segment_count + 1][H_v][kStateDim][kStateDim] FP32; slot 0 is incoming, slot i+1 is
+    // segment i's outgoing state).
+    std::int32_t segment_count              = 1;
+    const std::int32_t* segment_begin       = nullptr;
+    const std::int32_t* segment_chunk_count = nullptr;
+    float* segment_states                   = nullptr;
+
     cudaStream_t stream = nullptr;
 };
 
