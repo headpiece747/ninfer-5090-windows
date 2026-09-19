@@ -236,3 +236,47 @@ refuses a new state when it is full.
 Process note worth keeping: two of the negatives above were nearly reported falsely because of a
 bad filter (`-like '[plan] ...'`, `Select-String '[state] ...'` without `-SimpleMatch`). **Check the
 observation method before concluding the system did nothing.**
+
+## FOUND: the refusal point
+
+The pool and the allocator are:
+
+- **`StateImageDevicePool`** -- `src/models/qwen3_5/state/state_image.h:125`. A fixed-slot device
+  memory pool (`slot_count()`, `copy_slot`, `copy_to_host`), wrapping `LinearAttentionStatePool`;
+  this is the GDN/SSM state Marconi describes as large and sparsely hit. It is memory only: **no
+  eviction, no LRU, no policy of any kind.**
+- **`StateImageStore`** -- `src/models/qwen3_5/program/storage/state_store.h` (36 KB), the allocator
+  over that pool. It owns free lists (`free_objects_`, `free_device_slots_`,
+  `free_object_count_`, `free_device_count_`), an object status enum (`Free`,
+  `ReservedDestination`, ...), and:
+
+```cpp
+[[nodiscard]] std::optional<StateImageHandle> reserve_destination() noexcept;   // L144
+```
+
+**That optional is the refusal.** When the free lists are empty it returns `nullopt`, and the
+request proceeds without a cached state image -- which is why the failure is silent and why reuse
+stops rather than erroring.
+
+The free lists are replenished by `release()`, so nothing is missing: **slots are freed only when
+an object is released, and nothing releases a stale conversation.** The list empties at capacity
+and stays empty, so `reserve_destination()` refuses forever. That is the cliff, and it is in the
+allocator, outside the planning layer -- which is exactly what the two instrumented negatives
+predicted.
+
+## The fix, now precisely located
+
+At `reserve_destination()` (and the corresponding `reserve` for the object, `L144` onward), when the
+free lists cannot satisfy a request, release an existing object -- chosen by the two gates the
+research note already established:
+
+1. **unpinned** -- nothing in flight references it (`source_pins == 0`, and whatever the
+   store-level equivalent of `checkpoint_references`/writer references is), which is vLLM's
+   "reference count equals 0";
+2. **least recently used** among the unpinned candidates, so the state a request is about to use is
+   never the one released.
+
+The store already knows both facts: it tracks pins and references, and objects carry a status. So
+this is a release-on-demand path in the allocator, not a new subsystem -- and it is the same
+discipline the planning code already applies when it can, just reached from the place that
+actually refuses.
