@@ -131,13 +131,43 @@ int main() {
                           authored_response.get_header_value("x-request-id") == "req_existing",
                       "application-authored 413 or its request ID was overwritten");
 
+    // Every unrouted status now leaves as a JSON error envelope. A client that parses each
+    // response as JSON (the SDK-backed harnesses) otherwise crashes on httplib's plain-text page.
     httplib::Response other_response;
     other_response.status = 400;
     const auto other_result =
         ninfer::serve::handle_unrendered_http_error(options, openai_request, other_response);
-    failures += check(other_result == httplib::Server::HandlerResponse::Unhandled &&
-                          other_response.body.empty(),
-                      "non-413 response was changed by the payload-limit handler");
+    const Json other_body = Json::parse(other_response.body);
+    failures += check(other_result == httplib::Server::HandlerResponse::Handled &&
+                          other_response.status == 400 &&
+                          other_body.at("error").at("type") == "api_error" &&
+                          other_body.at("error").at("code") == "internal_error",
+                      "unrouted 400 did not become a generic JSON error envelope");
+
+    httplib::Request missing_path_request;
+    missing_path_request.path = "/v1/nonexistent";
+    httplib::Response missing_path_response;
+    missing_path_response.status = 404;
+    const auto missing_path_result = ninfer::serve::handle_unrendered_http_error(
+        options, missing_path_request, missing_path_response);
+    const Json missing_path_body = Json::parse(missing_path_response.body);
+    failures += check(missing_path_result == httplib::Server::HandlerResponse::Handled &&
+                          missing_path_response.status == 404 &&
+                          missing_path_body.at("error").at("type") == "invalid_request_error" &&
+                          missing_path_body.at("error").at("code") == "not_found",
+                      "unrouted OpenAI 404 did not become a JSON error envelope");
+
+    httplib::Request wrong_method_request;
+    wrong_method_request.path = "/v1/chat/completions";
+    httplib::Response wrong_method_response;
+    wrong_method_response.status = 405;
+    const auto wrong_method_result = ninfer::serve::handle_unrendered_http_error(
+        options, wrong_method_request, wrong_method_response);
+    const Json wrong_method_body = Json::parse(wrong_method_response.body);
+    failures += check(wrong_method_result == httplib::Server::HandlerResponse::Handled &&
+                          wrong_method_response.status == 405 &&
+                          wrong_method_body.at("error").at("code") == "method_not_allowed",
+                      "405 did not become a JSON error envelope");
 
     if (failures == 0) { std::cout << "ok\n"; }
     return failures == 0 ? 0 : 1;

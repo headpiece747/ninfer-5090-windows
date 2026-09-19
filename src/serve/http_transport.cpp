@@ -5,6 +5,9 @@
 #if defined(__linux__)
 #    include <netinet/tcp.h>
 #    include <sys/socket.h>
+#elif defined(_WIN32)
+#    include <mstcpip.h>
+#    include <winsock2.h>
 #endif
 
 #include <stdexcept>
@@ -22,6 +25,17 @@ constexpr unsigned int kTcpUserTimeoutMilliseconds = 15000;
 template <class T>
 void set_socket_option(socket_t socket, int level, int option, const T& value) noexcept {
     (void)::setsockopt(socket, level, option, &value, sizeof(value));
+}
+#elif defined(_WIN32)
+constexpr DWORD kKeepAliveIdleSeconds     = 10;
+constexpr DWORD kKeepAliveIntervalSeconds = 3;
+constexpr DWORD kKeepAliveProbeCount      = 3;
+
+// Winsock takes the option value as a char buffer, and the keepalive knobs are DWORDs rather than
+// ints, so this overload is not interchangeable with the POSIX one.
+template <class T>
+void set_socket_option(socket_t socket, int level, int option, const T& value) noexcept {
+    (void)::setsockopt(socket, level, option, reinterpret_cast<const char*>(&value), sizeof(value));
 }
 #endif
 
@@ -86,6 +100,20 @@ void configure_http_server_socket(socket_t socket) noexcept {
     set_socket_option(socket, IPPROTO_TCP, TCP_KEEPINTVL, kKeepAliveIntervalSeconds);
     set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, kKeepAliveProbeCount);
     set_socket_option(socket, IPPROTO_TCP, TCP_USER_TIMEOUT, kTcpUserTimeoutMilliseconds);
+#elif defined(_WIN32)
+    // A half-open connection otherwise holds a request slot until the client's own timeout fires.
+    // TCP_KEEPIDLE/TCP_KEEPINTVL/TCP_KEEPCNT are only defined by newer SDKs, so each is guarded.
+    const BOOL enabled = TRUE;
+    set_socket_option(socket, SOL_SOCKET, SO_KEEPALIVE, enabled);
+#    if defined(TCP_KEEPIDLE)
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPIDLE, kKeepAliveIdleSeconds);
+#    endif
+#    if defined(TCP_KEEPINTVL)
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPINTVL, kKeepAliveIntervalSeconds);
+#    endif
+#    if defined(TCP_KEEPCNT)
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, kKeepAliveProbeCount);
+#    endif
 #endif
 }
 
