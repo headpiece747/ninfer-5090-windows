@@ -96,17 +96,16 @@ cp_max_local_chunks(std::int32_t value_heads, std::int32_t total_chunks,
     return plan;
 }
 
-// The gate warmup threshold, in chunk-log-decay units: a segment whose incoming state has decayed
-// below e^threshold may be seeded from zero without a boundary correction.
+// The gate warmup threshold, in chunk-log-decay units. FlashQLA's value, kept unchanged.
 //
-// FlashQLA uses -10.0, which is tuned for its sm120 chunk 32. The residual error of dropping the
-// incoming state is e^threshold * |state|, and this Op's state magnitude reaches O(1), so -10.0
-// leaves ~4.5e-5 - above the 1.0e-5 gross-absolute criterion the Op is qualified against. The
-// threshold must therefore be tighter at chunk 64: -13.0 gives e^-13 * |state| <= 2.3e-6 * |state|,
-// sound for the state magnitudes this recurrence produces. Raising the magnitude makes the guard
-// skip fewer segments (more boundary replays, less parallelism), which is the correct trade: a
-// wrong boundary state is a silent numerical error, a skipped replay is only lost speed.
-inline constexpr float kCpWarmupThreshold = -13.0f;
+// The residual error of dropping a segment's incoming state is e^threshold * |state|, and this
+// Op's state magnitude reaches O(1), so -10.0 leaves ~4.5e-5 against the 1.0e-5 gross-absolute
+// criterion. Tightening the threshold does NOT repair that: the scan accumulates the segment's own
+// chunk decay, so at chunk 64 any threshold in this range is crossed within an 8-chunk segment and
+// the guard skips either way. Measured: -10.0 and -13.0 produced byte-identical output on the
+// failing case. The approximation is inherent to the scheme, which is why CP is gated off rather
+// than retuned; see docs/adr/0006. Do not "fix" this constant.
+inline constexpr float kCpWarmupThreshold = -10.0f;
 
 // Scan `g_cumsum` backward from each segment's last chunk, one value per chunk at its last token.
 // For each (segment, head): `num_warmup_chunks` is how many trailing chunks must be recomputed from

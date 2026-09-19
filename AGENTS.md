@@ -163,7 +163,7 @@ port targets MSVC 14.51 and CUDA 13.3, and the Python used for tooling is
 `C:\vllm-env\Scripts\python.exe`. What ships is governed by `tools/release/profiles.py`, and the
 release surface is documented in the Windows section of `README.md`.
 
-Eight rules, each earned by a failure rather than chosen:
+Eleven rules, each earned by a failure rather than chosen:
 
 - **Reach for the indexed tool before a manual search.** `.codegraph/` exists here, so a code
   question ("where is X", "who calls X", "how does X work") goes to `codegraph_explore` before
@@ -193,3 +193,19 @@ Eight rules, each earned by a failure rather than chosen:
   anything longer than a line, and check `git log -1` or `git status` after every commit.
 - **Prove an extraction by byte-identity.** Regenerating output that must not change is stronger
   evidence than re-running the behavior, because it rules out any change at all.
+- **Revert every diagnostic probe before committing, and never commit its rationale.** A threshold
+  changed to test a hypothesis (`kCpWarmupThreshold` -10.0 -> -13.0) was committed with a comment
+  asserting it fixed a residual error, when the measurement had already shown byte-identical
+  output and therefore no effect at all. The code then contradicted the ADR and commit message that
+  correctly recorded the finding. A probe that disproves its hypothesis leaves the original value
+  and a comment saying what was measured, or it is reverted outright.
+- **A claim in a comment is a claim: verify it against the measurement that produced it.** The
+  same probe's comment reasoned from `exp(threshold) * |state|` to a conclusion the test had
+  already falsified. Reasoning that survives only until it meets the artifact belongs in a
+  hypothesis, not in a comment that the next reader will trust.
+- **Check whether a skill is actually loaded before relying on it, and say which one you used.**
+  Five project skills added mid-session (`cpp-cuda-review`, `ncu-report`, `cuda-debugging`,
+  `sanitizers`, `address-sanitizer`) were invisible to the running session because opencode
+  discovers skills at session start. Two wrong hypotheses about the cause followed. When a skill
+  does not load, check its commit time against the session start before debugging its frontmatter;
+  the project's own review skill is `cpp-cuda-review`, not the .NET `code-review` import.
