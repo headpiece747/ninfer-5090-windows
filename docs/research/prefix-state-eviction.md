@@ -1,0 +1,93 @@
+# Prefix state eviction: what production engines do, and what this engine lacks
+
+Status: research note, written before changing `src/models/qwen3_5/program/planning/pressure.cpp`.
+Supersedes nothing. The measurement it responds to is in `tools/release/repro_251.py`.
+
+## The defect this addresses
+
+This engine caches device states (the attention KV plus the GDN linear-attention state) so a later
+request whose prompt extends a cached one can reuse instead of re-prefilling. When the cache is
+full it does not reclaim anything: a new state simply cannot be admitted.
+
+Measured with `repro_251.py` on the shipped QUASAR DFlash2 profile, six conversations each asked
+twice with the second request extending the first verbatim:
+
+```
+conv 1-3  second request cache 19,828 (99.8% reuse)   TTFT 0.4-0.5 s
+conv 4-6  second request cache 0 (0.0% reuse)         TTFT 2.1 s
+```
+
+From the fourth conversation onward every request re-prefills from the root, permanently, until the
+engine restarts. Raising `--device-state-slots` moves the cliff (1 -> 3 conversations, 4 -> 4,
+8 -> 6/6) but cannot remove it, because the cache has no eviction. Upstream tracks this as issue
+#251, "no LRU eviction observed".
+
+## What production engines do
+
+Both mainstream LLM servers solved this the same way, and the constraint they both name is the one
+that makes eviction safe under concurrency: **never evict an entry that something is still using**.
+
+**vLLM** (https://docs.vllm.ai/en/latest/design/prefix_caching) -- KV blocks are hashed by their
+tokens plus the prefix before them and held in a global table, with a free queue:
+
+> "When there are no free blocks left, we will evict a KV block with reference count (i.e., number
+> of current requests using the block) equals 0. If there are multiple blocks with reference count
+> equals to 0, we prioritize to evict the least recently used block (LRU)."
+
+Allocation additionally "touches" computed blocks, which "increases the reference count of the
+computed block by one, and removes the block from the free queue if the block wasn't used by other
+requests. This is to avoid these computed blocks being evicted."
+
+**SGLang / RadixAttention** (https://arxiv.org/html/2312.07104v1) -- a radix tree keyed by token
+sequences, values are KV tensors:
+
+> "We implement an LRU eviction policy that recursively evicts leaf nodes. ... each node maintains a
+> reference counter indicating how many running requests are using it. A node is evictable if its
+> reference counter is zero."
+
+Leaf-first matters for a different reason than safety: evicting an internal node would discard a
+shared prefix that many sequences depend on, so leaves are evicted before their ancestors.
+
+## The case that matches this engine exactly
+
+Both engines above assume pure attention. This model is hybrid -- attention plus GDN linear
+attention -- so its cached state is a *pair* (KV and an SSM-style recurrence state), and the
+linear-attention state is the part that is large and awkward to checkpoint.
+
+**Marconi: Prefix Caching for the Era of Hybrid LLMs** (MLSys 2025,
+https://mlsys.org/media/mlsys-2025/Slides/3260.pdf) is about precisely this:
+* "Reuses model states (KVs, SSM states) of common prefixes across requests"
+* On naive periodic checkpointing: "Catch 1: cache entries are sparsely-hit. Catch 2: cache entries
+  are huge. Frequent cache thrashing & low hit rate"
+* "Existing systems: admit all states of most recent request. Marconi: admit states with high reuse
+  likelihood only."
+* "Existing systems: recency-focused (i.e. evict using LRU). Marconi: also considers the potential
+  compute savings" -- a FLOP-aware utility rather than pure recency.
+
+## Design conclusion for this engine
+
+1. **Eviction is the fix, not a bigger cache.** Any finite capacity without reclamation ends in the
+   same permanent cliff; that is what the measurements show.
+2. **Gate every eviction on reference count.** An entry with a live reference (in flight, or
+   referenced by a running request) must never be a candidate. This is the single safety property
+   that makes concurrent eviction sound, and both vLLM and SGLang state it explicitly.
+3. **Leaf-first / dependency-aware.** Our checkpoints form a lineage (continuations, shared
+   prefixes, long anchors already have bounds: `--max-shared-prefixes`,
+   `--max-private-continuations`, `--max-long-anchors-per-continuation`). Evicting a parent while a
+   child survives is wrong even when both are unreferenced, so eviction should follow the same
+   dependency direction the existing bounds do.
+4. **Start from LRU.** vLLM and SGLang both default to it and it is validated in production;
+   the arXiv study "Which Eviction Policy Should an LLM Cache Use?" (2608.20280) found no policy
+   beating LFU by more than 0.041 percentage points across eighteen settings, so a sophisticated
+   policy is not where the value is. Recency is enough to remove the cliff.
+5. **FLOP-aware utility is the follow-up, not the first move.** Marconi's contribution is worth
+   having for hybrid states because our entries are large and expensive, but it is a refinement on
+   a working eviction path, not a substitute for having one.
+
+## How to verify the cure
+
+`tools/release/repro_251.py` prints the cliff position. Acceptance is that reuse holds for at least
+as many conversations as the cache can hold and never permanently stops -- with the number of
+conversations pushed past capacity (8+), which the current build fails. Then the existing suite
+(`tools/scripts/test_v3.cmd`), the release gate (`check_test_baseline.py`) and a soak
+(`soak.py`) to confirm no concurrency regression, since the change touches state lifetime.
