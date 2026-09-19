@@ -361,3 +361,42 @@ fewest evictions, then recency), so no new policy is needed -- only a removal op
 there is none. The remaining question, which is where the next instrumentation should start, is
 *why the path stops being taken* once the pool is full: whether admission takes an early
 "no state available" branch before reaching the demand construction, or fails later.
+
+## CORRECTION: the path does not stop, and credit-bearing candidates do exist
+
+Instrumented **both** demand constructions -- `request_plan.cpp:1068` and `:1216` -- with distinct
+tags, and re-ran the twelve conversations. The reproduction held (99.8% x6 then 0.0% x6).
+
+```
+[demand]  (builder 1) matches: 31
+[demand2] (builder 2) matches: 31
+```
+
+Both builders fire for every request, so **the admission path is not stopped once the pool is
+full**, and the previous section's "fires exactly six times" was wrong. That count came from a
+stderr file overwritten by a duplicate server start (the PowerShell launcher reported
+`ChildProcess.kill` while the process survived, so the server was started twice into the same
+path). The cliff-at-7 correlation drawn from it was luck, not evidence.
+
+What the fuller trace shows is more useful:
+
+```
+[demand2] active_d=1 added_d=1 credit_d=0 removed_d=0     (most candidates)
+[demand2] active_d=1 added_d=0 credit_d=1 removed_d=2     (some candidates)
+[demand2] active_d=1 added_d=1 credit_d=0 removed_d=1     (one)
+```
+
+**State-slot credit-bearing candidates exist** -- `added_d=0 credit_d=1 removed_d=2` frees two
+slots and adds none. So the planner can already express the reclamation the fix needs; it is not
+missing from the vocabulary.
+
+The question therefore narrows again, and is now about *selection and effect* rather than
+existence:
+
+> When the store cannot supply a state slot, why does a plan that consumes one without reclaiming
+> still win over a candidate that credits and removes slots -- or, if such a plan wins, why does
+> the pool still end up full?
+
+That is where the next instrumentation starts, and it is a smaller question than the last: log,
+per admission, which candidate is selected and its `state_slots` credit/removal, and correlate with
+`StateImageStore` occupancy (`device_occupied()` vs `device_capacity()`, `state_store.h:132-137`).
