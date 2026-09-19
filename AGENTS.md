@@ -165,14 +165,19 @@ release surface is documented in the Windows section of `README.md`.
 
 Eight rules, each earned by a failure rather than chosen:
 
+- **Reach for the indexed tool before a manual search.** `.codegraph/` exists here, so a code
+  question ("where is X", "who calls X", "how does X work") goes to `codegraph_explore` before
+  `grep`, `glob` or `Read`: one call returns the verbatim source, the call path and the blast
+  radius that a grep-and-read loop rebuilds by hand. Before investigating or changing anything,
+  also check whether a loaded skill, an MCP server or a subagent already covers it, and whether a
+  primary source on the internet owns the answer. Manual search is for what codegraph does not
+  index (docs, configs, logs) or to confirm one detail it did not surface. Earned by grepping an
+  already-indexed codebase.
 - **Never inline a script through PowerShell.** Quotes inside quotes break the argument splitting.
   That happened five times in one session and the fix was always to write a file first.
 - **Do not guard with string presence over prose.** A check for a token that also appears in a
   comment, a docstring or a filename misfires. That happened four times. Assert the specific call
   site instead.
-- **Look for a `.codegraph/` index before grepping.** When one exists, query it first: it answers
-  "where is this" and "who calls this" in one call, and it surfaced a converter's naming rules
-  that two rounds of inference had got backwards.
 - **Read primary sources before reasoning from this tree.** Upstream's converter, loader and
   maintainer notes are authoritative; the port is not. Reading a platform header settled in a
   minute what inference had concluded wrongly twice.

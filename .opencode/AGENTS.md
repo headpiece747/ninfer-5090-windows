@@ -3,6 +3,24 @@
 How agent skills are chosen for NInfer. The repository `AGENTS.md` governs the product; this file
 governs what lives under `.opencode/skills/`.
 
+## Tooling discipline (check all five before investigating)
+
+Before a code question or a change, check these in order and say which were used:
+
+1. **Tools / MCP** - `codegraph_explore` first for any "where is / who calls / how does X work"
+   question. `.codegraph/` exists here; grep, glob and Read rebuild by hand what one call returns,
+   and grepping an already-indexed codebase is the failure this rule exists to stop.
+2. **Skills** - is there a loaded or project skill that already covers the task (`.opencode/skills`,
+   the global set)?
+3. **Agents** - delegate parallel search or research (`explore`, `general`) instead of doing it
+   serially in the main thread.
+4. **Internet** - do upstream's tracker, maintainer notes, or a primary source own the answer?
+   `gh issue view <n> --repo Neroued/ninfer` works and is authenticated.
+5. **Plugins / hooks** - anything already loaded that answers this?
+
+Manual grep/Read is for what codegraph does not index (docs, configs, logs) or to confirm one
+detail it did not surface. See the same rule in the repository `AGENTS.md`.
+
 ## Added for this repo
 
 | Skill | Origin | Notes |
