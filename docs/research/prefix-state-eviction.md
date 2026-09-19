@@ -280,3 +280,47 @@ The store already knows both facts: it tracks pins and references, and objects c
 this is a release-on-demand path in the allocator, not a new subsystem -- and it is the same
 discipline the planning code already applies when it can, just reached from the place that
 actually refuses.
+
+## Correction and the strongest conclusion: the safety machinery is already correct
+
+Read `release()` and `can_release()` before writing anything, and both the design and the diagnosis
+change for the better. `state_store.h:643-666`:
+
+```cpp
+[[nodiscard]] bool can_release(StateImageHandle handle) const noexcept {
+    ...
+    return object.checkpoint_references == 0 && object.source_pins == 0 &&
+           !object.destination_pinned && !has_pending_replica(object);
+}
+```
+
+`release()` **refuses** to free a state that any checkpoint references, and there is a
+`can_release_after_checkpoint_references()` for the case where the checkpoint itself is being
+dropped. So:
+
+- **there is no dangling-reference risk** to design around -- `release()` is safe by construction,
+  gated on exactly the reference conditions vLLM and SGLang use;
+- the allocator therefore does **not** need new eviction logic. It needs to be **asked**.
+
+Which closes the loop with both instrumented negatives, coherently:
+
+| Observation | Explanation |
+|---|---|
+| `pressure.cpp` removal gates never reached | no state-slot deficit was ever presented to the planner, so no removal option was built |
+| `request_plan.cpp` split-credit never reached | these requests are not splits, so that path never accounts for their state slot |
+| the cliff is silent and restart-only | `checkpoint_references` never reaches 0, so `can_release` always returns false and `allocate` keeps returning `nullopt` |
+
+So the defect is not a missing policy, and not a missing safety gate. It is that **a new
+conversation's state-image reservation does not appear as a resource deficit in admission
+planning**, so the machinery that could relieve it -- drop the least valuable old checkpoint and
+its state -- is never invoked. Restarting the engine drops every checkpoint at once, which is why
+only a restart restores reuse.
+
+**The fix, restated:** make the state-image requirement part of the admission demand, so the
+existing pressure planning can resolve it, and let the planner choose the victim by the value
+ordering it already computes (fewest affected hits, fewest evictions, then recency). No new
+eviction policy, no new reference tracking, no changes to `release()`.
+
+This is a hypothesis again, and the last six were wrong, so it gets instrumented the same way: log
+the physical demand a brand-new conversation presents at admission and whether it contains a
+state-slot component.
