@@ -210,3 +210,29 @@ instrumenting `splits_private_state` and the state-slot reservation/credit for e
 twelve-conversation run, and confirm that a non-splitting admission takes a slot with no credit and
 no removal attempt. Only then is the fix "allow a non-splitting admission to reclaim an unpinned
 LRU state slot" worth writing.
+
+## MEASURED: that block is not reached either
+
+Instrumented `request_plan.cpp` around the `splits_private_state` computation and the state-slot
+credit (`~L1021-1050`), rebuilt, and drove the same twelve-conversation reproduction. The run
+reproduced the cliff exactly (99.8% x6 then 0.0% x6), and the trace printed **zero** lines --
+confirmed with a literal search after a first check using a `-like` pattern was found to be wrong
+(`[plan]` is a character class, not text).
+
+So the `splits_private_state` hypothesis is disproved as stated, and something more useful is now
+established:
+
+> **Neither of the two state-slot accounting paths found in the planning code is executed for this
+> workload.** The `device_state_slots` pool that multi-conversation traffic exhausts is not the
+> state-slot reservation/credit tracked in `request_plan.cpp`, nor the reclamation in
+> `pressure.cpp` (or `checkpoint_recovery.cpp`).
+
+The cache under test therefore lives outside the model program's planning layer. The next
+investigation should start from the pool itself rather than from planning: find what owns the
+device state slots (`usage.device.state_slots` at `pressure.cpp:2639`), where its capacity
+(`max_concurrency + device_state_slots`, `model_instance.cpp:123`) is enforced, and which component
+refuses a new state when it is full.
+
+Process note worth keeping: two of the negatives above were nearly reported falsely because of a
+bad filter (`-like '[plan] ...'`, `Select-String '[state] ...'` without `-SimpleMatch`). **Check the
+observation method before concluding the system did nothing.**
