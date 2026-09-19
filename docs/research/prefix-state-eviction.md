@@ -490,3 +490,43 @@ must stop violating it.
 where the current build reuses six and then stops permanently. Then the suite
 (`tools/scripts/test_v3.cmd`), the release gate (`check_test_baseline.py`), and a soak
 (`soak.py`), because the change touches checkpoint lifetime.
+
+## The exact decision site, found: capture placement already has a fallback
+
+`capture.cpp:175-193` is where capture placement and its resource demand are decided, and it
+already contains a device -> host fallback:
+
+```cpp
+const std::uint32_t device_state_after_preparation =
+    state_store->device_occupied() - replaced_shared.device.state_slots;
+const bool device_destination_available =
+    assessment.recycles_private_state ||
+    device_state_after_preparation < state_store->device_capacity();
+if (device_destination_available || host_state_images == nullptr) {
+    assessment.state_placement = DeviceFork;    added.device.state_slots = 1;
+} else {
+    assessment.state_placement = HostSnapshot;  added.host.state_slots   = 1;
+}
+```
+
+So the machinery this fix needs is not merely present in the abstract -- it is *here*:
+
+- the branch already knows device occupancy and capacity (`device_occupied()`,
+  `device_capacity()`), which is exactly the condition to trigger on;
+- it already computes the alternative placement, so an eviction branch is a third arm of an
+  existing choice rather than a new concept;
+- and the resulting demand already flows into `PhysicalDemand` two lines below (L197-202).
+
+Two candidate gaps, both testable:
+
+1. **The fallback is disabled when `host_state_images == nullptr`.** The `||` forces `DeviceFork`
+   even with a full device pool, so the host escape is unavailable. Whether that happens here
+   depends on the host state configuration.
+2. **There is no third option when both pools are full.** If device falls back to host and the host
+   pool then also fills, nothing evicts and nothing further falls back -- which is consistent with
+   the failure being silent: the request proceeds, just without a cached state.
+
+**Next instrumentation, and it is one run:** log per capture which arm is taken, plus
+`device_occupied()`/`device_capacity()` and the host pool's occupancy/capacity, and whether
+`host_state_images` is null. That identifies which of the two gaps applies -- or shows that the
+failure is somewhere else again -- before the change is written into `capture.cpp`.
