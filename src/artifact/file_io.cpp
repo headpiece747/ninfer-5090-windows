@@ -161,6 +161,12 @@ std::size_t InputFile::read_direct(std::uint64_t offset, std::span<std::byte> de
         // artifact reader's forward-only access pattern.
         direct_fd_ = open_read(path_, FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN);
     }
+    // ReadFile takes a DWORD byte count, so the request must fit one call. A larger aligned span
+    // would otherwise truncate silently; fail loudly instead. (read_exact chunks for this reason;
+    // read_direct's only caller caps its request at the 64 MiB staging slot, so this is defensive.)
+    if (destination.size() > static_cast<std::size_t>(std::numeric_limits<DWORD>::max())) {
+        throw ArtifactError(path_.string() + ": direct read exceeds one Win32 ReadFile");
+    }
     DWORD transferred = 0;
     if (!read_at(static_cast<HANDLE>(direct_fd_), offset, destination.data(), destination.size(),
                  transferred)) {
