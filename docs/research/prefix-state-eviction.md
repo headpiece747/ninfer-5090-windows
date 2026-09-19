@@ -530,3 +530,44 @@ Two candidate gaps, both testable:
 `device_occupied()`/`device_capacity()` and the host pool's occupancy/capacity, and whether
 `host_state_images` is null. That identifies which of the two gaps applies -- or shows that the
 failure is somewhere else again -- before the change is written into `capture.cpp`.
+
+## MEASURED: the host fallback is chosen and then does nothing
+
+Ran that instrumentation. The reproduction held (99.8% x6 then 0.0% x6) and the trace is decisive:
+
+```
+device_cap=9    arm=device x24    arm=host x53
+
+[capture] arm=device device_occ=1 device_cap=9 after_prep=1 replaced=0 host_occ=0 host_images=1
+...
+[capture] arm=host   device_occ=9 device_cap=9 after_prep=9 replaced=0 host_occ=0 host_images=1
+```
+
+So:
+
+- the device pool is 9 (`max_concurrency 1 + device_state_slots 8`) and fills as conversations
+  accumulate (`device_occ` climbs 1 -> 2 -> 4 -> 5 -> 7 -> 9);
+- once it is full, capture **correctly takes the host arm** -- 53 times;
+- **and the host pool occupancy stays at 0 for the entire run.**
+
+So the fallback is selected and then has no effect: nothing is reserved on the host side, nothing
+is cached anywhere, and reuse dies silently. That is the defect, and it is neither of the two gaps
+guessed above -- it is not a missing third option, it is that the chosen option does nothing.
+
+The suspicion to test next is a mismatch between two different "host" objects:
+
+```cpp
+// state_store.h:140-141
+[[nodiscard]] std::uint32_t host_occupied() const noexcept {
+    return host_ == nullptr ? 0U : host_->occupied();
+}
+```
+
+`host_` is the **store's** host pool; `host_state_images` is the **program's** host images, which
+the trace reports as non-null (`host_images=1`). If the arm is selected because host *images* exist
+while the store was constructed with **no host pool**, then `host_occupied()` returning 0 is not
+"the pool is empty" but "there is no pool" -- and every host reservation silently fails.
+
+Confirm by logging at store construction (`program_impl.cpp:143`) whether a host pool is supplied
+and with what capacity, and by logging the result of the host reservation itself rather than only
+its occupancy.
