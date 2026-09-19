@@ -636,3 +636,36 @@ capacity.
 (the program's `host_state_images`) and where the reuse lookup actually reads, and confirm whether
 they are the same object. Two previous guesses about this have been wrong, so this one gets
 measured before anything is changed.
+
+## The loop is now tight: 2.3 seconds
+
+Phase 1 of the `diagnosing-bugs` skill ("build a feedback loop... **fast**: seconds, not minutes")
+was never satisfied: every measurement above cost an engine build plus a ~7-minute reproduction,
+which is why eleven hypotheses each took ~25 minutes and why reading code kept displacing them.
+Its own warning applies exactly: *"if you catch yourself reading code to build a theory before this
+command exists, stop."*
+
+The cliff depends on **state-slot count, not prompt size**, so shrinking both collapses the cost.
+Start the engine with tiny pools and run the reproduction with small prompts:
+
+```
+ninfer-serve ... --max-context 65536 --kv-capacity 65536 --device-state-slots 2 \
+                 --host-state-slots 2 --max-shared-prefixes 2 --max-private-continuations 2 \
+                 --max-long-anchors-per-continuation 1
+python tools\release\repro_251.py --base http://127.0.0.1:8086 --model <id> \
+       --conversations 6 --tokens 1000 --max-tokens 16
+```
+
+Measured: **2.3 s**, deterministic, still red-capable -- reuse holds for 2 conversations and then
+stops permanently, because 2 device slots puts the cliff at conversation 3.
+
+```
+conv 1: 96.3%   conv 2: 96.3%   conv 3-6: 0.0%   -> REPRODUCED
+```
+
+It also confirms the mechanism scales with pool size, which is the cheapest check that a candidate
+fix works: raise `--device-state-slots` and the cliff should move correspondingly.
+
+**Use this loop for every hypothesis from here.** The 12-conversation run at 26k tokens stays the
+acceptance test (realistic scale), but hypothesis testing happens at 2.3 s.
+
