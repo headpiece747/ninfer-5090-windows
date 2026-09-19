@@ -609,3 +609,30 @@ every capture demotion.
 **But that is a reading, and readings have been wrong ten times this session.** The next run logs
 the result of `begin_device_to_host` plus which clause of that gate rejects, which distinguishes
 "rejected by the gate" from "host pool exhausted" from "called but unchecked".
+
+## MEASURED: `reserve_device_to_host` is never called
+
+Ran that instrumentation on the gate and on `host_->allocate()` in `reserve_device_to_host`
+(`state_store.h:462-479`). The reproduction held (99.8% x6 then 0.0% x6) and:
+
+```
+d2h] reject lines:            0
+host-pool-exhausted lines:    0
+```
+
+**Neither path fired, so `reserve_device_to_host` is never entered.** The 53 host-arm captures do
+not reach it, even though `capture.cpp:705` contains a call to `begin_device_to_host`. That call
+must therefore live on a different branch than the capture that runs here -- so the gate suspect
+above is disproved as stated, and the host-arm capture writes somewhere else entirely.
+
+Which revives the "two host objects" idea, in the opposite direction from the earlier guess: the
+capture most likely writes to the **program's** `host_state_images` (which is what the arm
+selection tests, `capture.cpp:183`), while the store's own `host_` pool -- the one that stays at 0
+-- is a different object that the reuse path consults. If so, captures are being stored somewhere
+the reuse lookup never looks, and the failure is an object-identity mismatch rather than a missing
+capacity.
+
+**Next, and it is the last structural question:** log where the host-arm capture actually writes
+(the program's `host_state_images`) and where the reuse lookup actually reads, and confirm whether
+they are the same object. Two previous guesses about this have been wrong, so this one gets
+measured before anything is changed.
