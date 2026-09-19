@@ -180,3 +180,33 @@ reclamation machinery that already exists, or needs its own LRU.
 Four hypotheses have now been proposed from reading and four disproved by measurement
 (`Uint128` as the planner cause, #229's applicability, #178's applicability, and this "role/pins/
 scope" gate analysis). The lesson worth keeping: **instrument before asserting a mechanism.**
+
+## Next lead, untested: the state-slot credit is gated on splitting a private state
+
+Reclamation also lives in `checkpoint_recovery.cpp:634-638`, and state slots are accounted as a
+reservation plus a credit in `request_plan.cpp`. The gate that matters is at `request_plan.cpp:1040`:
+
+```cpp
+if (splits_private_state) {
+    credit.device.state_slots  = 1;
+    removed.device.state_slots = 1;
+    if (physical_peak.device.state_slots == 0) {
+        throw std::logic_error("StateImage identity split has no active destination");
+    }
+    --physical_peak.device.state_slots;
+}
+```
+
+The credit -- and the matching removal -- exist **only when a plan splits a private state**, i.e.
+when a new state branches off an existing private one. A brand-new independent conversation does
+not split anything, yet it still consumes a slot.
+
+If that reading is right, it explains both observations at once: why the pool fills with no
+reclamation, and why the instrumented removal paths were never reached (none of the twelve
+conversations was a split).
+
+**This is a hypothesis, not a finding** -- the previous four were all wrong. Test it by
+instrumenting `splits_private_state` and the state-slot reservation/credit for each request in the
+twelve-conversation run, and confirm that a non-splitting admission takes a slot with no credit and
+no removal attempt. Only then is the fix "allow a non-splitting admission to reclaim an unpinned
+LRU state slot" worth writing.
