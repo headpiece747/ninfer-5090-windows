@@ -669,3 +669,30 @@ fix works: raise `--device-state-slots` and the cliff should move correspondingl
 **Use this loop for every hypothesis from here.** The 12-conversation run at 26k tokens stays the
 acceptance test (realistic scale), but hypothesis testing happens at 2.3 s.
 
+### First use of the tight loop: the host fallback is a red herring
+
+Same loop, engine started with `--host-state-slots 0` (no host pool at all):
+
+```
+reuse per conversation: 96.3%, 0.0%, 0.0%, 0.0%, 0.0%, 0.0%
+REPRODUCED: reuse held for 1 conversation(s) and then stopped
+```
+
+**The cliff occurs with no host pool.** So the whole host investigation -- `host_state_images` vs
+the store's `host_`, `reserve_device_to_host`, the object-identity theory -- is a red herring. The
+host pool only *delays* the cliff by one conversation (cliff at 3 with 2 host slots, at 2 with 0);
+it does not cause it.
+
+The mechanism is the original one, unadorned: **the device pool fills and nothing ever frees it.**
+Which is what the first diagnosis said, before four turns were spent reading a subsystem that is
+not involved.
+
+Two things this establishes:
+
+1. **The fix is the original one**, and it belongs where the design says: planning must prepare a
+   state slot by dropping an evictable retained checkpoint, so `checkpoint_references` reaches 0,
+   `can_release` returns true, and `release()` returns the slot. Not a host-path change, and not a
+   policy bolted into `allocate()`.
+2. **The red-herring series cost ~2 hours of reading; the experiment that killed it took 2
+   seconds.** Every hypothesis from here is tested in the fast loop *before* any file is read.
+
