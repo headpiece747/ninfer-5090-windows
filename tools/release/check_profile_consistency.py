@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from make_launchers_v3 import render  # noqa: E402
 from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, launcher_args  # noqa: E402
 
 WT = Path(__file__).resolve().parents[2]
@@ -46,23 +47,22 @@ def main() -> int:
     files = [p["file"] for p in PROFILES]
     print(f"\n=== launcher generator agreement ({len(PROFILES)} profiles) ===")
     for profile in PROFILES:
-        shipped = read(WT / profile["file"])
-        check(f"{profile['file']} exists", bool(shipped))
-        if not shipped:
+        path = WT / profile["file"]
+        check(f"{profile['file']} exists", path.exists())
+        if not path.exists():
             continue
-        check(f"{profile['file']} passes --max-context {profile['ctx']}",
-              f"--max-context {profile['ctx']}" in shipped)
-        check(f"{profile['file']} passes --port {profile['port']}",
-              f"--port {profile['port']}" in shipped)
-        check(f"{profile['file']} declares {profile['model_id']}",
-              f"--model-id {profile['model_id']}" in shipped)
-        check(f"{profile['file']} passes --vision", "--vision" in shipped)
-        check(f"{profile['file']} passes --spec {profile['spec']}",
-              f"--spec {profile['spec']}" in shipped)
-        check(f"{profile['file']} passes its profile's --device-state-slots "
-              f"{profile['device_state_slots']}",
-              f"--device-state-slots {profile['device_state_slots']}" in shipped,
-              "the table's value and the launcher's must describe the same measurement")
+        # One comparison replaces the per-fact substring checks. The launcher is a generated
+        # file, so byte-identity against the table's own render is strictly stronger than
+        # looking for each fact in its text, and it is the only check that fails when the
+        # template or the flag order changes rather than a value. The generator writes with
+        # newline="\r\n" (make_launchers_v3.py:132), so a rendered \n is \r\n on disk;
+        # comparing through read_text() would translate that away and report a correct file
+        # as drifted.
+        expected = render(profile).replace("\n", "\r\n").encode("utf-8")
+        shipped = path.read_bytes()
+        check(f"{profile['file']} is byte-identical to the table's render",
+              shipped == expected,
+              f"{len(shipped)} bytes on disk against {len(expected)} rendered")
 
     print("\n=== the measurement harness measures what ships ===")
     harness = read(WT / "tools" / "release" / "v3_profile_matrix.py")
