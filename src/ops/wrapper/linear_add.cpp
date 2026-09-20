@@ -11,6 +11,7 @@
 #include "ops/linear_add/q4/q4_linear_add_dispatch.h"
 #include "ops/linear_add/q5/q5_linear_add_plan.h"
 #include "ops/linear_add/q8/q8_linear_add_plan.h"
+#include "ops/common/validation.h"
 
 #include <cstdint>
 #include <stdexcept>
@@ -58,10 +59,6 @@ void require_bf16(const Weight& w) {
     if (w.qtype != QType::BF16 || w.layout != QuantLayout::Contiguous || w.qdata == nullptr) {
         throw std::invalid_argument("linear_add: weight must be contiguous BF16");
     }
-}
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
 }
 
 bool overlaps(const Tensor& lhs, const Tensor& rhs) {

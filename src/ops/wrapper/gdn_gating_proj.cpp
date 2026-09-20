@@ -2,6 +2,7 @@
 #include "ninfer/ops/gdn_gating_proj.h"
 
 #include "ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_plan.h"
+#include "ops/common/validation.h"
 
 #include <cmath>
 #include <cstdint>
@@ -10,10 +11,6 @@
 
 namespace ninfer::ops {
 namespace {
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
 
 void require_bf16_weight(const Weight& w, std::int32_t rows, std::int32_t input_rows,
                          const char* name) {

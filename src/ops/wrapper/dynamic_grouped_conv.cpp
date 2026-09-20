@@ -5,6 +5,7 @@
 #include "ops/dynamic_grouped_conv/nvfp4/nvfp4_dynamic_grouped_conv_prepare_plan.h"
 #include "ops/dynamic_grouped_conv/q8/q8_dynamic_grouped_conv_add_plan.h"
 #include "ops/linear/nvfp4/nvfp4_format.h"
+#include "ops/common/validation.h"
 
 #include <array>
 #include <cmath>
@@ -24,10 +25,6 @@ constexpr std::int32_t kSides           = 2;
 constexpr std::int32_t kCoefficientRows = kGroups * kTaps * kSides;
 constexpr const char* kPrepareOp        = "dynamic grouped conv prepare";
 constexpr const char* kAddOp            = "linear dynamic grouped conv add";
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
 
 void require_tensor(const Tensor& tensor, DType dtype, std::int32_t d0, std::int32_t d1,
                     std::int32_t d2, std::int32_t d3, const char* op, const char* label) {

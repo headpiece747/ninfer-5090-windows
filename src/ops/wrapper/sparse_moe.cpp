@@ -5,6 +5,7 @@
 #include "ops/sparse_moe/decode/sparse_moe_decode.h"
 #include "ops/sparse_moe/prefill/sparse_moe_prefill.h"
 #include "ops/sparse_moe/small_t/sparse_moe_small_t.h"
+#include "ops/common/validation.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -30,10 +31,6 @@ struct AddressRange {
     std::uintptr_t end   = 0;
     std::string name;
 };
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
 
 AddressRange address_range(const void* pointer, std::size_t bytes, std::string name) {
     if (pointer == nullptr || bytes == 0) {

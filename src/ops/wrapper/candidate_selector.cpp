@@ -3,6 +3,7 @@
 #include "ops/candidate_selector/bf16/candidate_selector_path_plan.h"
 #include "ops/candidate_selector/nvfp4/candidate_selector_path_nvfp4.h"
 #include "ops/linear/nvfp4/nvfp4_format.h"
+#include "ops/common/validation.h"
 
 #include <array>
 #include <cstddef>
@@ -17,10 +18,6 @@ namespace {
 constexpr std::int32_t kCandidates   = 16;
 constexpr std::int32_t kRank         = 256;
 constexpr std::int32_t kCodebookRows = 248320;
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
 
 void require_tensor(const Tensor& tensor, DType dtype, std::int32_t d0, std::int32_t d1,
                     std::int32_t d2, std::int32_t d3, const char* label) {

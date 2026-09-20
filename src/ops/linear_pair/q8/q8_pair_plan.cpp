@@ -3,6 +3,7 @@
 
 #include "ops/linear_pair/q8/q8_pair_kernels.h"
 #include "ops/common/token_slices.h"
+#include "ops/common/validation.h"
 
 #include <array>
 #include <cstdint>
@@ -286,10 +287,6 @@ void require_dflash_row_views(const Weight& first_weight, const Weight& second_w
         throw std::invalid_argument(
             "q8 pair: [1024,2048] weights must be exact adjacent parent K/V row views");
     }
-}
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
 }
 
 void require_pair_operands(const Tensor& x, const Weight& first_weight, const Weight& second_weight,

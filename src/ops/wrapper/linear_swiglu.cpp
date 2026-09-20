@@ -7,16 +7,13 @@
 #include "ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_plan.h"
 #include "ops/linear_swiglu/q4/q4_linear_swiglu_plan.h"
 #include "ops/linear_swiglu/q8/q8_linear_swiglu_plan.h"
+#include "ops/common/validation.h"
 
 #include <cstdint>
 #include <stdexcept>
 
 namespace ninfer::ops {
 namespace {
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
 
 void validate_policy(LinearPolicy policy) {
     switch (policy) {

@@ -15,6 +15,7 @@
 #include "ops/linear/fp8/fp8_format.h"
 #include "ops/linear/nvfp4/nvfp4_config.h"
 #include "ops/linear/nvfp4/nvfp4_format.h"
+#include "ops/common/validation.h"
 
 #include <algorithm>
 #include <array>
@@ -24,10 +25,6 @@
 
 namespace ninfer::ops {
 namespace {
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
 
 void require_matrix(const Tensor& tensor, std::int32_t rows, std::int32_t cols, const char* label) {
     if (tensor.dtype != DType::BF16 || tensor.ne[0] != rows || tensor.ne[1] != cols ||

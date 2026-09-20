@@ -8,6 +8,7 @@
 #include "ops/linear/q5/q5_dispatch.h"
 #include "ops/linear/q6/q6_dispatch.h"
 #include "ops/linear/q8/q8_dispatch.h"
+#include "ops/common/validation.h"
 
 #include <cstdint>
 #include <limits>
@@ -30,10 +31,6 @@ std::int64_t checked_numel(const Tensor& tensor, const char* label) {
         total *= extent;
     }
     return total;
-}
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
 }
 
 void validate_linear_policy(LinearPolicy policy) {

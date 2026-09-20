@@ -1,6 +1,7 @@
 #include "ninfer/ops/rmsnorm_rope.h"
 
 #include "ops/rmsnorm_rope/launch.h"
+#include "ops/common/validation.h"
 
 #include <array>
 #include <cstddef>
@@ -16,10 +17,6 @@ constexpr std::int32_t kQueryHeads    = 32;
 constexpr std::int32_t kKeyHeads      = 8;
 constexpr std::int32_t kMaximumBatch  = 8;
 constexpr std::int32_t kMaximumSingle = 2048;
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
 
 void require_tensor(const Tensor& tensor, DType dtype, const std::array<std::int32_t, 4>& shape,
                     const char* label) {
