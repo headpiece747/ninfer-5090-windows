@@ -63,11 +63,12 @@ OwnedMedia acquire_media(const Json& part, MediaKind kind, std::size_t message_i
 
     media_acquire::Source source;
     source.media_type = media_type;
-    if (value.starts_with("http://") || value.starts_with("https://")) {
-        source.kind = media_acquire::SourceKind::Url;
-    } else if (value.starts_with("data:")) {
-        source.kind = media_acquire::SourceKind::Data;
-        if (media_type.empty()) { media_type = data_media_type(value); }
+    const auto wire   = media_acquire::classify_wire_source(value);
+    if (wire) {
+        source.kind = *wire;
+        if (*wire == media_acquire::SourceKind::Data && media_type.empty()) {
+            media_type = data_media_type(value);
+        }
     } else {
         source.kind = media_acquire::SourceKind::Path;
         if (value.starts_with("file://")) { value.erase(0, 7); }

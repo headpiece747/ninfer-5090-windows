@@ -289,14 +289,10 @@ ninfer::product::media_acquire::Source parse_media_url(const Json& part, const c
     if (url.empty()) { bad_request(std::string(field) + " URL must not be empty", "messages"); }
 
     ninfer::product::media_acquire::Source source;
-    source.value = std::move(url);
-    if (source.value.starts_with("data:")) {
-        source.kind = ninfer::product::media_acquire::SourceKind::Data;
-    } else if (source.value.starts_with("http://") || source.value.starts_with("https://")) {
-        source.kind = ninfer::product::media_acquire::SourceKind::Url;
-    } else {
-        bad_request(std::string(field) + " must use HTTP(S) or a data URI", "messages");
-    }
+    source.value    = std::move(url);
+    const auto kind = ninfer::product::media_acquire::classify_wire_source(source.value);
+    if (!kind) { bad_request(std::string(field) + " must use HTTP(S) or a data URI", "messages"); }
+    source.kind = *kind;
     return source;
 }
 

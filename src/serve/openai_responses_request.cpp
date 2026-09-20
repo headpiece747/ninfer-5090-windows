@@ -117,14 +117,10 @@ ninfer::product::media_acquire::Source parse_image_source(const Json& part) {
     }
 
     ninfer::product::media_acquire::Source source;
-    source.value = part.at("image_url").get<std::string>();
-    if (source.value.starts_with("data:")) {
-        source.kind = ninfer::product::media_acquire::SourceKind::Data;
-    } else if (source.value.starts_with("http://") || source.value.starts_with("https://")) {
-        source.kind = ninfer::product::media_acquire::SourceKind::Url;
-    } else {
-        bad_request("input_image.image_url must use HTTP(S) or a data URI", "input");
-    }
+    source.value    = part.at("image_url").get<std::string>();
+    const auto kind = ninfer::product::media_acquire::classify_wire_source(source.value);
+    if (!kind) { bad_request("input_image.image_url must use HTTP(S) or a data URI", "input"); }
+    source.kind = *kind;
     return source;
 }
 
@@ -134,14 +130,10 @@ ninfer::product::media_acquire::Source parse_video_source(const Json& part) {
         bad_request("input_video must contain a non-empty video_url", "input");
     }
     ninfer::product::media_acquire::Source source;
-    source.value = part.at("video_url").get<std::string>();
-    if (source.value.starts_with("data:")) {
-        source.kind = ninfer::product::media_acquire::SourceKind::Data;
-    } else if (source.value.starts_with("http://") || source.value.starts_with("https://")) {
-        source.kind = ninfer::product::media_acquire::SourceKind::Url;
-    } else {
-        bad_request("input_video.video_url must use HTTP(S) or a data URI", "input");
-    }
+    source.value    = part.at("video_url").get<std::string>();
+    const auto kind = ninfer::product::media_acquire::classify_wire_source(source.value);
+    if (!kind) { bad_request("input_video.video_url must use HTTP(S) or a data URI", "input"); }
+    source.kind = *kind;
     return source;
 }
 
