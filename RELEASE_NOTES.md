@@ -106,3 +106,12 @@ with it).
 - All four profiles reach the full 262,144 context with Vision. Earlier builds capped the
   NVFP4 lane because that artifact carried 19.7 GiB of device weights; the one shipped now
   carries 17.0 GiB.
+
+## Release numbering
+
+Versions are published in order and never skipped. `v1.0.1` and `v1.0.2` were built on the
+maintainer's machine and never released — their archives are still in `C:\AI\releases` — so the
+published list reads `1.0.0, 1.0.3, ...`. Nothing was withdrawn, and `1.0.0` is unaffected.
+
+Patch numbers carry fixes to the shipped profile set; a minor number carries a new artifact line,
+which is what `1.1.0` is: the v3 container, the measured profile table, and the QUASAR lane.
