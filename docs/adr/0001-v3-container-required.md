@@ -40,7 +40,7 @@ above describes neither repository any more. What that changes:
   same v3 file. The `...qat.v2.ninfer` staging name went with the v2 source.
 - The upgrader still ships, for a copy fetched before the republish.
 - **Re-derive a pin from the repository's blob metadata**
-  (`https://huggingface.co/api/models/<repo>?blobs=true`), never from a local copy. The
-  locally-upgraded file the profile measurements were taken on is a *different* v3 packing
-  (18,638,514,859 bytes) from the published one, which is how a pin goes stale unnoticed: the
-  file it was written against can stop being the file the repository serves.
+  (`https://huggingface.co/api/models/<repo>?blobs=true`), never from a local copy. A local copy is
+  not the published file in more than name: this one is a different container whose upgrader emits
+  the fused draft binding (ADR-0003) rather than the repository's upstream-shaped one, and the two
+  measure 314.3 against 341.7 tok/s. A size check cannot see that; the pin can, once it is current.

@@ -17,9 +17,13 @@ under the bench records), while 8 costs 1.3 GiB of runtime and up to 14% of deco
 larger value buys retained-state capacity for interleaved conversations, which nothing in this repo
 measures -- treat raising it as an unverified trade, not as a fix.
 Decode varies ~10% run to run and free VRAM ~0.2 GiB with whatever else holds the card.
-Every value below is backed by a record in matrix_v3.jsonl under the launcher's own file name.
-The PROFILES table is the only copy: this docstring deliberately restates no figures, because a
-hand-copied number is a drift site. The example table that used to stand here was already stale by
+Every value below is backed by a record in matrix_v3.jsonl under the launcher's own file name, and
+every value is measured on the **published** artifact -- the one `download_model.py`'s pin resolves
+to, hash-verified. A locally-upgraded copy is not a substitute: the QUASAR repository's v3 binds the
+DFlash2 draft attention differently from the v2-upgraded file (ADR-0003), and the two measure 314.3
+against 341.7 tok/s on DFlash2 and 215.0 against 239.2 on MTP.
+The PROFILES table is the only copy: this docstring deliberately restates no further figures,
+because a hand-copied number is a drift site. The example table that used to stand here was already stale by
 the time the launchers gained --device-state-slots, one day after those measurements.
 
 All four are vision-only and all four reach the native context; the with-vs-without-vision
@@ -43,12 +47,12 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=341.7, acc="61.8%", runtime="10.7 GiB", free="2.5 GiB",
+         tok=314.3, acc="62.5%", runtime="10.7 GiB", free="2.5 GiB",
          note="Fastest QUASAR lane at full context, at one state slot."),
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=239.2, acc="65.3%", runtime="10.4 GiB", free="3.34 GiB",
+         tok=215.0, acc="58.3%", runtime="10.4 GiB", free="3.1 GiB",
          note="Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR."),
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",

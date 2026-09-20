@@ -15,8 +15,8 @@ that earlier builds shipped.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **342 tok/s** | 61.8% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | 239 tok/s | 65.3% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **314 tok/s** | 62.5% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | 215 tok/s | 58.3% |
 | `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **343 tok/s** | 63.7% |
 | `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 249 tok/s | 64.2% |
 
@@ -24,9 +24,10 @@ Every number was measured on an RTX 5090 with the exact arguments the launcher p
 every context ceiling is the highest value the engine accepts for that configuration — the
 next step up is refused, not degraded.
 
-**QUASAR is the recommended profile**: our own artifact, at the full 262,144 context, measuring
-within noise of the other DFlash2 lane (341.7 against 343.1 tok/s), and Vision is free on both
-(the with/without comparison is recorded in `docs/adr/0004`).
+**NVFP4-full DFlash2 is the fastest shipped lane** (343 tok/s against QUASAR's 314), so it is what
+to reach for when decode speed is the priority; QUASAR remains our own artifact, at the same
+262,144 context, and ADR-0004 records why the second lane rides a third-party repository with no
+in-house fallback. Vision is free on both (the with/without comparison is in `docs/adr/0004`).
 
 ## Getting a model
 
