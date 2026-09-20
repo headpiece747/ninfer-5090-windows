@@ -67,19 +67,6 @@ struct TransferCompletion {
     }
 };
 
-struct CopyRange {
-    std::size_t file       = 0;
-    std::uint64_t begin    = 0;
-    std::uint64_t end      = 0;
-    std::byte* destination = nullptr;
-};
-
-struct ReadSpan {
-    std::size_t file    = 0;
-    std::uint64_t begin = 0;
-    std::uint64_t end   = 0;
-};
-
 float read_divisor(const Reader& reader, ObjectHandle handle, const WeightGeometry& geometry,
                    std::span<const std::byte> host, MaterializationStats& stats) {
     if (geometry.format != QType::NVFP4) { return 0.0F; }
@@ -101,6 +88,39 @@ float read_divisor(const Reader& reader, ObjectHandle handle, const WeightGeomet
 }
 
 } // namespace
+
+TransferPlan plan_transfer(std::vector<CopyRange> ranges) {
+    TransferPlan plan;
+    if (ranges.empty()) { return plan; }
+    std::sort(ranges.begin(), ranges.end(), [](const auto& a, const auto& b) {
+        return std::tie(a.file, a.begin) < std::tie(b.file, b.begin);
+    });
+    for (std::size_t i = 0; i < ranges.size(); ++i) {
+        const auto& range = ranges[i];
+        if (i && ranges[i - 1].file == range.file && ranges[i - 1].end > range.begin) {
+            throw ArtifactError("device source ranges overlap");
+        }
+        const auto begin = range.begin / kPayloadAlignment * kPayloadAlignment;
+        if (plan.spans.empty() || plan.spans.back().file != range.file ||
+            begin > align_up(plan.spans.back().end, kPayloadAlignment, "direct range")) {
+            plan.spans.push_back({range.file, begin, range.end});
+        } else {
+            plan.spans.back().end = std::max(plan.spans.back().end, range.end);
+        }
+    }
+    for (const auto& span : plan.spans) {
+        plan.aligned_bytes =
+            checked_add(plan.aligned_bytes,
+                        align_up(span.end - span.begin, kPayloadAlignment, "direct range bytes"),
+                        "direct bytes");
+    }
+    plan.slot_bytes =
+        static_cast<std::size_t>(std::min<std::uint64_t>(kSlotBytes, plan.aligned_bytes));
+    plan.slot_count = static_cast<std::size_t>(
+        std::min<std::uint64_t>(kMaximumSlotCount, 1 + (plan.aligned_bytes - 1) / plan.slot_bytes));
+    plan.ranges = std::move(ranges);
+    return plan;
+}
 
 const WeightParent& MaterializedArtifact::device_parent(ObjectHandle handle) const {
     if (!has_device(handle)) { throw ArtifactError("object has no device weight backing"); }
@@ -206,33 +226,11 @@ MaterializedArtifact materialize(const Reader& reader, MaterializationPlan&& pla
         phase.complete();
         return out;
     }
-    std::sort(ranges.begin(), ranges.end(), [](const auto& a, const auto& b) {
-        return std::tie(a.file, a.begin) < std::tie(b.file, b.begin);
-    });
-    std::vector<ReadSpan> spans;
-    std::uint64_t aligned_bytes = 0;
-    for (std::size_t i = 0; i < ranges.size(); ++i) {
-        const auto& range = ranges[i];
-        if (i && ranges[i - 1].file == range.file && ranges[i - 1].end > range.begin) {
-            throw ArtifactError("device source ranges overlap");
-        }
-        const auto begin = range.begin / kPayloadAlignment * kPayloadAlignment;
-        if (spans.empty() || spans.back().file != range.file ||
-            begin > align_up(spans.back().end, kPayloadAlignment, "direct range")) {
-            spans.push_back({range.file, begin, range.end});
-        } else {
-            spans.back().end = std::max(spans.back().end, range.end);
-        }
-    }
-    for (const auto& span : spans) {
-        aligned_bytes = checked_add(
-            aligned_bytes, align_up(span.end - span.begin, kPayloadAlignment, "direct range bytes"),
-            "direct bytes");
-    }
-    const auto slot_bytes =
-        static_cast<std::size_t>(std::min<std::uint64_t>(kSlotBytes, aligned_bytes));
-    const auto slot_count = static_cast<std::size_t>(
-        std::min<std::uint64_t>(kMaximumSlotCount, 1 + (aligned_bytes - 1) / slot_bytes));
+    TransferPlan transfer = plan_transfer(std::move(ranges));
+    const auto& sorted    = transfer.ranges;
+    const auto& spans     = transfer.spans;
+    const auto slot_bytes = transfer.slot_bytes;
+    const auto slot_count = transfer.slot_count;
     std::vector<std::unique_ptr<Slot>> slots;
     out.stats_.peak_staging_bytes = slot_bytes * slot_count;
     StartupPhaseScope pin_phase(observer, StartupPhase::WeightsStagingPin,
@@ -260,9 +258,9 @@ MaterializedArtifact materialize(const Reader& reader, MaterializationPlan&& pla
             }
             out.stats_.read_bytes = checked_add(out.stats_.read_bytes, received, "read bytes");
             const auto chunk_end  = checked_add(source, received, "read block end");
-            while (next_range < ranges.size() && ranges[next_range].file == span.file &&
-                   ranges[next_range].begin < chunk_end) {
-                const auto& range = ranges[next_range];
+            while (next_range < sorted.size() && sorted[next_range].file == span.file &&
+                   sorted[next_range].begin < chunk_end) {
+                const auto& range = sorted[next_range];
                 const auto begin  = std::max(source, range.begin);
                 const auto end    = std::min(chunk_end, range.end);
                 if (begin < end) {
@@ -285,7 +283,7 @@ MaterializedArtifact materialize(const Reader& reader, MaterializationPlan&& pla
     }
     for (const auto& slot : slots) { slot->wait(); }
     completion.finish();
-    if (copied != total || next_range != ranges.size()) {
+    if (copied != total || next_range != sorted.size()) {
         throw ArtifactError("incomplete device upload");
     }
     out.stats_.h2d_bytes = copied;
