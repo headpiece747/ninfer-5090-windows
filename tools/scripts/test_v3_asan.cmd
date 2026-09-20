@@ -11,8 +11,19 @@ REM
 REM Scope: the host-only tests below. Device kernels are covered by compute-sanitizer instead
 REM (see .opencode/skills/cuda-debugging); ASan does not instrument device code.
 REM
-REM Leak reporting is off: CUDA and the driver keep reachable allocations that are not leaks in
-REM this program's sense, and LeakSanitizer's exit code would otherwise mask a real finding.
+REM Leak reporting is off because MSVC's AddressSanitizer does not implement LeakSanitizer on
+REM Windows: setting detect_leaks=1 makes every instrumented binary abort with
+REM "AddressSanitizer: detect_leaks is not supported on this platform." It is not a choice about
+REM reachable CUDA allocations, and no leak coverage is lost by leaving it off -- there was none.
+REM
+REM No host leak check exists on this platform today. The MSVC CRT debug heap
+REM (_CrtSetDbgFlag(_CRTDBG_LEAK_CHECK_DF) + _CrtDumpMemoryLeaks) does detect leaks, but only
+REM under the debug CRT (/MDd), and these tests link CUDA libraries built with the release CRT,
+REM so mixing them fails with LNK2038. Dr. Memory was evaluated as the rebuild-free alternative
+REM and cannot instrument on Windows 11 build 26200 (25H2): both 2.6.0 and the December 2025
+REM weekly build abort with an internal crash before the target starts. Re-check Dr. Memory when
+REM DynamoRIO ships a build for 25H2; until then, a Linux ASan run is the only route to host leak
+REM coverage.
 setlocal
 set "REPO=%~dp0..\.."
 
