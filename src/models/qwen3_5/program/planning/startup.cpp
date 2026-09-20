@@ -185,21 +185,14 @@ PersistentLayout persistent_layout(const SequencePlanImpl& plan) {
             if (draft->full_layer_count() != 0) {
                 const PagedKVStorageLayout full_storage = paged_kv_storage_layout(
                     KvCacheStorage::BFloat16, dimension(draft->attention.head_dim));
-                KVPageGeometry full_geometry{
-                    .page_tokens        = kPagedKVPageSize,
-                    .device_plane_order = PagedKVPlaneOrder::HeadMajor,
-                    .planes =
-                        {
-                            {full_storage.key.data_dtype, full_storage.key.data_leading_extent,
-                             dimension(draft->attention.num_key_value_heads), 256},
-                            {full_storage.value.data_dtype, full_storage.value.data_leading_extent,
-                             dimension(draft->attention.num_key_value_heads), 256},
-                        },
-                };
-                const auto planes = full_geometry.planes;
-                for (std::uint32_t layer = 1; layer < draft->full_layer_count(); ++layer) {
-                    full_geometry.planes.insert(full_geometry.planes.end(), planes.begin(),
-                                                planes.end());
+                const std::vector<KVPlaneGeometry> per_layer =
+                    storage_planes(full_storage, dimension(draft->attention.num_key_value_heads));
+                KVPageGeometry full_geometry{.page_tokens        = kPagedKVPageSize,
+                                             .device_plane_order = PagedKVPlaneOrder::HeadMajor};
+                full_geometry.planes.reserve(per_layer.size() * draft->full_layer_count());
+                for (std::uint32_t layer = 0; layer < draft->full_layer_count(); ++layer) {
+                    full_geometry.planes.insert(full_geometry.planes.end(), per_layer.begin(),
+                                                per_layer.end());
                 }
                 dflash.full = qwen3_5::PagedKVCacheLayout{
                     .pages = plan_device_kv_page_pool(

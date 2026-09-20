@@ -28,20 +28,10 @@ PagedKVCacheLayout plan_cache(LayoutBuilder& builder, std::uint32_t layers, std:
     }
 
     KVPageGeometry geometry;
-    geometry.planes.reserve(static_cast<std::size_t>(layers) * layer_storage.planes_per_layer());
+    const std::vector<KVPlaneGeometry> per_layer = storage_planes(layer_storage, kv_heads);
+    geometry.planes.reserve(per_layer.size() * layers);
     for (std::uint32_t layer = 0; layer < layers; ++layer) {
-        geometry.planes.push_back(
-            {layer_storage.key.data_dtype, layer_storage.key.data_leading_extent, kv_heads, 256});
-        geometry.planes.push_back({layer_storage.value.data_dtype,
-                                   layer_storage.value.data_leading_extent, kv_heads, 256});
-        if (layer_storage.key.has_scale()) {
-            geometry.planes.push_back({layer_storage.key.scale_dtype,
-                                       layer_storage.key.scale_leading_extent, kv_heads, 256});
-        }
-        if (layer_storage.value.has_scale()) {
-            geometry.planes.push_back({layer_storage.value.scale_dtype,
-                                       layer_storage.value.scale_leading_extent, kv_heads, 256});
-        }
+        geometry.planes.insert(geometry.planes.end(), per_layer.begin(), per_layer.end());
     }
     return PagedKVCacheLayout{
         .pages = plan_device_kv_page_pool(
