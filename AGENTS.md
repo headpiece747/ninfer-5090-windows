@@ -218,7 +218,9 @@ Fourteen rules, each earned by a failure rather than chosen:
   tooling in one directory and the code in another, which is what happened when this repository was
   worked from `ninfer-quasar-5090` on one branch and `ninfer-v3-windows` on another. Push `dev` —
   unpushed work is one disk failure from gone, and `main` being three weeks stale is the same fault
-  seen from the other side.
+  seen from the other side. Keep one *checkout* as well: three clones of this same origin and a
+  redundant upstream clone had accumulated under `C:\AI`, each holding refs the working checkout
+  already had. The remote is already configured, so a second clone buys nothing.
 - **Integrate upstream by merging into `dev`.** Never park local commits on a tracking branch: that
   is how `cometkim-qat` became 25 commits ahead and 41 behind, living in another worktree.
 - **Publish every version you build, in order, or do not build it.** A gap in the release list reads
