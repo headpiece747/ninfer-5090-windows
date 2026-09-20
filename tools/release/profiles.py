@@ -11,17 +11,25 @@ describes the configuration a launcher actually starts, including its --device-s
 earlier probe omitted that flag and published a runtime/free pair for a configuration no launcher
 starts.
 
+The four values come from ONE interleaved window, three rounds in lane order (quasar dflash2, quasar
+mtp4, nvfp4-full dflash2, nvfp4-full mtp5). Interleaving is not optional here: this machine's decode
+varies by up to ~9% between windows, and both an earlier "state slots cost 14% of decode" and an
+earlier "the fused artifact is 9% faster" were time-ordered comparisons -- they measured the window,
+not the variable. Compare alternatives by alternating them; never measure one, then the other.
+
 --device-state-slots is 1 for every profile, from a record: the reclaim that landed 2026-09-19
 removed the #251 cliff, so all twelve conversations reuse at 1 as well as at 8 (`slots_sweep_*.txt`
-under the bench records), while 8 costs 1.3 GiB of runtime and up to 14% of decode on DFlash2. A
-larger value buys retained-state capacity for interleaved conversations, which nothing in this repo
-measures -- treat raising it as an unverified trade, not as a fix.
+under the bench records). Interleaved against 8, the value 1 costs 1.3 GiB less runtime and raises
+acceptance (62.5% against 58.6%) at the same decode. A larger value buys retained-state capacity for
+interleaved conversations, which nothing in this repo measures -- treat raising it as an unverified
+trade, not as a fix.
 Decode varies ~10% run to run and free VRAM ~0.2 GiB with whatever else holds the card.
 Every value below is backed by a record in matrix_v3.jsonl under the launcher's own file name, and
 every value is measured on the **published** artifact -- the one `download_model.py`'s pin resolves
-to, hash-verified. A locally-upgraded copy is not a substitute: the QUASAR repository's v3 binds the
-DFlash2 draft attention differently from the v2-upgraded file (ADR-0003), and the two measure 314.3
-against 341.7 tok/s on DFlash2 and 215.0 against 239.2 on MTP.
+to, hash-verified. A locally-upgraded copy is not a substitute: it binds the DFlash2 draft attention
+differently (ADR-0003), so it produces different tokens. Its throughput is the same -- but do not
+compare A against B by measuring one after the other, or this machine's ~8% between-window drift
+will read as a finding. That happened here; ADR-0003's amendment records it. Interleave.
 The PROFILES table is the only copy: this docstring deliberately restates no further figures,
 because a hand-copied number is a drift site. The example table that used to stand here was already stale by
 the time the launchers gained --device-state-slots, one day after those measurements.
@@ -47,22 +55,22 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=314.3, acc="62.5%", runtime="10.7 GiB", free="2.5 GiB",
+         tok=343.4, acc="62.5%", runtime="10.7 GiB", free="2.7 GiB",
          note="Fastest QUASAR lane at full context, at one state slot."),
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=215.0, acc="58.3%", runtime="10.4 GiB", free="3.1 GiB",
+         tok=219.5, acc="58.3%", runtime="10.4 GiB", free="3.3 GiB",
          note="Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR."),
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=343.1, acc="63.7%", runtime="10.7 GiB", free="2.05 GiB",
+         tok=344.6, acc="63.7%", runtime="10.7 GiB", free="2.0 GiB",
          note="Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot."),
     dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
-         tok=249.3, acc="64.2%", runtime="10.4 GiB", free="2.59 GiB",
+         tok=253.5, acc="64.2%", runtime="10.4 GiB", free="2.6 GiB",
          note="MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here."),
 ]
 

@@ -3,8 +3,8 @@ REM ============================================================================
 REM  NVFP4-full + MTP5 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 249.3 tok/s   draft acceptance 64.2%
-REM      runtime 10.4 GiB   free VRAM 2.59 GiB
+REM      context 262,144   decode 253.5 tok/s   draft acceptance 64.2%
+REM      runtime 10.4 GiB   free VRAM 2.6 GiB
 REM
 REM  MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here.
 REM

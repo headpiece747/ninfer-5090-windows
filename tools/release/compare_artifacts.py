@@ -2,9 +2,9 @@
 """Compare two .ninfer v3 entry files: header, JSON index, and payload bytes.
 
 Answers one question that recurs whenever an artifact is republished: are these two files the same
-model? Written because a locally-upgraded copy and the repository's own v3 measured 341.7 against
-314.3 tok/s on the same profile, which is a difference no size check would have caught -- the two
-are 4,283 bytes apart, and 4,096 of that is JSON trailing-whitespace padding.
+model? Written because a locally-upgraded copy and the repository's own v3 produced different tokens
+(61.8% against 62.5% acceptance, different digests) while being only 4,283 bytes apart -- 4,096 of
+that JSON trailing-whitespace padding -- which no size check can see.
 
 Per docs/maintainer/artifact-container.md 3.1 the entry header is 32 bytes (magic, json_bytes,
 artifact_id), the JSON occupies [32, metadata_end), and the payload starts at

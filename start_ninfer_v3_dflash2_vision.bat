@@ -3,8 +3,8 @@ REM ============================================================================
 REM  NVFP4-full + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 343.1 tok/s   draft acceptance 63.7%
-REM      runtime 10.7 GiB   free VRAM 2.05 GiB
+REM      context 262,144   decode 344.6 tok/s   draft acceptance 63.7%
+REM      runtime 10.7 GiB   free VRAM 2.0 GiB
 REM
 REM  Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot.
 REM

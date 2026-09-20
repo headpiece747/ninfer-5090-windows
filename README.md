@@ -236,17 +236,19 @@ Two build notes specific to Windows:
 ### Profiles and launchers
 
 Four launchers ship for the RTX 5090, one per measured-optimal profile. Every number below was
-measured on this machine with the exact argument set the launcher uses. Both artifacts are
+measured on this machine with the exact argument set the launcher uses, in one interleaved pass --
+absolute decode varies by up to ~9% between sessions on a card whose clocks are not pinned, so
+compare lanes to each other and expect your own absolute figures to differ. Both artifacts are
 vision-only here because Vision measured free on both at 262,144; the with/without comparison is
 recorded in `docs/adr/0004`. No degraded text-only variant ships, and every profile reaches the
 full native context.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **314 tok/s** | 62.5% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 215 tok/s | 58.3% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **343 tok/s** | 63.7% |
-| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 249 tok/s | 64.2% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **343 tok/s** | 62.5% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 220 tok/s | 58.3% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **345 tok/s** | 63.7% |
+| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 254 tok/s | 64.2% |
 
 Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
 runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after

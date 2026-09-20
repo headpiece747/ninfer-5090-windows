@@ -3,8 +3,8 @@ REM ============================================================================
 REM  QUASAR QAT + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 314.3 tok/s   draft acceptance 62.5%
-REM      runtime 10.7 GiB   free VRAM 2.5 GiB
+REM      context 262,144   decode 343.4 tok/s   draft acceptance 62.5%
+REM      runtime 10.7 GiB   free VRAM 2.7 GiB
 REM
 REM  Fastest QUASAR lane at full context, at one state slot.
 REM
