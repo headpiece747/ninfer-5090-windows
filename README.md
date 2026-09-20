@@ -1,13 +1,34 @@
-# NInfer
+# NInfer 5090 Windows
 
-> Selected checkpoints. Maximum single-GPU inference performance.
+> Native Windows port of NInfer. Selected checkpoints. Maximum single-GPU inference performance.
 
-NInfer is a from-scratch C++/CUDA inference engine for Qwen3.5 Dense and MoE architectures on a
-single NVIDIA GeForce RTX 5090. It runs text, image, and video prompts through a local CLI or
-OpenAI-/Anthropic-compatible HTTP APIs. The runtime is deliberately specialized: one GPU, one
-resident model, and a startup-fixed capacity of one to eight active requests.
+This repository is the native Windows port of [Neroued/ninfer](https://github.com/Neroued/ninfer):
+the same C++/CUDA engine, built with MSVC and CUDA 13.3 on Windows 11 x64, with no WSL2 and no
+Docker. It runs text, image, and video prompts through a local CLI or OpenAI-/Anthropic-compatible
+HTTP APIs. The runtime is deliberately specialized: one GPU, one resident model, and a
+startup-fixed capacity of one to eight active requests.
 
-Five official artifacts are available. The quick-start commands use Qwen3.8-27B NVFP4.
+Release v1.1.0 moves to the **v3 artifact line**: four measured launchers over two artifacts, both
+vision-capable at the full 262,144-token context, with DFlash2 or MTP speculative decoding. The
+engine rejects v2 artifacts outright, so a v1.0.x user must download a v3 artifact or
+[upgrade the one they have](docs/weight-conversion.md#upgrade-an-existing-v2-artifact). Details in
+[RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+## Install a release (recommended)
+
+1. Download the archive attached to the release page and check it against the SHA-256 listed there.
+2. Extract it anywhere. The executables, the launchers and `download_model.bat` sit in the root.
+3. Run `download_model.bat`. It offers the two shipped artifacts, downloads the one you choose, and
+   verifies its size and SHA-256 against the pin in `download_model.py`.
+4. Double-click a launcher. Each one checks that the engine and the artifact exist before starting,
+   and leaves the failure on screen if they do not.
+
+The server then answers on `http://127.0.0.1:<port>/v1` under the model id in that launcher's
+header. `GET /health` answers once the model is loaded. The four launchers and their measured
+figures are under [Profiles and launchers](#profiles-and-launchers); building from source is under
+[Windows](#windows).
+
+Five engine artifacts are available. The shipped launchers use the first two.
 
 | Model | Weights | Artifact | Download and model card |
 |---|---|---|---|
@@ -16,6 +37,12 @@ Five official artifacts are available. The quick-start commands use Qwen3.8-27B 
 | Qwen3.8-27B | `groupwise-int` | `qwen3_8_27b.ninfer` | [Qwen3.8-27B](https://huggingface.co/neroued/Qwen3.8-27B-NInfer) |
 | Qwen3.8-27B | `nvfp4` | `qwen3_8_27b_nvfp4.ninfer` | [Qwen3.8-27B NVFP4](https://huggingface.co/neroued/Qwen3.8-27B-nvfp4-NInfer) |
 | Qwen3.6-35B-A3B | `groupwise-int` | `qwen3_6_35b_a3b.ninfer` | [Qwen3.6-35B-A3B](https://huggingface.co/neroued/Qwen3.6-35B-A3B-NInfer) |
+| Qwen3.8-27B | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | [QUASAR QAT](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer), 17.36 GiB, `8b86901a…` |
+| Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.v3.ninfer` | [NVFP4-full](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4full-NInfer), 18.07 GiB, `ac98cd39…` |
+
+The two shipped artifacts are the QUASAR QAT image and cometkim's fuller-NVFP4 image. Their sizes
+and full SHA-256 digests are pinned in `download_model.py`, which verifies every download against
+them; a republish upstream means updating that pin.
 
 Each v3 `.ninfer` artifact carries model configuration, encoded weights, logical bindings and
 frontend resources. Runtime execution uses those facts with the implemented model and Op
@@ -26,7 +53,10 @@ The current engine requires v3 artifacts. Existing official v2 downloads can be
 [upgraded locally](docs/weight-conversion.md#upgrade-an-existing-v2-artifact) without downloading
 the weights again.
 
-## Quick start
+## Quick start (building the engine on Linux)
+
+This section is upstream's, and it builds the engine on Linux from source. For the native Windows
+build in this repository, see [Windows](#windows) below.
 
 NInfer requires 64-bit Linux, an NVIDIA GeForce RTX 5090, a CUDA toolkit supporting `sm_120a`,
 CMake 3.28 or newer, a C++20 host compiler, Ninja, `pkg-config`, FFmpeg development libraries
@@ -299,6 +329,58 @@ constraints. All three together gave **5/5 hits at 99.1%**.
 The bounds cost nothing measurable in the profile they were measured on (QUASAR DFlash2 with Vision at 262,144). `--kv-capacity auto` sizes each pool from the VRAM left after weights, so every profile's capacity is its own measured ceiling, not a shared number.
 The failure mode is silent, so it is worth setting these even when a single repeated prompt
 appears to cache perfectly — a lone resident prefix masks it.
+
+## Client compatibility and known API limitations
+
+The server implements OpenAI Chat Completions and Responses, the Anthropic Messages API, and model
+listing. It has no legacy completions endpoint and no embeddings endpoint, and it validates request
+bodies strictly: a field it does not implement is refused with a named error instead of being
+ignored.
+
+| Route | Status |
+|---|---|
+| `GET /health` | readiness |
+| `POST /cancel` | cancel an in-flight response |
+| `GET /v1/models`, `GET /v1/models/{id}` | listing and metadata |
+| `POST /v1/chat/completions` | OpenAI chat, streaming and non-streaming |
+| `POST /v1/responses`, `/compact`, `/input_tokens` | OpenAI Responses API |
+| `POST /v1/messages`, `/v1/messages/count_tokens` | Anthropic Messages |
+| `POST /v1/completions` | not implemented (404) |
+| `POST /v1/embeddings` | not implemented (404) |
+
+Refused request fields, each with its own error code:
+
+| Field or feature | Error code | Workaround |
+|---|---|---|
+| `response_format` other than text | `response_format_not_supported` | ask for JSON in the prompt |
+| `grammar`, `guided_*`, `structured_outputs` | `constrained_decoding_not_supported` | prompt-level formatting |
+| `logprobs`, `top_logprobs` | `logprobs_not_supported` | none |
+| `logit_bias` | `logit_bias_not_supported` | none |
+| `n > 1` | `n_not_supported` | send the request again |
+| `tool_choice` other than `auto` or `none` | `tool_choice_not_supported` | let the model choose |
+| `parallel_tool_calls: false` | `parallel_tool_calls_not_supported` | allow parallel calls |
+| legacy `functions` / `function_call` | `legacy_tools_not_supported` | use `tools` |
+| `strict` tool schemas | `strict_tools_not_supported` | drop `strict` |
+| Anthropic server tools | `server_tools_not_supported` | run tools in the client |
+| Anthropic `document` blocks (PDF) | `documents_not_supported` | extract text first |
+| `store`, `background`, `service_tier` | `*_not_supported` | omit them |
+| audio or file inputs | `audio_inputs_not_supported`, `file_inputs_not_supported` | text and images only |
+| `repetition_penalty` other than 1.0 | `repetition_penalty_not_supported` | leave it neutral |
+
+Two things the server does offer, with defaults worth knowing:
+
+- Responses state is process-local, bounded to 1024 records and 256 MiB
+  (`--response-store-max-records`, `--response-store-max-mib`).
+- `--cors` is off by default and no launcher passes it. With no `--api-key` set, turning CORS on
+  lets any page in a browser on this machine drive the model.
+
+## OpenCode Desktop integration
+
+Point an OpenAI-compatible provider at a running launcher, using the model id from that launcher's
+header. [docs/opencode-settings.md](docs/opencode-settings.md) carries the `opencode.json`, the four
+model entries, the compaction settings, and the concurrency answer: the launchers run
+`--max-concurrency 1` deliberately, and that only works because eight conversation states are
+retained in host RAM, which covers a main session plus parallel subagents.
 
 ## Docker
 

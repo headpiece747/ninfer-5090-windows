@@ -15,6 +15,7 @@ Exit code 1 if any consumer disagrees.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -75,6 +76,14 @@ def main() -> int:
           "the provenance sentence and the harness mode must agree")
     check("launcher verifier drains VRAM before starting", "wait_free()" in verifier,
           "an accounting line taken with a leftover process resident is not comparable")
+
+    print("\n=== artifact pins match the README ===")
+    download = read(WT / "download_model.py")
+    readme = read(WT / "README.md")
+    for match in re.finditer(r'"sha256":\s*"([0-9a-f]{64})"', download):
+        digest = match.group(1)
+        check(f"README quotes the pinned digest {digest[:8]}...", digest[:8] in readme,
+              "a republished artifact changes the pin; the README's table has to move with it")
 
     print("\n=== doc tables quote the table ===")
     for doc in (WT / "README.md", WT / "RELEASE_NOTES.md"):
