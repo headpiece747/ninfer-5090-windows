@@ -2,6 +2,7 @@
 #include "ninfer/ops/causal_conv1d_silu.h"
 
 #include "ops/launcher/causal_conv1d.h" // detail::causal_conv1d_*_launch
+#include "ops/common/validation.h"
 
 #include <cstdint>
 #include <limits>
@@ -130,12 +131,6 @@ void require_metadata_accessible(const Tensor& metadata, const char* label) {
     }
 }
 
-bool overlaps(const Tensor& lhs, const Tensor& rhs) {
-    const auto lhs_begin = reinterpret_cast<std::uintptr_t>(lhs.data);
-    const auto rhs_begin = reinterpret_cast<std::uintptr_t>(rhs.data);
-    return lhs_begin < rhs_begin + rhs.bytes() && rhs_begin < lhs_begin + lhs.bytes();
-}
-
 void require_accessible(const Tensor& tensor, const char* label) {
     if (!tensor.is_contiguous()) {
         throw std::invalid_argument(std::string("causal_conv1d: ") + label + " must be contiguous");
@@ -185,7 +180,7 @@ void require_pair_aligned(const Tensor& tensor, const char* label) {
 // thread, or declares both pointers restrict.
 void require_state_alias_rule(const Tensor& conv_state_in, const Tensor& conv_state_out) {
     if (conv_state_in.data == conv_state_out.data) { return; }
-    if (overlaps(conv_state_in, conv_state_out)) {
+    if (tensors_overlap(conv_state_in, conv_state_out)) {
         throw std::invalid_argument("causal_conv1d: conv_state_in and conv_state_out must be "
                                     "disjoint or exactly the same storage");
     }
@@ -199,14 +194,14 @@ void require_packed_nonoverlap(const Tensor& x, const Tensor& weight, const Tens
         for (const Tensor* other : others) {
             // The state pair is governed by require_state_alias_rule, which admits an exact alias.
             if (target == &conv_state_out && other == &conv_state_in) { continue; }
-            if (overlaps(*target, *other)) {
+            if (tensors_overlap(*target, *other)) {
                 throw std::invalid_argument(
                     "causal_conv1d: out and conv_state_out must not overlap x, weight, or "
                     "conv_state_in");
             }
         }
     }
-    if (overlaps(out, conv_state_out)) {
+    if (tensors_overlap(out, conv_state_out)) {
         throw std::invalid_argument("causal_conv1d: out must not overlap conv_state_out");
     }
 }
@@ -218,7 +213,7 @@ void require_split_nonoverlap(const Tensor& x, const Tensor& weight, const Tenso
     const Tensor* const others[4] = {&x, &weight, &conv_state_in, &conv_state_out};
     for (int i = 0; i < 4; ++i) {
         for (int j = i + 1; j < 3; ++j) {
-            if (overlaps(*writes[i], *writes[j])) {
+            if (tensors_overlap(*writes[i], *writes[j])) {
                 throw std::invalid_argument(
                     "causal_conv1d: split destinations must not overlap each other");
             }
@@ -227,7 +222,7 @@ void require_split_nonoverlap(const Tensor& x, const Tensor& weight, const Tenso
             // The state pair is governed by require_state_alias_rule, which admits an exact alias.
             if (writes[i] == &conv_state_out && other == &conv_state_in) { continue; }
             if (writes[i] == other) { continue; }
-            if (overlaps(*writes[i], *other)) {
+            if (tensors_overlap(*writes[i], *other)) {
                 throw std::invalid_argument(
                     "causal_conv1d: split destinations must not overlap x, weight, or the state");
             }

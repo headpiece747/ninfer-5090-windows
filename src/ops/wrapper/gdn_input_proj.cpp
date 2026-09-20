@@ -43,14 +43,8 @@ void require_conv_tensor(const Tensor& tensor, std::int32_t rows, std::int32_t w
     }
 }
 
-bool overlaps(const Tensor& lhs, const Tensor& rhs) {
-    const auto lhs_begin = reinterpret_cast<std::uintptr_t>(lhs.data);
-    const auto rhs_begin = reinterpret_cast<std::uintptr_t>(rhs.data);
-    return lhs_begin < rhs_begin + rhs.bytes() && rhs_begin < lhs_begin + lhs.bytes();
-}
-
 void require_single_parent_nonoverlap(const Tensor& x, const Tensor& qkv, const Tensor& z) {
-    if (overlaps(x, qkv) || overlaps(x, z) || overlaps(qkv, z)) {
+    if (tensors_overlap(x, qkv) || tensors_overlap(x, z) || tensors_overlap(qkv, z)) {
         throw std::invalid_argument("gdn_input_proj: x, qkv, and z must not overlap");
     }
 }
@@ -157,7 +151,7 @@ void require_record_nonoverlap(const Tensor& x, const Tensor& conv_weight,
     for (std::size_t lhs = 0; lhs < tensors.size(); ++lhs) {
         if (tensors[lhs]->data == nullptr) { continue; }
         for (std::size_t rhs = lhs + 1; rhs < tensors.size(); ++rhs) {
-            if (tensors[rhs]->data != nullptr && overlaps(*tensors[lhs], *tensors[rhs])) {
+            if (tensors[rhs]->data != nullptr && tensors_overlap(*tensors[lhs], *tensors[rhs])) {
                 throw std::invalid_argument(
                     "gdn_input_proj_conv_record: tensor operands must not overlap");
             }
@@ -191,7 +185,7 @@ void require_snapshot_nonoverlap(const Tensor& x, const Tensor& conv_weight,
             const bool shared_state_selectors =
                 tensors[lhs] == &initial_state_slots && tensors[rhs] == &snapshot_base_slots;
             if (!shared_state_selectors && tensors[rhs]->data != nullptr &&
-                overlaps(*tensors[lhs], *tensors[rhs])) {
+                tensors_overlap(*tensors[lhs], *tensors[rhs])) {
                 throw std::invalid_argument(
                     "gdn_input_proj_conv_snapshot: tensor operands must not overlap");
             }

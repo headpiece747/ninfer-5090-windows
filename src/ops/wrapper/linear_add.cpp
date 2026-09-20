@@ -61,12 +61,6 @@ void require_bf16(const Weight& w) {
     }
 }
 
-bool overlaps(const Tensor& lhs, const Tensor& rhs) {
-    const auto lhs_begin = reinterpret_cast<std::uintptr_t>(lhs.data);
-    const auto rhs_begin = reinterpret_cast<std::uintptr_t>(rhs.data);
-    return lhs_begin < rhs_begin + rhs.bytes() && rhs_begin < lhs_begin + lhs.bytes();
-}
-
 void validate_policy(LinearPolicy policy) {
     switch (policy) {
     case LinearPolicy::A16Only:
@@ -149,7 +143,7 @@ void linear_add(const Tensor& x, const Weight& w, Tensor& residual_out, LinearPo
     if (t <= 0) { throw std::invalid_argument("linear_add: T must be positive"); }
     require_tensor(x, DType::BF16, w.k, t, "x");
     require_tensor(residual_out, DType::BF16, w.n, t, "residual_out");
-    if (overlaps(x, residual_out)) {
+    if (tensors_overlap(x, residual_out)) {
         throw std::invalid_argument("linear_add: x and residual_out must not overlap");
     }
 
