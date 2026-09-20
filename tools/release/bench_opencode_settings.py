@@ -32,6 +32,7 @@ RECORDS = Path(r"C:\AI\bench\opencode_settings.jsonl")
 # view rather than a second copy: the harness needs its own ports (a launcher may already hold
 # the shipped one) and short keys for --models, and nothing else differs.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from engine import kill_servers  # noqa: E402
 from profiles import PROFILES as SHIPPED, launcher_args  # noqa: E402
 
 _HARNESS_PORTS = [8101, 8102, 8103, 8104]
@@ -270,12 +271,8 @@ assert first_index([1, 3], 2) == -1
 ]
 
 
-def kill() -> None:
-    subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"], capture_output=True, text=True)
-
-
 def start(profile: dict, thinking_budget: int = 4096) -> tuple[subprocess.Popen, Path]:
-    kill()
+    kill_servers()
     time.sleep(3)
     port = profile["port"]
     log = Path(r"C:\AI\bench") / f"settings_{port}.txt"
@@ -381,7 +378,7 @@ def main() -> int:
                 with RECORDS.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(record) + "\n")
         proc.kill()
-        kill()
+        kill_servers()
 
     print("\n=== summary (pass count / mean seconds by effort) ===")
     for model in args.models:

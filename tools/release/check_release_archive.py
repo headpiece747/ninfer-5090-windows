@@ -18,15 +18,14 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from engine import kill_servers  # noqa: E402
+
 DEFAULT_ARCHIVE = Path(r"C:\AI\releases") / "ninfer-windows-v1.1.0-rtx5090.zip"
 ARCHIVE = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_ARCHIVE
 EXTRACT = Path(r"C:\Users\tobia\AppData\Local\Temp\opencode\release-check")
 PORT = 8086
 BASE = f"http://127.0.0.1:{PORT}"
-
-
-def kill() -> None:
-    subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"], capture_output=True, text=True)
 
 
 def main() -> int:
@@ -42,7 +41,7 @@ def main() -> int:
     print(f"   extracted {len(names)} entries to {EXTRACT}")
     print(f"   engine beside the launcher: {(EXTRACT / 'ninfer-serve.exe').exists()}")
 
-    kill()
+    kill_servers()
     time.sleep(3)
     launcher = EXTRACT / "start_quasar_v3_dflash2_vision.bat"
     log = EXTRACT / "run.log"
@@ -80,7 +79,7 @@ def main() -> int:
             print(f"   | {line.strip()[:150]}")
 
     proc.kill()
-    kill()
+    kill_servers()
     return 0 if ids else 1
 
 
