@@ -175,8 +175,12 @@ def main() -> int:
     for doc, path in (("download_model.py", WT / "download_model.py"),
                       ("v3_profile_matrix.py", WT / "tools" / "release" / "v3_profile_matrix.py")):
         body = read(path)
-        for artifact, label in ((QUASAR, "QUASAR"), (NVFP4FULL, "NVFP4-full")):
-            check(f"{doc} references the {label} artifact", artifact in body)
+        for artifact, label, constant in ((QUASAR, "QUASAR", "QUASAR"),
+                                          (NVFP4FULL, "NVFP4-full", "NVFP4FULL")):
+            # Either the filename is written out, or the file imports the constant that owns it.
+            # The matrix does the latter now; asserting only the literal would keep the copy.
+            check(f"{doc} references the {label} artifact",
+                  artifact in body or ("from profiles import" in body and constant in body))
 
     env = read(WT / "launcher_env.bat")
     check("launcher_env.bat names the QUASAR artifact", QUASAR in env)

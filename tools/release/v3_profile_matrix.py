@@ -38,7 +38,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from profiles import PROFILES, INVARIANT_FLAGS, by_file, launcher_args  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, INVARIANT_FLAGS, by_file, launcher_args  # noqa: E402
 
 EXE = Path(__file__).resolve().parents[2] / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
@@ -48,12 +48,15 @@ BASE = f"http://127.0.0.1:{PORT}"
 RECORDS = OUT / "matrix_v3.jsonl"
 CURRENT_MODEL_ID = ""  # the engine enforces --model-id, so requests must match it
 
+# The two shipped artifacts come from the module that names them. "ninfer" is the earlier nvfp4
+# image, which no launcher starts and which this matrix probes deliberately (see CEILINGS below),
+# so it is the one filename that has to stay literal here.
 ARTS = {
-    "quasar": "qwen3_8_27b_nvfp4qat.v3.ninfer",
+    "quasar": QUASAR,
     "ninfer": "qwen3_8_27b_nvfp4.v3.ninfer",
     # cometkim's fuller-NVFP4 profile: 18.07 GiB, NVFP4 DFlash2 module, upstream-shaped
     # draft bindings (no fused query_key_value), 17.03 GiB device weights with DFlash2.
-    "nvfp4full": "qwen3_8_27b_nvfp4full.v3.ninfer",
+    "nvfp4full": NVFP4FULL,
 }
 LADDER = [262144, 240000, 212992, 180224, 163840, 131072]
 MTP_DEPTHS = [2, 3, 4, 5]
