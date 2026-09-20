@@ -4,6 +4,7 @@
 #include "ops/common/math.h"
 #include "ops/linear/fp8/fp8_format.h"
 #include "ops/launcher/embed_gather.h" // detail::embed_gather_*_launch
+#include "ops/common/validation.h"
 #include "core/weight_view.h"
 
 #include <cstdint>
@@ -14,26 +15,7 @@
 namespace ninfer::ops {
 namespace {
 
-std::int64_t numel_allow_zero(const Tensor& t, const char* label) {
-    bool has_zero = false;
-    for (int d = 0; d < 4; ++d) {
-        if (t.ne[d] < 0) {
-            throw std::invalid_argument(std::string("embedding: ") + label +
-                                        " dimensions must be nonnegative");
-        }
-        if (t.ne[d] == 0) { has_zero = true; }
-    }
-    if (has_zero) { return 0; }
-
-    std::int64_t total = 1;
-    for (int d = 0; d < 4; ++d) {
-        if (total > std::numeric_limits<std::int64_t>::max() / t.ne[d]) {
-            throw std::overflow_error("embedding: tensor size overflows int64");
-        }
-        total *= t.ne[d];
-    }
-    return total;
-}
+constexpr const char* kOpName = "embedding";  // labels this Op's validation messages
 
 std::uint64_t checked_mul_u64(std::uint64_t a, std::uint64_t b) {
     if (b != 0 && a > std::numeric_limits<std::uint64_t>::max() / b) {
@@ -198,8 +180,8 @@ void embedding(const Tensor& ids, const Weight& table, Tensor& out, cudaStream_t
     if (ids.dtype != DType::I32) { throw std::invalid_argument("embedding: ids must be I32"); }
     if (out.dtype != DType::BF16) { throw std::invalid_argument("embedding: out must be BF16"); }
 
-    (void)numel_allow_zero(ids, "ids");
-    (void)numel_allow_zero(out, "out");
+    (void)numel_allow_zero(ids, kOpName, "ids");
+    (void)numel_allow_zero(out, kOpName, "out");
     require_ids_shape(ids);
     require_out_shape(ids, out);
 

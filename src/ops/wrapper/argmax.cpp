@@ -2,6 +2,7 @@
 #include "ninfer/ops/argmax.h"
 
 #include "ops/launcher/argmax.h" // detail::argmax_launch
+#include "ops/common/validation.h"
 
 #include <cstdint>
 #include <limits>
@@ -11,26 +12,7 @@
 namespace ninfer::ops {
 namespace {
 
-std::int64_t numel_allow_zero(const Tensor& t, const char* label) {
-    bool has_zero = false;
-    for (int d = 0; d < 4; ++d) {
-        if (t.ne[d] < 0) {
-            throw std::invalid_argument(std::string("argmax: ") + label +
-                                        " dimensions must be nonnegative");
-        }
-        if (t.ne[d] == 0) { has_zero = true; }
-    }
-    if (has_zero) { return 0; }
-
-    std::int64_t total = 1;
-    for (int d = 0; d < 4; ++d) {
-        if (total > std::numeric_limits<std::int64_t>::max() / t.ne[d]) {
-            throw std::overflow_error("argmax: tensor size overflows int64");
-        }
-        total *= t.ne[d];
-    }
-    return total;
-}
+constexpr const char* kOpName = "argmax";  // labels this Op's validation messages
 
 } // namespace
 
@@ -38,8 +20,8 @@ void argmax(const Tensor& logits, Tensor& out, std::int32_t valid_rows, cudaStre
     if (logits.dtype != DType::BF16) { throw std::invalid_argument("argmax: logits must be BF16"); }
     if (out.dtype != DType::I32) { throw std::invalid_argument("argmax: out must be I32"); }
 
-    const std::int64_t logits_n = numel_allow_zero(logits, "logits");
-    (void)numel_allow_zero(out, "out");
+    const std::int64_t logits_n = numel_allow_zero(logits, kOpName, "logits");
+    (void)numel_allow_zero(out, kOpName, "out");
 
     if (logits.ne[2] != 1 || logits.ne[3] != 1) {
         throw std::invalid_argument("argmax: logits must be rank-2 [vocab,T]");

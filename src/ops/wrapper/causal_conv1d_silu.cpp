@@ -3,6 +3,7 @@
 
 #include "ops/launcher/causal_conv1d.h" // detail::causal_conv1d_*_launch
 #include "ops/common/validation.h"
+#include "ops/common/validation.h"
 
 #include <cstdint>
 #include <limits>
@@ -13,26 +14,7 @@
 namespace ninfer::ops {
 namespace {
 
-std::int64_t numel_allow_zero(const Tensor& t, const char* label) {
-    bool has_zero = false;
-    for (int d = 0; d < 4; ++d) {
-        if (t.ne[d] < 0) {
-            throw std::invalid_argument(std::string("causal_conv1d: ") + label +
-                                        " dimensions must be nonnegative");
-        }
-        if (t.ne[d] == 0) { has_zero = true; }
-    }
-    if (has_zero) { return 0; }
-
-    std::int64_t total = 1;
-    for (int d = 0; d < 4; ++d) {
-        if (total > std::numeric_limits<std::int64_t>::max() / t.ne[d]) {
-            throw std::overflow_error("causal_conv1d: tensor size overflows int64");
-        }
-        total *= t.ne[d];
-    }
-    return total;
-}
+constexpr const char* kOpName = "causal_conv1d";  // labels this Op's validation messages
 
 void require_x_shape(const Tensor& x) {
     if (x.ne[2] != 1 || x.ne[3] != 1) {
@@ -97,10 +79,10 @@ std::int64_t validate_common(const Tensor& x, const Tensor& weight, const Tensor
         throw std::invalid_argument("causal_conv1d: x/weight/conv_state/out must be BF16");
     }
 
-    const std::int64_t n = numel_allow_zero(x, "x");
-    (void)numel_allow_zero(weight, "weight");
-    (void)numel_allow_zero(conv_state, "conv_state");
-    (void)numel_allow_zero(out, "out");
+    const std::int64_t n = numel_allow_zero(x, kOpName, "x");
+    (void)numel_allow_zero(weight, kOpName, "weight");
+    (void)numel_allow_zero(conv_state, kOpName, "conv_state");
+    (void)numel_allow_zero(out, kOpName, "out");
 
     require_x_shape(x);
     require_weight_shape(weight, x.ne[0]);
@@ -240,11 +222,11 @@ void causal_conv1d_silu(const Tensor& x, const Tensor& weight, const Tensor& con
         throw std::invalid_argument("causal_conv1d: x/weight/conv_state/out must be BF16");
     }
 
-    const std::int64_t n = numel_allow_zero(x, "x");
-    (void)numel_allow_zero(weight, "weight");
-    (void)numel_allow_zero(conv_state_in, "conv_state_in");
-    (void)numel_allow_zero(conv_state_out, "conv_state_out");
-    (void)numel_allow_zero(out, "out");
+    const std::int64_t n = numel_allow_zero(x, kOpName, "x");
+    (void)numel_allow_zero(weight, kOpName, "weight");
+    (void)numel_allow_zero(conv_state_in, kOpName, "conv_state_in");
+    (void)numel_allow_zero(conv_state_out, kOpName, "conv_state_out");
+    (void)numel_allow_zero(out, kOpName, "out");
 
     require_x_shape(x);
     require_weight_shape(weight, x.ne[0]);
@@ -282,13 +264,13 @@ void causal_conv1d_silu_split(const Tensor& x, const Tensor& weight, const Tenso
     require_state_shape(conv_state_out, x.ne[0]);
     const detail::CausalConvSplitGeometry geometry = resolve_split_geometry(x, out0, out1, out2);
 
-    const std::int64_t n = numel_allow_zero(x, "x");
-    (void)numel_allow_zero(weight, "weight");
-    (void)numel_allow_zero(conv_state_in, "conv_state_in");
-    (void)numel_allow_zero(conv_state_out, "conv_state_out");
-    (void)numel_allow_zero(out0, "out0");
-    (void)numel_allow_zero(out1, "out1");
-    (void)numel_allow_zero(out2, "out2");
+    const std::int64_t n = numel_allow_zero(x, kOpName, "x");
+    (void)numel_allow_zero(weight, kOpName, "weight");
+    (void)numel_allow_zero(conv_state_in, kOpName, "conv_state_in");
+    (void)numel_allow_zero(conv_state_out, kOpName, "conv_state_out");
+    (void)numel_allow_zero(out0, kOpName, "out0");
+    (void)numel_allow_zero(out1, kOpName, "out1");
+    (void)numel_allow_zero(out2, kOpName, "out2");
     if (n == 0) { return; }
 
     const std::pair<const Tensor*, const char*> operands[7] = {{&x, "x"},
@@ -347,13 +329,13 @@ void causal_conv1d_silu_snapshot(const Tensor& x, const Tensor& weight, Tensor& 
         throw std::invalid_argument("causal_conv1d: snapshot selectors must be I32");
     }
 
-    const std::int64_t n = numel_allow_zero(x, "x");
-    (void)numel_allow_zero(weight, "weight");
-    (void)numel_allow_zero(conv_states, "conv_states");
-    if (masked) { (void)numel_allow_zero(valid_columns, "valid_columns"); }
-    (void)numel_allow_zero(initial_state_slots, "initial_state_slots");
-    (void)numel_allow_zero(snapshot_base_slots, "snapshot_base_slots");
-    (void)numel_allow_zero(out, "out");
+    const std::int64_t n = numel_allow_zero(x, kOpName, "x");
+    (void)numel_allow_zero(weight, kOpName, "weight");
+    (void)numel_allow_zero(conv_states, kOpName, "conv_states");
+    if (masked) { (void)numel_allow_zero(valid_columns, kOpName, "valid_columns"); }
+    (void)numel_allow_zero(initial_state_slots, kOpName, "initial_state_slots");
+    (void)numel_allow_zero(snapshot_base_slots, kOpName, "snapshot_base_slots");
+    (void)numel_allow_zero(out, kOpName, "out");
 
     require_snapshot_x_shape(x);
     const std::int32_t batch = x.ne[2];

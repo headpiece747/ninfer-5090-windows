@@ -13,6 +13,9 @@
 #include "core/tensor.h"
 
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
+#include <string>
 
 namespace ninfer::ops {
 
@@ -40,6 +43,37 @@ inline bool tensors_overlap(const Tensor& lhs, const Tensor& rhs) {
     const auto lhs_begin = reinterpret_cast<std::uintptr_t>(lhs.data);
     const auto rhs_begin = reinterpret_cast<std::uintptr_t>(rhs.data);
     return lhs_begin < rhs_begin + rhs.bytes() && rhs_begin < lhs_begin + lhs.bytes();
+}
+
+// The element count, allowing a zero extent: a zero anywhere means zero elements, and the caller
+// decides whether to accept that. Negative extents are rejected and the product is checked,
+// because a size that wraps is a buffer overrun waiting to happen.
+//
+// The op name is a parameter rather than part of the rule. Six files carried this same function
+// with only that string differing, which is how one name came to mean different things in
+// different files: checked_numel in linear.cpp rejects a zero extent while its namesake in
+// add_bias.cpp returns 0 for it. Those two are genuinely different rules and keep different
+// names; these six are one rule and now have one home.
+[[nodiscard]] inline std::int64_t numel_allow_zero(const Tensor& tensor, const char* op,
+                                                   const char* label) {
+    bool has_zero = false;
+    for (int dim = 0; dim < 4; ++dim) {
+        if (tensor.ne[dim] < 0) {
+            throw std::invalid_argument(std::string(op) + ": " + label +
+                                        " dimensions must be nonnegative");
+        }
+        if (tensor.ne[dim] == 0) { has_zero = true; }
+    }
+    if (has_zero) { return 0; }
+
+    std::int64_t total = 1;
+    for (int dim = 0; dim < 4; ++dim) {
+        if (total > std::numeric_limits<std::int64_t>::max() / tensor.ne[dim]) {
+            throw std::overflow_error(std::string(op) + ": tensor size overflows int64");
+        }
+        total *= tensor.ne[dim];
+    }
+    return total;
 }
 
 } // namespace ninfer::ops
