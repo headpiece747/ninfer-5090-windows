@@ -27,3 +27,14 @@ The NVFP4-full artifact is used knowingly, with **no in-house fallback on that l
 
 Both of these are the kind of decision that looks like an oversight from the outside: "why only
 four?" and "why depend on someone else's artifact?"
+
+## Amendment (2026-09-20): the flag set those numbers describe
+
+The with-vs-without-vision figures in Context were measured on the 2026-09-17 flag set. The
+launchers gained per-profile `--device-state-slots` the next day (`4908bdfc`, to move the #251
+reuse cliff), which raises a profile's runtime by 0.4-1.3 GiB and was therefore absent from both
+sides of that comparison. The conclusion -- Vision measured free -- stands as measured; the
+absolute figures are superseded by `tools/release/profiles.py`, whose values are measured through
+the shipped launcher flag sets by the `profile` mode of `v3_profile_matrix.py`. That raise turned
+out to be temporary: the reclaim landed on 2026-09-19, every profile ships
+`--device-state-slots 1` again, and the shipped flag set matches this comparison's once more.

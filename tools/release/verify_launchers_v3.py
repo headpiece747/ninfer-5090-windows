@@ -21,13 +21,17 @@ import json
 import re
 import struct
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
 import zlib
 from pathlib import Path
 
-V3 = Path(r"C:\AI\ninfer-v3-windows")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from v3_profile_matrix import gpu_used_mib, wait_free  # noqa: E402
+
+V3 = Path(__file__).resolve().parents[2]
 RECORDS = Path(r"C:\AI\bench") / "launcher_verify.jsonl"
 
 CASES = [
@@ -108,7 +112,10 @@ def main() -> int:
     for bat, port, model_id, vision, spec in CASES:
         print(f"\n=== {bat}  (port {port})")
         kill()
-        time.sleep(3)
+        # Same drain discipline as v3_profile_matrix.run_profile: the engine's accounting line
+        # depends on what is already resident, so a leftover process must not be able to move it.
+        freed = wait_free()
+        vram_before = gpu_used_mib()
         log = Path(r"C:\AI\bench") / f"launcher_verify_{port}.txt"
         handle = log.open("w", encoding="utf-8", errors="replace")
         proc = subprocess.Popen(["cmd", "/c", str(V3 / bat)], cwd=str(V3),
@@ -116,7 +123,8 @@ def main() -> int:
                                 stdout=handle, stderr=subprocess.STDOUT)
         ready, secs = wait_ready(port)
         rec: dict = {"bat": bat, "port": port, "model_id": model_id, "vision": vision,
-                     "spec": spec, "ready": ready, "startup_seconds": round(secs, 1)}
+                     "spec": spec, "ready": ready, "startup_seconds": round(secs, 1),
+                     "vram_before_mib": vram_before, "vram_freed": freed}
         # The engine reports the KV it actually committed, which is the real ceiling.
         capacity = 0
         runtime = free = ""

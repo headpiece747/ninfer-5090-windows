@@ -28,3 +28,19 @@ the launchers expect.
 
 The obvious "simplification" is to point the downloader at the launcher's filename. That is the
 exact change that caused the clobber.
+
+## Amendment (2026-09-20): the QUASAR repository was republished as v3
+
+`cometkim/Qwen3.8-27B-nvfp4qat-NInfer` now serves a **v3** container (`NINFER\0\x03`, size
+18,638,510,576, sha256 `8b86901a…`), so both artifacts download and run directly and the Context
+above describes neither repository any more. What that changes:
+
+- `download_model.py` targets the `.v3.ninfer` path directly again, and the clobber in
+  Consequences cannot recur while the source is v3: a re-download overwrites a v3 file with the
+  same v3 file. The `...qat.v2.ninfer` staging name went with the v2 source.
+- The upgrader still ships, for a copy fetched before the republish.
+- **Re-derive a pin from the repository's blob metadata**
+  (`https://huggingface.co/api/models/<repo>?blobs=true`), never from a local copy. The
+  locally-upgraded file the profile measurements were taken on is a *different* v3 packing
+  (18,638,514,859 bytes) from the published one, which is how a pin goes stale unnoticed: the
+  file it was written against can stop being the file the repository serves.

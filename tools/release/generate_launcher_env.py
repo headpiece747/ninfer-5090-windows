@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from profiles import PROFILES, cli_args  # noqa: E402
 
-ENV = Path(r"C:\AI\ninfer-v3-windows\launcher_env.bat")
+ENV = Path(__file__).resolve().parents[2] / "launcher_env.bat"
 
 
 def main() -> int:

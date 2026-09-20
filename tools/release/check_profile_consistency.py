@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, launcher_args  # noqa: E402
 
-WT = Path(r"C:\AI\ninfer-v3-windows")
+WT = Path(__file__).resolve().parents[2]
 OPENCODE = Path(r"C:\Users\tobia\.config\opencode\opencode.json")
 
 RETIRED = ["start_ninfer_v3_dflash2.bat", "start_ninfer_v3_mtp5.bat",
@@ -58,6 +58,33 @@ def main() -> int:
         check(f"{profile['file']} passes --vision", "--vision" in shipped)
         check(f"{profile['file']} passes --spec {profile['spec']}",
               f"--spec {profile['spec']}" in shipped)
+        check(f"{profile['file']} passes its profile's --device-state-slots "
+              f"{profile['device_state_slots']}",
+              f"--device-state-slots {profile['device_state_slots']}" in shipped,
+              "the table's value and the launcher's must describe the same measurement")
+
+    print("\n=== the measurement harness measures what ships ===")
+    harness = read(WT / "tools" / "release" / "v3_profile_matrix.py")
+    verifier = read(WT / "tools" / "release" / "verify_launchers_v3.py")
+    check("matrix composes shipped flags through profiles.launcher_args",
+          "launcher_args" in harness,
+          "the harness must render the profile's own flag list, not rebuild one")
+    check("matrix can measure a shipped profile by name", "mode_profile" in harness)
+    check("the table's stated provenance names that mode",
+          "`profile` mode of v3_profile_matrix.py" in read(WT / "tools" / "release" / "profiles.py"),
+          "the provenance sentence and the harness mode must agree")
+    check("launcher verifier drains VRAM before starting", "wait_free()" in verifier,
+          "an accounting line taken with a leftover process resident is not comparable")
+
+    print("\n=== doc tables quote the table ===")
+    for doc in (WT / "README.md", WT / "RELEASE_NOTES.md"):
+        text = read(doc)
+        for profile in PROFILES:
+            check(f"{doc.name} quotes {profile['file']} at {round(profile['tok'])} tok/s",
+                  f"{round(profile['tok'])} tok/s" in text,
+                  "a doc table is a transcription site: it must match profiles.PROFILES")
+            check(f"{doc.name} quotes {profile['file']}'s acceptance {profile['acc']}",
+                  f"| {profile['acc']} |" in text)
 
     print("\n=== opencode providers ===")
     if not OPENCODE.exists():

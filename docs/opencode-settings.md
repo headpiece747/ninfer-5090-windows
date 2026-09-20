@@ -162,7 +162,7 @@ Two rules that matter more than the numbers:
    against the same cap; a tight cap truncates the answer and looks like a model failure.
    With a 4096 budget, 32768 leaves ample room.
 2. **Use the fastest decoder.** `xhigh` turns a 1 s task into a 10-50 s one, so decode
-   speed is what you feel: DFlash2 (331 tok/s) over MTP (225 tok/s).
+   speed is what you feel: DFlash2 (342-343 tok/s) over MTP (239-249 tok/s).
 
 ## Compaction
 
@@ -246,8 +246,8 @@ Do not add variants named `minimal` or `high` — the chat template rejects thos
 
 | model | context | why |
 | --- | --- | --- |
-| quasar-dflash2 | 262,144 | fastest measured (331 tok/s) and the largest context; the default |
-| quasar-mtp4 | 262,144 | lowest-VRAM QUASAR profile; 225 tok/s |
+| quasar-dflash2 | 262,144 | 341.7 tok/s; the largest context; the default |
+| quasar-mtp4 | 262,144 | lowest-VRAM QUASAR profile; 239.2 tok/s |
 | nvfp4full dflash2 | 262,144 | second artifact, same reach as QUASAR |
 | nvfp4full mtp5 | 262,144 | the MTP lane on the second artifact |
 

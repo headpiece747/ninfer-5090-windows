@@ -237,16 +237,16 @@ Two build notes specific to Windows:
 
 Four launchers ship for the RTX 5090, one per measured-optimal profile. Every number below was
 measured on this machine with the exact argument set the launcher uses. Both artifacts are
-vision-only here because Vision measured free on both: QUASAR at 331.3 against 333.0 without,
-and NVFP4-full at 326.6 against 325.0, at 262,144 either way. No degraded text-only variant
-ships, and every profile reaches the full native context.
+vision-only here because Vision measured free on both at 262,144; the with/without comparison is
+recorded in `docs/adr/0004`. No degraded text-only variant ships, and every profile reaches the
+full native context.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **331 tok/s** | 61.8% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 225 tok/s | 65.3% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **327 tok/s** | 63.7% |
-| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 236 tok/s | 64.2% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **342 tok/s** | 61.8% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 239 tok/s | 65.3% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **343 tok/s** | 63.7% |
+| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 249 tok/s | 64.2% |
 
 Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
 runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after
@@ -255,13 +255,13 @@ QUASAR carries 16.1 GiB and NVFP4-full 17.0 GiB of device weights, both of which
 for the full KV pool. Our earlier NVFP4 image carried 19.7 GiB and could not, which is why it
 was replaced.
 
-`--lm-head-draft` is set per profile because its value is not uniform:
+`--lm-head-draft` is set per profile because its value is not uniform; the measured gains behind
+each choice are recorded in `docs/adr/0005`:
 
-- QUASAR: +9% (DFlash2) and +18% (MTP depth 4);
-- NVFP4 MTP: +34% at depth 5;
-- NVFP4-full DFlash2: **on**, but marginally. It is worth about 2% (326.6 tok/s against
-  320.8) while costing 0.33 GiB of headroom, so it is the first thing to turn off if a
-  profile ever refuses to start.
+- QUASAR: on for both routes;
+- NVFP4 MTP: on at depth 5;
+- NVFP4-full DFlash2: **on**, but marginally, and it costs headroom, so it is the first thing to
+  turn off if a profile ever refuses to start.
 
 MTP depth is chosen per artifact from measurement rather than convention: depth 4 is fastest on
 QUASAR, depth 5 on NVFP4. Acceptance rate does not predict throughput, because tokens committed
@@ -277,10 +277,9 @@ rate.
   speculation "does not impose token or logits equality between different quantization, prefill
   or kernel paths" — the batched verify kernel is not the single-token decode path, so a
   near-tie can flip and the continuation diverges. Speculation measured 3-4x faster
-  (67-83 tok/s without it against 225-331 with it).
-- **Vision is free on both shipped artifacts.** QUASAR measured 331.3 tok/s with against 333.0
-  without, and NVFP4-full 326.6 against 325.0, at 262,144 either way, so every profile here
-  carries Vision. The retired NVFP4 image did cost 16,384-27,008 tokens of context, which is
+  (67-83 tok/s without it against 239-343 with it).
+- **Vision is free on both shipped artifacts.** The with/without comparison at 262,144 is recorded
+  in `docs/adr/0004`, so every profile here carries Vision. The retired NVFP4 image did cost 16,384-27,008 tokens of context, which is
   part of why it was replaced. The Vision runtime still has its own input envelope of 32,768
   merged tokens (131,072 raw patches) per request.
 
@@ -295,7 +294,7 @@ every call and no error or degradation signal anywhere. Raising the shared-prefi
 alone changed nothing; the anchor and private-continuation bounds were the binding
 constraints. All three together gave **5/5 hits at 99.1%**.
 
-The bounds cost nothing measurable in the profile they were measured on (QUASAR DFlash2 with Vision at 262,144, runtime 10.7 GiB). `--kv-capacity auto` sizes each pool from the VRAM left after weights, so every profile's capacity is its own measured ceiling, not a shared number.
+The bounds cost nothing measurable in the profile they were measured on (QUASAR DFlash2 with Vision at 262,144). `--kv-capacity auto` sizes each pool from the VRAM left after weights, so every profile's capacity is its own measured ceiling, not a shared number.
 The failure mode is silent, so it is worth setting these even when a single repeated prompt
 appears to cache perfectly — a lone resident prefix masks it.
 

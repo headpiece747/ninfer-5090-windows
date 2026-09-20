@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Reproduce upstream issue #251: prefix reuse stops once the checkpoint budget is exercised.
 
+**Status: fixed 2026-09-19.** Active-capture admission now reclaims the oldest unpinned private
+continuation, so a clean run reports "not reproduced" and a reproduction is a regression, not the
+expected result (`docs/research/prefix-state-eviction.md`).
+
 #251 reports, from a Windows sm_89 port with a Qwen3.8-27B artifact and DFlash2, that prefix reuse
 works while the engine is fresh and then stops completely for the rest of the engine's life, with
 only an engine restart restoring it and no LRU eviction observed.

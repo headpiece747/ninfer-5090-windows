@@ -10,6 +10,11 @@ Modes
   sweep    for one profile, measure decode tok/s and spec statistics at each draft
            depth, plus a deterministic digest for output-preservation checks
   verify   start one profile exactly as its launcher will and check it end to end
+  profile  measure one *shipped* profile by name (--file, default all four) through
+           profiles.launcher_args; --device-state-slots overrides its slot count. This is
+           the mode every value in profiles.PROFILES is measured with.
+  correct  is speculative decoding output-preserving on this artifact? Greedy control
+           against each spec configuration, compared by digest.
 
 Records append to matrix_v3.jsonl so a long sweep can be resumed or inspected.
 
@@ -33,9 +38,9 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from profiles import INVARIANT_FLAGS  # noqa: E402
+from profiles import PROFILES, INVARIANT_FLAGS, by_file, launcher_args  # noqa: E402
 
-EXE = Path(r"C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe")
+EXE = Path(__file__).resolve().parents[2] / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
 OUT = Path(r"C:\AI\bench")
 PORT = 8095
@@ -310,6 +315,30 @@ def refusal_reason(text: str) -> str:
 
 # ------------------------------------------------------------------ one profile run
 
+ART_BY_FILE = {artifact: key for key, artifact in ARTS.items()}
+
+
+def profile_args(profile: dict, log_jsonl: Path,
+                 slots: str | None = None) -> tuple[list[str], str]:
+    """Arguments for one *shipped* profile, composed through profiles.launcher_args.
+
+    build_args explores combinations no launcher ships, so it omits per-profile flags such as
+    --device-state-slots. Measuring a shipped profile through it published a runtime/free pair for
+    a configuration nobody starts. This path cannot diverge from the launcher: it renders the same
+    flag list through the same function the launcher generator uses.
+
+    `slots` overrides the profile's --device-state-slots so the value can be chosen from a record.
+    """
+    args = [str(EXE), str(MODELS / profile["art"])]
+    args += launcher_args(profile, port=PORT)
+    if slots is not None:
+        at = args.index("--device-state-slots")
+        args[at + 1] = slots
+    args += ["--log-stats-interval-ms", "2000", "--request-log-jsonl", str(log_jsonl),
+             "--seed", "1234"]
+    return args, profile["model_id"]
+
+
 def build_args(art: str, spec: str, draft: int, vision: bool, max_context: int,
                log_jsonl: Path, greedy: bool = False, kv_capacity: str = "auto",
                lm_head: bool = True) -> list[str]:
@@ -346,10 +375,15 @@ def build_args(art: str, spec: str, draft: int, vision: bool, max_context: int,
     return a
 
 
-def run_profile(art: str, spec: str, draft: int, vision: bool, max_context: int,
-                measure: bool = True, greedy: bool = False, lm_head: bool = True) -> dict:
-    tag = (f"{art}-v3-{spec}-d{draft}{'-vision' if vision else ''}-ctx{max_context}"
-           f"{'' if lm_head else '-nolmh'}")
+def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = False,
+                max_context: int = 0, measure: bool = True, greedy: bool = False,
+                lm_head: bool = True, profile: dict | None = None,
+                slots: str | None = None) -> dict:
+    if profile is None:
+        tag = (f"{art}-v3-{spec}-d{draft}{'-vision' if vision else ''}-ctx{max_context}"
+               f"{'' if lm_head else '-nolmh'}")
+    else:
+        tag = profile["file"].removesuffix(".bat")
     log = OUT / f"sweep_{tag}.txt"
     jsonl = OUT / f"req_{tag}.jsonl"
     jsonl.unlink(missing_ok=True)  # the server appends; a stale file would average runs
@@ -358,9 +392,14 @@ def run_profile(art: str, spec: str, draft: int, vision: bool, max_context: int,
     kv_before = gpu_used_mib()
 
     global CURRENT_MODEL_ID
-    CURRENT_MODEL_ID = f"{art}-v3-{spec}"
-    args = build_args(art, spec, draft, vision, max_context, jsonl, greedy=greedy,
-                      lm_head=lm_head)
+    if profile is None:
+        CURRENT_MODEL_ID = f"{art}-v3-{spec}"
+        args = build_args(art, spec, draft, vision, max_context, jsonl, greedy=greedy,
+                          lm_head=lm_head)
+    else:
+        args, CURRENT_MODEL_ID = profile_args(profile, jsonl, slots=slots)
+        art, spec, draft = ART_BY_FILE[profile["art"]], profile["spec"], profile["draft"]
+        vision, max_context = bool(profile["vision"]), profile["ctx"]
     proc, fh = start(args, log)
     ready = wait_ready(proc)
     time.sleep(3)  # let the capacity/stats lines flush
@@ -372,6 +411,8 @@ def run_profile(art: str, spec: str, draft: int, vision: bool, max_context: int,
         "vram_before_mib": kv_before, "vram_freed": freed,
         "log": log.name,
     }
+    if profile is not None:
+        record["device_state_slots"] = slots or str(profile["device_state_slots"])
     record.update(parse_capacity(text))
     record["spec_lines"] = parse_spec(text)
 
@@ -489,9 +530,21 @@ def mode_verify(art: str, spec: str, draft: int, vision: bool, max_context: int,
         print(f"           | {line[:150]}")
 
 
+def mode_profile(name: str, slots: str | None = None) -> None:
+    """Measure one shipped profile exactly as its launcher starts it.
+
+    `slots` overrides the profile's --device-state-slots so the value can be chosen from a record;
+    the default is still whatever the profile table ships.
+    """
+    rec = run_profile(profile=by_file(name), measure=True, slots=slots)
+    show(rec)
+    for line in rec.get("spec_lines", [])[-4:]:
+        print(f"           | {line[:150]}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["ceiling", "sweep", "verify", "correct"])
+    ap.add_argument("mode", choices=["ceiling", "sweep", "verify", "correct", "profile"])
     ap.add_argument("--art", dest="arts", action="append",
                     choices=sorted(ARTS), help="repeatable; default both")
     ap.add_argument("--spec", dest="specs", action="append",
@@ -502,6 +555,10 @@ def main() -> int:
     ap.add_argument("--max-context", type=int, default=262144)
     ap.add_argument("--no-lm-head", action="store_true",
                     help="verify mode: omit --lm-head-draft")
+    ap.add_argument("--file", dest="files", action="append",
+                    help="profile mode: shipped launcher file; repeatable, default all four")
+    ap.add_argument("--device-state-slots", dest="slots", default=None,
+                    help="profile mode: override the profile's slot count to choose the value")
     args = ap.parse_args()
 
     if not EXE.exists():
@@ -521,6 +578,9 @@ def main() -> int:
         for art in (args.arts or sorted(ARTS)):
             for vision in visions:
                 mode_correct(art, vision)
+    elif args.mode == "profile":
+        for name in (args.files or [p["file"] for p in PROFILES]):
+            mode_profile(name, slots=args.slots)
     else:
         spec = (args.specs or ["mtp"])[0]
         mode_verify((args.arts or ["quasar"])[0], spec,

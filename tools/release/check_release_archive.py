@@ -12,12 +12,14 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import time
 import urllib.request
 import zipfile
 from pathlib import Path
 
-ARCHIVE = Path(r"C:\AI\releases\ninfer-windows-v1.1.0-rtx5090.zip")
+DEFAULT_ARCHIVE = Path(r"C:\AI\releases") / "ninfer-windows-v1.1.0-rtx5090.zip"
+ARCHIVE = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_ARCHIVE
 EXTRACT = Path(r"C:\Users\tobia\AppData\Local\Temp\opencode\release-check")
 PORT = 8086
 BASE = f"http://127.0.0.1:{PORT}"

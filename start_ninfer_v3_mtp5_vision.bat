@@ -3,8 +3,8 @@ REM ============================================================================
 REM  NVFP4-full + MTP5 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 236.3 tok/s   draft acceptance 64.2%
-REM      runtime 10.4 GiB   free VRAM 2.28 GiB
+REM      context 262,144   decode 249.3 tok/s   draft acceptance 64.2%
+REM      runtime 10.4 GiB   free VRAM 2.59 GiB
 REM
 REM  MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here.
 REM
@@ -17,7 +17,8 @@ REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~53
 REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
 REM  four of five prompts re-prefilling in full on every call and no error. Raising the
 REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: KV stays 262,144 and runtime stays 10.7 GiB.
+REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
+REM  runtime are unchanged from the values above.
 REM ============================================================================
 setlocal
 
@@ -90,7 +91,7 @@ if not errorlevel 1 (
   --port 8089 ^
   --model-id qwen3.8-27b-nvfp4-v3-mtp5-vision ^
   --max-context 262144 ^
-  --device-state-slots 4 ^
+  --device-state-slots 1 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^
   --prefill-chunk 8192 ^

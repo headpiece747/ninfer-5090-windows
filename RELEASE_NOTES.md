@@ -15,34 +15,38 @@ that earlier builds shipped.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **331 tok/s** | 61.8% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | 225 tok/s | 65.3% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **327 tok/s** | 63.7% |
-| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 236 tok/s | 64.2% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **342 tok/s** | 61.8% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | 239 tok/s | 65.3% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **343 tok/s** | 63.7% |
+| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 249 tok/s | 64.2% |
 
 Every number was measured on an RTX 5090 with the exact arguments the launcher passes, and
 every context ceiling is the highest value the engine accepts for that configuration — the
 next step up is refused, not degraded.
 
-**QUASAR is the recommended profile**: fastest (331 tok/s) at the full 262,144 context, and
-Vision is free on it (331.3 with against 333.0 without, same context).
+**QUASAR is the recommended profile**: our own artifact, at the full 262,144 context, measuring
+within noise of the other DFlash2 lane (341.7 against 343.1 tok/s), and Vision is free on both
+(the with/without comparison is recorded in `docs/adr/0004`).
 
 ## Getting a model
 
 `download_model.bat` fetches the recommended QUASAR QAT artifact and verifies its SHA-256.
-The QUASAR profile comes from `cometkim/Qwen3.8-27B-nvfp4qat-NInfer`, published as a v2
-container that needs one offline upgrade, which the downloader explains and this archive
-ships the tool for; the NVFP4-full profiles use
-`cometkim/Qwen3.8-27B-nvfp4full-NInfer`, which is already v3. Both are fetched and SHA-256
-verified by `download_model.bat`, which offers the choice.
+The QUASAR profile comes from `cometkim/Qwen3.8-27B-nvfp4qat-NInfer` and the NVFP4-full
+profiles from `cometkim/Qwen3.8-27B-nvfp4full-NInfer`; both repositories ship a v3 container, so
+either downloads and runs directly. Both are SHA-256 verified by `download_model.bat`, which
+offers the choice. The pinned size and hash are the published artifact's: if a download is
+refused on size, the repository republished and the pin needs updating from HuggingFace's blob
+metadata (a republish is how the previous pin went stale).
 
 Put the `.ninfer` file at `C:\AI\models\` (the path `launcher_env.bat` expects), then double
 click the launcher you want. Each launcher checks the engine and the artifact exist before
 starting, and leaves the failure on screen if they do not.
 
-## v2 artifacts must be upgraded first
+## A pre-existing v2 copy must be upgraded first
 
-The v3 engine **rejects v2 containers outright** and names the tool in the error:
+Neither published repository ships v2 any more, so a fresh download needs no upgrade. A copy
+fetched before the republish does: the v3 engine **rejects v2 containers outright** and names
+the tool in the error:
 
 ```
 python3 tools/upgrade_ninfer_v2_to_v3.py INPUT.ninfer OUTPUT.ninfer
@@ -59,7 +63,7 @@ is documented engine behaviour rather than a defect: acceptance compares a propo
 against the target argmax for its verify column, and the maintainer notes state that
 speculation "does not impose token or logits equality between different quantization,
 prefill or kernel paths" — the batched verify kernel is not the single-token decode path,
-so a near-tie can flip. Speculation measured 3-4x faster (67-83 tok/s without it, 225-331
+so a near-tie can flip. Speculation measured 3-4x faster (67-83 tok/s without it, 239-343
 with it).
 
 ## Fixed in this release

@@ -3,11 +3,10 @@ REM ============================================================================
 REM  NVFP4-full + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 326.6 tok/s   draft acceptance 63.7%
-REM      runtime 10.7 GiB   free VRAM 1.74 GiB
+REM      context 262,144   decode 343.1 tok/s   draft acceptance 63.7%
+REM      runtime 10.7 GiB   free VRAM 2.05 GiB
 REM
-REM  Second artifact, same reach as QUASAR: 262,144 with Vision. This is the
-REM  tightest profile in the set; dropping --lm-head-draft buys 0.33 GiB at ~2% slower.
+REM  Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -18,7 +17,8 @@ REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~53
 REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
 REM  four of five prompts re-prefilling in full on every call and no error. Raising the
 REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: KV stays 262,144 and runtime stays 10.7 GiB.
+REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
+REM  runtime are unchanged from the values above.
 REM ============================================================================
 setlocal
 
@@ -91,7 +91,7 @@ if not errorlevel 1 (
   --port 8088 ^
   --model-id qwen3.8-27b-nvfp4-v3-dflash2-vision ^
   --max-context 262144 ^
-  --device-state-slots 4 ^
+  --device-state-slots 1 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^
   --prefill-chunk 8192 ^

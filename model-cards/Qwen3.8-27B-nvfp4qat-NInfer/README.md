@@ -96,9 +96,9 @@ On the conversion-verification workload the NVFP4 module drafted 2.50 tokens/rou
 | Field | Value |
 |---|---|
 | Filename | `qwen3_8_27b_nvfp4qat.ninfer` |
-| Size | 18,638,209,796 bytes (17.35 GiB) |
-| SHA-256 | `3bd37e032f1984250458ad6527d874913a96a26f9673537512c29726d3033e72` |
-| Container version | 2 |
+| Size | 18,638,510,576 bytes (17.36 GiB) |
+| SHA-256 | `8b86901a8cd2a297a3d737e470c793b67e5ce65b49131c48c2f2f0b346fd943c` |
+| Container version | 3 |
 | NInfer model ID | `qwen3.8-27b` |
 | NInfer weights ID | `nvfp4qat` |
 | NInfer target key | `qwen3_8_27b` |
@@ -110,7 +110,7 @@ Verify a downloaded file with:
 
 ```bash
 printf '%s  %s\n' \
-  '3bd37e032f1984250458ad6527d874913a96a26f9673537512c29726d3033e72' \
+  '8b86901a8cd2a297a3d737e470c793b67e5ce65b49131c48c2f2f0b346fd943c' \
   'qwen3_8_27b_nvfp4qat.ninfer' | sha256sum --check
 ```
 

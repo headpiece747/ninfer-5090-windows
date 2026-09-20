@@ -6,10 +6,10 @@ under the repository's name (qwen3_8_27b_nvfp4qat.ninfer) while every launcher l
 .v3. form. A user following the README would download 17 GiB and then be told the artifact
 was missing.
 
-Artifact naming is also not uniform across publishers. cometkim's fuller-NVFP4 repository
-already ships v3, so it downloads and runs directly. The QUASAR QAT repository ships the v2
-container, which a v3 engine rejects outright -- the fix for that is the offline upgrader,
-which this archive ships alongside.
+Artifact naming is also not uniform across publishers, and it changes: cometkim's fuller-NVFP4
+repository ships v3, and the QUASAR QAT repository has since been republished as v3 as well, so
+both download and run directly. The offline upgrader still ships in this archive for anyone
+holding a pre-existing v2 copy, which a v3 engine rejects outright.
 
 Usage: download_model.py [--artifact quasar|nvfp4full] [--dest PATH] [--verify-only]
 """
@@ -27,15 +27,10 @@ ARTIFACTS = {
     "quasar": {
         "repo": "cometkim/Qwen3.8-27B-nvfp4qat-NInfer",
         "source": "qwen3_8_27b_nvfp4qat.ninfer",
-        # Downloaded as v2 under its own name; the upgrader produces the .v3. path the
-        # launchers use. Pointing the download at the .v3. path would let a re-run
-        # overwrite an already-upgraded artifact with v2 content.
-        "target": "qwen3_8_27b_nvfp4qat.v2.ninfer",
-        "upgrade_to": "qwen3_8_27b_nvfp4qat.v3.ninfer",
-        "size": 18_638_209_796,
-        "sha256": "df3c9c3a3660d688f0c2158d54fef8c66f21d723bd7a1b0b12acc908e86d12b7",
-        "container": "v2",
-        "note": "QUASAR QAT is published as a v2 container; upgrade it after download.",
+        "target": "qwen3_8_27b_nvfp4qat.v3.ninfer",
+        "size": 18_638_510_576,
+        "sha256": "8b86901a8cd2a297a3d737e470c793b67e5ce65b49131c48c2f2f0b346fd943c",
+        "container": "v3",
     },
     "nvfp4full": {
         "repo": "cometkim/Qwen3.8-27B-nvfp4full-NInfer",
@@ -44,7 +39,6 @@ ARTIFACTS = {
         "size": 19_407_229_188,
         "sha256": "ac98cd392c84a04b2a21c2f5c3988dece88d20a697ba1de663fb32d5998b8ee9",
         "container": "v3",
-        "note": None,
     },
 }
 
@@ -94,30 +88,24 @@ def verify_file(path: str, spec: dict) -> bool:
     return False
 
 
-def print_upgrade_instructions(v2_path: str, spec: dict) -> None:
-    """Print a command the user can paste, from wherever this script was run.
+def print_upgrade_instructions() -> None:
+    """Tell the user where the upgrader is, for a pre-existing v2 file.
 
-    The archive ships the upgrader under tools/ beside its chat_templates data, which the
-    upgrade needs. Printing %MODEL% would not work: it is cmd syntax set inside
-    launcher_env.bat's setlocal, so it is gone by the time the user could paste it.
+    No pinned artifact ships v2 any more, so this no longer fires on a fresh download; it is
+    kept for the case it was written for -- a copy downloaded before the republish.
     """
-    launcher_name = os.path.basename(spec["upgrade_to"])
-    upgraded = os.path.join(os.path.dirname(v2_path), launcher_name)
+    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "upgrade_ninfer_v2_to_v3.py")
     print()
-    print(f"[ACTION REQUIRED] {spec['note']}")
-    print("  The downloaded file is a v2 container; a v3 engine rejects it outright.")
+    print("[ACTION REQUIRED] A v2 container is rejected outright by a v3 engine.")
     print("  Upgrade it with the tool shipped in this archive:")
     print()
-    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "upgrade_ninfer_v2_to_v3.py")
-    print(f'    "{sys.executable}" "{tool}" "{v2_path}" "{upgraded}"')
-    print()
-    print(f"  That writes {launcher_name}, which is what the launchers look for.")
+    print(f'    "{sys.executable}" "{tool}" INPUT.ninfer OUTPUT.v3.ninfer')
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Download and verify a NInfer v3 model artifact.")
     parser.add_argument("--artifact", choices=sorted(ARTIFACTS), default="quasar",
-                        help="quasar (recommended, v2 container to upgrade) or nvfp4full (already v3)")
+                        help="quasar (recommended) or nvfp4full; both ship v3")
     parser.add_argument("--dest", default=None, help="Override the destination model file path.")
     parser.add_argument("--verify-only", action="store_true",
                         help="Only verify the existing file, do not download.")
@@ -137,7 +125,7 @@ def main() -> int:
     if os.path.exists(target) and verify_file(target, spec):
         print("Already downloaded and verified.")
         if spec["container"] != "v3":
-            print_upgrade_instructions(target, spec)
+            print_upgrade_instructions()
         return 0
 
     # huggingface_hub 1.x ignores HF_HUB_ENABLE_HF_TRANSFER, and on 0.x it raises when
@@ -168,7 +156,7 @@ def main() -> int:
         return 1
 
     if spec["container"] != "v3":
-        print_upgrade_instructions(target, spec)
+        print_upgrade_instructions()
     return 0
 
 

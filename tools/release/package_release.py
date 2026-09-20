@@ -6,11 +6,14 @@ the build directory, which also holds cmake_install.cmake and unused DLLs), writ
 SHA256SUMS over the staged files, archives with bsdtar so large files compress in parallel,
 and prints the archive digest.
 
-Layout follows the v1.0.x releases, with two deliberate changes:
+Layout follows the v1.0.x releases, with three deliberate changes:
   * one archive instead of a separate vision one -- the v3 engine enables Vision with a flag
     rather than a second binary;
   * five FFmpeg DLLs, matching the five components cmake/Dependencies.cmake links
-    (avcodec, avformat, avutil, swscale, swresample), rather than everything staged locally.
+    (avcodec, avformat, avutil, swscale, swresample), rather than everything staged locally;
+  * NOTICE ships from the repository root like the other root files, not from a second
+    checkout: the archive is the distribution, so the attribution has to travel with it, and
+    reading it from another clone made the archive depend on that clone existing and current.
 
 Packaging runs tools/release/check_test_baseline.py first and refuses to build an archive when the
 suite has regressed. The gate compares against a recorded baseline rather than trusting a bare run,
@@ -26,23 +29,23 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(r"C:\AI\ninfer-v3-windows")
+REPO = Path(__file__).resolve().parents[2]
 BUILD = REPO / "build" / "apps"
 RELEASES = Path(r"C:\AI\releases")
-NOTICE_SOURCE = Path(r"C:\AI\ninfer-5090-windows\NOTICE")
 
 EXES = ["ninfer-serve.exe", "ninfer.exe", "ninfer-perplexity.exe"]
 DLLS = ["avcodec-63.dll", "avformat-63.dll", "avutil-61.dll",
         "swscale-10.dll", "swresample-7.dll"]
-ROOT_FILES = ["README.md", "RELEASE_NOTES.md", "LICENSE"]
+ROOT_FILES = ["README.md", "RELEASE_NOTES.md", "LICENSE", "NOTICE"]
 LAUNCHER_FILES = [
     "launcher_env.bat", "download_model.bat", "download_model.py",
     "start_quasar_v3_dflash2_vision.bat", "start_quasar_v3_mtp4_vision.bat",
     "start_ninfer_v3_dflash2_vision.bat", "start_ninfer_v3_mtp5_vision.bat",
 ]
 
-# Shipped from tools/ rather than the root. The QUASAR artifact is published as a v2
-# container, so download_model.py sends the user to this offline upgrader; it has to be here.
+# Shipped from tools/ rather than the root. Both artifacts are published as v3 now, so nothing
+# downloads into this path any more; the upgrader stays for a copy fetched before the republish,
+# which a v3 engine rejects outright.
 TOOL_FILES = ["upgrade_ninfer_v2_to_v3.py", "chat_templates"]
 
 
@@ -91,19 +94,15 @@ def main() -> int:
             else:
                 shutil.copy2(source, stage / name)
                 total += source.stat().st_size
-    if NOTICE_SOURCE.exists():
-        shutil.copy2(NOTICE_SOURCE, stage / "NOTICE")
-    else:
-        missing.append(f"NOTICE (from {NOTICE_SOURCE})")
-
     if missing:
         print("  MISSING:")
         for item in missing:
             print(f"    {item}")
         return 1
 
-    names = sorted(p.name for p in stage.iterdir() if p.is_file())
-    lines = [f"{sha256(stage / n)}  {n}" for n in names]
+    staged = sorted(p for p in stage.rglob("*") if p.is_file())
+    names = [p.relative_to(stage).as_posix() for p in staged]
+    lines = [f"{sha256(path)}  {name}" for path, name in zip(staged, names)]
     (stage / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     archive = RELEASES / f"ninfer-windows-{version}-rtx5090.zip"

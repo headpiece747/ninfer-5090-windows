@@ -3,8 +3,8 @@ REM ============================================================================
 REM  QUASAR QAT + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 225.4 tok/s   draft acceptance 65.3%
-REM      runtime 10.4 GiB   free VRAM 3.08 GiB
+REM      context 262,144   decode 239.2 tok/s   draft acceptance 65.3%
+REM      runtime 10.4 GiB   free VRAM 3.34 GiB
 REM
 REM  Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR.
 REM
@@ -17,7 +17,8 @@ REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~53
 REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
 REM  four of five prompts re-prefilling in full on every call and no error. Raising the
 REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: KV stays 262,144 and runtime stays 10.7 GiB.
+REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
+REM  runtime are unchanged from the values above.
 REM ============================================================================
 setlocal
 
@@ -90,7 +91,7 @@ if not errorlevel 1 (
   --port 8087 ^
   --model-id qwen3.8-27b-quasar-v3-mtp4-vision ^
   --max-context 262144 ^
-  --device-state-slots 8 ^
+  --device-state-slots 1 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^
   --prefill-chunk 8192 ^

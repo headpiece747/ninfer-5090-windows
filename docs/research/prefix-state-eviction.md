@@ -1,7 +1,12 @@
-# Prefix state eviction: what production engines do, and what this engine lacks
+# Prefix state eviction: what production engines do, and what this engine lacked
 
-Status: research note, written before changing `src/models/qwen3_5/program/planning/pressure.cpp`.
-Supersedes nothing. The measurement it responds to is in `tools/release/repro_251.py`.
+Status: **resolved 2026-09-19** -- the reclaim landed in
+`src/runtime/engine/context_cache/resource_manager.h` (`reclaim_oldest_private_continuation`), and
+`repro_251.py` now reports reuse for every conversation. The defect sections below are the record of
+how it was found; read "FOUND AND FIXED" before acting on any of them.
+
+Written before changing `src/models/qwen3_5/program/planning/pressure.cpp`. Supersedes nothing. The
+measurement it responds to is in `tools/release/repro_251.py`.
 
 ## The defect this addresses
 

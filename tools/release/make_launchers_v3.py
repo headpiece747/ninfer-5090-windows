@@ -14,8 +14,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from profiles import PROFILES, ordered_flags  # noqa: E402
 
-OUT = Path(r"C:\AI\ninfer-v3-windows")
-V3 = r"C:\AI\ninfer-v3-windows"
+REPO = Path(__file__).resolve().parents[2]
+OUT = REPO
+V3 = str(REPO)
 MODELS = r"C:\AI\models"
 
 TEMPLATE = """@echo off
@@ -37,7 +38,8 @@ REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~53
 REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
 REM  four of five prompts re-prefilling in full on every call and no error. Raising the
 REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: KV stays 262,144 and runtime stays 10.7 GiB.
+REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
+REM  runtime are unchanged from the values above.
 REM ============================================================================
 setlocal
 

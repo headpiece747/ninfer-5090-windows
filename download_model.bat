@@ -7,9 +7,9 @@ REM  renames it to the .v3 form the launchers look for. Models land beside this
 REM  file so an extracted release is self-contained; the launchers also accept
 REM  C:\AI\models as a fallback.
 REM
-REM  The two artifacts differ in more than size: QUASAR QAT is published as a v2
-REM  container and needs the offline upgrader afterwards, while NVFP4-full is
-REM  already v3 and runs directly. The script says so when it matters.
+REM  Both repositories publish a v3 container now, so either artifact downloads
+REM  and runs directly. The offline upgrader ships for anyone holding a copy
+REM  fetched before the republish; the engine names it if a v2 file is loaded.
 REM ============================================================================
 setlocal
 call "%~dp0launcher_env.bat"
@@ -17,8 +17,8 @@ call "%~dp0launcher_env.bat"
 echo =======================================================
 echo  NInfer v3 model download
 echo =======================================================
-echo   1. QUASAR QAT   (recommended)   ~17.4 GiB   needs upgrade to v3
-echo   2. NVFP4-full                    ~18.1 GiB   already v3
+echo   1. QUASAR QAT   (recommended)   ~17.4 GiB
+echo   2. NVFP4-full                    ~18.1 GiB
 echo =======================================================
 set "CHOICE="
 set "ARTIFACT="
@@ -33,9 +33,9 @@ if not defined ARTIFACT (
     exit /b 1
 )
 
-REM QUASAR is published as a v2 container, so it stages under its own name and the
-REM upgrader writes the .v3. path the launchers use.
-if "%ARTIFACT%"=="quasar"     set "TARGET=%~dp0models\qwen3_8_27b_nvfp4qat.v2.ninfer"
+REM Each artifact downloads straight to the .v3 name the launchers look for. It used to stage
+REM QUASAR under a .v2 name for the upgrader; both repositories publish v3 now.
+if "%ARTIFACT%"=="quasar"     set "TARGET=%~dp0models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 if "%ARTIFACT%"=="nvfp4full"  set "TARGET=%~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer"
 
 if not defined PYTHON_EXE (

@@ -5,22 +5,30 @@ A **profile** is one shippable combination of artifact, spec route, vision and c
 module holds the table and the serve argument list, so the launcher generator, the measurement
 harnesses and the verifier all describe the same thing instead of restating it.
 
-Measured 2026-09-18 on an RTX 5090 (32 GB), fp8 KV, --kv-capacity auto, --prefill-chunk 8192.
-Every value below is backed by a record in matrix_v3.jsonl.
+Measured 2026-09-20 on an RTX 5090 (32 GB) through the shipped launcher's own flag set: the
+`profile` mode of v3_profile_matrix.py, which composes profiles.ordered_flags. Each value therefore
+describes the configuration a launcher actually starts, including its --device-state-slots. An
+earlier probe omitted that flag and published a runtime/free pair for a configuration no launcher
+starts.
 
-  artifact      spec      vision  lm-head  context   decode     acceptance
-  QUASAR        dflash2   yes     ON       262,144   331.3      61.8%   <- flagship
-  QUASAR        mtp d4    yes     ON       262,144   225.4      65.3%
-  NVFP4-full    dflash2   yes     ON       262,144   326.6      63.7%
-  NVFP4-full    mtp d5    yes     ON       262,144   236.3      64.2%
+--device-state-slots is 1 for every profile, from a record: the reclaim that landed 2026-09-19
+removed the #251 cliff, so all twelve conversations reuse at 1 as well as at 8 (`slots_sweep_*.txt`
+under the bench records), while 8 costs 1.3 GiB of runtime and up to 14% of decode on DFlash2. A
+larger value buys retained-state capacity for interleaved conversations, which nothing in this repo
+measures -- treat raising it as an unverified trade, not as a fix.
+Decode varies ~10% run to run and free VRAM ~0.2 GiB with whatever else holds the card.
+Every value below is backed by a record in matrix_v3.jsonl under the launcher's own file name.
+The PROFILES table is the only copy: this docstring deliberately restates no figures, because a
+hand-copied number is a drift site. The example table that used to stand here was already stale by
+the time the launchers gained --device-state-slots, one day after those measurements.
 
-All four are vision-only and all four reach the native context: Vision measured free on both
-artifacts (331.3 against 333.0; 326.6 against 325.0, at the same ceiling either way). Text-only
-variants existed only for the retired NVFP4 image, which charged 16,384-27,008 tokens for it.
+All four are vision-only and all four reach the native context; the with-vs-without-vision
+comparison that justified that is recorded in docs/adr/0004. Text-only variants existed only for
+the retired NVFP4 image, which charged 16,384-27,008 tokens for it.
 
---lm-head-draft is per profile, not uniform: it is worth +9% (DFlash2) and +18% (MTP d4) on
-QUASAR, ~+2% on NVFP4-full DFlash2 at a cost of 0.33 GiB of headroom, and +34% on NVFP4-full
-MTP d5. Route, depth and this flag are measurements, never convention -- see ADR-0005.
+--lm-head-draft is a measured choice per artifact, not a convention: all four shipped profiles set
+it today, and ADR-0005 records what it is worth on each -- including the one where it costs
+headroom to buy speed. Route, depth and this flag are measurements, never convention.
 """
 from __future__ import annotations
 
@@ -32,25 +40,25 @@ QUASAR = "qwen3_8_27b_nvfp4qat.v3.ninfer"
 NVFP4FULL = "qwen3_8_27b_nvfp4full.v3.ninfer"
 
 PROFILES: list[dict[str, Any]] = [
-    dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=8,
+    dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=331.3, acc="61.8%", runtime="10.7 GiB", free="2.52 GiB",
-         note="Flagship: fastest measured configuration, at full context."),
-    dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=8,
+         tok=341.7, acc="61.8%", runtime="10.7 GiB", free="2.5 GiB",
+         note="Fastest QUASAR lane at full context, at one state slot."),
+    dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=225.4, acc="65.3%", runtime="10.4 GiB", free="3.08 GiB",
+         tok=239.2, acc="65.3%", runtime="10.4 GiB", free="3.34 GiB",
          note="Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR."),
-    dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL, device_state_slots=4,
+    dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=326.6, acc="63.7%", runtime="10.7 GiB", free="1.74 GiB",
-         note="Second artifact, same reach as QUASAR: 262,144 with Vision. This is the\nREM  tightest profile in the set; dropping --lm-head-draft buys 0.33 GiB at ~2% slower."),
-    dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=4,
+         tok=343.1, acc="63.7%", runtime="10.7 GiB", free="2.05 GiB",
+         note="Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot."),
+    dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
-         tok=236.3, acc="64.2%", runtime="10.4 GiB", free="2.28 GiB",
+         tok=249.3, acc="64.2%", runtime="10.4 GiB", free="2.59 GiB",
          note="MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here."),
 ]
 
@@ -107,18 +115,17 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     positions matter: the per-profile flags come first, then the bound ones.
     """
     out: list[tuple[str, str | None]] = [(token, None) for token in varying_flags(profile)]
-    # --device-state-slots is per profile because it is VRAM-bound, not a shared constant. It is
-    # "extra checkpoint capacity beyond active lanes": how many conversations can keep a cached
-    # state at once. Until 2026-09-19 the engine had no eviction, so once these were exhausted
-    # prefix reuse stopped permanently until restart (upstream issue #251, "no LRU eviction
-    # observed"; reproduced here with 1: reuse held for 3 conversations, then every later request
-    # re-prefilled from the root, silently). Active-capture admission now reclaims the oldest
-    # unpinned private continuation to free a Device State slot, so a small value no longer ends
-    # in a cliff -- 12/12 conversations reuse at 1+2 slots. The value is still a real capacity
-    # knob (more resident states means more reuse between interleaved conversations), and it does
-    # not fit everywhere: 8 needs ~1.3 GiB more runtime than 1, and NVFP4-full + DFlash2 fails to
-    # start with 8 ("minimum Engine runtime reservation requires 12894831873 bytes") but starts
-    # with 4.
+    # --device-state-slots is VRAM-bound, so it stays a per-profile field rather than a shared
+    # constant, but every profile ships 1. It is "extra checkpoint capacity beyond active lanes":
+    # how many conversations can keep a cached state at once. Until 2026-09-19 the engine had no
+    # eviction, so once these were exhausted prefix reuse stopped permanently until restart
+    # (upstream issue #251, "no LRU eviction observed"; reproduced here with 1: reuse held for 3
+    # conversations, then every later request re-prefilled from the root, silently). Active-capture
+    # admission now reclaims the oldest unpinned private continuation to free a slot, so the cliff
+    # is gone and the value is a capacity/VRAM trade rather than a survival requirement: 12/12
+    # conversations reuse at 1, 2, 4 and 8 alike, while 8 costs ~1.3 GiB of runtime and 13.6% of
+    # decode on QUASAR DFlash2. A larger value buys retained-state capacity for interleaved
+    # conversations, which nothing here measures -- see the module docstring.
     out.extend([("--host", "127.0.0.1"),
                 ("--port", str(profile["port"])),
                 ("--model-id", profile["model_id"]),
@@ -137,15 +144,13 @@ def launcher_args(profile: dict[str, Any], port: int | None = None,
     cache bounds, the thinking budget and the model ids were all missing from the harness, so
     its numbers came from flags no launcher ships.
 
-    Three overrides exist because a harness genuinely differs from a launcher, and each has
-    more than one caller, so the seam is real rather than hypothetical:
+    Three overrides exist because a harness genuinely differs from a launcher:
 
     - ``port``: a harness must bind its own port, because the shipped one may already be
       serving. Every harness overrides it.
     - ``model_id``: the engine enforces the id on every request, so a harness needs one it
       controls. Every harness overrides it.
-    - ``max_context``: the matrix probes a descending ladder and the effort probe uses a small
-      context. Two callers.
+    - ``max_context``: the effort probe uses a small context. One caller.
 
     Anything else a harness needs -- a request log, a different thinking budget -- it appends,
     which is why this returns a plain list.

@@ -205,7 +205,11 @@ Eleven rules, each earned by a failure rather than chosen:
   hypothesis, not in a comment that the next reader will trust.
 - **Check whether a skill is actually loaded before relying on it, and say which one you used.**
   Five project skills added mid-session (`cpp-cuda-review`, `ncu-report`, `cuda-debugging`,
-  `sanitizers`, `address-sanitizer`) were invisible to the running session because opencode
-  discovers skills at session start. Two wrong hypotheses about the cause followed. When a skill
-  does not load, check its commit time against the session start before debugging its frontmatter;
-  the project's own review skill is `cpp-cuda-review`, not the .NET `code-review` import.
+  `sanitizers`, `address-sanitizer`) were invisible to the running session, and two wrong
+  hypotheses about the cause followed. The loaded list is rebuilt when the session's context is
+  rebuilt, not continuously: a context built before the skill existed, or built in a worktree that
+  does not carry `.opencode/`, keeps the old list. So verify the file is present in *this*
+  worktree's `.opencode/skills/`, then re-check the loaded list after a context rebuild or a new
+  session — a junctioned `.opencode/` made 40 skills appear mid-session with no restart. Do not
+  debug the frontmatter first; the project's own review skill is `cpp-cuda-review`, not the .NET
+  `code-review` import.
