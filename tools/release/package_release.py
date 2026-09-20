@@ -29,6 +29,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from profiles import PROFILES  # noqa: E402
+
 REPO = Path(__file__).resolve().parents[2]
 BUILD = REPO / "build" / "apps"
 RELEASES = Path(r"C:\AI\releases")
@@ -37,10 +40,11 @@ EXES = ["ninfer-serve.exe", "ninfer.exe", "ninfer-perplexity.exe"]
 DLLS = ["avcodec-63.dll", "avformat-63.dll", "avutil-61.dll",
         "swscale-10.dll", "swresample-7.dll"]
 ROOT_FILES = ["README.md", "RELEASE_NOTES.md", "LICENSE", "NOTICE"]
+# The four start_*.bat are generated from the table, so they are derived from it here rather
+# than restated; the other three are hand-written and ship as they are.
 LAUNCHER_FILES = [
     "launcher_env.bat", "download_model.bat", "download_model.py",
-    "start_quasar_v3_dflash2_vision.bat", "start_quasar_v3_mtp4_vision.bat",
-    "start_ninfer_v3_dflash2_vision.bat", "start_ninfer_v3_mtp5_vision.bat",
+    *[profile["file"] for profile in PROFILES],
 ]
 
 # Shipped from tools/ rather than the root. Both artifacts are published as v3 now, so nothing

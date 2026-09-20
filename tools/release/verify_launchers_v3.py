@@ -29,17 +29,17 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from profiles import PROFILES  # noqa: E402
 from v3_profile_matrix import gpu_used_mib, wait_free  # noqa: E402
 
 V3 = Path(__file__).resolve().parents[2]
 RECORDS = Path(r"C:\AI\bench") / "launcher_verify.jsonl"
 
-CASES = [
-    ("start_quasar_v3_dflash2_vision.bat", 8086, "qwen3.8-27b-quasar-v3-dflash2-vision", True, "dflash2"),
-    ("start_quasar_v3_mtp4_vision.bat", 8087, "qwen3.8-27b-quasar-v3-mtp4-vision", True, "mtp"),
-    ("start_ninfer_v3_dflash2_vision.bat", 8088, "qwen3.8-27b-nvfp4-v3-dflash2-vision", True, "dflash2"),
-    ("start_ninfer_v3_mtp5_vision.bat", 8089, "qwen3.8-27b-nvfp4-v3-mtp5-vision", True, "mtp"),
-]
+# Derived from the table, never restated. This verifier executes the launcher that ships, so a
+# copy of the file name, port, model id, spec or ceiling here would be a second authority for
+# exactly the facts the launcher is generated from -- and the ceiling was one until now.
+CASES = [(p["file"], p["port"], p["model_id"], p["vision"], p["spec"], p["ctx"])
+         for p in PROFILES]
 
 PROBE_PROMPT = "Reply with the single word OK."
 
@@ -109,7 +109,7 @@ def models(port: int) -> list[str]:
 def main() -> int:
     uri = make_png_data_uri()
     results = []
-    for bat, port, model_id, vision, spec in CASES:
+    for bat, port, model_id, vision, spec, ceiling in CASES:
         print(f"\n=== {bat}  (port {port})")
         kill()
         # Same drain discipline as v3_profile_matrix.run_profile: the engine's accounting line
@@ -143,8 +143,10 @@ def main() -> int:
         rec["kv_committed"] = capacity
         rec["runtime"] = runtime
         rec["free"] = free
-        rec["ceiling_ok"] = capacity >= 262144
-        print(f"  KV committed       : {capacity:,}  {'OK' if rec['ceiling_ok'] else 'BELOW 262,144'}"
+        rec["ceiling_expected"] = ceiling
+        rec["ceiling_ok"] = capacity >= ceiling
+        print(f"  KV committed       : {capacity:,}  "
+              f"{'OK' if rec['ceiling_ok'] else 'BELOW ' + format(ceiling, ',')}"
               f"  ({runtime}, {free})")
         handle.close()
 

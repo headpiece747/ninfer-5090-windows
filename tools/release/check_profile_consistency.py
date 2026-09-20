@@ -44,7 +44,6 @@ def read(path: Path) -> str:
 
 
 def main() -> int:
-    files = [p["file"] for p in PROFILES]
     print(f"\n=== launcher generator agreement ({len(PROFILES)} profiles) ===")
     for profile in PROFILES:
         path = WT / profile["file"]
@@ -137,11 +136,14 @@ def main() -> int:
 
     print("\n=== verifier case list ===")
     verifier = read(WT / "tools" / "release" / "verify_launchers_v3.py")
-    for profile in PROFILES:
-        check(f"verifier covers {profile['file']}", profile["file"] in verifier)
-        check(f"verifier expects port {profile['port']}",
-              f", {profile['port']}, " in verifier or f"({profile['file']}\", {profile['port']}" in verifier)
-    check("verifier requires the native ceiling", "262144" in verifier)
+    # The verifier derives its cases from the table now, so the per-profile checks that used to
+    # assert the literals are gone with them. Asserting that a copy exists is what kept it there:
+    # removing the literals turned those thirteen checks red, which is the proof of that claim.
+    check("verifier derives its cases from the module",
+          "from profiles import PROFILES" in verifier)
+    check("verifier does not restate the launcher file names",
+          "start_quasar_v3_" not in verifier and "start_ninfer_v3_" not in verifier)
+    check("verifier does not restate a ceiling", "262144" not in verifier)
 
     print("\n=== docs ===")
     for doc in ("README.md", "RELEASE_NOTES.md"):
@@ -154,8 +156,14 @@ def main() -> int:
 
     print("\n=== packager file list ===")
     packager = read(WT / "tools" / "release" / "package_release.py")
-    for name in files:
+    # The four start_*.bat come from the table, so checking that their names appear in the
+    # packager would assert the copy this change removed. The hand-written three remain.
+    for name in ("launcher_env.bat", "download_model.bat", "download_model.py"):
         check(f"packager stages {name}", name in packager)
+    check("packager derives the launcher list from the module",
+          "from profiles import PROFILES" in packager)
+    check("packager does not restate the launcher file names",
+          "start_quasar_v3_" not in packager and "start_ninfer_v3_" not in packager)
     for retired in RETIRED:
         check(f"packager drops retired {retired}", retired not in packager)
 
