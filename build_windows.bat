@@ -3,15 +3,20 @@ echo ========================================================
 echo NInfer Build Script (Windows MSVC)
 echo ========================================================
 
+REM FFmpeg's LGPL shared build, not the GPL one: these DLLs ship inside the release archive, and
+REM the LGPL variant keeps GPL components out of it. BtbN prunes old autobuilds, so the pinned tag
+REM is tried first with `latest` as the fallback -- this pin went stale once already.
+set "FFMPEG_ASSET=ffmpeg-master-latest-win64-lgpl-shared.zip"
+set "FFMPEG_PIN=autobuild-2026-09-20-13-11"
 if not exist ffmpeg (
-    echo [1/4] Downloading FFmpeg Windows dev binaries...
-    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-08-13-14/ffmpeg-master-latest-win64-gpl-shared.zip' -OutFile 'ffmpeg.zip'"
+    echo [1/4] Downloading FFmpeg Windows dev binaries (LGPL shared)...
+    powershell -Command "try { Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/%FFMPEG_PIN%/%FFMPEG_ASSET%' -OutFile 'ffmpeg.zip' } catch { Write-Host 'Pinned autobuild is gone; falling back to the latest release.'; Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/%FFMPEG_ASSET%' -OutFile 'ffmpeg.zip' }"
     
     echo [2/4] Extracting FFmpeg...
     powershell -Command "Expand-Archive -Path 'ffmpeg.zip' -DestinationPath 'ffmpeg_temp' -Force"
     
     echo Moving files into place...
-    move ffmpeg_temp\ffmpeg-master-latest-win64-gpl-shared ffmpeg >nul
+    move ffmpeg_temp\ffmpeg-master-latest-win64-lgpl-shared ffmpeg >nul
     
     echo Cleaning up...
     rmdir /S /Q ffmpeg_temp

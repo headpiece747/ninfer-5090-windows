@@ -40,6 +40,7 @@ REQUIRED = [
     "LICENSE",
     "NOTICE",
     "SHA256SUMS",
+    "FFMPEG-LICENSE.txt",
 ]
 
 

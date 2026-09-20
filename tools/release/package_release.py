@@ -94,6 +94,14 @@ def main() -> int:
             else:
                 shutil.copy2(source, stage / name)
                 total += source.stat().st_size
+    # The DLLs are LGPL, so their licence text has to travel with them.
+    ffmpeg_license = REPO / "ffmpeg" / "LICENSE.txt"
+    if ffmpeg_license.exists():
+        shutil.copy2(ffmpeg_license, stage / "FFMPEG-LICENSE.txt")
+        total += ffmpeg_license.stat().st_size
+    else:
+        missing.append("ffmpeg/LICENSE.txt (the runtime DLLs' licence text)")
+
     if missing:
         print("  MISSING:")
         for item in missing:
