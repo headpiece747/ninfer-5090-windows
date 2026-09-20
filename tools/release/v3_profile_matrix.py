@@ -38,6 +38,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from engine import kill_servers, wait_ready  # noqa: E402
 from profiles import PROFILES, QUASAR, NVFP4FULL, INVARIANT_FLAGS, by_file, launcher_args  # noqa: E402
 
 EXE = Path(__file__).resolve().parents[2] / "build" / "apps" / "ninfer-serve.exe"
@@ -106,11 +107,6 @@ PROBE_PROMPT = "Reply with the single word OK."
 
 # ---------------------------------------------------------------- process control
 
-def kill() -> None:
-    subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"],
-                   capture_output=True, text=True)
-
-
 def gpu_used_mib() -> int:
     out = subprocess.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader"],
                          capture_output=True, text=True).stdout
@@ -123,25 +119,6 @@ def wait_free(limit: int = 2000, timeout: int = 120) -> bool:
         if gpu_used_mib() < limit:
             return True
         time.sleep(3)
-    return False
-
-
-def wait_ready(proc=None, timeout: int = 240) -> bool:
-    """Poll the models endpoint until the engine answers.
-
-    A refused profile exits in about four seconds, so stop as soon as the process is
-    gone instead of burning the whole timeout on a port that will never open.
-    """
-    end = time.time() + timeout
-    while time.time() < end:
-        if proc is not None and proc.poll() is not None:
-            return False
-        try:
-            with urllib.request.urlopen(f"{BASE}/v1/models", timeout=5) as r:
-                r.read()
-            return True
-        except Exception:  # noqa: BLE001
-            time.sleep(2)
     return False
 
 
@@ -390,7 +367,7 @@ def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = Fa
     log = OUT / f"sweep_{tag}.txt"
     jsonl = OUT / f"req_{tag}.jsonl"
     jsonl.unlink(missing_ok=True)  # the server appends; a stale file would average runs
-    kill()
+    kill_servers()
     freed = wait_free()
     kv_before = gpu_used_mib()
 
@@ -404,7 +381,7 @@ def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = Fa
         art, spec, draft = ART_BY_FILE[profile["art"]], profile["spec"], profile["draft"]
         vision, max_context = bool(profile["vision"]), profile["ctx"]
     proc, fh = start(args, log)
-    ready = wait_ready(proc)
+    ready = wait_ready(PORT, proc)
     time.sleep(3)  # let the capacity/stats lines flush
     text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
 
@@ -439,7 +416,7 @@ def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = Fa
     except subprocess.TimeoutExpired:
         proc.kill()
     fh.close()
-    kill()
+    kill_servers()
 
     with RECORDS.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")

@@ -29,6 +29,7 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from engine import kill_servers, wait_ready  # noqa: E402
 from profiles import PROFILES  # noqa: E402
 from v3_profile_matrix import gpu_used_mib, wait_free  # noqa: E402
 
@@ -65,23 +66,6 @@ def make_png_data_uri(size: int = 64) -> str:
 
 # -------------------------------------------------------------------- plumbing
 
-def kill() -> None:
-    subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"], capture_output=True, text=True)
-
-
-def wait_ready(port: int, timeout: int = 240) -> tuple[bool, float]:
-    t0 = time.time()
-    end = t0 + timeout
-    while time.time() < end:
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=5) as r:
-                r.read()
-            return True, time.time() - t0
-        except Exception:  # noqa: BLE001
-            time.sleep(2)
-    return False, time.time() - t0
-
-
 def post(port: int, path: str, payload: dict, timeout: int = 600):
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
@@ -111,7 +95,7 @@ def main() -> int:
     results = []
     for bat, port, model_id, vision, spec, ceiling in CASES:
         print(f"\n=== {bat}  (port {port})")
-        kill()
+        kill_servers()
         # Same drain discipline as v3_profile_matrix.run_profile: the engine's accounting line
         # depends on what is already resident, so a leftover process must not be able to move it.
         freed = wait_free()
@@ -121,7 +105,12 @@ def main() -> int:
         proc = subprocess.Popen(["cmd", "/c", str(V3 / bat)], cwd=str(V3),
                                 stdin=subprocess.DEVNULL,
                                 stdout=handle, stderr=subprocess.STDOUT)
-        ready, secs = wait_ready(port)
+        # engine.py owns the wait. Timing it here keeps the elapsed value the record needs
+        # without a second implementation of the poll, and passing proc means a refused
+        # profile stops the wait instead of burning the whole timeout.
+        started_at = time.time()
+        ready = wait_ready(port, proc)
+        secs = time.time() - started_at
         rec: dict = {"bat": bat, "port": port, "model_id": model_id, "vision": vision,
                      "spec": spec, "ready": ready, "startup_seconds": round(secs, 1),
                      "vram_before_mib": vram_before, "vram_freed": freed}
@@ -153,7 +142,7 @@ def main() -> int:
         if not ready:
             print("  FAILED to serve")
             proc.kill()
-            kill()
+            kill_servers()
             results.append(rec)
             with RECORDS.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(rec) + "\n")
@@ -213,7 +202,7 @@ def main() -> int:
                   f" -> {'OK (vision_disabled)' if rec['image_ok'] else 'FAIL'}")
 
         proc.kill()
-        kill()
+        kill_servers()
         time.sleep(2)
         results.append(rec)
         with RECORDS.open("a", encoding="utf-8") as f:
