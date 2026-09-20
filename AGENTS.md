@@ -163,7 +163,7 @@ port targets MSVC 14.51 and CUDA 13.3, and the Python used for tooling is
 `C:\vllm-env\Scripts\python.exe`. What ships is governed by `tools/release/profiles.py`, and the
 release surface is documented in the Windows section of `README.md`.
 
-Eleven rules, each earned by a failure rather than chosen:
+Fourteen rules, each earned by a failure rather than chosen:
 
 - **Reach for the indexed tool before a manual search.** `.codegraph/` exists here, so a code
   question ("where is X", "who calls X", "how does X work") goes to `codegraph_explore` before
@@ -213,3 +213,15 @@ Eleven rules, each earned by a failure rather than chosen:
   session — a junctioned `.opencode/` made 40 skills appear mid-session with no restart. Do not
   debug the frontmatter first; the project's own review skill is `cpp-cuda-review`, not the .NET
   `code-review` import.
+- **One workspace branch, one worktree.** All work lands on `dev`; `main` is only ever a squashed
+  release cut and never a place to work. Do not keep a second worktree: a session then finds the
+  tooling in one directory and the code in another, which is what happened when this repository was
+  worked from `ninfer-quasar-5090` on one branch and `ninfer-v3-windows` on another. Push `dev` —
+  unpushed work is one disk failure from gone, and `main` being three weeks stale is the same fault
+  seen from the other side.
+- **Integrate upstream by merging into `dev`.** Never park local commits on a tracking branch: that
+  is how `cometkim-qat` became 25 commits ahead and 41 behind, living in another worktree.
+- **Publish every version you build, in order, or do not build it.** A gap in the release list reads
+  as a withdrawn release. `v1.0.1` and `v1.0.2` were built — both archives are in `C:\AI\releases` —
+  and never published, so the list is `1.0.0, 1.0.3, ...` and nothing records why. The version was
+  hand-typed in the packager, which is why nothing caught it.
