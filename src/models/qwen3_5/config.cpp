@@ -1,5 +1,6 @@
 #include "models/qwen3_5/config.h"
 
+#include "artifact/reader.h"
 #include "artifact/schema.h"
 
 #include <algorithm>
@@ -45,8 +46,8 @@ std::string architecture(const Json& config) {
     return artifact::require_id(names[0], "architecture");
 }
 
-const artifact::Component& companion(const artifact::Directory& directory, std::string_view name) {
-    const auto& component = directory.component(name);
+const artifact::Component& companion(const artifact::Reader& reader, std::string_view name) {
+    const auto& component = reader.component(name);
     if (component.target != "text") {
         throw ArtifactError(std::string(name) + ": target must be text");
     }
@@ -299,7 +300,7 @@ std::uint64_t VisionConfig::merger_width() const {
                                  hidden_size, "merger width");
 }
 
-Config parse_config(const artifact::Directory& directory, const LoadOptions& options) {
+Config parse_config(const artifact::Reader& reader, const LoadOptions& options) {
     try {
         if (options.purpose != EnginePurpose::Generation &&
             options.purpose != EnginePurpose::CausalScoring) {
@@ -319,10 +320,10 @@ Config parse_config(const artifact::Directory& directory, const LoadOptions& opt
         }
         Config out;
         out.mtp  = options.speculative == SpeculativeBackend::Mtp;
-        out.text = text(directory.component("text").config, out.mtp);
-        if (options.vision) { out.vision = vision(companion(directory, "vision").config); }
+        out.text = text(reader.component("text").config, out.mtp);
+        if (options.vision) { out.vision = vision(companion(reader, "vision").config); }
         if (out.mtp) {
-            const auto& config = companion(directory, "mtp").config;
+            const auto& config = companion(reader, "mtp").config;
             require_members(config, {"architectures"}, {}, "MTP config");
             if (architecture(config) != (out.text.architecture == Architecture::Qwen3_5Moe
                                              ? "Qwen3_5MoeMTP"
@@ -332,7 +333,7 @@ Config parse_config(const artifact::Directory& directory, const LoadOptions& opt
         }
         if (options.speculative == SpeculativeBackend::DFlash ||
             options.speculative == SpeculativeBackend::DFlash2) {
-            out.draft = draft(companion(directory, options.speculative_component()).config,
+            out.draft = draft(companion(reader, options.speculative_component()).config,
                               out.text, options.speculative == SpeculativeBackend::DFlash2);
         }
         return out;

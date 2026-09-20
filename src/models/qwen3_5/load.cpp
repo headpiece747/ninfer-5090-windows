@@ -44,7 +44,7 @@ std::span<const WeightUse> LoadPlan::uses(WeightId id) const {
 LoadPlan plan_load(const artifact::Reader& reader, LoadOptions options) {
     auto out     = std::make_unique<LoadPlan::Impl>();
     out->options = options;
-    out->config  = parse_config(reader.directory(), options);
+    out->config  = parse_config(reader, options);
     artifact::Binder binder(reader);
     out->resources = loading::bind_resources(binder, out->config);
     loading::Bindings bindings(binder);
@@ -62,7 +62,7 @@ LoadPlan plan_load(const artifact::Reader& reader, LoadOptions options) {
                                 std::string(options.speculative_component()));
     }
     if (options.proposal_enabled()) {
-        const auto& proposal = reader.directory().component("text").proposal;
+        const auto& proposal = reader.component("text").proposal;
         if (!proposal) {
             throw artifact::ArtifactError("selected proposal head is absent from artifact");
         }
@@ -92,10 +92,10 @@ LoadPlan plan_load(const artifact::Reader& reader, LoadOptions options) {
     }
     out->pending         = std::move(bindings.weights);
     out->materialization = std::move(binder).finish();
-    out->info.name       = reader.directory().metadata.value(
+    out->info.name       = reader.metadata().value(
         "name", std::string(architecture_name(text.architecture)));
-    out->info.metadata_json   = reader.directory().metadata.dump();
-    out->info.provenance_json = reader.directory().provenance.dump();
+    out->info.metadata_json   = reader.metadata().dump();
+    out->info.provenance_json = reader.provenance().dump();
     out->info.artifact_id     = reader.artifact_id();
     return LoadPlan(std::move(out));
 }

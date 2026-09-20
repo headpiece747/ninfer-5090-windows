@@ -91,6 +91,16 @@ Reader& Reader::operator=(Reader&&) noexcept = default;
 
 const Directory& Reader::directory() const noexcept { return impl_->directory; }
 
+const Object& Reader::object(ObjectHandle handle) const { return impl_->directory.object(handle); }
+
+const Component& Reader::component(std::string_view name) const {
+    return impl_->directory.component(name);
+}
+
+const Json& Reader::metadata() const noexcept { return impl_->directory.metadata; }
+
+const Json& Reader::provenance() const noexcept { return impl_->directory.provenance; }
+
 const ArtifactId& Reader::artifact_id() const noexcept { return impl_->id; }
 
 std::uint64_t Reader::file_bytes() const noexcept { return impl_->file_bytes; }

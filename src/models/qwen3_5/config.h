@@ -11,7 +11,7 @@
 #include <vector>
 
 namespace ninfer::artifact {
-struct Directory;
+class Reader;
 }
 
 namespace ninfer::models::qwen3_5 {
@@ -145,6 +145,6 @@ struct Config {
     std::optional<DraftConfig> draft;
 };
 
-[[nodiscard]] Config parse_config(const artifact::Directory& directory, const LoadOptions& options);
+[[nodiscard]] Config parse_config(const artifact::Reader& reader, const LoadOptions& options);
 
 } // namespace ninfer::models::qwen3_5

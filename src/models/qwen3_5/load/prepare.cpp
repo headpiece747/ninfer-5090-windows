@@ -56,7 +56,7 @@ WeightId Bindings::parameter(std::string name, artifact::Shape shape,
     }
     for (const auto& part : pending.reference.binding.parts) {
         pending.source_objects.push_back(
-            artifact::object_id(binder.reader().directory().object(part.object)));
+            artifact::object_id(binder.reader().object(part.object)));
     }
     const WeightId id{weights.size()};
     parameters_.emplace(std::move(name), id);

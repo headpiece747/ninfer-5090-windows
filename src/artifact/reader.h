@@ -30,6 +30,14 @@ public:
 
     [[nodiscard]] const Directory& directory() const noexcept;
     [[nodiscard]] const ArtifactId& artifact_id() const noexcept;
+    // What model code needs, so it crosses a named seam instead of reaching through the schema.
+    // binder.reader().directory().object() named three levels and said nothing about which one was
+    // authoritative. directory() stays for the artifact module and its white-box container tests,
+    // which read the whole index on purpose.
+    [[nodiscard]] const Object& object(ObjectHandle handle) const;
+    [[nodiscard]] const Component& component(std::string_view name) const;
+    [[nodiscard]] const Json& metadata() const noexcept;
+    [[nodiscard]] const Json& provenance() const noexcept;
     [[nodiscard]] std::uint64_t file_bytes() const noexcept;
     [[nodiscard]] ObjectHandle find(std::string_view id) const;
     [[nodiscard]] const WeightGeometry& geometry(ObjectHandle handle) const;
