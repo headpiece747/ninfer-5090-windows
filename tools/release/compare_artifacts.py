@@ -14,7 +14,7 @@ align_up(metadata_end, 4096).
   index    canonical JSON diff (parsing then re-dumping removes the writer's padding)
   payload  sha256 of [payload_start, EOF) -- equal means identical weights
 
-usage: compare_artifacts.py A.ninfer B.ninfer [--metadata-only] [--diff-lines N]
+usage: compare_artifacts.py A.ninfer B.ninfer [--metadata-only] [--diff-lines N] [--find PATTERN]
 """
 from __future__ import annotations
 
@@ -45,12 +45,34 @@ def sha_region(path: Path, start: int) -> str:
 
 def main() -> int:
     args = sys.argv[1:]
-    paths = [Path(arg) for arg in args if not arg.startswith("--")]
+    paths: list[Path] = []
+    metadata_only = False
+    diff_lines = 40
+    find: str | None = None
+    at = 0
+    while at < len(args):
+        arg = args[at]
+        if arg == "--metadata-only":
+            metadata_only = True
+        elif arg in ("--diff-lines", "--find"):
+            at += 1
+            if at >= len(args):
+                print(f"{arg} needs a value")
+                return 2
+            if arg == "--diff-lines":
+                diff_lines = int(args[at])
+            else:
+                find = args[at]
+        elif arg.startswith("--"):
+            print(f"unknown option: {arg}")
+            return 2
+        else:
+            paths.append(Path(arg))
+        at += 1
+
     if len(paths) != 2:
         print(__doc__)
         return 2
-    metadata_only = "--metadata-only" in args
-    diff_lines = int(args[args.index("--diff-lines") + 1]) if "--diff-lines" in args else 40
 
     info: dict[str, dict] = {}
     for path in paths:
@@ -75,6 +97,15 @@ def main() -> int:
     left = json.dumps(first["index"], indent=1, sort_keys=True).splitlines()
     right = json.dumps(second["index"], indent=1, sort_keys=True).splitlines()
     print(f"  artifact_id    {'same' if first['artifact_id'] == second['artifact_id'] else 'differs by construction: it identifies the file set'}")
+
+    if find:
+        print(f"\n--- index entries matching {find!r}, with three lines either side ---")
+        for path, lines in zip(paths, (left, right)):
+            print(f"  [{path.name}]")
+            for at, line in enumerate(lines):
+                if find in line:
+                    for context_line in lines[max(0, at - 3):at + 4]:
+                        print(f"    {context_line.strip()[:150]}")
 
     if left == right:
         print("  index JSON     identical")
