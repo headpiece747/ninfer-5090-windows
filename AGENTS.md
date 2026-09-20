@@ -163,7 +163,7 @@ port targets MSVC 14.51 and CUDA 13.3, and the Python used for tooling is
 `C:\vllm-env\Scripts\python.exe`. What ships is governed by `tools/release/profiles.py`, and the
 release surface is documented in the Windows section of `README.md`.
 
-Fourteen rules, each earned by a failure rather than chosen:
+Sixteen rules, each earned by a failure rather than chosen:
 
 - **Reach for the indexed tool before a manual search.** `.codegraph/` exists here, so a code
   question ("where is X", "who calls X", "how does X work") goes to `codegraph_explore` before
@@ -174,7 +174,9 @@ Fourteen rules, each earned by a failure rather than chosen:
   index (docs, configs, logs) or to confirm one detail it did not surface. Earned by grepping an
   already-indexed codebase.
 - **Never inline a script through PowerShell.** Quotes inside quotes break the argument splitting.
-  That happened five times in one session and the fix was always to write a file first.
+  That happened five times in one session and the fix was always to write a file first. The failure
+  is silent in both directions: the command can *succeed* while writing an empty file, so check the
+  output's size, not just its exit code.
 - **Do not guard with string presence over prose.** A check for a token that also appears in a
   comment, a docstring or a filename misfires. That happened four times. Assert the specific call
   site instead.
@@ -227,3 +229,14 @@ Fourteen rules, each earned by a failure rather than chosen:
   as a withdrawn release. `v1.0.1` and `v1.0.2` were built — both archives are in `C:\AI\releases` —
   and never published, so the list is `1.0.0, 1.0.3, ...` and nothing records why. The version was
   hand-typed in the packager, which is why nothing caught it.
+- **Verify a provenance claim against a baseline.** Two traps cost one session. A file that is
+  byte-identical across two repositories is usually *upstream's own*, unchanged by either, so compare
+  it against upstream before calling it derivation. And a shared-line ratio means nothing until you
+  measure the baseline for unrelated files in the same project: 33% here, 27-28% for
+  `src/artifact/reader.cpp`. Measured that way, the 1.0.x Windows layer derives from
+  `Don-Chad/ninfer-3090` (501 of 524 lines identical) while the v3 Windows files are this port's own
+  work over upstream's base. `NOTICE` carries the result.
+- **Compare alternatives by interleaving them.** This card's clocks are not pinned, so decode drifts
+  by up to ~9% between windows: measure A and then B and you have measured the window. Two findings
+  died that way in one session, a 14% slot-count claim and a 9% artifact claim, and both were
+  committed before the interleaved run disproved them. ADR-0003 records the detail.

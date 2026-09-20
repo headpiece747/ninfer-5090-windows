@@ -41,6 +41,9 @@ REQUIRED = [
     "NOTICE",
     "SHA256SUMS",
     "FFMPEG-LICENSE.txt",
+    "chat_templates/LICENSE",
+    "chat_templates/qwen3_6.jinja",
+    "chat_templates/qwen3_8.jinja",
 ]
 
 

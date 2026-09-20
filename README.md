@@ -308,8 +308,8 @@ rate.
   token against the target argmax for its verify column, and the maintainer notes state that
   speculation "does not impose token or logits equality between different quantization, prefill
   or kernel paths" — the batched verify kernel is not the single-token decode path, so a
-  near-tie can flip and the continuation diverges. Speculation measured 3-4x faster
-  (67-83 tok/s without it against 239-343 with it).
+  near-tie can flip and the continuation diverges. Speculation measured 3-4x faster; the lane
+  table above carries each launcher's own measured decode figure.
 - **Vision is free on both shipped artifacts.** The with/without comparison at 262,144 is recorded
   in `docs/adr/0004`, so every profile here carries Vision. The retired NVFP4 image did cost 16,384-27,008 tokens of context, which is
   part of why it was replaced. The Vision runtime still has its own input envelope of 32,768

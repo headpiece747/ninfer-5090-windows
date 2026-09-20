@@ -156,6 +156,10 @@ opencode:
 }
 ```
 
+That key must be the launcher's `--model-id` exactly. The engine enforces it on every request and
+this tree has no alias matching, so a short key such as `quasar-dflash2` (the label the tables above
+use) is rejected with a 400. Only the display `name` is free text.
+
 Two rules that matter more than the numbers:
 
 1. **`output` must exceed the thinking budget plus the answer.** Reasoning is billed
