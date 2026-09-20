@@ -35,9 +35,11 @@ not for **exact numerics**:
   ~8% between windows. Interleave an A/B here, always.
 - output: deterministic and different. The upgrader's fused form drafts 1585 tokens at 61.8%
   acceptance (digest `e3b804e3…`); the repository's split form drafts 1570 at 62.5% (digest
-  `d9952413…`). Both carry the *same* 17,694,724-byte weight-only-NVFP4 drafter tensor with the same
-  `block_scale_k16_m128x4_v1` layout, and the files also differ in one 187-byte vision tensor --
-  which of those two changes the tokens is **not** isolated, so do not claim it is the binding.
+  `d9952413…`). **Resolved: the model itself is the same in both files.** `ninfer-perplexity` over
+  the 1M-token corpus scores them to the same six decimals (overall 1.606336, English reference
+  1.901747, code 0.520469) and derives the same artifact-content hash for both, so neither the
+  binding nor the 187-byte vision tensor changes the model. The token difference is the speculative
+  path, which is not bit-identical by design (ADR-0002).
 
 So a binding is a compatibility and a numerics property, not a performance one. The two files are
 4,283 bytes apart, which no size check can see -- `tools/release/compare_artifacts.py` names the
