@@ -65,6 +65,16 @@ struct DFlashFeatureSink {
 
 class VisionPrefillSession;
 
+// The per-call inputs that used to be three setters called immediately after construction. Passing
+// them here makes the sequence unrepresentable rather than merely conventional: as setters they
+// could be called in any order, or not at all, and only the caller's discipline kept them right.
+struct TextCallConfig {
+    const ops::SamplingConfig* sampling = nullptr;
+    std::int32_t state_source_slot      = 0;
+    std::int32_t state_destination_slot = 0;
+    std::uint32_t mtp_proposal_extent   = 0;
+};
+
 class TextContext {
 public:
     TextContext(DeviceContext& ctx, const execution::Parameters& weights, WorkspaceArena& work,
@@ -73,7 +83,8 @@ public:
                 std::uint32_t text_kv_base,
                 qwen3_5::PagedKVCacheView mtp_kv           = qwen3_5::PagedKVCacheView(),
                 const qwen3_5::PagedKVCache* batch_text_kv = nullptr,
-                const qwen3_5::PagedKVCache* batch_mtp_kv  = nullptr);
+                const qwen3_5::PagedKVCache* batch_mtp_kv  = nullptr,
+                TextCallConfig call                        = {});
     ~TextContext();
 
     TextContext(const TextContext&)            = delete;
@@ -86,8 +97,6 @@ public:
         proposal_head_n_   = count;
     }
 
-    void set_sampling(const ops::SamplingConfig* config) noexcept { sampling_config_ = config; }
-
     void set_prefill_split_frontier(std::int64_t position) noexcept {
         prefill_split_frontier_ = position;
     }
@@ -96,9 +105,9 @@ public:
         rewrite_checkpoint_hidden_output_ = output;
     }
 
-    void set_mtp_proposal_extent(std::uint32_t extent) noexcept { mtp_proposal_extent_ = extent; }
-
-    void set_linear_state_slots(std::int32_t source_slot, std::int32_t destination_slot);
+    // This one stays a setter, and it is why the others did not have to: the target verification
+    // path switches the action on a card it was handed, after construction, so the action is a
+    // per-phase input rather than a per-call one.
     void set_gdn_state_action(GdnStateAction action, const GdnReplayRecords* replay_records);
 
     [[nodiscard]] const LinearParameters* proposal_head() const noexcept { return proposal_head_; }

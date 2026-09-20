@@ -236,7 +236,7 @@ TextContext::TextContext(DeviceContext& ctx, const execution::Parameters& weight
                          Tensor& prefill_hidden, std::uint32_t prefill_chunk,
                          std::uint32_t text_kv_base, qwen3_5::PagedKVCacheView mtp_kv,
                          const qwen3_5::PagedKVCache* batch_text_kv,
-                         const qwen3_5::PagedKVCache* batch_mtp_kv)
+                         const qwen3_5::PagedKVCache* batch_mtp_kv, TextCallConfig call)
     : ctx_(ctx), parameters_(weights), config_(weights.model.config().text), work_(work), kv_(kv),
       mtp_kv_(mtp_kv), state_(state), io_(io), prefill_hidden_(prefill_hidden),
       prefill_chunk_(prefill_chunk), text_kv_base_(text_kv_base), batch_text_kv_(batch_text_kv),
@@ -248,7 +248,17 @@ TextContext::TextContext(DeviceContext& ctx, const execution::Parameters& weight
     if (mtp_enabled() && !io_.mtp_decode && !io_.mtp) {
         throw std::invalid_argument("MTP TextContext requires MTP round state");
     }
-    set_linear_state_slots(0, 0);
+    // These were three setters called immediately after construction, one of them from here with
+    // zeroes to undo its own default. The slot validation that lived in one of those setters moves
+    // here with it, where it can no longer be skipped.
+    sampling_config_               = call.sampling;
+    if (call.state_source_slot < 0 || call.state_source_slot >= state_.slot_count() ||
+        call.state_destination_slot < 0 || call.state_destination_slot >= state_.slot_count()) {
+        throw std::invalid_argument("TextContext Linear Attention slots are invalid");
+    }
+    linear_state_source_slot_      = call.state_source_slot;
+    linear_state_destination_slot_ = call.state_destination_slot;
+    mtp_proposal_extent_           = call.mtp_proposal_extent;
     embed_      = &parameters_.text.token_embedding;
     final_norm_ = &parameters_.text.final_norm;
     lm_head_    = &parameters_.text.output_head;
@@ -265,15 +275,6 @@ TextContext::TextContext(DeviceContext& ctx, const execution::Parameters& weight
 }
 
 TextContext::~TextContext() = default;
-
-void TextContext::set_linear_state_slots(std::int32_t source_slot, std::int32_t destination_slot) {
-    if (source_slot < 0 || source_slot >= state_.slot_count() || destination_slot < 0 ||
-        destination_slot >= state_.slot_count()) {
-        throw std::invalid_argument("TextContext Linear Attention slots are invalid");
-    }
-    linear_state_source_slot_      = source_slot;
-    linear_state_destination_slot_ = destination_slot;
-}
 
 void TextContext::set_gdn_state_action(GdnStateAction action,
                                        const GdnReplayRecords* replay_records) {
