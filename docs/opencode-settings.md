@@ -162,7 +162,8 @@ Two rules that matter more than the numbers:
    against the same cap; a tight cap truncates the answer and looks like a model failure.
    With a 4096 budget, 32768 leaves ample room.
 2. **Use the fastest decoder.** `xhigh` turns a 1 s task into a 10-50 s one, so decode
-   speed is what you feel: DFlash2 (342-343 tok/s) over MTP (239-249 tok/s).
+   speed is what you feel: DFlash2 over MTP, by a wide margin on both artifacts. Each
+   launcher's own header carries its measured figure, so read it there.
 
 ## Compaction
 
@@ -246,10 +247,41 @@ Do not add variants named `minimal` or `high` — the chat template rejects thos
 
 | model | context | why |
 | --- | --- | --- |
-| quasar-dflash2 | 262,144 | 341.7 tok/s; the largest context; the default |
-| quasar-mtp4 | 262,144 | lowest-VRAM QUASAR profile; 239.2 tok/s |
+| quasar-dflash2 | 262,144 | the fastest QUASAR lane; the default |
+| quasar-mtp4 | 262,144 | lowest-VRAM QUASAR profile |
 | nvfp4full dflash2 | 262,144 | second artifact, same reach as QUASAR |
 | nvfp4full mtp5 | 262,144 | the MTP lane on the second artifact |
+
+Each launcher's own header carries its measured decode, acceptance, runtime and free VRAM, so read
+the number there rather than here: a figure copied into a doc is a figure that drifts.
+
+## Concurrency
+
+The launchers start the engine with `--max-concurrency 1`, and for OpenCode that is the right
+default, though not for the obvious reason.
+
+OpenCode does issue concurrent requests. Parallel subagents are separate sessions issuing separate
+requests, and the built-in Title, Summary and Compaction agents fire their own requests alongside a
+turn. With `--max-concurrency 1` those requests queue in the engine's bounded FIFO. That is safe,
+because the engine does not preempt: at higher concurrency a subagent shares the decode batch with
+the turn you are watching, and the batch is padded to the concurrency limit, so you pay latency
+where you feel it.
+
+Queuing is only harmless if the queued request's context survives the wait. Each subagent is a
+distinct conversation, so its state must be retained or it re-prefills when it runs. That is what
+the launchers' `--host-state-slots 8` and `--host-kv-mib 8192` are for: eight conversations kept in
+host RAM, which covers a main session plus several subagents. The device keeps one extra state
+(`--device-state-slots 1`).
+
+Raise it when you want subagents to run *concurrently* rather than queue, and lower the context
+ceiling at the same time, because each active lane needs its own state: `--max-concurrency 4` at
+131,072 is the shape to try, not 4 at 262,144. Cap OpenCode's side to the same number (the
+`opencode-concurrency-limit` plugin, `options.concurrency` on the model) so the two agree instead
+of one queueing behind the other.
+
+What is *not* measured: how much reuse the host-retention path actually recovers when several
+subagent sessions interleave. `repro_251.py`'s accepted shape is one conversation asked twice, so it
+does not cover this workload.
 
 ## Caveats
 
