@@ -12,6 +12,8 @@ run the CLI or HTTP server.
 | [Performance](performance.md) | RTX 5090 measurement coverage, per-model serving results, methodology, and publication rules |
 | [Weight conversion](weight-conversion.md) | official recipes, custom formats and sources, conversion methods, optional components and artifact output |
 | [Perplexity](perplexity.md) | fixed-corpus and custom-text causal perplexity, comparison rules, progress, and reports |
+| [opencode settings](opencode-settings.md) | the four shipped model entries, compaction, and the concurrency answer for OpenCode Desktop |
+| [v2 to v3 flag diff](v2-v3-flag-diff.md) | what changed between the retired v2 launchers and the shipped v3 ones, flag by flag |
 | [CLI examples](../examples/cli/) | committed text, multimodal, thinking, long-decode, and long-context inputs |
 
 The executable `--help` output is the exact source for command-line option spelling and defaults.
@@ -20,6 +22,8 @@ The executable `--help` output is the exact source for command-line option spell
 
 | Model | Weights | Download | Versioned model card source |
 |---|---|---|---|
+| Qwen3.8-27B | `nvfp4qat` (QUASAR) | [Hugging Face](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer) | [model card](../model-cards/Qwen3.8-27B-nvfp4qat-NInfer/README.md) |
+| Qwen3.8-27B | `nvfp4full` | [Hugging Face](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4full-NInfer) | card lives in that repository |
 | Qwen3.6-27B | `groupwise-int` | [Hugging Face](https://huggingface.co/neroued/Qwen3.6-27B-NInfer) | [model card](../model-cards/Qwen3.6-27B-NInfer/README.md) |
 | Qwen3.6-27B | `nvfp4` | [Hugging Face](https://huggingface.co/neroued/Qwen3.6-27B-nvfp4-NInfer) | [model card](../model-cards/Qwen3.6-27B-nvfp4-NInfer/README.md) |
 | Qwen3.8-27B | `groupwise-int` | [Hugging Face](https://huggingface.co/neroued/Qwen3.8-27B-NInfer) | [model card](../model-cards/Qwen3.8-27B-NInfer/README.md) |
@@ -38,6 +42,11 @@ The executable `--help` output is the exact source for command-line option spell
 The active references under [`maintainer/`](maintainer/) record current architecture, model,
 artifact, and maintenance contracts. These files are not additional user workflows or installed
 API documentation.
+
+[`adr/`](adr/) holds the decisions behind the shipped profiles and artifact rules, each with the
+measurement that produced it: why a v3 container is required, why speculation is not bit-identical,
+the draft-binding contract, why the profiles are vision-only, and why every profile flag is
+measured rather than chosen.
 
 [Engine architecture](maintainer/engine-architecture.md) is the single top-level reference. The
 other references own narrower contracts:

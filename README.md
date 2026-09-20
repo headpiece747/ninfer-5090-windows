@@ -477,6 +477,11 @@ maintainer.
 
 NInfer is licensed under the [Apache License 2.0](LICENSE).
 
+This port's own modifications, and the third-party software it carries, are attributed in
+[NOTICE](NOTICE): the upstream engine and the Windows-port lineage this fork builds on, the Windows
+changes this fork owns, and the bundled libraries. Apache-2.0 section 4 asks that the notice travel
+with the distribution, so the release archive ships it beside this file.
+
 The published artifacts are derived from
 [Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B),
 [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B), and
