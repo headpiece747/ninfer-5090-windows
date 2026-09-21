@@ -12,6 +12,12 @@ Anchors fail the same way and are resolved here too. Relabelling upstream's "## 
 still linked ../../README.md#quick-start -- invisible to a check that only stats the file, which is
 why the heading is resolved rather than assumed.
 
+A third shape fails the same way: a path written in backticks rather than as a link. Three
+references to `docs/adr/0004` and `docs/adr/0005` pointed at paths that do not exist, because the
+ADRs carry descriptive filenames. This one is checked in the shipped documentation only: a
+maintainer or research note legitimately names files that live upstream, and a repo-wide rule
+reported a page of paths that are meant not to exist here.
+
 Scope is the shipped documentation (README.md, RELEASE_NOTES.md, NOTICE, LICENSE) plus every
 Markdown file under docs/. External URLs are counted and never fetched: this checks the
 repository's own references, and packaging must not depend on the network.
@@ -35,6 +41,14 @@ EXTERNAL = re.compile(r"^[a-z][a-z0-9+.-]*://|^mailto:")
 HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*$")
 # GitHub keeps word characters, spaces and hyphens when it derives a slug, and drops the rest.
 SLUG_DROP = re.compile(r"[^\w\s-]", re.UNICODE)
+
+# Backticked repository paths, checked in the shipped documentation only. A token must also start
+# with a repository prefix, because artifact object names (`mtp/layer/mlp/down`), git branch names
+# (`cometkim/feat/nvfp4-dflash2`), Hugging Face repository names and API routes all look like paths
+# and are not.
+CODE_PATH = re.compile(
+    r"`((?:docs|src|tools|tests|include|examples|bench|model-cards|third_party|cmake)"
+    r"/[A-Za-z0-9_./\\-]+)`")
 
 
 def documents() -> list[Path]:
@@ -69,17 +83,26 @@ def targets(text: str):
             yield number, reference.group(1)
 
 
+def code_paths(text: str):
+    """Yield (line number, path) for every backticked token that names a repository file."""
+    for number, line in enumerate(text.splitlines(), start=1):
+        for match in CODE_PATH.finditer(line):
+            yield number, match.group(1)
+
+
 def main() -> int:
     found = documents()
     links = 0
     anchors = 0
+    code_paths_found = 0
     external: set[str] = set()
     broken: list[str] = []
     slug_cache: dict[Path, set[str]] = {}
 
     for path in found:
         relative = path.relative_to(REPO).as_posix()
-        for number, target in targets(path.read_text(encoding="utf-8", errors="replace")):
+        source = path.read_text(encoding="utf-8", errors="replace")
+        for number, target in targets(source):
             target = target.strip()
             if not target or target.startswith("<"):
                 continue
@@ -105,9 +128,16 @@ def main() -> int:
                 if fragment not in slug_cache[destination]:
                     broken.append(f"{relative}:{number} -> {target} (no such heading)")
 
+        if relative in SHIPPED:
+            for number, token in code_paths(source):
+                code_paths_found += 1
+                if not (REPO / token.replace("\\", "/")).exists():
+                    broken.append(f"{relative}:{number} -> `{token}` (no such path)")
+
     print(f"  documents      : {len(found)}")
     print(f"  relative links : {links}")
     print(f"  heading anchors: {anchors}")
+    print(f"  code-span paths: {code_paths_found} (shipped docs only)")
     print(f"  external URLs  : {len(external)} (not fetched)")
     for item in broken:
         print(f"    DEAD  {item}")

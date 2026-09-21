@@ -29,7 +29,8 @@ absolute figures to differ.
 **QUASAR is the recommended profile**: our own artifact, at the full 262,144 context, with a DFlash2
 lane that measures within noise of the other artifact's (343.4 against 344.6 tok/s, measured
 interleaved). ADR-0004 records why the second lane rides a third-party repository with no in-house
-fallback. Vision is free on both (the with/without comparison is in `docs/adr/0004`).
+fallback. Vision is free on both (the with/without comparison is in
+[ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md)).
 
 ## Getting a model
 

@@ -49,10 +49,6 @@ frontend resources. Runtime execution uses those facts with the implemented mode
 capabilities. You can also [convert your own weights](docs/weight-conversion.md), reuse an official
 recipe or choose another supported mixture of formats.
 
-The current engine requires v3 artifacts. Existing official v2 downloads can be
-[upgraded locally](docs/weight-conversion.md#upgrade-an-existing-v2-artifact) without downloading
-the weights again.
-
 ## Resource-aware long-context reuse
 
 A reusable prefix checkpoint contains KV and the complete continuation state for its exact prompt
@@ -128,7 +124,7 @@ measured on this machine with the exact argument set the launcher uses, in one i
 absolute decode varies by up to ~9% between sessions on a card whose clocks are not pinned, so
 compare lanes to each other and expect your own absolute figures to differ. Both artifacts are
 vision-only here because Vision measured free on both at 262,144; the with/without comparison is
-recorded in `docs/adr/0004`. No degraded text-only variant ships, and every profile reaches the
+recorded in [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md). No degraded text-only variant ships, and every profile reaches the
 full native context.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
@@ -146,7 +142,7 @@ for the full KV pool. Our earlier NVFP4 image carried 19.7 GiB and could not, wh
 was replaced.
 
 `--lm-head-draft` is set per profile because its value is not uniform; the measured gains behind
-each choice are recorded in `docs/adr/0005`:
+each choice are recorded in [ADR-0005](docs/adr/0005-per-profile-flags-are-measured.md):
 
 - QUASAR: on for both routes;
 - NVFP4 MTP: on at depth 5;
@@ -169,7 +165,7 @@ rate.
   near-tie can flip and the continuation diverges. Speculation measured 3-4x faster; the lane
   table above carries each launcher's own measured decode figure.
 - **Vision is free on both shipped artifacts.** The with/without comparison at 262,144 is recorded
-  in `docs/adr/0004`, so every profile here carries Vision. The retired NVFP4 image did cost 16,384-27,008 tokens of context, which is
+  in [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md), so every profile here carries Vision. The retired NVFP4 image did cost 16,384-27,008 tokens of context, which is
   part of why it was replaced. The Vision runtime still has its own input envelope of 32,768
   merged tokens (131,072 raw patches) per request.
 
@@ -242,7 +238,7 @@ retained in host RAM, which covers a main session plus parallel subagents.
 
 ## Capabilities and limits
 
-The official artifacts provide the following capabilities, with optional components enabled at startup:
+The engine provides the following capabilities, with optional components enabled at startup:
 
 - text generation with thinking and non-thinking prompt modes;
 - image, multi-image, video, and mixed multimodal messages;
@@ -298,11 +294,6 @@ Upstream's author develops NInfer out of interest, and the project's Ko-fi page 
 [support upstream on Ko-fi](https://ko-fi.com/neroued). This Windows port is a separate effort,
 maintained separately from upstream.
 
-Support is entirely voluntary. It is not a purchase or investment and does not come with financial
-returns, promised services or features, or a role in project decisions. The project's direction,
-priorities, technical choices, and release schedule remain independently determined by the
-maintainer.
-
 ## License
 
 NInfer is licensed under the [Apache License 2.0](LICENSE).
@@ -320,10 +311,3 @@ image additionally uses the fixed mixed FP8/NVFP4 weights from
 [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4). These source
 repositories are distributed under Apache-2.0. Vendored dependencies retain their own license files
 under `third_party/`.
-
-<!-- ninfer:features:start -->
-| feat branch | stacked on | status | squashed on dev as |
-|---|---|---|---|
-| [`feat/msvc-test-constexpr`](docs/features/msvc-test-constexpr.md) | `master` | C++20/MSVC test fixes for sqrt constant expressions and explicit array headers. | `squash(feat/msvc-test-constexpr)` |
-| [`feat/nvfp4-dflash2`](docs/features/nvfp4-dflash2.md) | `master` | Standalone 34-object weight-only NVFP4 DFlash2 execution, including subview-scale and codebook binding corrections. | — |
-<!-- ninfer:features:end -->
