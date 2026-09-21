@@ -297,11 +297,12 @@ This port's own modifications, and the third-party software it carries, are attr
 changes this fork owns, and the bundled libraries. Apache-2.0 section 4 asks that the notice travel
 with the distribution, so the release archive ships it beside this file.
 
-The two shipped artifacts are derived from
-[Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B). The QUASAR QAT image additionally uses
+Both shipped artifacts are published under the `cometkim` Hugging Face account. Both derive from
+[Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) and carry the DFlash2 companion from
+[z-lab/Qwen3.8-27B-DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2). The QUASAR QAT image
+additionally uses
 [QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4](https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4)
-and [z-lab/Qwen3.8-27B-DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2); the NVFP4-full
-image additionally uses the fixed mixed FP8/NVFP4 weights from
-[unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4). These source
-repositories are distributed under Apache-2.0. Vendored dependencies retain their own license files
-under `third_party/`.
+for its quantisation-aware-trained weights; the NVFP4-full image additionally uses the fixed mixed
+FP8/NVFP4 weights from [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4).
+These source repositories are distributed under Apache-2.0. Vendored dependencies retain their own
+license files under `third_party/`.
