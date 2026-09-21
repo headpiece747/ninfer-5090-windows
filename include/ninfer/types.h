@@ -125,6 +125,11 @@ struct StartupObserver {
     std::function<void(const StartupEvent& event)> callback;
 };
 
+enum class ContextCachePolicy : std::uint8_t {
+    Default,
+    Rolling,
+};
+
 struct ContextCacheOptions {
     // Engine resolves every optional once at construction. With C=max_concurrency, the enabled
     // defaults are H=C, R=8, Host KV=8 GiB, P=2C, S=max(C,4) and L=2;
@@ -139,6 +144,21 @@ struct ContextCacheOptions {
     std::optional<std::uint32_t> max_private_continuations;
     std::optional<std::uint32_t> max_shared_prefixes;
     std::optional<std::uint32_t> max_long_anchors_per_continuation;
+    // How a capture's demand standing is valued.
+    //
+    // `default` keeps the portfolio's existing judgement, which is right for concurrent
+    // conversations sharing a prefix: an ancestor's accumulated demand outweighs a newcomer's
+    // single-request demand. `rolling` additionally lets a capture inherit the committed demand of
+    // every resident the request has proven it extends, because for one append-only conversation
+    // the demand for an ancestor is evidence of demand for its descendant.
+    //
+    // Measured on this port: without it, one growing conversation's reusable frontier advances for
+    // three checkpoints and then stops once the State pools saturate, and every later request
+    // re-prefills its whole tail -- 2.6 s to first token at 65k context rising to 15.2 s at 117k,
+    // against 2.6 s and 3.6 s for the same requests with eight Device checkpoint slots rather than
+    // one. Raising the slot count buys the same reach at +1.3 GiB of runtime; inheriting demand is
+    // the fix that does not.
+    ContextCachePolicy policy = ContextCachePolicy::Default;
 };
 
 struct ContextCostOptions {
@@ -904,6 +924,13 @@ struct RuntimeStats {
     std::uint32_t terminal_pending_requests = 0;
     std::uint64_t active_captures_completed = 0;
     std::uint64_t active_captures_aborted   = 0;
+    // Why a shared capture offer did not become a retained prefix. A refused capture degrades to a
+    // private-only publication, so the reusable frontier stops advancing and no other field in the
+    // report says which gate refused it. The runtime layer cannot log, so refusals are counted here.
+    std::uint64_t active_captures_offered      = 0;
+    std::uint64_t active_captures_no_vacancy   = 0;
+    std::uint64_t active_captures_plan_refused = 0;
+    std::uint64_t active_captures_infeasible   = 0;
 
     std::uint64_t root_selections                    = 0;
     std::uint64_t private_endpoint_selections        = 0;

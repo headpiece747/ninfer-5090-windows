@@ -1829,8 +1829,9 @@ struct FakeModelContract {
 using FakeManager = ninfer::runtime::ResourceManager<FakeModelContract>;
 
 FakeManager make_manager(std::uint32_t lanes = 1, std::uint32_t private_capacity = 4,
-                         std::uint32_t shared_capacity = 0, bool cache_enabled = true) {
-    return FakeManager(lanes, private_capacity, shared_capacity, cache_enabled, 2,
+                         std::uint32_t shared_capacity = 0, bool cache_enabled = true,
+                         ninfer::ContextCachePolicy policy = ninfer::ContextCachePolicy::Default) {
+    return FakeManager(lanes, private_capacity, shared_capacity, cache_enabled, 2, policy,
                        test_cost_model());
 }
 
@@ -1953,6 +1954,60 @@ void test_portfolio_demand_and_owner_aggregation() {
         require(result.private_transition_loss == 700,
                 "private checkpoint transition losses were not summed across owners");
     }
+}
+
+void test_rolling_demand_inheritance_raises_the_capture_value() {
+    // The mechanism a rolling context-cache policy relies on, with no scheduler in the way.
+    //
+    // The portfolio prices each demand bit at the largest saving among the checkpoints carrying it. A
+    // resident's bit carries the resident's baseline saving -- keeping it is cheap, evicting it costs
+    // a full rebuild -- against a small target saving. A capture's bit is the reverse, because not
+    // publishing it costs a full rebuild. Letting a capture inherit the demand of the residents it
+    // extends therefore puts those bits on the capture, where the maximum picks the capture's larger
+    // target saving, and the target value rises while the baseline value does not move: the baseline
+    // still takes its bits from the residents' own entries.
+    //
+    // That is the difference between the two folds below, and it is the whole bug: on its own demand
+    // alone a fresh capture cannot outbid an ancestor that several past requests have demanded, so
+    // one append-only conversation's reusable frontier stops advancing once the State pools saturate
+    // and every later request re-prefills its entire tail.
+    using ninfer::runtime::ContextPortfolioCheckpointValue;
+    using ninfer::runtime::ContextPortfolioOwnerPolicy;
+    using ninfer::runtime::ContextPortfolioValue;
+
+    constexpr std::uint64_t rebuild = 8'000'000'000ULL;
+    const std::array owners{ContextPortfolioOwnerPolicy{.owner = PlanningOwnerId{.value = 0}}};
+
+    const auto fold_with = [&](std::uint32_t capture_mask) {
+        const std::array checkpoints{
+            // The resident this request extends: keeping it is free, evicting it costs a rebuild.
+            ContextPortfolioCheckpointValue{.owner                = PlanningOwnerId{.value = 0},
+                                            .demand_mask          = 0x7U,
+                                            .rebuild_ns           = rebuild,
+                                            .baseline_recovery_ns = 0,
+                                            .target_recovery_ns   = rebuild},
+            // The capture itself: publishing it saves a rebuild, not publishing it costs one.
+            ContextPortfolioCheckpointValue{.owner                = PlanningOwnerId{.value = 0},
+                                            .demand_mask          = capture_mask,
+                                            .rebuild_ns           = rebuild,
+                                            .baseline_recovery_ns = rebuild,
+                                            .target_recovery_ns   = 0},
+        };
+        ContextPortfolioValue model;
+        return model.fold(owners, checkpoints);
+    };
+
+    const auto plain     = fold_with(0x1U);        // the demand this request alone evidences
+    const auto inherited = fold_with(0x1U | 0x7U); // plus every resident it proved it extends
+
+    require(plain.baseline_public_value > plain.target_public_value,
+            "a capture on its own demand was not priced as a degradation of the resident");
+    require(inherited.target_public_value > plain.target_public_value,
+            "inheriting the resident's demand did not raise the capture's target value");
+    require(inherited.baseline_public_value == plain.baseline_public_value,
+            "inheriting demand changed the baseline value it is compared against");
+    require(!(inherited.baseline_public_value > inherited.target_public_value),
+            "an inheriting capture is still priced as a degradation");
 }
 
 void test_shared_capture_subtracts_private_transition_loss() {
@@ -3678,6 +3733,8 @@ int main() {
     run_test("backfill proof and stats", test_backfill_proof_and_stats_follow_program_revision);
     run_test("shortlist exact verification",
              test_shortlist_collision_requires_program_exact_verification);
+    run_test("rolling demand inheritance",
+             test_rolling_demand_inheritance_raises_the_capture_value);
     if (failures != 0) { return 1; }
     std::cout << "ok\n";
     return 0;
