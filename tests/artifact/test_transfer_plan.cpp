@@ -3,9 +3,8 @@
 // These rules had no test surface before this split. The only route to them was materialize(),
 // which allocates device memory and starts a transfer first -- something a machine with no device
 // cannot do. On MSVC the injected-failure build cannot stand in for it either: GNU --wrap is
-// unavailable there, and the import-address-table mechanism tests/artifact/tests.cmake mentions
-// appears nowhere in the test source, so the CUDA failure cases print SKIP on the platform this
-// port ships.
+// unavailable there, and no import-address-table mechanism exists in the test tree, so the CUDA
+// failure cases print SKIP on the platform this port ships.
 //
 // What is checked here is the arithmetic only: overlap rejection, span coalescing, and slot sizing.
 #include "artifact/materializer.h"
@@ -66,7 +65,16 @@ int main() {
     {
         const auto plan = plan_transfer({span(0, 8192, 4096), span(0, 65536, 4096)});
         expect(plan.spans.size() == 2, "a gap wider than the alignment starts a new span");
+        expect(plan.spans[0].begin == 8192 && plan.spans[0].end == 12288,
+               "the first span covers only the first range");
+        expect(plan.spans[1].begin == 65536 && plan.spans[1].end == 69632,
+               "the second span starts at the second range, not across the gap");
     }
+
+    // A range that copies nothing is rejected: it would otherwise leave slot_bytes zero, and
+    // slot_count divides by it.
+    expect(rejected([] { (void)plan_transfer({span(0, 8192, 0)}); }),
+           "a zero-length source range is rejected");
 
     // Overlapping sources in one file are rejected: both would write the same destination bytes.
     expect(rejected([] { (void)plan_transfer({span(0, 8192, 8192), span(0, 12288, 4096)}); }),

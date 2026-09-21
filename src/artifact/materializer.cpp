@@ -97,6 +97,10 @@ TransferPlan plan_transfer(std::vector<CopyRange> ranges) {
     });
     for (std::size_t i = 0; i < ranges.size(); ++i) {
         const auto& range = ranges[i];
+        // A range that copies nothing is not a range. Rejecting it here is what keeps aligned_bytes
+        // non-zero below, where slot_bytes divides into it -- and this is a public interface now, so
+        // the caller that can hand one in is not necessarily the one that built the ranges.
+        if (range.end <= range.begin) { throw ArtifactError("device source range is empty"); }
         if (i && ranges[i - 1].file == range.file && ranges[i - 1].end > range.begin) {
             throw ArtifactError("device source ranges overlap");
         }

@@ -71,9 +71,9 @@ struct KVPageGeometry {
  *
  * The order is the contract the Op readers index by -- kv_cache_append and
  * causal_softmax_attention walk these planes positionally -- and which planes exist is a property
- * of the storage layout, not of any one model. Both builders in qwen3_5 had the same four pushes
- * written out by hand, one of them spelling the alignment as a literal that already defaulted to
- * 256. A layer's meaning is still assigned by repetition at the call site, which is what
+ * of the storage layout, not of any one model. Both builders in qwen3_5 wrote this list out by
+ * hand -- four pushes in decoder_state, two in startup because that storage is BFloat16 and has no
+ * scale planes -- and one of them spelled the alignment as a literal that already defaulted to 256. A layer's meaning is still assigned by repetition at the call site, which is what
  * KVPlaneGeometry's "a plane is storage-only" note asks for.
  */
 [[nodiscard]] inline std::vector<KVPlaneGeometry> storage_planes(const PagedKVStorageLayout& layout,

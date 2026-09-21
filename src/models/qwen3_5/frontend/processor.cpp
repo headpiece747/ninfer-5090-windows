@@ -796,10 +796,19 @@ EncodedChat encode_rendered_chat(const Tokenizer& tokenizer, const RenderedChat&
     // A lookup is a scan for the label, not a counter the reader has to keep in step with the
     // writer. The ledger is tens of entries for one prompt, so the scan costs nothing measurable
     // and buys the property that no reader can be misaligned by a change to the writer.
-    const auto resolved = [&tokenized, &ledger](BoundaryKind kind,
-                                                std::size_t ordinal) -> const TokenBoundaryResult& {
+    //
+    // The two checks around it guard the writer/reader pair against drifting apart, which is what
+    // the order they used to share was doing implicitly: this one catches a reader asking for a
+    // label no writer wrote, and the count at the end catches a label no reader asked for. Neither
+    // can fire today -- every reader loop mirrors its writer -- and both name the failure mode this
+    // design replaced a running index to make impossible.
+    std::size_t resolved_labels = 0;
+    const auto resolved = [&tokenized, &ledger, &resolved_labels](
+                              BoundaryKind kind,
+                              std::size_t ordinal) -> const TokenBoundaryResult& {
         for (std::size_t index = 0; index < ledger.size(); ++index) {
             if (ledger[index].kind == kind && ledger[index].ordinal == ordinal) {
+                ++resolved_labels;
                 return tokenized.boundaries.at(index);
             }
         }
@@ -876,8 +885,8 @@ EncodedChat encode_rendered_chat(const Tokenizer& tokenizer, const RenderedChat&
             .frame_index = run.frame_index,
         });
     }
-    if (ledger.size() != tokenized.boundaries.size()) {
-        throw std::logic_error("rendered token boundary result count changed during encoding");
+    if (resolved_labels != ledger.size()) {
+        throw std::logic_error("frontier ledger has an entry no reader resolved");
     }
     return encoded;
 }

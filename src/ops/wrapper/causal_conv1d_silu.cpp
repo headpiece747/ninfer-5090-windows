@@ -3,7 +3,6 @@
 
 #include "ops/launcher/causal_conv1d.h" // detail::causal_conv1d_*_launch
 #include "ops/common/validation.h"
-#include "ops/common/validation.h"
 
 #include <cstdint>
 #include <limits>
