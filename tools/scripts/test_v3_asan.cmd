@@ -24,6 +24,14 @@ REM and cannot instrument on Windows 11 build 26200 (25H2): both 2.6.0 and the D
 REM weekly build abort with an internal crash before the target starts. Re-check Dr. Memory when
 REM DynamoRIO ships a build for 25H2; until then, a Linux ASan run is the only route to host leak
 REM coverage.
+REM
+REM KNOWN FAILURE, 2026-09-20: ninfer_context_cost_test dies with 0xC0000409
+REM (STATUS_STACK_BUFFER_OVERRUN) and prints no report, while passing in the normal build. ASan
+REM initialises first -- verbosity=1 prints the shadow layout -- so this is neither a startup nor a
+REM PATH problem. A report-less fail-fast is what stack exhaustion under ASan's larger frames looks
+REM like, but that is a hypothesis and not established; the test and its module are untouched by the
+REM session that found it. Kept in the subset rather than dropped: a verification list that hides a
+REM failing member is worse than one that names it. The other five pass.
 setlocal
 set "REPO=%~dp0..\.."
 
