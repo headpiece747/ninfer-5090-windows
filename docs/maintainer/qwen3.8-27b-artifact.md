@@ -17,6 +17,10 @@ The converter modules, recipes and calibration inputs this reference names belon
 publishes these artifacts (`cometkim/ninfer`). This tree carries the artifact contract, not that
 toolchain.
 
+The registered line also defines a `groupwise-int` peer and a plain `nvfp4` profile, documented
+here because the engine implements them. This port ships, pins and measures only the two v3 fork
+artifacts of Section 14.
+
 ## 1. nvfp4 artifact identity and contents
 
 ```text

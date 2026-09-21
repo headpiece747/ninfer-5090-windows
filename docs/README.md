@@ -31,6 +31,11 @@ Upstream publishes artifacts for other checkpoints, each with its own model card
 repository. This port ships none of them and keeps no copy of their pages:
 [upstream's README](https://github.com/Neroued/ninfer#readme) is their authority.
 
+The storage contract both shipped artifacts implement is the
+[Qwen3.8-27B artifact reference](maintainer/qwen3.8-27b-artifact.md): identity, object inventory,
+formats, layouts, aliases and source transforms, with the `nvfp4full` and `nvfp4qat` profiles in
+Sections 14 and 15.
+
 ## Repository-local guides
 
 - [Benchmarks](../bench/README.md)
