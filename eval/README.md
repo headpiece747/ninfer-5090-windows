@@ -250,9 +250,10 @@ redacted from coordinator events and task snapshots.
 
 ## Historical Qwen3.6-27B reasoning profile
 
-The published Qwen3.6-27B scores and per-dataset correct/total counts are recorded in the
-[groupwise-int model card](../model-cards/Qwen3.6-27B-NInfer/README.md#evaluation) and
-[NVFP4 model card](../model-cards/Qwen3.6-27B-nvfp4-NInfer/README.md#evaluation).
+The published Qwen3.6-27B scores and per-dataset correct/total counts are recorded in upstream's
+[groupwise-int](https://huggingface.co/neroued/Qwen3.6-27B-NInfer) and
+[NVFP4](https://huggingface.co/neroued/Qwen3.6-27B-nvfp4-NInfer) model cards, on the repositories
+that publish those artifacts.
 Those runs used EvalScope 1.9.0, one sample per problem, and the sampling settings recorded on
 the cards. The current pinned evaluation environment is newer; rerunning the commands below
 reproduces the workload on the selected environment, not the historical score automatically.
