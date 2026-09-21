@@ -1,3 +1,5 @@
+#include "core/weight.h"
+#include "core/device.h"
 #include "ninfer/ops/gdn_input_proj.h"
 
 #include "ops/input_projection_test_common.h"
@@ -70,20 +72,105 @@ int run_q4_q5_case(DevicePackedWeight& query_key, DevicePackedWeight& value_z_we
     return failures;
 }
 
+int run_q4_q5_graph_case(DevicePackedWeight& query_key, DevicePackedWeight& value_z_weight,
+                         std::int32_t tokens) {
+    constexpr std::int32_t kHidden    = 5120;
+    constexpr std::int32_t kQkRows    = 4096;
+    constexpr std::int32_t kValueRows = 6144;
+    constexpr std::int32_t kZRows     = 6144;
+    constexpr std::int32_t kRows      = kQkRows + kValueRows;
+
+    cudaStream_t stream = nullptr;
+    CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+
+    std::vector<float> activation = make_bf16_activation(kHidden, tokens, 701U + tokens);
+    std::vector<std::uint16_t> activation_bits = bf16_bits(activation);
+    DeviceBuffer device_activation             = to_device(activation_bits);
+    GuardedBf16Tensor qkv(kRows, tokens);
+    GuardedBf16Tensor z(kZRows, tokens);
+    Tensor x(device_activation.p, DType::BF16, {kHidden, tokens});
+    Tensor output     = qkv.tensor();
+    Tensor z_output   = z.tensor();
+    const auto launch = [&](cudaStream_t launch_stream) {
+        ops::gdn_input_proj(x, query_key.view(), value_z_weight.view(), output, z_output,
+                            launch_stream);
+    };
+    launch(stream);
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    cudaGraph_t graph          = nullptr;
+    cudaGraphExec_t executable = nullptr;
+    CUDA_CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
+    launch(stream);
+    CUDA_CHECK(cudaStreamEndCapture(stream, &graph));
+    CUDA_CHECK(cudaGraphInstantiate(&executable, graph, nullptr, nullptr, 0));
+
+    // Replay 1, checked on its own: the outputs are poisoned first, so a replay that skipped a
+    // range or wrote to a stale address is caught here rather than being masked by replay 2.
+    const auto verify_replay = [&](const std::vector<float>& expected, std::string_view tag) {
+        int bad = qkv.verify_guards(std::string("gdn qkv") + std::string(tag));
+        bad += z.verify_guards(std::string("gdn z") + std::string(tag));
+        bad += qkv.verify_fully_written(std::string("gdn qkv") + std::string(tag));
+        bad += z.verify_fully_written(std::string("gdn z") + std::string(tag));
+        bad += verify_output_range(std::string("gdn qk") + std::string(tag), qkv, kRows, 0, kQkRows,
+                                   query_key.host, 0, expected, kHidden, tokens);
+        bad += verify_output_range(std::string("gdn value") + std::string(tag), qkv, kRows, kQkRows,
+                                   kValueRows, value_z_weight.host, 0, expected, kHidden, tokens);
+        bad += verify_output_range(std::string("gdn z") + std::string(tag), z, kZRows, 0, kZRows,
+                                   value_z_weight.host, kValueRows, expected, kHidden, tokens);
+        return bad;
+    };
+    const std::string suffix = " Q4/Q5 A16 graph T=" + std::to_string(tokens);
+    qkv.repaint(stream);
+    z.repaint(stream);
+    CUDA_CHECK(cudaGraphLaunch(executable, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    int failures = verify_replay(activation, suffix + " replay1");
+
+    // Replay 2 against a changed activation at the same captured address: a graph that baked its
+    // operands would keep reporting the first input here.
+    qkv.repaint(stream);
+    z.repaint(stream);
+    activation      = make_bf16_activation(kHidden, tokens, 811U + tokens);
+    activation_bits = bf16_bits(activation);
+    CUDA_CHECK(cudaMemcpyAsync(device_activation.p, activation_bits.data(),
+                               activation_bits.size() * sizeof(std::uint16_t),
+                               cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaGraphLaunch(executable, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    CUDA_CHECK(cudaGraphExecDestroy(executable));
+    CUDA_CHECK(cudaGraphDestroy(graph));
+    CUDA_CHECK(cudaStreamDestroy(stream));
+
+    failures += verify_replay(activation, suffix + " replay2");
+    failures += verify_preserved("gdn x" + suffix, device_activation, activation_bits);
+    failures += query_key.verify_preserved("gdn query/key weight" + suffix);
+    failures += value_z_weight.verify_preserved("gdn value/z weight" + suffix);
+    return failures;
+}
+
 int run_q4_q5() {
     constexpr std::int32_t kHidden = 5120;
     DevicePackedWeight query_key(
-        quantized_weight::make_patterned_weight(QType::Q4G64_F16S, 4096, kHidden, 409U));
+        quantized_weight::make_patterned_weight(QType::Q4_G64_FP16, 4096, kHidden, 409U));
     DevicePackedWeight value_z_weight(
-        quantized_weight::make_patterned_weight(QType::Q5G64_F16S, 12288, kHidden, 419U));
+        quantized_weight::make_patterned_weight(QType::Q5_G64_FP16, 12288, kHidden, 419U));
     int failures = 0;
-    for (const std::int32_t tokens : {1, 2, 16, 17}) {
+    // Every route boundary and both of its neighbours: the Q4/Q5 column catalog now hands 1..12 to
+    // the per-side small-column kernels (the K-split Q4 parent with the row-block Q5 side at 7/8 and
+    // the c4 SIMT Q5 side at 9..12), 13..32 to the 32x32 tile, 33..64 to the 32x64 tile, and 65
+    // upward to the 64x128 tile that also supplies the 128-column tail slices.
+    for (const std::int32_t tokens : {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 32, 33, 64, 65, 127, 128, 129, 193}) {
         failures += run_q4_q5_case(query_key, value_z_weight, tokens);
+    }
+    // One captured replay per route, including a 128-column tail slice (129 = 128 + 1).
+    for (const std::int32_t tokens : {7, 8, 9, 12, 13, 33, 65, 129}) {
+        failures += run_q4_q5_graph_case(query_key, value_z_weight, tokens);
     }
     return failures;
 }
 
-int run_w8_case(DevicePackedWeight& parent, std::int32_t tokens) {
+int run_q8_case(DevicePackedWeight& parent, std::int32_t tokens) {
     constexpr std::int32_t kHidden      = 2048;
     constexpr std::int32_t kQkvRows     = 8192;
     constexpr std::int32_t kZRows       = 4096;
@@ -98,7 +185,7 @@ int run_w8_case(DevicePackedWeight& parent, std::int32_t tokens) {
     ops::gdn_input_proj(x, parent.view(), qkv_output, z_output, nullptr);
     cuda_synchronize();
 
-    const std::string suffix = " W8 A16 T=" + std::to_string(tokens);
+    const std::string suffix = " Q8 A16 T=" + std::to_string(tokens);
     int failures             = qkv.verify_guards("gdn qkv" + suffix);
     failures += z.verify_guards("gdn z" + suffix);
     failures += qkv.verify_fully_written("gdn qkv" + suffix);
@@ -112,12 +199,12 @@ int run_w8_case(DevicePackedWeight& parent, std::int32_t tokens) {
     return failures;
 }
 
-int run_w8() {
+int run_q8() {
     constexpr std::int32_t kHidden = 2048;
     DevicePackedWeight parent(
-        quantized_weight::make_patterned_weight(QType::W8G32_F16S, 12288, kHidden, 503U));
+        quantized_weight::make_patterned_weight(QType::Q8_G32_FP16, 12288, kHidden, 503U));
     int failures = 0;
-    for (const std::int32_t tokens : {1, 2, 97}) { failures += run_w8_case(parent, tokens); }
+    for (const std::int32_t tokens : {1, 2, 97}) { failures += run_q8_case(parent, tokens); }
     return failures;
 }
 
@@ -213,11 +300,16 @@ int run_nvfp4() {
         quantized_weight::make_patterned_weight(QType::NVFP4, kRows, kHidden, 607U, options));
     int failures = 0;
     failures += run_nvfp4_case(parent, 1, ops::LinearPolicy::A16Only);
-    failures += run_nvfp4_case(parent, 4, ops::LinearPolicy::A16Only);
+    failures += run_nvfp4_case(parent, 4, ops::LinearPolicy::AllowA8);
     failures += run_nvfp4_case(parent, 1, ops::LinearPolicy::AllowA4);
     failures += run_nvfp4_case(parent, 2, ops::LinearPolicy::AllowA4);
     failures += run_nvfp4_case(parent, 17, ops::LinearPolicy::AllowA4);
+    // 1023, 1024 and 1025 straddle this route's floor. 1024 was the narrowest width it
+    // took before; 1025 is the first ragged one it takes now, and its last M tile holds a
+    // single real token, which is the emptiest grid this route ever runs.
+    failures += run_nvfp4_case(parent, 1023, ops::LinearPolicy::AllowA4);
     failures += run_nvfp4_case(parent, 1024, ops::LinearPolicy::AllowA4);
+    failures += run_nvfp4_case(parent, 1025, ops::LinearPolicy::AllowA4);
     return failures;
 }
 
@@ -237,7 +329,7 @@ int run_fp8_case(DevicePackedWeight& parent, std::int32_t tokens, ops::LinearPol
     Tensor qkv_output          = qkv.tensor();
     Tensor z_output            = z.tensor();
     const std::size_t capacity = ops::gdn_input_proj_workspace_capacity_bytes(
-        QType::FP8_E4M3FN_ROW_BF16S, kRows, kHidden, policy, tokens, tokens);
+        QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, policy, tokens, tokens);
     WorkspaceArena workspace(std::max<std::size_t>(capacity, 256));
     if (convenience) {
         ops::gdn_input_proj(x, parent.view(), qkv_output, z_output, nullptr);
@@ -246,7 +338,9 @@ int run_fp8_case(DevicePackedWeight& parent, std::int32_t tokens, ops::LinearPol
     }
     cuda_synchronize();
 
-    const bool a8 = policy == ops::LinearPolicy::AllowA8 && tokens >= 8;
+    const bool a8 =
+        (policy == ops::LinearPolicy::AllowA8 || policy == ops::LinearPolicy::AllowA4) &&
+        tokens >= 8;
     const ReductionCriterion& criterion =
         a8 ? kFp8GdnInputProjA8Tolerance : kFp8GdnInputProjA16Tolerance;
     const std::int32_t sample_count = a8 ? kA8SampleRows : 7;
@@ -281,26 +375,26 @@ int run_fp8() {
     constexpr std::int32_t kHidden = 5120;
     constexpr std::int32_t kRows   = 16384;
     DevicePackedWeight parent(
-        quantized_weight::make_patterned_weight(QType::FP8_E4M3FN_ROW_BF16S, kRows, kHidden, 613U));
+        quantized_weight::make_patterned_weight(QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, 613U));
 
-    int failures          = 0;
+    int failures = 0;
     for (int columns : {5, 8, 16, 24, 32, 33, 64, 65, 96, 97, 128, 129}) {
         failures += run_fp8_case(parent, columns, ops::LinearPolicy::A16Only);
     }
     const std::size_t one = ops::gdn_input_proj_workspace_capacity_bytes(
-        QType::FP8_E4M3FN_ROW_BF16S, kRows, kHidden, ops::LinearPolicy::AllowA8, 1, 1);
+        QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::AllowA8, 1, 1);
     const std::size_t seven = ops::gdn_input_proj_workspace_capacity_bytes(
-        QType::FP8_E4M3FN_ROW_BF16S, kRows, kHidden, ops::LinearPolicy::AllowA8, 7, 7);
+        QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::AllowA8, 7, 7);
     const std::size_t eight = ops::gdn_input_proj_workspace_capacity_bytes(
-        QType::FP8_E4M3FN_ROW_BF16S, kRows, kHidden, ops::LinearPolicy::AllowA8, 8, 8);
+        QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::AllowA8, 8, 8);
     const std::size_t forty_eight = ops::gdn_input_proj_workspace_capacity_bytes(
-        QType::FP8_E4M3FN_ROW_BF16S, kRows, kHidden, ops::LinearPolicy::AllowA8, 48, 48);
+        QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::AllowA8, 48, 48);
     const std::size_t hot_interval = ops::gdn_input_proj_workspace_capacity_bytes(
-        QType::FP8_E4M3FN_ROW_BF16S, kRows, kHidden, ops::LinearPolicy::AllowA8, 1, 48);
+        QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::AllowA8, 1, 48);
     const std::size_t exact_1024 = ops::gdn_input_proj_workspace_capacity_bytes(
-        QType::FP8_E4M3FN_ROW_BF16S, kRows, kHidden, ops::LinearPolicy::AllowA8, 1024, 1024);
+        QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::AllowA8, 1024, 1024);
     const std::size_t a16 = ops::gdn_input_proj_workspace_capacity_bytes(
-        QType::FP8_E4M3FN_ROW_BF16S, kRows, kHidden, ops::LinearPolicy::A16Only, 1, 2048);
+        QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::A16Only, 1, 2048);
     if (one != 0 || seven != 0 || eight == 0 || forty_eight <= eight ||
         hot_interval != forty_eight || exact_1024 <= forty_eight || a16 != 0) {
         std::cerr << "FP8 gdn input workspace interval contract mismatch\n";
@@ -310,7 +404,8 @@ int run_fp8() {
     failures += run_fp8_case(parent, 1, ops::LinearPolicy::A16Only, true);
     failures += run_fp8_case(parent, 2, ops::LinearPolicy::A16Only);
     for (const std::int32_t tokens : {1, 2, 7, 8, 48, 65, 1024}) {
-        failures += run_fp8_case(parent, tokens, ops::LinearPolicy::AllowA8);
+        failures += run_fp8_case(
+            parent, tokens, tokens == 8 ? ops::LinearPolicy::AllowA4 : ops::LinearPolicy::AllowA8);
     }
     return failures;
 }
@@ -325,7 +420,7 @@ int main() {
 
     int failures = 0;
     failures += run_q4_q5();
-    failures += run_w8();
+    failures += run_q8();
     failures += run_nvfp4();
     failures += run_fp8();
     std::cout << (failures == 0 ? "OK" : "FAIL") << " gdn_input_proj\n";

@@ -7,9 +7,6 @@
 
 #ifdef _WIN32
 #include <io.h>
-#define isatty _isatty
-#define fileno _fileno
-#define STDERR_FILENO _fileno(stderr)
 #else
 #include <unistd.h>
 #endif
@@ -27,6 +24,17 @@
 #include <utility>
 
 namespace ninfer::product {
+
+
+namespace {
+bool is_stderr_tty() noexcept {
+#ifdef _WIN32
+    return ::_isatty(_fileno(stderr)) == 1;
+#else
+    return ::isatty(STDERR_FILENO) == 1;
+#endif
+}
+} // namespace
 namespace {
 
 spdlog::level::level_enum to_spdlog_level(LogLevel level) {
@@ -108,7 +116,7 @@ public:
             const std::time_t wall_seconds = std::chrono::system_clock::to_time_t(
                 std::chrono::system_clock::time_point(whole_seconds));
             std::tm local{};
-#if defined(_WIN32)
+#ifdef _WIN32
             localtime_s(&local, &wall_seconds);
 #else
             localtime_r(&wall_seconds, &local);
@@ -162,7 +170,7 @@ void report_logging_error(const std::string& message) noexcept {
 class ProgressAwareStderrSink final : public spdlog::sinks::sink {
 public:
     explicit ProgressAwareStderrSink(spdlog::color_mode color)
-        : sink_(color), interactive_(::isatty(STDERR_FILENO) == 1) {}
+        : sink_(color), interactive_(is_stderr_tty()) {}
 
     ~ProgressAwareStderrSink() override { clear(); }
 

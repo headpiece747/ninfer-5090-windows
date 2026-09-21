@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <vector>
 
 namespace ninfer::ops::detail::gated_delta_net {
 std::size_t chunked_workspace_bytes(std::int32_t value_heads, std::int32_t tokens) {
@@ -27,6 +28,14 @@ void launch_chunked(const Tensor& q, const Tensor& k, const Tensor& v, const Ten
     const Tensor U        = layout.U.bind(backing);
     const Tensor v_new    = layout.v_new.bind(backing);
     const Tensor h_chunk  = layout.h_chunk.bind(backing);
+
+    auto* const cp_segment_begin  = static_cast<std::int32_t*>(layout.cp_segment_begin.bind(backing).data);
+    auto* const cp_segment_count  = static_cast<std::int32_t*>(layout.cp_segment_count.bind(backing).data);
+    auto* const cp_num_warmup     = static_cast<std::int32_t*>(layout.cp_num_warmup.bind(backing).data);
+    auto* const cp_fallback       = static_cast<std::int32_t*>(layout.cp_fallback.bind(backing).data);
+    auto* const cp_segment_fallback =
+        static_cast<std::int32_t*>(layout.cp_segment_fallback.bind(backing).data);
+    auto* const cp_segment_states = static_cast<float*>(layout.cp_segment_states.bind(backing).data);
 
     chunked::prepare_wy_wu_config prepare{};
     prepare.H_qk         = q.ne[1];
@@ -55,7 +64,76 @@ void launch_chunked(const Tensor& q, const Tensor& k, const Tensor& v, const Ten
     state.h_chunk   = static_cast<__nv_bfloat16*>(h_chunk.data);
     state.state_out = static_cast<float*>(ssm_state_out.data);
     state.stream    = stream;
-    CUDA_CHECK(chunked::launch_state_passing(state));
+
+    // Gate-driven context parallelism. `prepare_wy_wu` and `output` are chunk-independent, so only
+    // this stage is segmented: the chunk range is cut into independent segments and each runs from
+    // its own incoming state. Segment 0 starts from the caller's state; later segments start from
+    // zero and are corrected below when their gate does not decay enough.
+    const std::int32_t chunks = q.ne[2] / kChunkSize;
+    const chunked::cp_segment_plan plan =
+        chunked::plan_cp_segments(v.ne[1], chunks, chunked::cp_device_sm_count());
+    const std::int32_t segments = plan.segment_count();
+    if (plan.use_cp && segments > 1) {
+        const std::int64_t state_stride =
+            static_cast<std::int64_t>(v.ne[1]) * kStateDim * kStateDim;
+        // Capture-safe: the plan is a pure function of (H_v, chunks, SM count), so the device fills
+        // its own segment table. A pageable host-to-device copy is illegal inside CUDA Graph
+        // capture, which is how the chunked Op is exercised.
+        CUDA_CHECK(cudaMemsetAsync(cp_segment_fallback, 0,
+                                   static_cast<std::size_t>(segments) * sizeof(std::int32_t),
+                                   stream));
+        chunked::launch_cp_fill_segments(segments, v.ne[1], chunks, chunked::cp_device_sm_count(),
+                                         cp_segment_begin, cp_segment_count, stream);
+        // Slots 1..segments are the per-segment ends, produced from a zero start; slot 0 is the
+        // caller's incoming state.
+        CUDA_CHECK(cudaMemsetAsync(
+            cp_segment_states + state_stride, 0,
+            static_cast<std::size_t>(segments) * static_cast<std::size_t>(state_stride) *
+                sizeof(float),
+            stream));
+        CUDA_CHECK(cudaMemcpyAsync(cp_segment_states, ssm_state_in.data,
+                                   static_cast<std::size_t>(state_stride) * sizeof(float),
+                                   cudaMemcpyDeviceToDevice, stream));
+
+        chunked::launch_cp_gate_warmup(state.g_cumsum, v.ne[1], kChunkSize, cp_segment_begin,
+                                       cp_segment_count, segments, chunked::kCpWarmupThreshold,
+                                       cp_num_warmup, cp_fallback, cp_segment_fallback, stream);
+
+        state.segment_count       = segments;
+        state.segment_begin       = cp_segment_begin;
+        state.segment_chunk_count = cp_segment_count;
+        state.segment_states      = cp_segment_states;
+        CUDA_CHECK(chunked::launch_state_passing(state));
+
+        // Exact correction, capture-safe: one guarded replay per segment, in order. Each reads the
+        // segment's true carried state (slot i, already resolved by the replays launched before
+        // it) and no-ops on the device when its fallback flag is clear - a host decision would
+        // need a sync, which capture forbids. Replaying the whole segment when any head falls back
+        // is exact; narrowing that per head is a later refinement, not a correctness change.
+        // The replay launches one segment each, so the kernel's blockIdx.y is 0 and every array it
+        // indexes must already be offset to segment i: `segment_begin[i]`/`segment_count[i]` give
+        // the chunk range, `segment_states + i*stride` is the true incoming state (resolved by the
+        // replay launched for i-1, or by the initial launch for i == 1), and the outgoing state
+        // lands in slot i+1. `replay_flags` is offset the same way, so the guard reads segment i's
+        // flag rather than segment 0's.
+        for (std::int32_t i = 1; i < segments; ++i) {
+            chunked::state_passing_config fix = state;
+            fix.segment_count       = 1;
+            fix.segment_begin       = cp_segment_begin + i;
+            fix.segment_chunk_count = cp_segment_count + i;
+            fix.segment_states =
+                cp_segment_states + static_cast<std::int64_t>(i) * state_stride;
+            fix.replay_flags        = cp_segment_fallback + i;
+            CUDA_CHECK(chunked::launch_state_passing(fix));
+        }
+        CUDA_CHECK(cudaMemcpyAsync(
+            ssm_state_out.data,
+            cp_segment_states + static_cast<std::int64_t>(segments) * state_stride,
+            static_cast<std::size_t>(state_stride) * sizeof(float), cudaMemcpyDeviceToDevice,
+            stream));
+    } else {
+        CUDA_CHECK(chunked::launch_state_passing(state));
+    }
 
     chunked::chunk_output_config output{};
     output.H_qk     = q.ne[1];

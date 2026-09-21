@@ -1,6 +1,7 @@
 // Public-Op benchmark for every registered GDN input-projection contract.
 // Production dispatch is owned exclusively by gdn_input_proj().
 
+#include "core/weight.h"
 #include "ninfer/ops/gdn_input_proj.h"
 
 #include "core/device.h"
@@ -31,7 +32,7 @@ namespace {
 constexpr std::size_t kFlushBytes = std::size_t{256} << 20;
 constexpr double kRtx5090DramGBs  = 1792.0;
 
-enum class Format : std::uint8_t { Q4Q5, W8, Nvfp4, Fp8, All };
+enum class Format : std::uint8_t { Q4Q5, Q8, Nvfp4, Fp8, All };
 enum class CacheMode : std::uint8_t { Cold, Warm, Both };
 enum class CacheState : std::uint8_t { Cold, Warm };
 
@@ -44,6 +45,7 @@ struct Options {
     int warmup   = 5;
     int repeat   = 30;
     bool profile = false;
+    bool graph   = false;
     std::string csv_out;
 };
 
@@ -56,15 +58,22 @@ struct Result {
     std::uint64_t logical_bytes;
     double useful_flops;
     bench::ColdTiming timing;
+    std::size_t graph_nodes = 0;
+};
+
+struct Measurement {
+    bench::ColdTiming timing;
+    std::size_t graph_nodes = 0;
 };
 
 [[noreturn]] void usage(const char* message) {
     std::fprintf(stderr,
                  "error: %s\n"
                  "usage: ninfer_gdn_input_proj_bench "
-                 "[--format q4q5|w8|nvfp4|fp8|all] [--nvfp4-policy a16|a4] "
+                 "[--format q4q5|q8|nvfp4|fp8|all] [--nvfp4-policy a16|a4] "
                  "[--fp8-policy a16|a8] "
-                 "[--tokens T,...] [--cache cold|warm|both] [--warmup N] [--repeat N] "
+                 "[--tokens T,...] [--cache cold|warm|both] [--execution eager|graph] "
+                 "[--warmup N] [--repeat N] "
                  "[--profile] [--csv-out PATH]\n",
                  message);
     std::exit(2);
@@ -110,8 +119,8 @@ Options parse_options(int argc, char** argv) {
             const std::string_view value(next("--format requires a value"));
             if (value == "q4q5")
                 options.format = Format::Q4Q5;
-            else if (value == "w8")
-                options.format = Format::W8;
+            else if (value == "q8")
+                options.format = Format::Q8;
             else if (value == "nvfp4")
                 options.format = Format::Nvfp4;
             else if (value == "fp8")
@@ -119,7 +128,7 @@ Options parse_options(int argc, char** argv) {
             else if (value == "all")
                 options.format = Format::All;
             else
-                usage("--format expects q4q5, w8, nvfp4, fp8, or all");
+                usage("--format expects q4q5, q8, nvfp4, fp8, or all");
         } else if (argument == "--nvfp4-policy") {
             const std::string_view value(next("--nvfp4-policy requires a value"));
             if (value == "a16")
@@ -148,6 +157,12 @@ Options parse_options(int argc, char** argv) {
                 options.cache = CacheMode::Both;
             else
                 usage("--cache expects cold, warm, or both");
+        } else if (argument == "--execution") {
+            const std::string_view value(next("--execution requires a value"));
+            if (value != "eager" && value != "graph") {
+                usage("--execution expects eager or graph");
+            }
+            options.graph = value == "graph";
         } else if (argument == "--warmup") {
             options.warmup = parse_i32(next("--warmup requires a value"), 0, 10000, "--warmup");
         } else if (argument == "--repeat") {
@@ -184,28 +199,46 @@ const char* policy_name(ops::LinearPolicy policy) {
 }
 
 template <class Launch>
-bench::ColdTiming measure_public(Launch&& launch, CacheState cache, DeviceBuffer& flush,
-                                 cudaStream_t stream, int warmup, int repeat) {
-    return cache == CacheState::Cold
-               ? bench::measure_cold_launch(std::forward<Launch>(launch), flush, stream, warmup,
-                                            repeat)
-               : bench::measure_launch(std::forward<Launch>(launch), stream, warmup, repeat);
+Measurement measure_public(Launch&& launch, CacheState cache, DeviceBuffer& flush,
+                           cudaStream_t stream, int warmup, int repeat, bool graph) {
+    if (graph) {
+        bench::TimedGraph captured;
+        captured.capture(stream, launch);
+        return {cache == CacheState::Cold
+                    ? bench::measure_cold_graph(captured, flush, stream, warmup, repeat)
+                    : bench::measure_graph(captured, stream, warmup, repeat),
+                captured.nodes()};
+    }
+    return {cache == CacheState::Cold
+                ? bench::measure_cold_launch(std::forward<Launch>(launch), flush, stream, warmup,
+                                             repeat)
+                : bench::measure_launch(std::forward<Launch>(launch), stream, warmup, repeat),
+            0};
 }
 
 template <class Launch>
 void profile_public(Launch&& launch, const char* format, const char* policy, CacheState cache,
-                    DeviceBuffer& flush, cudaStream_t stream, int warmup) {
-    for (int index = 0; index < warmup; ++index) { launch(stream); }
+                    DeviceBuffer& flush, cudaStream_t stream, int warmup, bool graph) {
+    bench::TimedGraph captured;
+    if (graph) { captured.capture(stream, launch); }
+    const auto invoke = [&] {
+        if (graph)
+            captured.launch(stream);
+        else
+            launch(stream);
+    };
+    for (int index = 0; index < warmup; ++index) { invoke(); }
     CUDA_CHECK(cudaStreamSynchronize(stream));
     if (cache == CacheState::Cold) {
         bench::flush_l2(flush, stream);
         CUDA_CHECK(cudaStreamSynchronize(stream));
     }
-    std::printf("PROFILE entry=gdn_input_proj format=%s policy=%s dispatch=public cache=%s\n",
-                format, policy, cache_name(cache));
+    std::printf("PROFILE entry=gdn_input_proj format=%s policy=%s dispatch=public execution=%s "
+                "graph_nodes=%zu cache=%s\n",
+                format, policy, graph ? "graph" : "eager", captured.nodes(), cache_name(cache));
     std::fflush(stdout);
     CUDA_CHECK(cudaProfilerStart());
-    launch(stream);
+    invoke();
     CUDA_CHECK(cudaStreamSynchronize(stream));
     CUDA_CHECK(cudaProfilerStop());
 }
@@ -218,10 +251,12 @@ void report(const Result& result) {
     const double seconds = result.timing.median_us * 1.0e-6;
     const double gbps    = static_cast<double>(result.logical_bytes) / seconds / 1.0e9;
     const double tflops  = result.useful_flops / seconds / 1.0e12;
-    std::printf("entry=gdn_input_proj format=%-6s policy=%-3s cache=%-4s T=%4d "
+    std::printf("entry=gdn_input_proj format=%-6s policy=%-3s cache=%-4s execution=%-5s "
+                "graph_nodes=%zu T=%4d "
                 "workspace=%9zu median=%9.3f us min=%9.3f us p95=%9.3f us "
                 "logical=%8.1f GB/s (%5.1f%% of %.0f) math=%8.2f TFLOP/s\n",
-                result.format, result.policy, cache_name(result.cache), result.tokens,
+                result.format, result.policy, cache_name(result.cache),
+                result.graph_nodes ? "graph" : "eager", result.graph_nodes, result.tokens,
                 result.workspace_bytes, result.timing.median_us, result.timing.min_us,
                 result.timing.p95_us, gbps, gbps / kRtx5090DramGBs * 100.0, kRtx5090DramGBs,
                 tflops);
@@ -229,9 +264,10 @@ void report(const Result& result) {
 
 void append_result(std::vector<Result>& results, const char* format, const char* policy,
                    std::int32_t tokens, CacheState cache, std::size_t workspace_bytes,
-                   std::uint64_t logical_bytes, double useful_flops, bench::ColdTiming timing) {
-    Result result{format,          policy,        tokens,       cache,
-                  workspace_bytes, logical_bytes, useful_flops, timing};
+                   std::uint64_t logical_bytes, double useful_flops, bench::ColdTiming timing,
+                   std::size_t graph_nodes) {
+    Result result{format,        policy,       tokens, cache,      workspace_bytes,
+                  logical_bytes, useful_flops, timing, graph_nodes};
     report(result);
     results.push_back(result);
 }
@@ -247,7 +283,8 @@ void measure_points(const Options& options, const char* format, const char* poli
         auto launch                       = make_launch(tokens);
         const std::size_t workspace_bytes = workspace_capacity(tokens);
         if (options.profile) {
-            profile_public(launch, format, policy, profile_cache, flush, stream, options.warmup);
+            profile_public(launch, format, policy, profile_cache, flush, stream, options.warmup,
+                           options.graph);
             continue;
         }
         const std::uint64_t logical =
@@ -258,9 +295,10 @@ void measure_points(const Options& options, const char* format, const char* poli
                 (options.cache == CacheMode::Warm && cache != CacheState::Warm)) {
                 continue;
             }
-            append_result(
-                results, format, policy, tokens, cache, workspace_bytes, logical, flops,
-                measure_public(launch, cache, flush, stream, options.warmup, options.repeat));
+            const Measurement measurement = measure_public(
+                launch, cache, flush, stream, options.warmup, options.repeat, options.graph);
+            append_result(results, format, policy, tokens, cache, workspace_bytes, logical, flops,
+                          measurement.timing, measurement.graph_nodes);
         }
     }
 }
@@ -274,9 +312,9 @@ void run_q4q5(const Options& options, DeviceBuffer& flush, cudaStream_t stream,
     constexpr std::int32_t kOutputRows = kQkRows + kValueRows + kZRows;
     const std::int32_t max_tokens = *std::max_element(options.tokens.begin(), options.tokens.end());
     bench::PackedQuantizedWeight qk = bench::make_row_split_weight(
-        QType::Q4G64_F16S, kQkRows, kHidden, kHidden, {0x31, 0x00, 0x3c00});
+        QType::Q4_G64_FP16, kQkRows, kHidden, kHidden, {0x31, 0x00, 0x3c00});
     bench::PackedQuantizedWeight value_z = bench::make_row_split_weight(
-        QType::Q5G64_F16S, kValueRows + kZRows, kHidden, kHidden, {0x31, 0xa5, 0x3c00});
+        QType::Q5_G64_FP16, kValueRows + kZRows, kHidden, kHidden, {0x31, 0xa5, 0x3c00});
     DeviceBuffer input = bench::make_bf16(static_cast<std::size_t>(kHidden) * max_tokens);
     DeviceBuffer qkv(static_cast<std::size_t>(kQkRows + kValueRows) * max_tokens * 2);
     DeviceBuffer z(static_cast<std::size_t>(kZRows) * max_tokens * 2);
@@ -294,7 +332,7 @@ void run_q4q5(const Options& options, DeviceBuffer& flush, cudaStream_t stream,
         [](std::int32_t) { return std::size_t{0}; }, make_launch, flush, stream, results);
 }
 
-void run_w8(const Options& options, DeviceBuffer& flush, cudaStream_t stream,
+void run_q8(const Options& options, DeviceBuffer& flush, cudaStream_t stream,
             std::vector<Result>& results) {
     constexpr std::int32_t kHidden     = 2048;
     constexpr std::int32_t kQkvRows    = 8192;
@@ -302,7 +340,7 @@ void run_w8(const Options& options, DeviceBuffer& flush, cudaStream_t stream,
     constexpr std::int32_t kOutputRows = kQkvRows + kZRows;
     const std::int32_t max_tokens = *std::max_element(options.tokens.begin(), options.tokens.end());
     bench::PackedQuantizedWeight parent = bench::make_row_split_weight(
-        QType::W8G32_F16S, kOutputRows, kHidden, kHidden, {0x31, 0x00, 0x3c00});
+        QType::Q8_G32_FP16, kOutputRows, kHidden, kHidden, {0x31, 0x00, 0x3c00});
     DeviceBuffer input = bench::make_bf16(static_cast<std::size_t>(kHidden) * max_tokens);
     DeviceBuffer qkv(static_cast<std::size_t>(kQkvRows) * max_tokens * 2);
     DeviceBuffer z(static_cast<std::size_t>(kZRows) * max_tokens * 2);
@@ -316,9 +354,9 @@ void run_w8(const Options& options, DeviceBuffer& flush, cudaStream_t stream,
     };
     const auto workspace_capacity = [](std::int32_t tokens) {
         return ops::gdn_input_proj_workspace_capacity_bytes(
-            QType::W8G32_F16S, kOutputRows, kHidden, ops::LinearPolicy::A16Only, tokens, tokens);
+            QType::Q8_G32_FP16, kOutputRows, kHidden, ops::LinearPolicy::A16Only, tokens, tokens);
     };
-    measure_points(options, "w8", "a16", kHidden, kOutputRows, parent.model_weight_bytes(),
+    measure_points(options, "q8", "a16", kHidden, kOutputRows, parent.model_weight_bytes(),
                    workspace_capacity, make_launch, flush, stream, results);
 }
 
@@ -363,7 +401,7 @@ void run_fp8(const Options& options, DeviceBuffer& flush, cudaStream_t stream,
     const std::int32_t max_tokens = *std::max_element(options.tokens.begin(), options.tokens.end());
     bench::PackedQuantizedWeight parent = bench::make_fp8_weight(kOutputRows, kHidden);
     const std::size_t maximum_workspace = ops::gdn_input_proj_workspace_capacity_bytes(
-        QType::FP8_E4M3FN_ROW_BF16S, kOutputRows, kHidden, options.fp8_policy, 1, max_tokens);
+        QType::FP8_E4M3FN_ROW_BF16, kOutputRows, kHidden, options.fp8_policy, 1, max_tokens);
     WorkspaceArena workspace(std::max<std::size_t>(maximum_workspace, 256));
     DeviceBuffer input = bench::make_bf16(static_cast<std::size_t>(kHidden) * max_tokens);
     DeviceBuffer qkv(static_cast<std::size_t>(kQkvRows) * max_tokens * 2);
@@ -379,7 +417,7 @@ void run_fp8(const Options& options, DeviceBuffer& flush, cudaStream_t stream,
     };
     const auto workspace_capacity = [&](std::int32_t tokens) {
         return ops::gdn_input_proj_workspace_capacity_bytes(
-            QType::FP8_E4M3FN_ROW_BF16S, kOutputRows, kHidden, options.fp8_policy, tokens, tokens);
+            QType::FP8_E4M3FN_ROW_BF16, kOutputRows, kHidden, options.fp8_policy, tokens, tokens);
     };
     measure_points(options, "fp8", policy_name(options.fp8_policy), kHidden, kOutputRows,
                    parent.model_weight_bytes(), workspace_capacity, make_launch, flush, stream,
@@ -393,13 +431,14 @@ void write_csv(const Options& options, const std::vector<Result>& results) {
     std::ofstream output(path);
     if (!output) { throw std::runtime_error("failed to open CSV output"); }
     output << "entry,format,policy,cache,T,workspace_bytes,logical_bytes,useful_flops,"
-              "median_us,min_us,p95_us\n";
+              "median_us,min_us,p95_us,execution,graph_nodes\n";
     for (const Result& result : results) {
         output << "gdn_input_proj," << result.format << ',' << result.policy << ','
                << cache_name(result.cache) << ',' << result.tokens << ',' << result.workspace_bytes
                << ',' << result.logical_bytes << ',' << result.useful_flops << ','
                << result.timing.median_us << ',' << result.timing.min_us << ','
-               << result.timing.p95_us << '\n';
+               << result.timing.p95_us << ',' << (result.graph_nodes ? "graph" : "eager") << ','
+               << result.graph_nodes << '\n';
     }
 }
 
@@ -423,7 +462,7 @@ int main(int argc, char** argv) {
         std::vector<Result> results;
 
         if (selected(options.format, Format::Q4Q5)) { run_q4q5(options, flush, stream, results); }
-        if (selected(options.format, Format::W8)) { run_w8(options, flush, stream, results); }
+        if (selected(options.format, Format::Q8)) { run_q8(options, flush, stream, results); }
         if (selected(options.format, Format::Nvfp4)) { run_nvfp4(options, flush, stream, results); }
         if (selected(options.format, Format::Fp8)) { run_fp8(options, flush, stream, results); }
 

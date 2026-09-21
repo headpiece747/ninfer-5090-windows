@@ -16,12 +16,16 @@ cudaError_t launch_fixed(const state_passing_config& cfg, head_map qk_map, int N
                                            cudaFuncAttributeMaxDynamicSharedMemorySize, smem_bytes);
     if (err != cudaSuccess) { return err; }
 
-    const dim3 grid(static_cast<unsigned>(static_cast<std::int64_t>(cfg.H_v) * D::D_STRIPS), 1, 1);
+    const unsigned segments =
+        cfg.segment_count > 1 ? static_cast<unsigned>(cfg.segment_count) : 1U;
+    const dim3 grid(static_cast<unsigned>(static_cast<std::int64_t>(cfg.H_v) * D::D_STRIPS),
+                    segments, 1);
     const dim3 block(D::THREADS, 1, 1);
 
     kernel::state_passing_kernel<NStrip><<<grid, block, smem_bytes, cfg.stream>>>(
         cfg.W, cfg.U, cfg.k, cfg.g_cumsum, cfg.state_in, cfg.v_new, cfg.h_chunk, cfg.state_out,
-        qk_map, NT);
+        cfg.segment_begin, cfg.segment_chunk_count, cfg.segment_states, cfg.replay_flags, qk_map,
+        NT);
     return cudaGetLastError();
 }
 
@@ -39,13 +43,14 @@ cudaError_t launch_state_passing(const state_passing_config& cfg) {
 
     const auto qk_map     = head_map::of((int)cfg.H_qk, (int)cfg.H_v);
     const std::int64_t NT = cfg.L / BT;
+    const std::int64_t segments = cfg.segment_count > 1 ? cfg.segment_count : 1;
     if (cfg.H_v >= 48) {
         NINFER_GATED_DELTA_NET_PROPAGATE(v.check_grid(
-            static_cast<std::int64_t>(cfg.H_v) * kernel::kernel_dims<16>::D_STRIPS, 1));
+            static_cast<std::int64_t>(cfg.H_v) * kernel::kernel_dims<16>::D_STRIPS, segments));
         return launch_fixed<16>(cfg, qk_map, static_cast<int>(NT));
     }
-    NINFER_GATED_DELTA_NET_PROPAGATE(
-        v.check_grid(static_cast<std::int64_t>(cfg.H_v) * kernel::kernel_dims<32>::D_STRIPS, 1));
+    NINFER_GATED_DELTA_NET_PROPAGATE(v.check_grid(
+        static_cast<std::int64_t>(cfg.H_v) * kernel::kernel_dims<32>::D_STRIPS, segments));
     return launch_fixed<32>(cfg, qk_map, static_cast<int>(NT));
 }
 

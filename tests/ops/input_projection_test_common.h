@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/weight.h"
 #include "ops/op_tester.h"
 #include "ops/quantized_weight.h"
 
@@ -93,6 +94,15 @@ public:
     }
 
     int verify_guards(std::string_view label) const { return storage_.verify_guards(label); }
+
+    // Re-poison the payload so a replayed graph has to write every element again. Without this a
+    // second replay only overwrites the first result and cannot show that the executable still
+    // consumes the operand that lives at the captured address. The poison is issued on the caller's
+    // stream so it is ordered against the graph launch it precedes.
+    void repaint(cudaStream_t stream) {
+        cuda_check(cudaMemsetAsync(storage_.data(), kPoisonByte, payload_bytes_, stream),
+                   "guarded BF16 repaint");
+    }
 
     int verify_fully_written(std::string_view label) const {
         const std::vector<std::uint16_t> output = bits();

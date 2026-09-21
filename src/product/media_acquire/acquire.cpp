@@ -1,13 +1,10 @@
-﻿#include "product/media_acquire/acquire.h"
+#include "product/media_acquire/acquire.h"
 
 #if defined(NINFER_HAVE_LIBCURL)
 #include <curl/curl.h>
 #endif
 
 #ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
@@ -101,7 +98,7 @@ bool private_ipv4(std::uint32_t address) {
     const std::uint32_t a = ntohl(address);
     return (a >> 24U) == 0 || (a >> 24U) == 10 || (a >> 24U) == 127 || (a >> 16U) == 0xa9fe ||
            (a >> 20U) == 0xac1 || (a >> 16U) == 0xc0a8 || (a >> 22U) == 0x0191 ||
-           (a >> 17U) == 0x633f || (a >> 24U) >= 224;
+           (a >> 17U) == 0x6309 || (a >> 24U) >= 224;
 }
 
 bool private_address(const sockaddr* address) {
@@ -156,6 +153,17 @@ UrlParts parse_url(std::string_view value) {
 }
 
 std::string resolve_public(const UrlParts& url, bool allow_private) {
+#ifdef _WIN32
+    static std::once_flag winsock_init;
+    std::call_once(winsock_init, [] {
+        WSADATA data{};
+        const int result = ::WSAStartup(MAKEWORD(2, 2), &data);
+        if (result != 0) {
+            throw Error(ErrorKind::RemoteUnavailable,
+                        "failed to initialize Winsock: " + std::to_string(result));
+        }
+    });
+#endif
     addrinfo hints{};
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -163,7 +171,11 @@ std::string resolve_public(const UrlParts& url, bool allow_private) {
     const int rc      = getaddrinfo(url.host.c_str(), url.port.c_str(), &hints, &raw);
     if (rc != 0) {
         throw Error(ErrorKind::RemoteUnavailable,
+#ifdef _WIN32
+                    "failed to resolve media URL host: " + std::to_string(rc));
+#else
                     "failed to resolve media URL host: " + std::string(gai_strerror(rc)));
+#endif
     }
     std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> addresses(raw, freeaddrinfo);
     std::string selected;
@@ -348,7 +360,9 @@ std::vector<std::uint8_t> acquire_bytes(const Source& source, const Policy& poli
 
     if (source.kind == SourceKind::Url) {
 #if defined(NINFER_HAVE_LIBCURL)
-        return fetch_url(source.value, policy);
+        std::vector<std::uint8_t> bytes = fetch_url(source.value, policy);
+        if (bytes.empty()) { throw std::invalid_argument("media source contains no data"); }
+        return bytes;
 #else
         throw std::invalid_argument("ninfer compiled without curl. Remote URLs are unsupported.");
 #endif

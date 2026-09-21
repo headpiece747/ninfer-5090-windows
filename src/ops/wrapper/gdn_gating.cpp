@@ -2,6 +2,7 @@
 #include "ninfer/ops/gdn_gating.h"
 
 #include "ops/launcher/gdn_gating.h" // detail::gdn_gating_launch
+#include "ops/common/validation.h"
 
 #include <cstdint>
 #include <limits>
@@ -11,26 +12,7 @@
 namespace ninfer::ops {
 namespace {
 
-std::int64_t numel_allow_zero(const Tensor& t, const char* label) {
-    bool has_zero = false;
-    for (int d = 0; d < 4; ++d) {
-        if (t.ne[d] < 0) {
-            throw std::invalid_argument(std::string("gdn_gating: ") + label +
-                                        " dimensions must be nonnegative");
-        }
-        if (t.ne[d] == 0) { has_zero = true; }
-    }
-    if (has_zero) { return 0; }
-
-    std::int64_t total = 1;
-    for (int d = 0; d < 4; ++d) {
-        if (total > std::numeric_limits<std::int64_t>::max() / t.ne[d]) {
-            throw std::overflow_error("gdn_gating: tensor size overflows int64");
-        }
-        total *= t.ne[d];
-    }
-    return total;
-}
+constexpr const char* kOpName = "gdn_gating";  // labels this Op's validation messages
 
 void require_gate_shape(const Tensor& t, const char* label) {
     if (t.ne[0] != 48 || t.ne[2] != 1 || t.ne[3] != 1) {
@@ -68,12 +50,12 @@ void gdn_gating(const Tensor& a, const Tensor& b, const Tensor& A_log, const Ten
         throw std::invalid_argument("gdn_gating: g/beta must be FP32");
     }
 
-    const std::int64_t n = numel_allow_zero(a, "a");
-    (void)numel_allow_zero(b, "b");
-    (void)numel_allow_zero(A_log, "A_log");
-    (void)numel_allow_zero(dt_bias, "dt_bias");
-    (void)numel_allow_zero(g, "g");
-    (void)numel_allow_zero(beta, "beta");
+    const std::int64_t n = numel_allow_zero(a, kOpName, "a");
+    (void)numel_allow_zero(b, kOpName, "b");
+    (void)numel_allow_zero(A_log, kOpName, "A_log");
+    (void)numel_allow_zero(dt_bias, kOpName, "dt_bias");
+    (void)numel_allow_zero(g, kOpName, "g");
+    (void)numel_allow_zero(beta, kOpName, "beta");
 
     require_gate_shape(a, "a");
     require_gate_shape(b, "b");

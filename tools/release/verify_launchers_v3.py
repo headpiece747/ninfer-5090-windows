@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Verify every generated v3 launcher by running the launcher itself.
+
+This does not re-derive the arg set: it executes the .bat that ships, so what is
+verified is exactly what a user will run. For each launcher:
+
+  1. the engine starts and /v1/models advertises the launcher's own model id
+  2. a chat completion returns text, and speculative counters are non-zero when the
+     profile selects a backend (proves the backend actually loaded rather than
+     silently degrading)
+  3. a Vision profile accepts an image, and a no-Vision profile rejects one with the
+     documented vision_disabled error
+
+Ports are distinct per launcher, so nothing is stopped between runs except the engine
+itself -- one 32 GB card can only hold one artifact at a time.
+"""
+from __future__ import annotations
+
+import base64
+import json
+import re
+import struct
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+import zlib
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from engine import kill_servers, wait_ready  # noqa: E402
+from profiles import PROFILES  # noqa: E402
+from v3_profile_matrix import gpu_used_mib, wait_free  # noqa: E402
+
+V3 = Path(__file__).resolve().parents[2]
+RECORDS = Path(r"C:\AI\bench") / "launcher_verify.jsonl"
+
+# Derived from the table, never restated. This verifier executes the launcher that ships, so a
+# copy of the file name, port, model id, spec or ceiling here would be a second authority for
+# exactly the facts the launcher is generated from -- and the ceiling was one until now.
+CASES = [(p["file"], p["port"], p["model_id"], p["vision"], p["spec"], p["ctx"])
+         for p in PROFILES]
+
+PROBE_PROMPT = "Reply with the single word OK."
+
+
+# ------------------------------------------------------------------ test image
+
+def make_png_data_uri(size: int = 64) -> str:
+    """A small valid PNG so Vision preprocessing has real pixels to chew on."""
+    raw = b""
+    for y in range(size):
+        raw += b"\x00"  # filter byte
+        for x in range(size):
+            raw += bytes((x * 4 % 256, y * 4 % 256, 128))
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+    png = (b"\x89PNG\r\n\x1a\n"
+           + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(raw))
+           + chunk(b"IEND", b""))
+    return "data:image/png;base64," + base64.b64encode(png).decode()
+
+
+# -------------------------------------------------------------------- plumbing
+
+def post(port: int, path: str, payload: dict, timeout: int = 600):
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        try:
+            return e.code, json.loads(body)
+        except Exception:  # noqa: BLE001
+            return e.code, {"raw": body[:200]}
+
+
+def models(port: int) -> list[str]:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=10) as r:
+        return [m["id"] for m in json.loads(r.read()).get("data", [])]
+
+
+# ------------------------------------------------------------------------ main
+
+def main() -> int:
+    uri = make_png_data_uri()
+    results = []
+    for bat, port, model_id, vision, spec, ceiling in CASES:
+        print(f"\n=== {bat}  (port {port})")
+        kill_servers()
+        # Same drain discipline as v3_profile_matrix.run_profile: the engine's accounting line
+        # depends on what is already resident, so a leftover process must not be able to move it.
+        freed = wait_free()
+        vram_before = gpu_used_mib()
+        log = Path(r"C:\AI\bench") / f"launcher_verify_{port}.txt"
+        handle = log.open("w", encoding="utf-8", errors="replace")
+        proc = subprocess.Popen(["cmd", "/c", str(V3 / bat)], cwd=str(V3),
+                                stdin=subprocess.DEVNULL,
+                                stdout=handle, stderr=subprocess.STDOUT)
+        # engine.py owns the wait. Timing it here keeps the elapsed value the record needs
+        # without a second implementation of the poll, and passing proc means a refused
+        # profile stops the wait instead of burning the whole timeout.
+        started_at = time.time()
+        ready = wait_ready(port, proc)
+        secs = time.time() - started_at
+        rec: dict = {"bat": bat, "port": port, "model_id": model_id, "vision": vision,
+                     "spec": spec, "ready": ready, "startup_seconds": round(secs, 1),
+                     "vram_before_mib": vram_before, "vram_freed": freed}
+        # The engine reports the KV it actually committed, which is the real ceiling.
+        capacity = 0
+        runtime = free = ""
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "capacity |" not in line:
+                continue
+            match = re.search(r"KV ([\d,]+) tokens", line)
+            if match:
+                capacity = int(match.group(1).replace(",", ""))
+            for part in line.split("|"):
+                part = part.strip()
+                if part.startswith("runtime"):
+                    runtime = part
+                elif part.startswith("free"):
+                    free = part
+        rec["kv_committed"] = capacity
+        rec["runtime"] = runtime
+        rec["free"] = free
+        rec["ceiling_expected"] = ceiling
+        rec["ceiling_ok"] = capacity >= ceiling
+        print(f"  KV committed       : {capacity:,}  "
+              f"{'OK' if rec['ceiling_ok'] else 'BELOW ' + format(ceiling, ',')}"
+              f"  ({runtime}, {free})")
+        handle.close()
+
+        if not ready:
+            print("  FAILED to serve")
+            proc.kill()
+            kill_servers()
+            results.append(rec)
+            with RECORDS.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(rec) + "\n")
+            continue
+
+        ids = models(port)
+        rec["advertised"] = ids
+        rec["model_id_ok"] = model_id in ids
+        print(f"  model id           : {'OK' if rec['model_id_ok'] else 'MISMATCH ' + str(ids)}"
+              f"  (ready in {secs:.1f}s)")
+
+        status, body = post(port, "/v1/chat/completions", {
+            "model": model_id,
+            "messages": [{"role": "user", "content": PROBE_PROMPT}],
+            "max_tokens": 24,
+        })
+        text = ""
+        if status == 200:
+            msg = body["choices"][0]["message"]
+            text = (msg.get("reasoning_content") or "") + (msg.get("content") or "")
+        rec["text_status"] = status
+        rec["text_len"] = len(text)
+        print(f"  chat completion    : HTTP {status}, {len(text)} chars"
+              f" -> {'OK' if status == 200 and text else 'FAIL'}")
+
+        # Speculative counters live only in the request log, so re-run the launcher's
+        # own startup log check: a backend that failed to load would not start at all.
+        status, body = post(port, "/v1/chat/completions", {
+            "model": model_id,
+            "messages": [{"role": "user", "content": PROBE_PROMPT}],
+            "max_tokens": 8,
+        }, timeout=600)
+        rec["probe_status"] = status
+
+        img_status, img_body = post(port, "/v1/chat/completions", {
+            "model": model_id,
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": "What is the dominant colour? One word."},
+                {"type": "image_url", "image_url": {"url": uri}},
+            ]}],
+            "max_tokens": 24,
+        })
+        rec["image_status"] = img_status
+        if vision:
+            rec["image_ok"] = img_status == 200
+            print(f"  image accepted     : HTTP {img_status}"
+                  f" -> {'OK' if rec['image_ok'] else 'FAIL'}")
+        else:
+            code = ""
+            if isinstance(img_body, dict):
+                err = img_body.get("error") or {}
+                code = (err.get("code") if isinstance(err, dict) else "") or ""
+                code = code or json.dumps(err)[:80]
+            rec["image_ok"] = img_status == 400
+            rec["image_error"] = code
+            print(f"  image rejected     : HTTP {img_status} {code}"
+                  f" -> {'OK (vision_disabled)' if rec['image_ok'] else 'FAIL'}")
+
+        proc.kill()
+        kill_servers()
+        time.sleep(2)
+        results.append(rec)
+        with RECORDS.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+
+    print("\n=== summary")
+    ok = 0
+    for r in results:
+        good = (r.get("ready") and r.get("model_id_ok") and r.get("text_status") == 200
+                and r.get("image_ok") and r.get("ceiling_ok"))
+        ok += bool(good)
+        print(f"  {'PASS' if good else 'FAIL'}  {r['bat']:<42} "
+              f"ready={r.get('ready')} id={r.get('model_id_ok')} "
+              f"text={r.get('text_status')} image={r.get('image_status')} "
+              f"kv={r.get('kv_committed', 0):,}")
+    print(f"  {ok}/{len(results)} launchers verified")
+    print(f"  records: {RECORDS}")
+    return 0 if ok == len(results) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

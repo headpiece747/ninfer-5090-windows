@@ -46,11 +46,9 @@ template <class Geometry, class Schedule>
 __global__ __launch_bounds__(
     Schedule::kThreads,
     Schedule::
-        kMinBlocksPerSm) void nvfp4_linear_swiglu_w4a4_tma_kernel(const __grid_constant__
-                                                                      Nvfp4W4a4TmaDescriptors
-                                                                          descriptors,
-                                                                  float alpha,
-                                                                  __nv_bfloat16* __restrict__ output) {
+        kMinBlocksPerSm) void nvfp4_linear_swiglu_w4a4_tma_kernel(
+    NINFER_NVFP4_TMA_DESCRIPTOR_PARAM descriptors, float alpha,
+    __nv_bfloat16* __restrict__ output, int token_count) {
     static_assert(Geometry::kOutputRows == 34816);
     static_assert(Geometry::kInputRows == 5120);
     static_assert((Geometry::kInputRows % Schedule::kBlockK) == 0);
@@ -65,8 +63,12 @@ __global__ __launch_bounds__(
 
     extern __shared__ __align__(128) unsigned char shared_bytes[];
     auto& shared = *reinterpret_cast<Nvfp4LinearSwiGluTmaSharedStorage<Schedule>*>(shared_bytes);
-    const int token_begin = static_cast<int>(blockIdx.y) * Schedule::kBlockM;
-    const int pair_begin  = static_cast<int>(blockIdx.x) * kPairN;
+    static_assert(Schedule::kStages >= 2, "the activation-scale buffer needs two slots");
+    int block_x = 0;
+    int block_y = 0;
+    nvfp4_tma_raster_blocks(block_x, block_y);
+    const int token_begin = block_y * Schedule::kBlockM;
+    const int pair_begin  = block_x * kPairN;
 
     if (threadIdx.x == 0) {
 #pragma unroll
@@ -85,30 +87,46 @@ __global__ __launch_bounds__(
             asm volatile("setmaxnreg.dec.sync.aligned.u32 40;" : : : "memory");
         }
         if (threadIdx.x == 0) {
+            const Nvfp4W4a4TmaDescriptors* descriptor_block = &descriptors;
 #pragma unroll 1
             for (int k_tile = 0; k_tile < kKTiles; ++k_tile) {
                 const int stage                 = k_tile % Schedule::kStages;
                 const std::uint32_t empty_phase = 1U ^ ((k_tile / Schedule::kStages) & 1U);
                 cta_mbarrier_wait(&shared.empty[stage], empty_phase);
+                constexpr std::uint32_t kScaleBytes =
+                    Schedule::kBlockM * Schedule::kScaleWordsPerRow * 4;
                 constexpr std::uint32_t kTransactionBytes =
                     Schedule::kBlockM * Schedule::kCodeRowBytes +
-                    Schedule::kBlockN * Schedule::kCodeRowBytes +
-                    Schedule::kBlockM * Schedule::kScaleWordsPerRow * 4 +
+                    Schedule::kBlockN * Schedule::kCodeRowBytes + kScaleBytes +
                     2 * Schedule::kBlockN * Schedule::kK64PerStage * 4;
-                cta_mbarrier_arrive_expect_tx(&shared.full[stage], kTransactionBytes);
+                // A scale tile covers kNvfp4ScaleTileGroups groups, which is two K tiles, so the
+                // box is fetched on the even tile only and the odd tile expects that many bytes
+                // fewer.
+                const bool load_scales = (k_tile & 1) == 0;
+                cta_mbarrier_arrive_expect_tx(&shared.full[stage],
+                                              load_scales ? kTransactionBytes
+                                                          : kTransactionBytes - kScaleBytes);
 
                 auto& tensors = shared.scratch.tensors;
-                nvfp4_tma_load_2d(tensors.a_codes[stage], &descriptors.a_codes,
+                nvfp4_tma_load_2d(tensors.a_codes[stage], &descriptor_block->a_codes,
                                   k_tile * Schedule::kCodeRowBytes, token_begin,
                                   &shared.full[stage]);
-                nvfp4_tma_load_2d(tensors.b_codes[stage], &descriptors.b_codes,
+                nvfp4_tma_load_2d(tensors.b_codes[stage], &descriptor_block->b_codes,
                                   k_tile * Schedule::kCodeRowBytes, pair_begin,
                                   &shared.full[stage]);
                 nvfp4_tma_load_2d(tensors.b_codes[stage] + kPairN * Schedule::kCodeRowBytes,
-                                  &descriptors.b_codes, k_tile * Schedule::kCodeRowBytes,
+                                  &descriptor_block->b_codes, k_tile * Schedule::kCodeRowBytes,
                                   pair_begin + kIntermediate, &shared.full[stage]);
-                nvfp4_tma_load_2d(tensors.a_scale4[stage], &descriptors.a_scales, (k_tile / 2) * 16,
-                                  token_begin, &shared.full[stage]);
+                if (load_scales) {
+                    // Tile-contiguous, so the box address is a tile index; see the shared W4A4
+                    // producer for the same addressing.
+                    constexpr int kScaleTilesPerPlane =
+                        Geometry::kGroupsPerRow / kNvfp4ScaleTileGroups;
+                    const int scale_tile =
+                        (token_begin / Schedule::kBlockM) * kScaleTilesPerPlane + k_tile / 2;
+                    nvfp4_tma_load_2d(tensors.a_scale4[(k_tile / 2) & 1], &descriptor_block->a_scales, 0,
+                                      scale_tile * 16, &shared.full[stage]);
+                }
 
                 const int gate_scale_row = ((pair_begin / 128) * Geometry::kScaleTilesPerRow +
                                             k_tile * Schedule::kK64PerStage) *
@@ -117,9 +135,9 @@ __global__ __launch_bounds__(
                     (((pair_begin + kIntermediate) / 128) * Geometry::kScaleTilesPerRow +
                      k_tile * Schedule::kK64PerStage) *
                     32;
-                nvfp4_tma_load_2d(tensors.b_scales[stage][0], &descriptors.b_scales, 0,
+                nvfp4_tma_load_2d(tensors.b_scales[stage][0], &descriptor_block->b_scales, 0,
                                   gate_scale_row, &shared.full[stage]);
-                nvfp4_tma_load_2d(tensors.b_scales[stage][1], &descriptors.b_scales, 0,
+                nvfp4_tma_load_2d(tensors.b_scales[stage][1], &descriptor_block->b_scales, 0,
                                   up_scale_row, &shared.full[stage]);
             }
         }
@@ -171,8 +189,9 @@ __global__ __launch_bounds__(
                             a_fragments[mma_m][3], smem_addr(address));
                 const int scale_row = warp_m * Schedule::kWarpM + mma_m * 16 + sfa_row;
                 a_scales[mma_m] =
-                    tensors.a_scale4[stage][scale_row * Schedule::kScaleWordsPerRow +
-                                            (k_tile & 1) * Schedule::kK64PerStage + local_k64];
+                    tensors.a_scale4[(k_tile / 2) & 1][scale_row * Schedule::kScaleWordsPerRow +
+                                                       (k_tile & 1) * Schedule::kK64PerStage +
+                                                       local_k64];
             }
 
 #pragma unroll
@@ -236,10 +255,12 @@ __global__ __launch_bounds__(
                 shared_output + token1 * kOutputStride + pair_row);
             const auto& gate = accumulators[mma_m][mma_n];
             const auto& up   = accumulators[mma_m][mma_n + kGateMmaFragments];
-            *destination0    = __floats2bfloat162_rn(silu(gate[0] * alpha) * (up[0] * alpha),
-                                                     silu(gate[1] * alpha) * (up[1] * alpha));
-            *destination1    = __floats2bfloat162_rn(silu(gate[2] * alpha) * (up[2] * alpha),
-                                                     silu(gate[3] * alpha) * (up[3] * alpha));
+            // The store rounds to bf16 on the next instruction, so the activation is the
+            // approximate form; see silu_approx in ops/common/math.cuh.
+            *destination0 = __floats2bfloat162_rn(silu_approx(gate[0] * alpha) * (up[0] * alpha),
+                                                  silu_approx(gate[1] * alpha) * (up[1] * alpha));
+            *destination1 = __floats2bfloat162_rn(silu_approx(gate[2] * alpha) * (up[2] * alpha),
+                                                  silu_approx(gate[3] * alpha) * (up[3] * alpha));
         }
     }
 
@@ -250,6 +271,11 @@ __global__ __launch_bounds__(
         const int token_local = task / kVectorsPerRow;
         const int row_vector  = task - token_local * kVectorsPerRow;
         const int token       = token_begin + token_local;
+        // The last M tile may be partial. A padded row reads only memory this route owns - its
+        // codes are TMA zero-fill, because the code descriptor's row extent is the real token
+        // count, and its scales are the zeroes in the padded plane - so it computes without
+        // reaching past anything. It owns no output, so its store is dropped here.
+        if (token >= token_count) { continue; }
         const uint4 values =
             load_vec<uint4>(shared_output + token_local * kOutputStride + row_vector * 8);
         store_vec(output + static_cast<std::int64_t>(token) * kIntermediate + pair_begin +

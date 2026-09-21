@@ -1,0 +1,37 @@
+#include "models/qwen3_5/load/bindings.h"
+
+namespace ninfer::models::qwen3_5::loading {
+
+void bind_dflash2(Bindings& b, DraftWeights& weights, const DraftConfig& config,
+                  const TextConfig& target) {
+    const auto& extra = config.dflash2.value();
+    const auto h      = target.hidden_size;
+    const auto rows =
+        artifact::checked_mul(2ULL * extra.conv_kernel_size, h / extra.conv_group_size,
+                              "DFlash2 dynamic projection rows");
+    for (std::uint32_t i = 0; i < config.num_hidden_layers; ++i) {
+        const auto p           = "dflash2/layers/" + std::to_string(i) + "/";
+        const auto convolution = [&](const std::string& name) {
+            return DynamicConvWeights{
+                b.direct(p + name + "/base_kernel", {2, extra.conv_kernel_size, h}),
+                b.parameter(p + name + "/kernel_projection", {rows, h}, {p + name + "_input"})};
+        };
+        weights.layers[i].attention_conv = convolution("attention_conv");
+        weights.layers[i].mlp_conv       = convolution("mlp_conv");
+    }
+    weights.selector =
+        SelectorWeights{b.parameter("dflash2/candidate_selector/hidden_projection",
+                                    {extra.selector_rank, h}, {"dflash2/final_hidden"}),
+                        // Bound without an exact format: the official artifact stores BF16
+                        // codebooks while the QUASAR checkpoint stores NVFP4 ones, and the
+                        // selector dispatches on the resolved weight's qtype. No input use is
+                        // required either: the codebooks are lookup tables that nothing calls
+                        // model_.input() on, and the published images disagree on the name
+                        // (absent upstream, candidate_walk in nvfp4full, final_hidden here).
+                        b.parameter("dflash2/candidate_selector/predecessor_codebook",
+                                    {target.vocab_size, extra.selector_rank}),
+                        b.parameter("dflash2/candidate_selector/successor_codebook",
+                                    {target.vocab_size, extra.selector_rank})};
+}
+
+} // namespace ninfer::models::qwen3_5::loading

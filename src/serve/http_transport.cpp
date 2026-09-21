@@ -6,6 +6,8 @@
 #    include <netinet/tcp.h>
 #    include <sys/socket.h>
 #elif defined(_WIN32)
+// winsock2.h first: mstcpip.h depends on its types, and including them in the other order breaks
+// once anything pulls in windows.h ahead of this header.
 #    include <winsock2.h>
 #    include <mstcpip.h>
 #endif
@@ -27,10 +29,12 @@ void set_socket_option(socket_t socket, int level, int option, const T& value) n
     (void)::setsockopt(socket, level, option, &value, sizeof(value));
 }
 #elif defined(_WIN32)
-constexpr int kKeepAliveIdleSeconds                = 10;
-constexpr int kKeepAliveIntervalSeconds            = 3;
-constexpr int kKeepAliveProbeCount                 = 3;
+constexpr DWORD kKeepAliveIdleSeconds     = 10;
+constexpr DWORD kKeepAliveIntervalSeconds = 3;
+constexpr DWORD kKeepAliveProbeCount      = 3;
 
+// Winsock takes the option value as a char buffer, and the keepalive knobs are DWORDs rather than
+// ints, so this overload is not interchangeable with the POSIX one.
 template <class T>
 void set_socket_option(socket_t socket, int level, int option, const T& value) noexcept {
     (void)::setsockopt(socket, level, option, reinterpret_cast<const char*>(&value), sizeof(value));
@@ -99,19 +103,18 @@ void configure_http_server_socket(socket_t socket) noexcept {
     set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, kKeepAliveProbeCount);
     set_socket_option(socket, IPPROTO_TCP, TCP_USER_TIMEOUT, kTcpUserTimeoutMilliseconds);
 #elif defined(_WIN32)
+    // A half-open connection otherwise holds a request slot until the client's own timeout fires.
+    // TCP_KEEPIDLE/TCP_KEEPINTVL/TCP_KEEPCNT are only defined by newer SDKs, so each is guarded.
     const BOOL enabled = TRUE;
     set_socket_option(socket, SOL_SOCKET, SO_KEEPALIVE, enabled);
 #    if defined(TCP_KEEPIDLE)
-    const DWORD idle = kKeepAliveIdleSeconds;
-    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPIDLE, idle);
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPIDLE, kKeepAliveIdleSeconds);
 #    endif
 #    if defined(TCP_KEEPINTVL)
-    const DWORD intvl = kKeepAliveIntervalSeconds;
-    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPINTVL, intvl);
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPINTVL, kKeepAliveIntervalSeconds);
 #    endif
 #    if defined(TCP_KEEPCNT)
-    const DWORD cnt = kKeepAliveProbeCount;
-    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, cnt);
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, kKeepAliveProbeCount);
 #    endif
 #endif
 }

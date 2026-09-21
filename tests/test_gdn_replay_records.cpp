@@ -11,6 +11,15 @@
 
 namespace {
 
+#ifdef _WIN32
+using AlignedBacking = std::unique_ptr<void, decltype(&::_aligned_free)>;
+
+AlignedBacking make_backing(std::size_t bytes) {
+    void* data = ::_aligned_malloc(bytes, 256);
+    if (data == nullptr) { throw std::bad_alloc(); }
+    return AlignedBacking(data, &::_aligned_free);
+}
+#else
 using AlignedBacking = std::unique_ptr<void, decltype(&std::free)>;
 
 AlignedBacking make_backing(std::size_t bytes) {
@@ -18,6 +27,7 @@ AlignedBacking make_backing(std::size_t bytes) {
     if (data == nullptr) { throw std::bad_alloc(); }
     return AlignedBacking(data, &std::free);
 }
+#endif
 
 int fail(const char* label) {
     std::cerr << label << '\n';

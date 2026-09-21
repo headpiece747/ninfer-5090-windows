@@ -67,6 +67,30 @@ struct KVPageGeometry {
     friend bool operator==(const KVPageGeometry&, const KVPageGeometry&) = default;
 };
 
+/** One layer's device planes for a resolved storage layout, in device order.
+ *
+ * The order is the contract the Op readers index by -- kv_cache_append and
+ * causal_softmax_attention walk these planes positionally -- and which planes exist is a property
+ * of the storage layout, not of any one model. Both builders in qwen3_5 wrote this list out by
+ * hand -- four pushes in decoder_state, two in startup because that storage is BFloat16 and has no
+ * scale planes -- and one of them spelled the alignment as a literal that already defaulted to 256. A layer's meaning is still assigned by repetition at the call site, which is what
+ * KVPlaneGeometry's "a plane is storage-only" note asks for.
+ */
+[[nodiscard]] inline std::vector<KVPlaneGeometry> storage_planes(const PagedKVStorageLayout& layout,
+                                                                std::int32_t kv_heads) {
+    std::vector<KVPlaneGeometry> planes;
+    planes.reserve(layout.planes_per_layer());
+    planes.push_back({layout.key.data_dtype, layout.key.data_leading_extent, kv_heads});
+    planes.push_back({layout.value.data_dtype, layout.value.data_leading_extent, kv_heads});
+    if (layout.key.has_scale()) {
+        planes.push_back({layout.key.scale_dtype, layout.key.scale_leading_extent, kv_heads});
+    }
+    if (layout.value.has_scale()) {
+        planes.push_back({layout.value.scale_dtype, layout.value.scale_leading_extent, kv_heads});
+    }
+    return planes;
+}
+
 struct DeviceKVPagePoolSpec {
     std::uint32_t page_group_count = 0;
     KVPageGeometry geometry;

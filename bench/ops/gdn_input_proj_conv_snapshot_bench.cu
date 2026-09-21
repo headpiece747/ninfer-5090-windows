@@ -3,6 +3,7 @@
 // The timed body is exactly one selected gdn_input_proj_conv_*() public Op call.
 // Production dispatch, kernel topology, and workspace use remain behind that contract.
 
+#include "core/weight.h"
 #include "ninfer/ops/gdn_input_proj.h"
 
 #include "core/device.h"
@@ -62,7 +63,7 @@ enum class Format : std::uint8_t {
     Q4Q5,
     Nvfp4,
     Fp8,
-    W8,
+    Q8,
     All,
 };
 
@@ -119,6 +120,12 @@ struct Result {
     CacheState cache;
     Stats stats;
     std::size_t workspace_bytes;
+    // Filled from the executed call: the arena high-water the Op itself reported, and, for rows
+    // measured from a capture, the node count of that captured graph as `cudaGraphGetNodes` reports
+    // it. That count is the whole graph, so it includes the two timing event nodes; it is not the
+    // number of production kernels in the Op. Rows measured eagerly report 0.
+    std::size_t workspace_peak_bytes;
+    std::int32_t graph_nodes;
 };
 
 std::uint64_t parse_u64(std::string_view text, const char* label) {
@@ -192,9 +199,9 @@ Format parse_format(std::string_view value) {
     if (value == "q4q5") return Format::Q4Q5;
     if (value == "nvfp4") return Format::Nvfp4;
     if (value == "fp8") return Format::Fp8;
-    if (value == "w8") return Format::W8;
+    if (value == "q8") return Format::Q8;
     if (value == "all") return Format::All;
-    throw std::invalid_argument("--format must be q4q5, nvfp4, fp8, w8, or all");
+    throw std::invalid_argument("--format must be q4q5, nvfp4, fp8, q8, or all");
 }
 
 Form parse_form(std::string_view value) {
@@ -231,7 +238,7 @@ void usage(const char* argv0) {
     std::fprintf(stderr,
                  "Usage: %s [options]\n\n"
                  "Public workload:\n"
-                 "  --format q4q5|nvfp4|fp8|w8|all  Default q4q5.\n"
+                 "  --format q4q5|nvfp4|fp8|q8|all  Default q4q5.\n"
                  "  --form snapshot|record|both  Default snapshot.\n"
                  "  --nvfp4-policy a16|a4        Default a4.\n"
                  "  --fp8-policy a16|a8          Default a8.\n"
@@ -387,9 +394,9 @@ const char* policy_name(ops::LinearPolicy policy) {
 class Q4Q5Fixture {
 public:
     explicit Q4Q5Fixture(std::size_t flush_bytes)
-        : qk_(bench::make_row_split_weight(QType::Q4G64_F16S, kQkRows, kHidden, kHidden,
+        : qk_(bench::make_row_split_weight(QType::Q4_G64_FP16, kQkRows, kHidden, kHidden,
                                            {0x53, 0x00, 0x3400})),
-          value_z_(bench::make_row_split_weight(QType::Q5G64_F16S, kValueZRows, kHidden, kHidden,
+          value_z_(bench::make_row_split_weight(QType::Q5_G64_FP16, kValueZRows, kHidden, kHidden,
                                                 {0x53, 0x55, 0x3400})),
           conv_weight_(bench::make_bf16(static_cast<std::size_t>(kChannels) * 4)),
           flush_(flush_bytes) {
@@ -529,11 +536,11 @@ public:
                                                  std::int32_t tokens) const {
         if (form == Form::Record) {
             return ops::gdn_input_proj_conv_record_workspace_capacity_bytes(
-                QType::FP8_E4M3FN_ROW_BF16S, kChannels + kZRows, kHidden, policy_, batch, tokens,
+                QType::FP8_E4M3FN_ROW_BF16, kChannels + kZRows, kHidden, policy_, batch, tokens,
                 tokens);
         }
         return ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
-            QType::FP8_E4M3FN_ROW_BF16S, kChannels + kZRows, kHidden, policy_, batch, tokens,
+            QType::FP8_E4M3FN_ROW_BF16, kChannels + kZRows, kHidden, policy_, batch, tokens,
             tokens);
     }
 
@@ -564,10 +571,10 @@ private:
     ops::LinearPolicy policy_;
 };
 
-class W8Fixture {
+class Q8Fixture {
 public:
-    explicit W8Fixture(std::size_t flush_bytes)
-        : parent_(bench::make_row_split_weight(QType::W8G32_F16S, 12288, 2048, 2048,
+    explicit Q8Fixture(std::size_t flush_bytes)
+        : parent_(bench::make_row_split_weight(QType::Q8_G32_FP16, 12288, 2048, 2048,
                                                {0x03, 0x00, 0x3c00})),
           conv_weight_(bench::make_bf16(static_cast<std::size_t>(8192) * 4)), flush_(flush_bytes) {
         CUDA_CHECK(cudaMemset(flush_.p, 0xa5, flush_.bytes));
@@ -578,7 +585,7 @@ public:
         return Tensor(conv_weight_.p, DType::BF16, {8192, 4});
     }
 
-    [[nodiscard]] const char* profile() const noexcept { return "w8"; }
+    [[nodiscard]] const char* profile() const noexcept { return "q8"; }
 
     [[nodiscard]] GdnGeometry geometry() const noexcept { return {2048, 2048, 2048, 4096, 4096}; }
 
@@ -670,6 +677,8 @@ public:
 
     [[nodiscard]] std::size_t workspace_bytes() const noexcept { return workspace_bytes_; }
 
+    [[nodiscard]] std::size_t workspace_peak_bytes() const noexcept { return workspace_.peak_used(); }
+
     void prepare(CacheState cache, cudaStream_t stream) {
         if (cache == CacheState::Cold) { fixture_.flush(stream); }
     }
@@ -740,7 +749,10 @@ public:
         std::size_t nodes = 0;
         CUDA_CHECK(cudaGraphGetNodes(graph_, nullptr, &nodes));
         if (nodes < 3) { throw std::runtime_error("GDN conv capture produced an empty graph"); }
+        nodes_ = static_cast<std::int32_t>(nodes);
     }
+
+    [[nodiscard]] std::int32_t nodes() const noexcept { return nodes_; }
 
     void launch(cudaStream_t stream) const { CUDA_CHECK(cudaGraphLaunch(exec_, stream)); }
 
@@ -759,6 +771,7 @@ private:
     cudaEvent_t body_start_ = nullptr;
     cudaEvent_t body_stop_  = nullptr;
     cudaEvent_t completion_ = nullptr;
+    std::int32_t nodes_     = 0;
 };
 
 Stats summarize(std::vector<double> samples) {
@@ -847,7 +860,8 @@ std::vector<Result> run_point(Fixture& fixture, Form form, std::int32_t tokens,
                     ? measure_graph(state, graph, cache, stream, options.warmup, options.repeat)
                     : measure_eager(state, cache, stream, options.warmup, options.repeat);
             results.push_back({state.profile(), state.form(), tokens, options.batch, execution,
-                               cache, stats, state.workspace_bytes()});
+                               cache, stats, state.workspace_bytes(), state.workspace_peak_bytes(),
+                               execution == Execution::Graph ? graph.nodes() : 0});
         }
     }
     return results;
@@ -855,10 +869,11 @@ std::vector<Result> run_point(Fixture& fixture, Form form, std::int32_t tokens,
 
 void print_result(const Result& result) {
     std::printf("%-10s %-8s T=%-3d B=%-2d %-12s %-4s median=%8.3f us min=%8.3f us "
-                "p95=%8.3f us workspace=%zu\n",
+                "p95=%8.3f us workspace=%zu peak=%zu nodes=%d\n",
                 result.profile, form_name(result.form), result.tokens, result.batch,
                 execution_name(result.execution), cache_name(result.cache), result.stats.median_us,
-                result.stats.min_us, result.stats.p95_us, result.workspace_bytes);
+                result.stats.min_us, result.stats.p95_us, result.workspace_bytes,
+                result.workspace_peak_bytes, result.graph_nodes);
 }
 
 void write_csv(const std::string& path, const std::vector<Result>& results, const Options& options,
@@ -873,14 +888,24 @@ void write_csv(const std::string& path, const std::vector<Result>& results, cons
     int runtime = 0;
     CUDA_CHECK(cudaRuntimeGetVersion(&runtime));
     stream << "profile,form,tokens,batch,execution,timed_scope,cache,median_us,min_us,p95_us,"
-              "workspace_bytes,warmup,repeat,flush_bytes,build_type,gpu,cuda_runtime\n";
+              "workspace_bytes,workspace_peak_bytes,graph_nodes,valid_columns,warmup,repeat,"
+              "flush_bytes,build_type,gpu,cuda_runtime\n";
     for (const Result& result : results) {
         stream << result.profile << ',' << form_name(result.form) << ',' << result.tokens << ','
                << result.batch << ',' << execution_name(result.execution)
                << ",full_gdn_input_proj_conv_device_body," << cache_name(result.cache) << ','
                << result.stats.median_us << ',' << result.stats.min_us << ',' << result.stats.p95_us
-               << ',' << result.workspace_bytes << ',' << options.warmup << ',' << options.repeat
-               << ',' << options.flush_bytes << ','
+               << ',' << result.workspace_bytes << ',' << result.workspace_peak_bytes << ','
+               << result.graph_nodes << ',';
+        if (options.valid_columns.empty()) {
+            stream << "dense";
+        } else {
+            for (std::size_t index = 0; index < options.valid_columns.size(); ++index) {
+                if (index != 0) { stream << '|'; }
+                stream << options.valid_columns[index];
+            }
+        }
+        stream << ',' << options.warmup << ',' << options.repeat << ',' << options.flush_bytes << ','
 #ifdef NDEBUG
                << "Release"
 #else
@@ -912,7 +937,7 @@ int main(int argc, char** argv) {
         const char* configured_format = options.format == Format::Q4Q5    ? "q4q5"
                                         : options.format == Format::Nvfp4 ? "nvfp4"
                                         : options.format == Format::Fp8   ? "fp8"
-                                        : options.format == Format::W8    ? "w8"
+                                        : options.format == Format::Q8    ? "q8"
                                                                           : "all";
         std::printf(
             "# op=gdn_input_proj_conv form=%s format=%s nvfp4_policy=%s fp8_policy=%s gpu=%s "
@@ -938,8 +963,8 @@ int main(int argc, char** argv) {
             Fp8Fixture fixture(static_cast<std::size_t>(options.flush_bytes), options.fp8_policy);
             run_fixture(fixture, options, context.stream, results);
         }
-        if (options.format == Format::W8 || options.format == Format::All) {
-            W8Fixture fixture(static_cast<std::size_t>(options.flush_bytes));
+        if (options.format == Format::Q8 || options.format == Format::All) {
+            Q8Fixture fixture(static_cast<std::size_t>(options.flush_bytes));
             run_fixture(fixture, options, context.stream, results);
         }
         write_csv(options.csv_out, results, options, context);

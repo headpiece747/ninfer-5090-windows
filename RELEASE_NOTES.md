@@ -1,42 +1,115 @@
-# NInfer Windows Release Notes
+# NInfer Windows v1.1.0 (RTX 5090)
 
-## Version 1.0.6 (2026-09-13)
+First Windows release on the **v3 artifact line**, with speculative decoding working on
+upstream-shaped artifacts, four measured-optimal launchers, and two production bugs fixed
+that earlier builds shipped.
 
-### Client Compatibility & Serving Protocol
-* **Compliant JSON Error Envelopes**: Formatted all unrendered 404, 405 (`method_not_allowed`), and generic server errors into OpenAI/Anthropic JSON error payloads (`application/json`) with `x-request-id`, preventing client JSON parser crashes across VS Code, OpenCode Desktop, Cline, Roo Code, and Continue.
-* **Modern CORS & Distributed Tracing**: Added support for Stainless SDK headers (`x-stainless-*`) and W3C trace context (`traceparent`, `baggage`), with a dedicated preflight 204 handler.
-* **Socket Resilience & TCP Keepalive**: Configured explicit read and write timeouts matching request budgets, eliminating `cpp-httplib`'s default 5-second socket drop during long-running prefill and generation streams. Enabled native Winsock TCP keepalive probes on Windows sockets.
-* **Model Alias Deduplication**: Centralized and exported `strip_model_prefix` and `is_valid_model_id` across model listing, retrieval, and completion endpoints.
+## Requirements
 
-### Windows Runtime & Systems Safety
-* **Direct I/O Multi-Thread Safety**: Allocated dedicated Win32 event handles (`CreateEventW`) per read operation with RAII `EventGuard` lifecycle management, eliminating multi-threaded handle race conditions and cleanly detecting EOF.
-* **WDDM VRAM Headroom Protection**: Enforced a 512 MiB minimum automatic VRAM headroom under Windows WDDM drivers when available runtime bytes exceed 1 GiB to protect against GPU driver paging and system memory spillover.
-* **Non-FFmpeg Decoders**: Added `inspect_image` and `inspect_video` stubs in non-FFmpeg build paths to guarantee clean symbol resolution.
-* **Portable Release Launchers**: Updated all startup batch scripts to probe `%~dp0` root binaries before falling back to `build\apps\`, allowing packaged ZIP releases to run standalone without developer build trees. Bundled FFmpeg and CUDA runtime DLLs directly into release packaging.
+- NVIDIA GeForce RTX 5090 (32 GB, `sm_120a`) and a recent driver.
+- **No CUDA toolkit needed at runtime.** The CUDA runtime is linked statically; the engine
+  loads from this folder.
+- Windows 10/11 x64.
 
----
+## What runs
 
-## Version 1.0.5 (2026-09-07)
+| Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
+| --- | --- | --- | --- | --- | --- | --- |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **343 tok/s** | 62.5% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | 220 tok/s | 58.3% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **345 tok/s** | 63.7% |
+| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 254 tok/s | 64.2% |
 
-### Major Features & Engine Upgrades
-* **DFlash2 Speculative Decoding**: Integrated z-lab's 5-layer auxiliary draft network (`--spec dflash2 --draft-tokens 1..15`, recommended: 7), achieving burst generation speeds up to **~350–356 tok/s** on NVIDIA GeForce RTX 5090 (`sm_120a`).
-* **Upstream Synchronization (`487f8977`)**:
-  * **Sparse MoE Warp Merge**: Optimized small-T stage-2 execution using one CTA per token and a warp merge in place of eight dependent rounds.
-  * **Exact Agent Prefix Preservation**: Fixed cache state preservation during multi-turn speculative settlement, ensuring zero-loss prompt caching across autonomous agent turns.
-  * **Thinking Preservation & Intent**: Hardened `--preserve-thinking` flag and reasoning token boundaries (`<thought>`) to prevent leakage into function calling arguments.
-  * **MSVC Runtime Hardening**: Thread-safe Win32 `localtime_s` time formatting for operational and request JSONL logs.
+Every number was measured on an RTX 5090 with the exact arguments the launcher passes, in one
+interleaved pass; every context ceiling is the highest value the engine accepts for that
+configuration -- the next step up is refused, not degraded. Decode varies by up to ~9% between
+sessions on a card whose clocks are not pinned, so compare lanes to each other and expect your own
+absolute figures to differ.
 
-### Client Compatibility & Tooling
-* **CORS Support**: Added `--cors` flag by default to `start_ninfer_5090.bat`, `start_ninfer_dflash2.bat`, and `start_ninfer_vision.bat`, enabling seamless out-of-the-box connectivity for browser-based frontends (Open WebUI, LibreChat, VS Code web extensions).
-* **Client Compatibility Matrix**: Formally documented behavior and workarounds for OpenCode Desktop, VS Code, Cline, Roo Code, Aider, and Continue.dev in `README.md`.
-* **Packaging Tooling**: Added `package_windows_release.bat` to produce clean, portable Windows release archives with binaries, runtime dependencies, and batch launchers.
+**QUASAR is the recommended profile**: our own artifact, at the full 262,144 context, with a DFlash2
+lane that measures within noise of the other artifact's (343.4 against 344.6 tok/s, measured
+interleaved). ADR-0004 records why the second lane rides a third-party repository with no in-house
+fallback. Vision is free on both (the with/without comparison is in
+[ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md)).
 
----
+## Getting a model
 
-## Version 1.0.4 (2026-08-25)
+`download_model.bat` fetches the recommended QUASAR QAT artifact and verifies its SHA-256.
+The QUASAR profile comes from `cometkim/Qwen3.8-27B-nvfp4qat-NInfer` and the NVFP4-full
+profiles from `cometkim/Qwen3.8-27B-nvfp4full-NInfer`; both repositories ship a v3 container, so
+either downloads and runs directly. Both are SHA-256 verified by `download_model.bat`, which
+offers the choice. The pinned size and hash are the published artifact's: if a download is
+refused on size, the repository republished and the pin needs updating from HuggingFace's blob
+metadata (a republish is how the previous pin went stale).
 
-### Features & Fixes
-* **KV Cache Quantization**: Added support for NVFP4 and K8V4 KV cache quantization modes, drastically reducing memory footprint for long-context generation up to 262k tokens.
-* **Logging Infrastructure**: Replaced bespoke logging with native `spdlog` integration for fast, structured operational logging.
-* **TMA & Decode Kernel Optimizations**: Integrated Fused TMA SwiGLU, W8 8-code decodes, and value-aware prefix scheduling from upstream.
-* **Initial Native Windows Port**: Delivered full native Windows MSVC + CUDA 13.x compilation without WSL or Docker overhead.
+Put the `.ninfer` file at `C:\AI\models\` (the path `launcher_env.bat` expects), then double
+click the launcher you want. Each launcher checks the engine and the artifact exist before
+starting, and leaves the failure on screen if they do not.
+
+## A pre-existing v2 copy must be upgraded first
+
+Neither published repository ships v2 any more, so a fresh download needs no upgrade. A copy
+fetched before the republish does: the v3 engine **rejects v2 containers outright** and names
+the tool in the error:
+
+```
+python3 tools/upgrade_ninfer_v2_to_v3.py INPUT.ninfer OUTPUT.ninfer
+```
+
+That upgrade is offline and preserves the weight bytes. On Windows this now works; in
+earlier builds the script called POSIX-only `os.posix_fadvise`/`os.fdatasync` and died with
+`AttributeError`. The tool ships in this archive, beside the `chat_templates/` data it reads.
+
+## Speculative decoding is not bit-identical to plain decoding
+
+Greedy output differs between no-spec, each MTP depth and DFlash2, deterministically. This
+is documented engine behaviour rather than a defect: acceptance compares a proposal token
+against the target argmax for its verify column, and the maintainer notes state that
+speculation "does not impose token or logits equality between different quantization,
+prefill or kernel paths" — the batched verify kernel is not the single-token decode path,
+so a near-tie can flip. Speculation measured 3-4x faster (67-83 tok/s without it, 239-343
+with it).
+
+## Fixed in this release
+
+- **DFlash2 on upstream-shaped artifacts.** Our loader demanded a fused
+  `dflash2/layers/*/attention/query_key_value` parameter that upstream's converter never
+  emits — it groups `attention/query`, `attention/key` and `attention/value` instead. Any
+  artifact not produced by our own upgrade path was refused at startup with
+  `FATAL missing logical parameter`. The runtime already assembles the fused parent itself,
+  so the redundant requirement is gone. The official Qwen3.8-27B and community
+  fuller-NVFP4 artifacts now serve with `--spec dflash2`.
+- **A graph-capture fault in the NVFP4 A4 TMA route.** The Windows port kept the tensor-map
+  descriptor in a device buffer filled from a caller stack frame; under CUDA Graph capture
+  that copy becomes a node whose source is gone by replay, so the TMA unit read a dead
+  frame and the kernel trapped with an illegal instruction. The descriptor now travels by
+  value in parameter space, as upstream does, which is also what makes it replay-safe.
+- **Artifact reads blocked writers.** `FILE_SHARE_READ` alone meant Windows refused any
+  write to a file the engine had open, where POSIX permits it. Reads now share
+  read/write/delete.
+- **Python tooling could corrupt artifacts on Windows.** `os.open` without `O_BINARY` opens
+  in text mode, which translates CRLF and stops at `0x1A` inside payload bytes, and
+  `os.pread`/`os.pwrite` do not exist there. Both are now portable.
+- **Context-cache bounds.** The launchers set `--max-shared-prefixes 7
+  --max-private-continuations 8 --max-long-anchors-per-continuation 4`. With the engine
+  defaults, five distinct prompts resent gave 1/5 round-2 hits at a 19.8% token-level hit
+  rate, with four of five re-prefilling in full on every call and no signal; the bounds
+  give 5/5 at 99.1% and cost nothing measurable.
+- **CORS removed from every launcher.** They passed `--cors` with no `--api-key`, which
+  lets any browser page on the machine drive the model and read completions. opencode talks
+  to these endpoints as a native HTTP client, so CORS bought nothing.
+
+## Known limitations
+
+- All four profiles reach the full 262,144 context with Vision. Earlier builds capped the
+  NVFP4 lane because that artifact carried 19.7 GiB of device weights; the one shipped now
+  carries 17.0 GiB.
+
+## Release numbering
+
+Versions are published in order and never skipped. `v1.0.1` and `v1.0.2` were built on the
+maintainer's machine and never released — their archives are still in `C:\AI\releases` — so the
+published list reads `1.0.0, 1.0.3, ...`. Nothing was withdrawn, and `1.0.0` is unaffected.
+
+Patch numbers carry fixes to the shipped profile set; a minor number carries a new artifact line,
+which is what `1.1.0` is: the v3 container, the measured profile table, and the QUASAR lane.

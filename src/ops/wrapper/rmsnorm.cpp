@@ -3,6 +3,7 @@
 #include "ninfer/ops/gated_rmsnorm.h"
 
 #include "ops/launcher/rmsnorm.h" // detail::rmsnorm_launch
+#include "ops/common/validation.h"
 
 #include <cmath>
 #include <cstdint>
@@ -13,26 +14,7 @@
 namespace ninfer::ops {
 namespace {
 
-std::int64_t numel_allow_zero(const Tensor& t, const char* label) {
-    bool has_zero = false;
-    for (int d = 0; d < 4; ++d) {
-        if (t.ne[d] < 0) {
-            throw std::invalid_argument(std::string("rmsnorm: ") + label +
-                                        " dimensions must be nonnegative");
-        }
-        if (t.ne[d] == 0) { has_zero = true; }
-    }
-    if (has_zero) { return 0; }
-
-    std::int64_t total = 1;
-    for (int d = 0; d < 4; ++d) {
-        if (total > std::numeric_limits<std::int64_t>::max() / t.ne[d]) {
-            throw std::overflow_error("rmsnorm: tensor size overflows int64");
-        }
-        total *= t.ne[d];
-    }
-    return total;
-}
+constexpr const char* kOpName = "rmsnorm";  // labels this Op's validation messages
 
 void require_same_shape(const Tensor& a, const Tensor& b, const char* b_label) {
     for (int d = 0; d < 4; ++d) {
@@ -57,12 +39,12 @@ void rmsnorm_impl(const Tensor& x, const Tensor& weight, float eps, bool unit_of
         throw std::invalid_argument("rmsnorm: eps must be positive and finite");
     }
 
-    const std::int64_t n = numel_allow_zero(x, "x");
-    (void)numel_allow_zero(out, "out");
-    (void)numel_allow_zero(weight, "weight");
+    const std::int64_t n = numel_allow_zero(x, kOpName, "x");
+    (void)numel_allow_zero(out, kOpName, "out");
+    (void)numel_allow_zero(weight, kOpName, "weight");
     require_same_shape(x, out, "out");
     if (z != nullptr) {
-        (void)numel_allow_zero(*z, "z");
+        (void)numel_allow_zero(*z, kOpName, "z");
         require_same_shape(x, *z, "z");
     }
     if (weight.ne[0] != x.ne[0] || weight.ne[1] != 1 || weight.ne[2] != 1 || weight.ne[3] != 1) {

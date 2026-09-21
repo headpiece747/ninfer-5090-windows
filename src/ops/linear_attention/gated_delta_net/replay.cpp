@@ -3,6 +3,7 @@
 
 #include "ops/linear_attention/gated_delta_net/common.h"
 #include "ops/linear_attention/gated_delta_net/launch.h"
+#include "ops/common/validation.h"
 
 #include <algorithm>
 #include <array>
@@ -20,10 +21,6 @@ namespace {
 
 constexpr std::int32_t kStateDim    = detail::gated_delta_net::kStateDim;
 constexpr std::int32_t kMaximumRows = 8;
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
 
 void require_tensor(const Tensor& tensor, DType dtype, std::initializer_list<std::int32_t> shape,
                     std::uintptr_t alignment, const char* op, const char* label) {

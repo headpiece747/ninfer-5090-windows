@@ -1,4 +1,3 @@
-#ifdef NINFER_HAVE_FFMPEG
 #include "media/decode/decode.h"
 
 extern "C" {
@@ -644,25 +643,3 @@ Video decode_video(std::span<const std::uint8_t> bytes, const Policy& policy, do
 }
 
 } // namespace ninfer::media::decode
-
-#else
-#include "media/decode/decode.h"
-#include <stdexcept>
-namespace ninfer::media::decode {
-    ImageInfo inspect_image(std::span<const std::uint8_t> /*bytes*/, const Policy& /*policy*/) {
-        throw std::runtime_error("Compiled without FFMPEG support.");
-    }
-    VideoInfo inspect_video(std::span<const std::uint8_t> /*bytes*/, const Policy& /*policy*/,
-                            double /*target_fps*/, int /*min_frames*/, int /*max_frames*/) {
-        throw std::runtime_error("Compiled without FFMPEG support.");
-    }
-    Image decode_image(std::span<const std::uint8_t> /*bytes*/, const Policy& /*policy*/) {
-        throw std::runtime_error("Compiled without FFMPEG support.");
-    }
-    Video decode_video(std::span<const std::uint8_t> /*bytes*/, const Policy& /*policy*/,
-                       double /*fps*/, int /*min_f*/, int /*max_f*/) {
-        throw std::runtime_error("Compiled without FFMPEG support.");
-    }
-}
-#endif
-
