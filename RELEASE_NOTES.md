@@ -100,9 +100,6 @@ with it).
 
 ## Known limitations
 
-- `resource_manager` in the source test suite asserts an eviction ordering that depends on
-  a 5 ms wall-clock search budget, so it is timing-sensitive by construction. It is not an
-  engine defect; every other test passes.
 - All four profiles reach the full 262,144 context with Vision. Earlier builds capped the
   NVFP4 lane because that artifact carried 19.7 GiB of device weights; the one shipped now
   carries 17.0 GiB.
