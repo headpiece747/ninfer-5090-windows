@@ -16,7 +16,9 @@ Layout follows the v1.0.x releases, with three deliberate changes:
     reading it from another clone made the archive depend on that clone existing and current.
 
 Packaging runs tools/release/check_doc_links.py and tools/release/check_test_baseline.py first, and
-refuses to build an archive when either fails. The link check is here because a rename left two
+refuses to build an archive when either fails. It also refuses a Debug build of any shipped
+executable, which is what the v1.0.6 vision package contained. The link check is here because a
+rename left two
 links in docs/maintainer pointing at files that no longer existed and the release was about to
 carry them. The test gate compares against a recorded baseline rather than trusting a bare run,
 because a previous release was cut while a test was failing and nobody noticed; the baseline is
@@ -63,6 +65,22 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+# The v1.0.6 vision package shipped a Debug build of ninfer-serve.exe, which exits with 0xC0000135
+# on any machine without Visual Studio, because MSVCP140D.dll and its siblings are not installed
+# there. The import names sit in the image, so this needs neither dumpbin nor a developer prompt: a
+# debug build is refused before it can be staged. Issue #2 asked for exactly this guard.
+DEBUG_CRT = (b"MSVCP140D.dll", b"VCRUNTIME140D.dll", b"VCRUNTIME140_1D.dll", b"ucrtbased.dll")
+
+
+def debug_crt_import(path: Path) -> str | None:
+    """The debug CRT DLL this image imports, or None when it is a release build."""
+    data = path.read_bytes()
+    for name in DEBUG_CRT:
+        if name in data:
+            return name.decode()
+    return None
+
+
 def main() -> int:
     positional = [argument for argument in sys.argv[1:] if not argument.startswith("--")]
     skip_gate = "--skip-test-gate" in sys.argv[1:]
@@ -86,6 +104,16 @@ def main() -> int:
         if gate.returncode != 0:
             print("  RELEASE REFUSED: the suite regressed against the recorded baseline.")
             print("  Fix the regression, or pass --skip-test-gate to accept it deliberately.")
+            return 1
+
+    for name in EXES:
+        image = BUILD / name
+        if not image.exists():
+            continue
+        imported = debug_crt_import(image)
+        if imported:
+            print(f"  RELEASE REFUSED: {name} imports {imported}.")
+            print("  It is a Debug build and will not start without Visual Studio installed.")
             return 1
 
     stage = RELEASES / f"stage-{version}"
