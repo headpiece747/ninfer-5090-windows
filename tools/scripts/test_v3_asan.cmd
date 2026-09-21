@@ -25,13 +25,32 @@ REM weekly build abort with an internal crash before the target starts. Re-check
 REM DynamoRIO ships a build for 25H2; until then, a Linux ASan run is the only route to host leak
 REM coverage.
 REM
-REM KNOWN FAILURE, 2026-09-20: ninfer_context_cost_test dies with 0xC0000409
-REM (STATUS_STACK_BUFFER_OVERRUN) and prints no report, while passing in the normal build. ASan
-REM initialises first -- verbosity=1 prints the shadow layout -- so this is neither a startup nor a
-REM PATH problem. A report-less fail-fast is what stack exhaustion under ASan's larger frames looks
-REM like, but that is a hypothesis and not established; the test and its module are untouched by the
-REM session that found it. Kept in the subset rather than dropped: a verification list that hides a
-REM failing member is worse than one that names it. The other five pass.
+REM KNOWN FAILURE, 2026-09-20 -- DIAGNOSED, not hypothesised. ninfer_context_cost_test dies with
+REM 0xC0000409 and prints no report, while passing in the normal build. cdb gives the whole stack
+REM inside the ASan runtime's own initialisation:
+REM
+REM   clang_rt.asan_dynamic-x86_64!_asan_wrap_strlen+0x139    <- the fault
+REM   ntdll!RtlInitAnsiStringEx
+REM   clang_rt.asan_dynamic-x86_64!__sanitizer::GetEnv
+REM   clang_rt.asan_dynamic-x86_64!__sanitizer::FindPathToBinary
+REM   clang_rt.asan_dynamic-x86_64!__sanitizer::ChooseSymbolizerTools
+REM   clang_rt.asan_dynamic-x86_64!__sanitizer::Symbolizer::PlatformInit
+REM   clang_rt.asan_dynamic-x86_64!__asan::AsanInitInternal
+REM   clang_rt.asan_dynamic-x86_64!dllmain_crt_process_attach
+REM
+REM ASan picks a symbolizer and calls its own strlen interceptor before the shadow memory is ready.
+REM Nothing from this repository appears in the stack, so it is not a defect in the code under test.
+REM Each of these was falsified by experiment rather than argued away: stack exhaustion (an 8 MB
+REM /STACK changes nothing), ASan's stack-use-after-return instrumentation, an uncaught exception (a
+REM catch handler that prints never fires), the CRT invalid-parameter handler (a handler installed to
+REM name the call never fires), every ASAN_OPTIONS tried including unset, PATH content, the
+REM std::filesystem imports (two passing tests import the same set), and /INCLUDE:__asan_init to
+REM force the runtime's init first.
+REM
+REM Verdict: an MSVC AddressSanitizer runtime bootstrap defect on this toolchain, deterministic for
+REM this binary and not fixable from this repository -- it wants reporting upstream. Kept in the
+REM subset rather than dropped: a verification list that hides a failing member is worse than one
+REM that names it and says why. The other five pass.
 setlocal
 set "REPO=%~dp0..\.."
 
