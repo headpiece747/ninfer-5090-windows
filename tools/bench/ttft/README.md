@@ -241,7 +241,7 @@ Media cases:
 | `media-during-text-decode` | `vision-concurrent` | Heavy media request arrives while a text holder decodes. |
 | `two-heavy-media-arrivals` | `vision-concurrent` | Two byte-distinct 28-image requests start through one barrier. |
 | `vision-disabled` | `text-cold-8k` | Image request is 400 `vision_disabled`. |
-| `vision-envelope-over` | `vision-boundary` | 33 images exceed the 32768 raw-patch envelope and return `media_budget_exceeded`. |
+| `vision-envelope-over` | `vision-boundary` | 33 images exceed the 32,768 merged-token envelope (131,072 raw patches) and return `media_budget_exceeded`. |
 
 The protected-head profile uses:
 

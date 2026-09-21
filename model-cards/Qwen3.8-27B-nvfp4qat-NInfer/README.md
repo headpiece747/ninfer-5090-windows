@@ -231,6 +231,11 @@ The LBv2 medium and long rows cannot pair as INT8 KV does not fit beside the wei
 
 ## Reproduce
 
+These commands run in the repository that publishes this artifact
+([cometkim/ninfer](https://github.com/cometkim/ninfer)). Its converter package, its
+`eval/run_card_*` scripts, its `build-ninja/` output tree and its `src/targets/` layout are not
+carried by the Windows port's tree, which ships the artifact and the launchers that run it.
+
 Conversion and bit-level verification (sources: the official BF16 checkpoint, the QUASAR QAT checkpoint, the z-lab DFlash2 BF16 drafter):
 
 ```bash

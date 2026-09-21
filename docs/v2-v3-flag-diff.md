@@ -1,8 +1,8 @@
 # v2 launcher flags vs v3: a systematic diff
 
 v2 was tuned over a long period, so its `.bat` files are a record of accumulated knowledge.
-Diffing every flag in both generations (`tools/release/diff_v2_v3_flags.py`, 15 v2 files
-across both repositories against the four v3 launchers plus `launcher_env.bat`) shows what v3
+Diffing every flag in both generations (15 v2 files across both repositories against the four v3
+launchers plus `launcher_env.bat`) shows what v3
 dropped and whether any of it was worth keeping.
 
 ## Only in v2

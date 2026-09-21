@@ -154,7 +154,7 @@ server-error codes. Failures in the normalized prompt contract use `invalid_prom
 and availability failures retain their dedicated codes. Internal invariant failures are not
 relabeled as client input errors.
 
-The request `model` must equal the public model ID: the artifact `identity.model_id` by default, or
+The request `model` must equal the public model ID: the artifact `metadata.name` by default, or
 the explicit `--model-id` override. Reasoning is returned separately as `reasoning_content`; answer
 text remains in `content`.
 
@@ -214,7 +214,8 @@ post-close model token, preparation is rejected with HTTP 400 code
 not promise that the model will emit nonempty content or a tool call after the marker.
 
 For Chat Completions, `reasoning_effort: "none"` requests disabled thinking. The selected template
-interprets the other standard values (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+accepts `xhigh` (the default), `medium` and `low`; any other value is refused by the shipped
+template with a named error.
 Conflicting explicit `enable_thinking` and effort values return `conflicting_template_option`.
 
 `preserve_thinking` controls reasoning retention according to the selected template. Request
@@ -754,7 +755,7 @@ The table lists executable defaults. The startup example selects a long-context 
 | `--host H` | listen address | `127.0.0.1` |
 | `--port N` | listen port | `8080` |
 | `--api-key KEY` | required bearer or `x-api-key` value | unset |
-| `--model-id ID` | override the public OpenAI model alias | artifact `identity.model_id` |
+| `--model-id ID` | override the public OpenAI model alias | artifact `metadata.name` |
 | `--max-context N` | logical context ceiling of each sequence | `8192` |
 | `--kv-capacity N\|auto` | explicit shared Main Text KV capacity, or maximize it from remaining GPU memory; omitted means `--max-context` | `8192` |
 | `--max-concurrency N` | maximum admitted requests; valid range `1..8` | `1` |
@@ -817,7 +818,7 @@ For `C=--max-concurrency` and `H=--device-state-slots`, total Device StateImage 
 `C` slots guarantee active requests and `H` is a global checkpoint pool. Host State and Host KV are
 independent startup-fixed pinned-memory capacities; Host KV is shared by Main and the selected
 Backend pool and is consumed in physical page extents. `--no-prefix-reuse` selects root-only Engine
-mode and cannot be combined with any of the seven explicit context-cache capacity flags, including
+mode and cannot be combined with any of the six explicit context-cache capacity flags, including
 zero-valued flags.
 
 Run `./build/apps/ninfer-serve --help` for the exact option contract.
