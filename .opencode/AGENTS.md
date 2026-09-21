@@ -28,7 +28,7 @@ detail it did not surface. See the same rule in the repository `AGENTS.md`.
 | `cpp-cuda-review` | authored for this repo | The review skill here: FP32/FP64 oracle rule, ownership boundaries, state lifetime, C/C++ memory safety, CUDA. |
 | `ncu-report` | vendored from `mit-han-lab/ncu-report-skill` (MIT) | Nsight Compute profiling. Audited before install (no network, process execution, deletion, or credential handling). Adapted to RTX 5090 / sm_120a and `profiles/ncu/`. |
 | `cuda-debugging` | vendored from `mohitmishra786/low-level-dev-skills` | cuda-gdb / compute-sanitizer / error-code triage (700, 702). Directly relevant to open #208. Noted: Windows/MSVC, sm_120a, limited cuda-gdb on Windows. |
-| `sanitizers` | vendored from `mohitmishra786/low-level-dev-skills` | ASan / UBSan / TSan / MSan / LSan chooser, flags, report reading. Noted: MSVC has ASan only, so UBSan/TSan/MSan are advisory here. |
+| `sanitizers` | vendored from `mohitmishra786/low-level-dev-skills` | ASan / UBSan / TSan / MSan / LSan chooser, flags, report reading. Noted: MSVC has ASan only, so UBSan/TSan/MSan are advisory here, and the host-side subset is `tools/scripts/test_v3_asan.cmd` — which is also where the mandatory CUDA `-Xcompiler=/fsanitize=address` and the absent LeakSanitizer are explained. Noted: that script calls `vcvars64`, so running `ctest --test-dir build-asan` from a plain shell instead needs the toolchain's `clang_rt.asan_dynamic-x86_64.dll` on `PATH`, or every test exits `0xc0000135`. |
 | `address-sanitizer` | vendored from `trailofbits/skills` (`testing-handbook-skills`, MIT) | ASan deep-dive: builds, `ASAN_OPTIONS`, report reading, LeakSanitizer. Noted: clang/gcc reference form; MSVC uses `/fsanitize=address`. |
 
 ## Shared set — do not remove
