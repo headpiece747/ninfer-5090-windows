@@ -2,6 +2,7 @@
 #include "ops/attn_input_proj/q8/q8_attn_input_plan.h"
 
 #include "ops/attn_input_proj/q8/q8_attn_input_kernels.h"
+#include "ops/common/route_catalog.h"
 
 #include <array>
 #include <limits>
@@ -10,8 +11,6 @@
 namespace ninfer::ops::detail {
 
 namespace {
-
-constexpr std::int32_t kAnyCols = std::numeric_limits<std::int32_t>::max();
 
 struct RouteSpec {
     std::int32_t first;

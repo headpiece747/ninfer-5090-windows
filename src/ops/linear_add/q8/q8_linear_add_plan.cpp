@@ -3,6 +3,7 @@
 
 #include "ops/linear_add/q8/q8_linear_add_kernels.h"
 #include "ops/common/token_slices.h"
+#include "ops/common/route_catalog.h"
 
 #include <array>
 #include <limits>
@@ -10,8 +11,6 @@
 
 namespace ninfer::ops::detail {
 namespace {
-
-constexpr std::int32_t kAnyCols = std::numeric_limits<std::int32_t>::max();
 
 struct RouteSpec {
     std::int32_t first;

@@ -4,6 +4,7 @@
 #include "ops/linear_pair/q8/q8_pair_kernels.h"
 #include "ops/common/token_slices.h"
 #include "ops/common/validation.h"
+#include "ops/common/route_catalog.h"
 
 #include <array>
 #include <cstdint>
@@ -14,8 +15,6 @@
 
 namespace ninfer::ops::detail {
 namespace {
-
-constexpr std::int32_t kAnyCols = std::numeric_limits<std::int32_t>::max();
 
 struct Q8PairRouteSpec {
     std::int32_t first;

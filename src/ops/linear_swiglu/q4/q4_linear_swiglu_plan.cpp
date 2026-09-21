@@ -5,6 +5,7 @@
 #include "ninfer/ops/silu_mul.h"
 #include "core/layout.h"
 #include "ops/linear_swiglu/q4/q4_linear_swiglu_kernels.h"
+#include "ops/common/route_catalog.h"
 
 #include <algorithm>
 #include <array>
@@ -13,8 +14,6 @@
 
 namespace ninfer::ops::detail {
 namespace {
-
-constexpr std::int32_t kAnyCols = std::numeric_limits<std::int32_t>::max();
 
 struct ColsSet {
     std::int32_t first;
