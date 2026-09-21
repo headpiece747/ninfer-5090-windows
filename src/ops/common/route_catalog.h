@@ -20,4 +20,21 @@ namespace ninfer::ops::detail {
 
 inline constexpr std::int32_t kAnyCols = std::numeric_limits<std::int32_t>::max();
 
+// The closure proof every catalog needs: the routes are contiguous from column 1, and the last one
+// reaches kAnyCols, so no admitted column count can fall outside the catalog.
+//
+// Templated on the route type because the catalogs are: RouteSpec and Q8PairRouteSpec both carry
+// first and last, and the proof reads nothing else. It takes the routes rather than closing over
+// one, because three callers used to close over a file-local catalog and that is what made their
+// predicate a different shape from the rest.
+template <class Route, std::size_t N>
+constexpr bool routes_are_closed(const std::array<Route, N>& routes) {
+    std::int64_t expected = 1;
+    for (const Route& route : routes) {
+        if (route.first != expected || route.first > route.last) { return false; }
+        expected = static_cast<std::int64_t>(route.last) + 1;
+    }
+    return expected == static_cast<std::int64_t>(kAnyCols) + 1;
+}
+
 } // namespace ninfer::ops::detail

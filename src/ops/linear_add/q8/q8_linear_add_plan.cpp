@@ -67,16 +67,6 @@ constexpr std::array<RouteSpec, 2> kN5120Routes{{
     {65, kAnyCols, Q8LinearAddScheduleId::GroupedSplitK},
 }};
 
-template <std::size_t N>
-constexpr bool routes_are_closed(const std::array<RouteSpec, N>& routes) {
-    std::int64_t expected = 1;
-    for (const RouteSpec& route : routes) {
-        if (route.first != expected || route.last < route.first) { return false; }
-        expected = static_cast<std::int64_t>(route.last) + 1;
-    }
-    return routes.back().last == kAnyCols && expected == static_cast<std::int64_t>(kAnyCols) + 1;
-}
-
 static_assert(routes_are_closed(kK4096Routes) && routes_are_closed(kK6144Routes) &&
                   routes_are_closed(kN5120Routes),
               "Q8 LinearAdd routes must be exact, contiguous, and closed");

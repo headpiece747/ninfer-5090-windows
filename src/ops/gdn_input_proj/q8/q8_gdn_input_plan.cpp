@@ -23,16 +23,7 @@ constexpr std::array<RouteSpec, 3> kRoutes{{
     {97, kAnyCols, Q8GdnInputScheduleId::MmaR64C128},
 }};
 
-constexpr bool catalog_is_closed() {
-    std::int64_t expected = 1;
-    for (const RouteSpec& route : kRoutes) {
-        if (route.first != expected || route.first > route.last) { return false; }
-        expected = static_cast<std::int64_t>(route.last) + 1;
-    }
-    return expected == static_cast<std::int64_t>(kAnyCols) + 1;
-}
-
-static_assert(catalog_is_closed(), "Q8 GDN input routes must be exact and closed");
+static_assert(routes_are_closed(kRoutes), "Q8 GDN input routes must be exact and closed");
 
 bool supported_shape(const Q8GdnInputProblem& problem) noexcept {
     return problem.input_rows == 2048 && problem.qkv_rows == 8192 && problem.z_rows == 4096 &&

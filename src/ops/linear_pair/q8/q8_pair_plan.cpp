@@ -68,16 +68,6 @@ constexpr std::array<Q8PairRouteSpec, 37> kK2048Routes{{
     {2271, kAnyCols, Q8PairScheduleId::ConcatMmaR64C128},
 }};
 
-template <std::size_t N>
-constexpr bool routes_are_closed(const std::array<Q8PairRouteSpec, N>& routes) noexcept {
-    std::int64_t expected = 1;
-    for (const Q8PairRouteSpec& route : routes) {
-        if (route.first != expected || route.last < route.first) { return false; }
-        expected = static_cast<std::int64_t>(route.last) + 1;
-    }
-    return routes.back().last == kAnyCols && expected == static_cast<std::int64_t>(kAnyCols) + 1;
-}
-
 static_assert(routes_are_closed(kK5120Routes) && routes_are_closed(kK2048Routes),
               "Q8 pair routes must be exact, contiguous, and closed");
 

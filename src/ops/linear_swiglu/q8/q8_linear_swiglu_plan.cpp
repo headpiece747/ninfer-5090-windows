@@ -49,19 +49,9 @@ constexpr std::array<RouteSpec, 6> kDFlash2Routes{{
     {97, kAnyCols, Q8LinearSwiGluScheduleId::DFlash2MmaR64C128},
 }};
 
-template <std::size_t N>
-constexpr bool catalog_is_closed(const std::array<RouteSpec, N>& routes) {
-    std::int64_t expected = 1;
-    for (const RouteSpec& route : routes) {
-        if (route.first != expected || route.first > route.last) { return false; }
-        expected = static_cast<std::int64_t>(route.last) + 1;
-    }
-    return expected == static_cast<std::int64_t>(kAnyCols) + 1;
-}
-
-static_assert(catalog_is_closed(kCompanionRoutes),
+static_assert(routes_are_closed(kCompanionRoutes),
               "Q8 companion LinearSwiGLU routes must be exact and closed");
-static_assert(catalog_is_closed(kDFlash2Routes),
+static_assert(routes_are_closed(kDFlash2Routes),
               "Q8 DFlash2 LinearSwiGLU routes must be exact and closed");
 
 bool is_companion_shape(const Q8LinearSwiGluProblem& problem) noexcept {
