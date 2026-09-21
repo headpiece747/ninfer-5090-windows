@@ -288,12 +288,6 @@ capacities remain fixed for the process lifetime.
 
 Run the relevant `--help` for the exact current option contract.
 
-## Support
-
-Upstream's author develops NInfer out of interest, and the project's Ko-fi page is his:
-[support upstream on Ko-fi](https://ko-fi.com/neroued). This Windows port is a separate effort,
-maintained separately from upstream.
-
 ## License
 
 NInfer is licensed under the [Apache License 2.0](LICENSE).
