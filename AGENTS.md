@@ -161,7 +161,9 @@ such as `feat`, `fix`, `perf`, `bench`, `test`, `build`, `refactor`, `docs`, or 
 This fork is the Windows port. The Linux paths in Local operations above do not apply here: the
 port targets MSVC 14.51 and CUDA 13.3, and the Python used for tooling is
 `C:\vllm-env\Scripts\python.exe`. What ships is governed by `tools/release/profiles.py`, and the
-release surface is documented in the Windows section of `README.md`.
+release surface is documented in the Windows section of `README.md`. There are two build trees:
+`build/` for the apps, and `build-test/` for the suite the release gate runs
+(`ctest --test-dir build-test`).
 
 Sixteen rules, each earned by a failure rather than chosen:
 
