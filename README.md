@@ -53,102 +53,6 @@ The current engine requires v3 artifacts. Existing official v2 downloads can be
 [upgraded locally](docs/weight-conversion.md#upgrade-an-existing-v2-artifact) without downloading
 the weights again.
 
-## Quick start (building the engine on Linux)
-
-This section is upstream's, and it builds the engine on Linux from source. For the native Windows
-build in this repository, see [Windows](#windows) below.
-
-NInfer requires 64-bit Linux, an NVIDIA GeForce RTX 5090, a CUDA toolkit supporting `sm_120a`,
-CMake 3.28 or newer, a C++20 host compiler, Ninja, `pkg-config`, FFmpeg development libraries
-(`libavformat`, `libavcodec`, `libavutil`, and `libswscale`), and `libcurl >= 7.85`.
-CUDA 13.1 is the validated development toolkit; CMake does not impose a CUDA version floor.
-The build rejects CUDA architectures other than `sm_120a`.
-
-Build the product binaries:
-
-```bash
-git clone https://github.com/Neroued/ninfer.git
-cd ninfer
-
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-```
-
-Tests and benchmarks are excluded from the default build. `cmake --preset release` configures
-the same product build; `cmake --preset dev` also enables tests and benchmarks and finds a
-Python 3 interpreter. Both presets use `build/` and explicitly reset the build options.
-Machine-specific compiler and Python paths belong in the ignored `CMakeUserPresets.json`.
-See [build organization and configuration](docs/maintainer/build-system.md) for details.
-
-Upstream targets Linux and ships no packaged binary distribution; it runs from its source build
-tree. This Windows port is different: see the Windows section below, which ships a packaged
-archive with the engine, its runtime DLLs and one launcher per profile.
-Python tools run independently of CMake; the standalone HBM probe has its own
-[build command](tools/README.md#standalone-hbm-probe).
-
-Download the artifact used by this example with the Hugging Face CLI:
-
-```bash
-hf download neroued/Qwen3.8-27B-nvfp4-NInfer \
-  qwen3_8_27b_nvfp4.ninfer \
-  --local-dir models
-```
-
-Start a long-running text/agent server with two active-request lanes and explicit Device/Host
-checkpoint capacity:
-
-```bash
-./build/apps/ninfer-serve models/qwen3_8_27b_nvfp4.ninfer \
-  --max-context 240000 \
-  --kv-capacity 240000 \
-  --max-concurrency 2 \
-  --kv-dtype fp8 \
-  --device-state-slots 2 \
-  --host-state-slots 8 \
-  --host-kv-mib 8192 \
-  --spec mtp --draft-tokens 3 \
-  --lm-head-draft \
-  --preserve-thinking
-```
-
-Each request has a 240,000-token logical ceiling. A shared 240,000-token Device KV pool serves
-admitted requests; two requests run concurrently when their combined reservations fit. The cache
-tiers provide two Device checkpoint slots, eight pinned Host State slots, and 8 GiB of pinned Host
-KV beyond the two active StateImages.
-
-Send an OpenAI-style request:
-
-```bash
-curl http://127.0.0.1:8080/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "qwen3.8-27b",
-    "messages": [{"role": "user", "content": "Reply with one short sentence."}],
-    "max_tokens": 64
-  }'
-```
-
-Run a one-shot CLI request with a 32,768-token allocation:
-
-```bash
-./build/apps/ninfer models/qwen3_8_27b_nvfp4.ninfer \
-  --prompt "Explain prefill and decode, then give a concise conclusion." \
-  --max-context 32768 \
-  --max-new 8192 \
-  --kv-dtype fp8 \
-  --spec mtp --draft-tokens 3 \
-  --lm-head-draft
-```
-
-Answer content is written to stdout. Human-readable startup/runtime diagnostics and the CLI-owned
-reasoning, timing, throughput, memory, and speculative-decoding report are written to stderr;
-reasoning and the result report remain unprefixed product output. On a terminal, weight
-materialization uses one transient progress line followed by a compact Engine-ready summary.
-Redirected stderr receives persistent readable progress without terminal control sequences. Use
-`--log-level debug` for complete startup detail. Option and local input errors remain direct command
-diagnostics. Use `--messages FILE` and `--vision` for structured image/video input; see the
-[CLI guide](docs/cli.md) and [committed examples](examples/cli/).
-
 ## Resource-aware long-context reuse
 
 A reusable prefix checkpoint contains KV and the complete continuation state for its exact prompt
@@ -382,8 +286,105 @@ model entries, the compaction settings, and the concurrency answer: the launcher
 `--max-concurrency 1` deliberately, and that only works because eight conversation states are
 retained in host RAM, which covers a main session plus parallel subagents.
 
+## Upstream's Linux build
+
+This section is upstream's, and it builds the engine on Linux from source. For the native Windows
+build in this repository, see [Windows](#windows) above.
+
+NInfer requires 64-bit Linux, an NVIDIA GeForce RTX 5090, a CUDA toolkit supporting `sm_120a`,
+CMake 3.28 or newer, a C++20 host compiler, Ninja, `pkg-config`, FFmpeg development libraries
+(`libavformat`, `libavcodec`, `libavutil`, and `libswscale`), and `libcurl >= 7.85`.
+CUDA 13.1 is the validated development toolkit; CMake does not impose a CUDA version floor.
+The build rejects CUDA architectures other than `sm_120a`.
+
+Build the product binaries:
+
+```bash
+git clone https://github.com/Neroued/ninfer.git
+cd ninfer
+
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+Tests and benchmarks are excluded from the default build. `cmake --preset release` configures
+the same product build; `cmake --preset dev` also enables tests and benchmarks and finds a
+Python 3 interpreter. Both presets use `build/` and explicitly reset the build options.
+Machine-specific compiler and Python paths belong in the ignored `CMakeUserPresets.json`.
+See [build organization and configuration](docs/maintainer/build-system.md) for details.
+
+Upstream targets Linux and ships no packaged binary distribution; it runs from its source build
+tree. This Windows port is different: see the Windows section below, which ships a packaged
+archive with the engine, its runtime DLLs and one launcher per profile.
+Python tools run independently of CMake; the standalone HBM probe has its own
+[build command](tools/README.md#standalone-hbm-probe).
+
+Download the artifact used by this example with the Hugging Face CLI:
+
+```bash
+hf download neroued/Qwen3.8-27B-nvfp4-NInfer \
+  qwen3_8_27b_nvfp4.ninfer \
+  --local-dir models
+```
+
+Start a long-running text/agent server with two active-request lanes and explicit Device/Host
+checkpoint capacity:
+
+```bash
+./build/apps/ninfer-serve models/qwen3_8_27b_nvfp4.ninfer \
+  --max-context 240000 \
+  --kv-capacity 240000 \
+  --max-concurrency 2 \
+  --kv-dtype fp8 \
+  --device-state-slots 2 \
+  --host-state-slots 8 \
+  --host-kv-mib 8192 \
+  --spec mtp --draft-tokens 3 \
+  --lm-head-draft \
+  --preserve-thinking
+```
+
+Each request has a 240,000-token logical ceiling. A shared 240,000-token Device KV pool serves
+admitted requests; two requests run concurrently when their combined reservations fit. The cache
+tiers provide two Device checkpoint slots, eight pinned Host State slots, and 8 GiB of pinned Host
+KV beyond the two active StateImages.
+
+Send an OpenAI-style request:
+
+```bash
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "qwen3.8-27b",
+    "messages": [{"role": "user", "content": "Reply with one short sentence."}],
+    "max_tokens": 64
+  }'
+```
+
+Run a one-shot CLI request with a 32,768-token allocation:
+
+```bash
+./build/apps/ninfer models/qwen3_8_27b_nvfp4.ninfer \
+  --prompt "Explain prefill and decode, then give a concise conclusion." \
+  --max-context 32768 \
+  --max-new 8192 \
+  --kv-dtype fp8 \
+  --spec mtp --draft-tokens 3 \
+  --lm-head-draft
+```
+
+Answer content is written to stdout. Human-readable startup/runtime diagnostics and the CLI-owned
+reasoning, timing, throughput, memory, and speculative-decoding report are written to stderr;
+reasoning and the result report remain unprefixed product output. On a terminal, weight
+materialization uses one transient progress line followed by a compact Engine-ready summary.
+Redirected stderr receives persistent readable progress without terminal control sequences. Use
+`--log-level debug` for complete startup detail. Option and local input errors remain direct command
+diagnostics. Use `--messages FILE` and `--vision` for structured image/video input; see the
+[CLI guide](docs/cli.md) and [committed examples](examples/cli/).
+
 ## Docker
 
+This is upstream's Linux image definition; the `Dockerfile` in this tree is upstream's, unchanged.
 Build the runtime image on a host with the NVIDIA Container Toolkit:
 
 ```bash
