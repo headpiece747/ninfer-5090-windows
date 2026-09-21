@@ -15,8 +15,10 @@ Layout follows the v1.0.x releases, with three deliberate changes:
     checkout: the archive is the distribution, so the attribution has to travel with it, and
     reading it from another clone made the archive depend on that clone existing and current.
 
-Packaging runs tools/release/check_test_baseline.py first and refuses to build an archive when the
-suite has regressed. The gate compares against a recorded baseline rather than trusting a bare run,
+Packaging runs tools/release/check_doc_links.py and tools/release/check_test_baseline.py first, and
+refuses to build an archive when either fails. The link check is here because a rename left two
+links in docs/maintainer pointing at files that no longer existed and the release was about to
+carry them. The test gate compares against a recorded baseline rather than trusting a bare run,
 because a previous release was cut while a test was failing and nobody noticed; the baseline is
 empty now that the suite is green, so any failure blocks the archive. Pass --skip-test-gate to
 override deliberately.
@@ -65,6 +67,14 @@ def main() -> int:
     positional = [argument for argument in sys.argv[1:] if not argument.startswith("--")]
     skip_gate = "--skip-test-gate" in sys.argv[1:]
     version = positional[0] if positional else "v1.1.0"
+
+    print("  doc links  : running tools/release/check_doc_links.py")
+    links = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parent / "check_doc_links.py")],
+        cwd=REPO)
+    if links.returncode != 0:
+        print("  RELEASE REFUSED: a relative link in the documentation does not resolve.")
+        return 1
 
     if skip_gate:
         print("  test gate  : SKIPPED (--skip-test-gate)")
