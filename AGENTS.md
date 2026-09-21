@@ -165,7 +165,20 @@ release surface is documented in the Windows section of `README.md`. There are t
 `build/` for the apps, and `build-test/` for the suite the release gate runs
 (`ctest --test-dir build-test`).
 
-Sixteen rules, each earned by a failure rather than chosen:
+Nineteen rules, each earned by a failure rather than chosen:
+
+- **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
+  pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
+  minutes before its timeout. `tools/scripts/test_v3_asan.cmd` names its six host-only tests for
+  exactly that reason and says so in its header. The recipe's scope is part of the recipe.
+- **Check before you package, not after.** A package built before its review has to be re-cut and
+  re-packaged: this session's was, three times, because a code review and the sanitizer run both
+  landed afterwards. "The archive is cheap to regenerate" is the reason to check first, not to
+  skip the check.
+- **`git tag -f` tags HEAD, so create a release tag while on the release branch.** Tagging from
+  `dev` put `v1.1.0` on a dev commit; the trees were identical, which is why only the commit
+  pointer gave it away. Likewise, do not swallow a command's output with `| Out-Null` when its
+  success is the thing you are checking.
 
 - **Reach for the indexed tool before a manual search.** `.codegraph/` exists here, so a code
   question ("where is X", "who calls X", "how does X work") goes to `codegraph_explore` before
