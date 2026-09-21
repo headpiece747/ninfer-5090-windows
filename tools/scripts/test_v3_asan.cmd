@@ -51,6 +51,21 @@ REM Verdict: an MSVC AddressSanitizer runtime bootstrap defect on this toolchain
 REM this binary and not fixable from this repository -- it wants reporting upstream. Kept in the
 REM subset rather than dropped: a verification list that hides a failing member is worse than one
 REM that names it and says why. The other five pass.
+REM ONLINE, 2026-09-21 -- and searching should have been step one, not an afterthought. The class is
+REM known: "ASan Interception Failure (Crash) on Windows 11 24H2"
+REM (developercommunity.microsoft.com/t/11061273) reports the same shape -- a crash inside the
+REM runtime during function interception -- and actions/runner-images#8891 offers
+REM ASAN_WIN_CONTINUE_ON_INTERCEPTION_FAILURE=1. This runtime (clang_rt.asan_dynamic-x86_64.dll
+REM 19.51.36256.0) does contain that variable, and its own strings name the mechanism:
+REM "interception_win: cannot write jmp further than 2GB away" and "Interception failure, stopping
+REM early". This machine is Windows 11 25H2 (build 26200), newer than the reported 24H2.
+REM
+REM Tried and useless, recorded so they are not repeated: ASAN_WIN_CONTINUE_ON_INTERCEPTION_FAILURE=1
+REM (no change), ASAN_SYMBOLIZER_PATH, external_symbolizer_path with a quoted value, a symbolizer
+REM copied beside the executable, and /INCLUDE:__asan_init. One trap for whoever tries ASAN_OPTIONS
+REM next: external_symbolizer_path=C:\... cannot parse, because the drive colon is the option
+REM separator -- ASan exits 1 with "expected '=' in ASAN_OPTIONS", which looks like a result and is
+REM not one. Read the output, not the exit code.
 setlocal
 set "REPO=%~dp0..\.."
 
