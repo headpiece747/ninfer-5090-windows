@@ -728,6 +728,10 @@ public:
                     .private_retention_weight = 0,
                     .explicit_shared_credit   = entry.explicit_credit,
                 });
+                // A shared prefix exposes exactly one checkpoint (SharedPrefixSummary::checkpoint),
+                // so enumerating it here covers every impact a program can report for this owner.
+                // fold_target rejects an impact that has no portfolio checkpoint, and the replacement
+                // scenarios use that same fold.
                 checkpoint_policies.push_back(typename CapturePlanner::CheckpointPolicy{
                     .owner      = owner,
                     .checkpoint = entry.summary.checkpoint.ref,
