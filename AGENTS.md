@@ -165,7 +165,7 @@ release surface is documented in the Windows section of `README.md`. There are t
 `build/` for the apps, and `build-test/` for the suite the release gate runs
 (`ctest --test-dir build-test`).
 
-Nineteen rules, each earned by a failure rather than chosen:
+Twenty-one rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
@@ -195,11 +195,33 @@ Nineteen rules, each earned by a failure rather than chosen:
 - **Do not guard with string presence over prose.** A check for a token that also appears in a
   comment, a docstring or a filename misfires. That happened four times. Assert the specific call
   site instead.
+- **Instrument the branch before changing the candidate.** Three edits were built to tell one
+  unknown apart -- whether a shared capture was refused by an empty scenario list or by a refused
+  plan -- and none could, because both sat on paths the freeze never reached. One temporary probe
+  printed `scenarios=1 planned=0 domains=1` in a single build. When several gates can produce one
+  symptom, observe the decision or read its inputs first: an edit answers "did this change the
+  outcome?", never "which branch ran?". Scope a probe by reading the block it lives in; anchoring it
+  on memory of the enclosing function cost a compile error. The permanent form is a counter, because
+  the context cache cannot log: logging is a layer above `src/runtime`. Counters carry decisions only;
+  a magnitude (a baseline, a threshold, an allowed time) needs a value-bearing probe or a diagnostics
+  field, and `active_captures_inherited_demand` proved the inheritance fires without saying whether
+  the value it added was enough.
+- **The build and the running product contend for the same files.** Linking `ninfer-serve.exe`
+  failed with LNK1104 because a server started earlier still held it, and a test source was edited
+  while `build-test` was reading it -- survived only because that phase had not yet begun. Stop the
+  server before rebuilding it, and do not edit a source while a build is compiling it.
 - **Read primary sources before reasoning from this tree.** Upstream's converter, loader and
   maintainer notes are authoritative; the port is not. Reading a platform header settled in a
-  minute what inference had concluded wrongly twice.
+  minute what inference had concluded wrongly twice. The upstream tracker is the same kind of
+  source, and a session that already cites an issue number should read it before opening another
+  file: `gh issue view 180` named the exact site (`candidate_demand_mask` at the capture input), the
+  exact inheritance source (`exact_resident_keys`, restricted to the lane's own reuse domain) and
+  the measured masks (2, 4, 8, ... 256 -- not zero) -- after an hour of inference had produced a
+  different site, a different source, and a wrong premise.
 - **Verify a claim about a file before asserting it.** A wrong statement about which flags a
-  launcher passes survived until an independent review corrected it.
+  launcher passes survived until an independent review corrected it. A negative claim needs its
+  scope checked too: "this layer cannot log" came from a grep limited to `context_cache/` and
+  happens to be true, but it was asserted before anything had searched the rest of `src/runtime`.
 - **Profile values come from `profiles.py`.** Run `tools/release/check_profile_consistency.py`
   after touching a launcher, a doc table, an opencode provider entry or a harness. Fixing tables by
   hand once touched three files and missed two.
@@ -219,7 +241,11 @@ Nineteen rules, each earned by a failure rather than chosen:
 - **A claim in a comment is a claim: verify it against the measurement that produced it.** The
   same probe's comment reasoned from `exp(threshold) * |state|` to a conclusion the test had
   already falsified. Reasoning that survives only until it meets the artifact belongs in a
-  hypothesis, not in a comment that the next reader will trust.
+  hypothesis, not in a comment that the next reader will trust. Advertised surface makes the same
+  kind of claim: `--context-cache-policy` was in the tree, parsed, reached the manager, changed a
+  demand mask, and did not lift the frontier it exists to lift, with nothing in `docs/serving.md` or
+  the README option list. A CLI option, a README row or a doc paragraph lands with its measurement
+  and its documentation, or it does not land.
 - **Check whether a skill is actually loaded before relying on it, and say which one you used.**
   Five project skills added mid-session (`cpp-cuda-review`, `ncu-report`, `cuda-debugging`,
   `sanitizers`, `address-sanitizer`) were invisible to the running session, and two wrong
