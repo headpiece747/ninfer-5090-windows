@@ -1,4 +1,6 @@
+#include "core/weight.h"
 #include "ops/linear/fp8/fp8_format.h"
+#include "ops/common/validation.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -8,10 +10,6 @@
 
 namespace ninfer::ops::detail {
 namespace {
-
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
 
 std::uint64_t checked_mul(std::uint64_t left, std::uint64_t right, const char* operation) {
     if (left != 0 && right > std::numeric_limits<std::uint64_t>::max() / left) {
@@ -48,7 +46,7 @@ Fp8WeightGeometry validate_fp8_weight(const Weight& weight, const char* operatio
         checked_add(geometry.scale_plane_offset, geometry.scale_plane_bytes, operation);
 
     const std::int64_t scale_stride = static_cast<std::int64_t>(weight.n) * 2;
-    if (weight.qtype != QType::FP8_E4M3FN_ROW_BF16S || weight.layout != QuantLayout::RowScale ||
+    if (weight.qtype != QType::FP8_E4M3FN_ROW_BF16 || weight.layout != QuantLayout::RowScale ||
         weight.scale_dtype != DType::BF16 ||
         weight.group_size != static_cast<std::uint32_t>(weight.k) || weight.group != weight.k ||
         weight.ndim != 2 || weight.shape[0] != weight.n || weight.shape[1] != weight.k ||

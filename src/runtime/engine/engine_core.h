@@ -5,11 +5,13 @@
 #include "core/device.h"
 #include "core/nvtx.h"
 #include "ninfer/types.h"
-#include "runtime/contract/types.h"
+#include "runtime/contract/execution.h"
+#include "runtime/contract/resources.h"
+#include "runtime/engine/kv_capacity.h"
 #include "runtime/engine/request_record.h"
-#include "runtime/engine/resource_manager.h"
+#include "runtime/engine/context_cache/resource_manager.h"
 #include "runtime/engine/scheduler.h"
-#include "runtime/generation/generation_budget.h"
+#include "runtime/engine/generation_budget.h"
 
 #include <algorithm>
 #include <array>
@@ -39,17 +41,17 @@ template <class Instance>
 class EngineCore {
 
 public:
-    using Package            = typename Instance::Package;
-    using Program            = typename Package::Program;
-    using BasePlan           = typename Package::RequestBasePlan;
-    using Plan               = typename Package::AdmissionCandidate;
-    using SequenceHandle     = typename Package::SequenceHandle;
-    using CaptureOffer       = typename Package::CaptureOffer;
-    using PendingBatch       = typename Package::PendingBatch;
-    using PreparedPrompt     = typename Package::PreparedPrompt;
-    using OutputSession      = typename Package::OutputSession;
-    using PublishedOutput    = typename Package::PublishedOutput;
-    using Request            = RequestRecord<Package>;
+    using ModelContract      = typename Instance::ModelContract;
+    using Program            = typename ModelContract::Program;
+    using BasePlan           = typename ModelContract::RequestBasePlan;
+    using Plan               = typename ModelContract::AdmissionCandidate;
+    using SequenceHandle     = typename ModelContract::SequenceHandle;
+    using CaptureOffer       = typename ModelContract::CaptureOffer;
+    using PendingBatch       = typename ModelContract::PendingBatch;
+    using PreparedPrompt     = typename ModelContract::PreparedPrompt;
+    using OutputSession      = typename ModelContract::OutputSession;
+    using PublishedOutput    = typename ModelContract::PublishedOutput;
+    using Request            = RequestRecord<ModelContract>;
     using Scheduling         = Scheduler<Request>;
     using FifoSnapshot       = typename Scheduling::FifoSnapshot;
     using RoundMembership    = typename Scheduling::RoundMembership;
@@ -57,7 +59,7 @@ public:
     using ActiveAdmissionSet = typename Scheduling::ActiveAdmissionSet;
     using ExecutionAction    = typename Scheduling::ExecutionAction;
     using AdmissionGrant     = typename Scheduling::AdmissionGrant;
-    using ResourceManagement = ResourceManager<Package>;
+    using ResourceManagement = ResourceManager<ModelContract>;
     using ResourceInspection = typename ResourceManagement::Inspection;
     using Clock              = std::chrono::steady_clock;
 
@@ -198,7 +200,7 @@ public:
 
         std::shared_ptr<Request> request;
         try {
-            auto output = instance_.loaded->frontend.make_output_session(
+            auto output = instance_.frontend.make_output_session(
                 prompt, options.stop, options.output, options.execution.thinking);
             const std::uint32_t capacity_output =
                 max_context_ - prompt_summary.prompt_tokens + static_cast<std::uint32_t>(1);
@@ -234,18 +236,8 @@ public:
 
     [[nodiscard]] MemorySummary memory_summary() const {
         std::scoped_lock lock(execution_mutex_);
-        MemorySummary out                      = instance_.program->memory_summary();
-        const KvCapacityResolution& resolution = instance_.kv_capacity_resolution;
-        out.kv_capacity_mode                   = resolution.mode;
-        out.kv_capacity_page_groups            = resolution.main_page_groups;
-        out.kv_capacity_max_page_groups        = resolution.maximum_main_page_groups;
-        out.minimum_runtime_reservation_bytes  = resolution.minimum_runtime_reservation_bytes;
-        out.kv_capacity_increment_bytes        = resolution.bytes_per_additional_main_page_group;
-        out.runtime_reservation_bytes          = resolution.runtime_reservation_bytes;
-        out.available_after_weights_bytes      = resolution.available_after_weights_bytes;
-        out.available_after_startup_bytes      = resolution.available_after_startup_bytes;
-        out.kv_capacity_headroom_bytes         = resolution.automatic_headroom_bytes;
-        out.planned_slack_bytes                = resolution.planned_slack_bytes;
+        MemorySummary out = instance_.program->memory_summary();
+        publish_kv_capacity(instance_.kv_capacity_resolution, out);
         return out;
     }
 
@@ -1155,7 +1147,7 @@ private:
             std::rethrow_exception(error);
         }
 
-        std::optional<typename Package::CommitResult> committed_storage;
+        std::optional<typename ModelContract::CommitResult> committed_storage;
         try {
             phase.pause_range();
             ProgramCallScope program_call(*this);
@@ -1325,7 +1317,7 @@ private:
 
     void
     resolve_prefill_progress(const std::shared_ptr<Request>& request,
-                             typename Package::PrefillProgress&& progress,
+                             typename ModelContract::PrefillProgress&& progress,
                              const std::array<bool, kMaximumConcurrency>& cancelled_at_unit_start) {
         EnginePhaseScope phase(*this, EngineHostPhase::CommitOutput);
         ++cumulative_stats_.host_work.prefill_units;
@@ -1432,9 +1424,15 @@ private:
         }
     }
 
-    [[nodiscard]] ResourceInspection inspect_admission(const std::shared_ptr<Request>& request) {
+    [[nodiscard]] ResourceInspection inspect_admission(const std::shared_ptr<Request>& request,
+                                                       PlanningAllowance allowance) {
+        allowance.cancellation = &request->cancelled;
+        allowance.control_deadline_ns =
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                           request->deadline.time_since_epoch())
+                                           .count());
         return resources_.inspect(*instance_.program, request->prompt, *request->base_plan,
-                                  request->publication_order);
+                                  request->publication_order, allowance);
     }
 
     [[nodiscard]] AdmissionProgress remove_pending_error(const std::shared_ptr<Request>& request,
@@ -1646,6 +1644,12 @@ private:
     }
 
     AdmissionProgress try_admit_one() {
+        const auto other_runnable = static_cast<std::uint32_t>(
+            std::count_if(slots_.begin(), slots_.end(), [](const auto& request) {
+                return request && !request->capture_pending &&
+                       (request->is_decode_ready() || request->is_prefilling());
+            }));
+        const PlanningAllowance allowance = PlanningAllowance::boundary(other_runnable);
         DetailScope detail(*this, &RuntimeHostWorkStats::admission_policy_ns,
                            &RuntimeHostWorkStats::admission_policy_invocations,
                            nvtx::Name::AdmissionPolicy);
@@ -1684,7 +1688,7 @@ private:
                 control_progress = true;
                 continue;
             }
-            auto head_inspection = inspect_admission(head);
+            auto head_inspection = inspect_admission(head, allowance);
             if (head_inspection.readiness == Readiness::PermanentlyInfeasible) {
                 (void)remove_pending_error(
                     head, std::make_exception_ptr(RequestError(
@@ -1758,7 +1762,7 @@ private:
                     control_progress = true;
                     continue;
                 }
-                auto candidate_inspection = inspect_admission(candidate);
+                auto candidate_inspection = inspect_admission(candidate, allowance);
                 if (candidate_inspection.readiness == Readiness::PermanentlyInfeasible) {
                     (void)remove_pending_error(
                         candidate, std::make_exception_ptr(RequestError(

@@ -1,7 +1,11 @@
+#include "core/weight.h"
 #include "ninfer/ops/dynamic_grouped_conv.h"
 
 #include "ops/dynamic_grouped_conv/bf16/bf16_dynamic_grouped_conv_prepare_plan.h"
-#include "ops/dynamic_grouped_conv/w8/w8_dynamic_grouped_conv_add_plan.h"
+#include "ops/dynamic_grouped_conv/nvfp4/nvfp4_dynamic_grouped_conv_prepare_plan.h"
+#include "ops/dynamic_grouped_conv/q8/q8_dynamic_grouped_conv_add_plan.h"
+#include "ops/linear/nvfp4/nvfp4_format.h"
+#include "ops/common/validation.h"
 
 #include <array>
 #include <cmath>
@@ -22,10 +26,6 @@ constexpr std::int32_t kCoefficientRows = kGroups * kTaps * kSides;
 constexpr const char* kPrepareOp        = "dynamic grouped conv prepare";
 constexpr const char* kAddOp            = "linear dynamic grouped conv add";
 
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
-
 void require_tensor(const Tensor& tensor, DType dtype, std::int32_t d0, std::int32_t d1,
                     std::int32_t d2, std::int32_t d3, const char* op, const char* label) {
     if (tensor.dtype != dtype || tensor.ne[0] != d0 || tensor.ne[1] != d1 || tensor.ne[2] != d2 ||
@@ -35,9 +35,16 @@ void require_tensor(const Tensor& tensor, DType dtype, std::int32_t d0, std::int
 }
 
 void require_kernel_projection_weight(const Weight& weight) {
+    if (weight.qtype == QType::NVFP4) {
+        if (weight.n != kCoefficientRows || weight.k != kHidden) {
+            throw std::invalid_argument(
+                "dynamic grouped conv prepare: invalid kernel_projection_weight");
+        }
+        return; // the full NVFP4 payload contract is validated by the linear route
+    }
     constexpr std::uint64_t kPayloadBytes =
         static_cast<std::uint64_t>(kCoefficientRows) * kHidden * sizeof(std::uint16_t);
-    if (weight.qtype != QType::BF16_CTRL || weight.layout != QuantLayout::Contiguous ||
+    if (weight.qtype != QType::BF16 || weight.layout != QuantLayout::Contiguous ||
         weight.payload_bytes < kPayloadBytes || weight.high_plane_bytes != 0 || weight.ndim != 2 ||
         weight.n != kCoefficientRows || weight.k != kHidden ||
         weight.shape[0] != kCoefficientRows || weight.shape[1] != kHidden ||
@@ -49,7 +56,7 @@ void require_kernel_projection_weight(const Weight& weight) {
     }
 }
 
-std::uint64_t required_w8_payload_bytes(std::int32_t input_rows) {
+std::uint64_t required_q8_payload_bytes(std::int32_t input_rows) {
     const std::uint64_t rows       = kHidden;
     const std::uint64_t columns    = static_cast<std::uint64_t>(input_rows);
     const std::uint64_t code_bytes = rows * columns;
@@ -58,8 +65,15 @@ std::uint64_t required_w8_payload_bytes(std::int32_t input_rows) {
 }
 
 void require_finish_projection_weight(const Weight& weight, std::int32_t input_rows) {
-    const std::uint64_t payload_bytes = required_w8_payload_bytes(input_rows);
-    if (weight.qtype != QType::W8G32_F16S || weight.layout != QuantLayout::RowSplit ||
+    if (weight.qtype == QType::NVFP4) {
+        if (weight.n != kHidden || weight.k != input_rows) {
+            throw std::invalid_argument(
+                "linear dynamic grouped conv add: invalid projection_weight");
+        }
+        return; // the full NVFP4 payload contract is validated by the linear route
+    }
+    const std::uint64_t payload_bytes = required_q8_payload_bytes(input_rows);
+    if (weight.qtype != QType::Q8_G32_FP16 || weight.layout != QuantLayout::RowSplit ||
         weight.scale_dtype != DType::FP16 || weight.group_size != 32 || weight.group != 32 ||
         weight.ndim != 2 || weight.n != kHidden || weight.k != input_rows ||
         weight.shape[0] != kHidden || weight.shape[1] != input_rows || weight.shape[2] != 1 ||
@@ -94,10 +108,14 @@ bool overlaps(const Range& lhs, const Range& rhs) {
 void require_finish_nonoverlap(const Tensor& x, const Weight& projection_weight,
                                const Tensor& base_kernel, const Tensor& finish_delta,
                                const Tensor& residual, const WorkspaceArena& workspace) {
+    const bool nvfp4      = projection_weight.qtype == QType::NVFP4;
     const std::size_t code_bytes =
-        static_cast<std::size_t>(kHidden) * static_cast<std::size_t>(x.ne[0]);
-    const std::size_t scale_bytes = static_cast<std::size_t>(kHidden) *
-                                    static_cast<std::size_t>(x.ne[0] / 32) * sizeof(std::uint16_t);
+        nvfp4 ? static_cast<std::size_t>(kHidden) * (static_cast<std::size_t>(x.ne[0]) / 2)
+              : static_cast<std::size_t>(kHidden) * static_cast<std::size_t>(x.ne[0]);
+    const std::size_t scale_bytes =
+        nvfp4 ? static_cast<std::size_t>(kHidden) * (static_cast<std::size_t>(x.ne[0]) / 16)
+              : static_cast<std::size_t>(kHidden) *
+                    (static_cast<std::size_t>(x.ne[0]) / 32) * sizeof(std::uint16_t);
     const std::array<Range, 7> ranges{{
         {x.data, x.bytes(), "x"},
         {projection_weight.qdata, code_bytes, "projection codes"},
@@ -121,13 +139,15 @@ void require_nonoverlap(const Tensor& residual, const Tensor& norm_weight,
                         const Tensor& base_kernel, const Weight& kernel_projection_weight,
                         const Tensor& prepared, const Tensor& finish_delta,
                         const WorkspaceArena& workspace) {
-    constexpr std::size_t kWeightBytes =
-        static_cast<std::size_t>(kCoefficientRows) * kHidden * sizeof(std::uint16_t);
+    const std::size_t weight_bytes =
+        kernel_projection_weight.qtype == QType::NVFP4
+            ? static_cast<std::size_t>(kernel_projection_weight.payload_bytes)
+            : static_cast<std::size_t>(kCoefficientRows) * kHidden * sizeof(std::uint16_t);
     const std::array<Range, 7> ranges{{
         {residual.data, residual.bytes(), "residual"},
         {norm_weight.data, norm_weight.bytes(), "norm_weight"},
         {base_kernel.data, base_kernel.bytes(), "base_kernel"},
-        {kernel_projection_weight.qdata, kWeightBytes, "kernel_projection_weight"},
+        {kernel_projection_weight.qdata, weight_bytes, "kernel_projection_weight"},
         {prepared.data, prepared.bytes(), "prepared"},
         {finish_delta.data, finish_delta.bytes(), "finish_delta"},
         {workspace.base(), workspace.capacity(), "workspace"},
@@ -179,6 +199,14 @@ void rmsnorm_dynamic_grouped_conv_prepare(const Tensor& residual, const Tensor& 
     require_nonoverlap(residual, norm_weight, base_kernel, kernel_projection_weight, prepared,
                        finish_delta, workspace);
 
+    if (kernel_projection_weight.qtype == QType::NVFP4) {
+        (void)detail::validate_nvfp4_weight(kernel_projection_weight, kPrepareOp);
+        detail::nvfp4_dynamic_grouped_conv_prepare_dispatch(residual, norm_weight, eps, base_kernel,
+                                                           kernel_projection_weight, prepared,
+                                                           finish_delta, workspace, stream);
+        return;
+    }
+
     detail::bf16_dynamic_grouped_conv_prepare_dispatch(residual, norm_weight, eps, base_kernel,
                                                        kernel_projection_weight, prepared,
                                                        finish_delta, workspace, stream);
@@ -189,7 +217,7 @@ std::size_t linear_dynamic_grouped_conv_add_workspace_capacity_bytes(std::int32_
                                                                      std::int32_t max_width,
                                                                      std::int32_t min_batch_size,
                                                                      std::int32_t max_batch_size) {
-    return detail::w8_linear_dynamic_grouped_conv_add_workspace_capacity_bytes(
+    return detail::q8_linear_dynamic_grouped_conv_add_workspace_capacity_bytes(
         input_rows, min_width, max_width, min_batch_size, max_batch_size);
 }
 
@@ -216,7 +244,15 @@ void linear_dynamic_grouped_conv_add(const Tensor& x, const Weight& projection_w
     require_finish_projection_weight(projection_weight, input_rows);
     require_finish_nonoverlap(x, projection_weight, base_kernel, finish_delta, residual, workspace);
 
-    detail::w8_linear_dynamic_grouped_conv_add_dispatch(x, projection_weight, base_kernel,
+    if (projection_weight.qtype == QType::NVFP4) {
+        (void)detail::validate_nvfp4_weight(projection_weight, kAddOp);
+        detail::nvfp4_linear_dynamic_grouped_conv_add_dispatch(x, projection_weight, base_kernel,
+                                                               finish_delta, residual, workspace,
+                                                               stream);
+        return;
+    }
+
+    detail::q8_linear_dynamic_grouped_conv_add_dispatch(x, projection_weight, base_kernel,
                                                         finish_delta, residual, workspace, stream);
 }
 

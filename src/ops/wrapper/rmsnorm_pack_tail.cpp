@@ -1,6 +1,7 @@
 #include "ninfer/ops/rmsnorm_pack_tail.h"
 
 #include "ops/launcher/rmsnorm_pack_tail.h"
+#include "ops/common/validation.h"
 
 #include <cstdint>
 #include <stdexcept>
@@ -15,12 +16,6 @@ void require_bf16_contiguous_aligned(const Tensor& tensor, const char* name) {
         throw std::invalid_argument(std::string("rmsnorm_pack_tail: ") + name +
                                     " must be contiguous 16-byte-aligned BF16");
     }
-}
-
-bool overlaps(const Tensor& lhs, const Tensor& rhs) {
-    const auto lhs_begin = reinterpret_cast<std::uintptr_t>(lhs.data);
-    const auto rhs_begin = reinterpret_cast<std::uintptr_t>(rhs.data);
-    return lhs_begin < rhs_begin + rhs.bytes() && rhs_begin < lhs_begin + lhs.bytes();
 }
 
 } // namespace
@@ -45,7 +40,7 @@ void rmsnorm_pack_tail(const Tensor& input, const Tensor& weight, Tensor& output
         output.ne[3] != 1) {
         throw std::invalid_argument("rmsnorm_pack_tail: output must have shape [5120,(W-1)B]");
     }
-    if (overlaps(input, weight) || overlaps(input, output) || overlaps(weight, output)) {
+    if (tensors_overlap(input, weight) || tensors_overlap(input, output) || tensors_overlap(weight, output)) {
         throw std::invalid_argument("rmsnorm_pack_tail: tensors must not overlap");
     }
 

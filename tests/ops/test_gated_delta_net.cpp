@@ -467,6 +467,15 @@ int main() {
     failures += distinct_state_case({"generic grouped-map chunk-tail", 3, 12, 65, true}, 12365u);
     failures += distinct_state_case({"27b two-chunk fused-qk-norm", 16, 48, 128, true}, 12128u);
     failures += inplace_case({"35b two-chunk raw-qk", 16, 32, 128, false}, 12228u);
+    // Context parallelism is gated off (see cp_enabled), so a sequence long enough to split into
+    // several segments must still reproduce the exact recurrence through the single-segment path.
+    // These two cases are the regression guard for that gate: H_v=32 is the shape whose CP
+    // predicate (Be*H <= 40) would otherwise enable segmentation, and T=4096 is long enough to
+    // produce 8 segments at chunk 64. Re-enabling CP without the exact affine boundary correction
+    // turns the first of these red - it is the specification unit 3 must satisfy.
+    failures += distinct_state_case({"35b context-parallel gated off", 16, 32, 4096, true}, 12409u);
+    failures += distinct_state_case({"35b context-parallel gated off minimal", 16, 32, 320, true},
+                                    12320u);
 
     // The production decode path updates selected state-pool slots in place at width one.
     failures += batch_update_case({"27b selected-slot fused-qk-norm", 16, 48, 1, true}, {7}, {7}, 8,

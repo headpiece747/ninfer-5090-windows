@@ -63,11 +63,12 @@ OwnedMedia acquire_media(const Json& part, MediaKind kind, std::size_t message_i
 
     media_acquire::Source source;
     source.media_type = media_type;
-    if (value.starts_with("http://") || value.starts_with("https://")) {
-        source.kind = media_acquire::SourceKind::Url;
-    } else if (value.starts_with("data:")) {
-        source.kind = media_acquire::SourceKind::Data;
-        if (media_type.empty()) { media_type = data_media_type(value); }
+    const auto wire   = media_acquire::classify_wire_source(value);
+    if (wire) {
+        source.kind = *wire;
+        if (*wire == media_acquire::SourceKind::Data && media_type.empty()) {
+            media_type = data_media_type(value);
+        }
     } else {
         source.kind = media_acquire::SourceKind::Path;
         if (value.starts_with("file://")) { value.erase(0, 7); }
@@ -82,8 +83,7 @@ OwnedMedia acquire_media(const Json& part, MediaKind kind, std::size_t message_i
     OwnedMedia result;
     result.kind       = kind;
     result.media_type = std::move(media_type);
-    result.source_name =
-        source.kind == media_acquire::SourceKind::Data ? "inline data URI" : source.value;
+    result.source_name = std::string(media_acquire::source_name(source.kind, source.value));
     result.bytes = std::move(bytes);
     return result;
 }
@@ -222,7 +222,7 @@ ChatMessage parse_message(const Json& item, std::size_t index, bool vision_enabl
 
 } // namespace
 
-PromptInput prompt_from_text(std::string text, bool enable_thinking) {
+PromptInput prompt_from_text(std::string text, std::optional<bool> enable_thinking) {
     if (text.empty()) { throw std::invalid_argument("--prompt text is empty"); }
     MessagePart part;
     part.text = std::move(text);
@@ -235,8 +235,8 @@ PromptInput prompt_from_text(std::string text, bool enable_thinking) {
     return input;
 }
 
-PromptInput prompt_from_messages(const std::filesystem::path& path, bool enable_thinking,
-                                 bool vision_enabled) {
+PromptInput prompt_from_messages(const std::filesystem::path& path,
+                                 std::optional<bool> enable_thinking, bool vision_enabled) {
     std::ifstream stream(path);
     if (!stream) { throw std::runtime_error("failed to open messages JSON: " + path.string()); }
 

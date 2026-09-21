@@ -7,7 +7,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <exception>
 #include <mutex>
 #include <stdexcept>
@@ -169,10 +171,12 @@ httplib::Server::HandlerResponse handle_unrendered_http_error(const ServeOptions
         error.message = "request body exceeds the configured payload limit of " +
                         std::to_string(options.max_request_bytes) + " bytes";
     } else if (response.status == 404) {
+        // Any unrouted path, not just the Anthropic surface: clients that parse every response as
+        // JSON (the SDK-backed harnesses) crash on httplib's plain-text error page.
         error.status  = 404;
         error.type    = "invalid_request_error";
         error.code    = "not_found";
-        error.message = (request.path.rfind("/v1/messages", 0) == 0)
+        error.message = request.path.rfind("/v1/messages", 0) == 0
                             ? "requested Anthropic resource was not found"
                             : "The requested resource was not found on this server.";
     } else if (response.status == 405) {
@@ -237,10 +241,13 @@ HttpServer::HttpServer(ServeOptions options, std::shared_ptr<spdlog::logger> log
     };
     server_.set_socket_options(configure_http_server_socket);
     server_.set_payload_max_length(options_.max_request_bytes);
-    const time_t timeout_sec = static_cast<time_t>(
+    // A client that opens a connection and then stalls would otherwise hold a request slot until it
+    // closes. The floor keeps a long generation from being cut off by its own read timeout; the
+    // pending timeout is the caller's own bound on how long a request may wait.
+    const time_t transport_timeout_sec = static_cast<time_t>(
         std::max<std::uint32_t>(300, (options_.pending_timeout_ms / 1000) + 60));
-    server_.set_read_timeout(timeout_sec);
-    server_.set_write_timeout(timeout_sec);
+    server_.set_read_timeout(transport_timeout_sec);
+    server_.set_write_timeout(transport_timeout_sec);
     register_routes();
 }
 
@@ -355,11 +362,11 @@ void HttpServer::register_routes() {
         server_.set_default_headers(
             {{"Access-Control-Allow-Origin", "*"},
              {"Access-Control-Expose-Headers", "x-request-id, request-id"},
-             {"Access-Control-Allow-Headers",
-              "Authorization, Content-Type, X-API-Key, anthropic-version, anthropic-beta, "
-              "anthropic-user-profile-id, x-stainless-lang, x-stainless-package-version, "
-              "x-stainless-os, x-stainless-arch, x-stainless-runtime, x-stainless-runtime-version, "
-              "traceparent, baggage, x-request-id"},
+                 {"Access-Control-Allow-Headers",
+                  "Authorization, Content-Type, X-API-Key, anthropic-version, anthropic-beta, "
+                  "anthropic-user-profile-id, x-stainless-lang, x-stainless-package-version, "
+                  "x-stainless-os, x-stainless-arch, x-stainless-runtime, "
+                  "x-stainless-runtime-version, traceparent, baggage, x-request-id"},
              {"Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS"}});
         // CORS preflight: browsers send OPTIONS with no credentials before the real
         // request; answer it without auth so the actual GET/POST can carry the key.
@@ -501,7 +508,7 @@ void HttpServer::handle_models(const httplib::Request&, httplib::Response& res) 
 
 void HttpServer::handle_model(const httplib::Request& req, httplib::Response& res) const {
     const std::string id = req.matches.size() > 1 ? req.matches[1].str() : std::string();
-    if (!is_valid_model_id(id, public_model_id_)) {
+    if (id != public_model_id_) {
         ApiError error;
         error.status  = 404;
         error.type    = "invalid_request_error";
@@ -510,10 +517,7 @@ void HttpServer::handle_model(const httplib::Request& req, httplib::Response& re
         write_openai_error(res, error);
         return;
     }
-    const std::uint32_t ctx = (id.find("vision") != std::string::npos)
-                                  ? std::min(options_.max_context, 131072u)
-                                  : options_.max_context;
-    res.set_content(make_model_object(id, unix_time_now(), ctx),
+    res.set_content(make_model_object(public_model_id_, unix_time_now(), options_.max_context),
                     "application/json");
 }
 
@@ -524,7 +528,7 @@ void HttpServer::attach(GenerationService& service) {
         throw std::logic_error("HTTP generation service is already attached");
     }
     const ninfer::LoadSummary load = service.load_summary();
-    public_model_id_               = resolve_public_model_id(options_, load.model_id);
+    public_model_id_               = resolve_public_model_id(options_, load.model_name);
     service_                       = &service;
     request_jsonl_.write_server_start(options_, service.engine_options(),
                                       service.sampling_defaults(), public_model_id_, load,

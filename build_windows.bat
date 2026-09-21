@@ -3,15 +3,20 @@ echo ========================================================
 echo NInfer Build Script (Windows MSVC)
 echo ========================================================
 
+REM FFmpeg's LGPL shared build, not the GPL one: these DLLs ship inside the release archive, and
+REM the LGPL variant keeps GPL components out of it. BtbN prunes old autobuilds, so the pinned tag
+REM is tried first with `latest` as the fallback -- this pin went stale once already.
+set "FFMPEG_ASSET=ffmpeg-master-latest-win64-lgpl-shared.zip"
+set "FFMPEG_PIN=autobuild-2026-09-20-13-11"
 if not exist ffmpeg (
-    echo [1/4] Downloading FFmpeg Windows dev binaries...
-    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip' -OutFile 'ffmpeg.zip'"
+    echo [1/4] Downloading FFmpeg Windows dev binaries (LGPL shared)...
+    powershell -Command "try { Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/%FFMPEG_PIN%/%FFMPEG_ASSET%' -OutFile 'ffmpeg.zip' } catch { Write-Host 'Pinned autobuild is gone; falling back to the latest release.'; Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/%FFMPEG_ASSET%' -OutFile 'ffmpeg.zip' }"
     
     echo [2/4] Extracting FFmpeg...
     powershell -Command "Expand-Archive -Path 'ffmpeg.zip' -DestinationPath 'ffmpeg_temp' -Force"
     
     echo Moving files into place...
-    move ffmpeg_temp\ffmpeg-master-latest-win64-gpl-shared ffmpeg >nul
+    move ffmpeg_temp\ffmpeg-master-latest-win64-lgpl-shared ffmpeg >nul
     
     echo Cleaning up...
     rmdir /S /Q ffmpeg_temp
@@ -25,17 +30,13 @@ echo [3/4] Setting up MSVC environment...
 call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" 2>nul || echo Please open x64 Native Tools Command Prompt manually!
 
 echo.
-echo [4/4] Compiling NInfer...
-cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+echo [4/4] Compiling NInfer with Vision Support (-DNINFER_BUILD_MEDIA_ACQUIRE=ON)...
+cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DCMAKE_BUILD_TYPE=Release -DNINFER_BUILD_MEDIA_ACQUIRE=ON
+cmake --build build --config Release -j
 
 echo.
 echo Copying FFmpeg DLLs to the build folder so the executable can find them...
-copy ffmpeg\bin\avcodec-*.dll build\apps\ >nul 2>nul
-copy ffmpeg\bin\avformat-*.dll build\apps\ >nul 2>nul
-copy ffmpeg\bin\avutil-*.dll build\apps\ >nul 2>nul
-copy ffmpeg\bin\swscale-*.dll build\apps\ >nul 2>nul
-copy ffmpeg\bin\swresample-*.dll build\apps\ >nul 2>nul
+for %%D in (avcodec avformat avutil swscale swresample) do copy /y "ffmpeg\bin\%%D-*.dll" "build\apps\" >nul 2>nul
 
 echo.
 echo ========================================================

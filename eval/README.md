@@ -248,6 +248,33 @@ Every run is stored below `eval/runs/<timestamp>-<config-hash>/`:
 The sample-retention policy is recorded in the manifest. API keys and known secret values are
 redacted from coordinator events and task snapshots.
 
+## Historical Qwen3.6-27B reasoning profile
+
+The published Qwen3.6-27B scores and per-dataset correct/total counts are recorded in upstream's
+[groupwise-int](https://huggingface.co/neroued/Qwen3.6-27B-NInfer) and
+[NVFP4](https://huggingface.co/neroued/Qwen3.6-27B-nvfp4-NInfer) model cards, on the repositories
+that publish those artifacts.
+Those runs used EvalScope 1.9.0, one sample per problem, and the sampling settings recorded on
+the cards. The current pinned evaluation environment is newer; rerunning the commands below
+reproduces the workload on the selected environment, not the historical score automatically.
+
+The NVFP4 serving command was:
+
+```bash
+build/apps/ninfer-serve out/qwen3_6_27b_nvfp4.ninfer \
+  --host 127.0.0.1 --port 18080 \
+  --max-context 262144 --prefill-chunk 1024 --kv-dtype int8 \
+  --spec mtp --draft-tokens 3 --lm-head-draft
+```
+
+Run the configured reasoning suite in a separate shell using the evaluation environment above:
+
+```bash
+PYTHONPATH=eval eval/.venv/bin/python -m ninfer_eval run \
+  --config eval/configs/qwen3_6_27b_reasoning.yaml \
+  --suite reasoning_full
+```
+
 ## Scores
 
 Each benchmark remains independently reportable. The framework does not average AIME, GPQA, and

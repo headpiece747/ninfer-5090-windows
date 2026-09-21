@@ -1,6 +1,8 @@
+#include "core/weight.h"
 #include "ninfer/ops/gdn_gating_proj.h"
 
 #include "ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_plan.h"
+#include "ops/common/validation.h"
 
 #include <cmath>
 #include <cstdint>
@@ -10,16 +12,12 @@
 namespace ninfer::ops {
 namespace {
 
-bool aligned_to(const void* pointer, std::uintptr_t alignment) {
-    return pointer != nullptr && (reinterpret_cast<std::uintptr_t>(pointer) & (alignment - 1)) == 0;
-}
-
 void require_bf16_weight(const Weight& w, std::int32_t rows, std::int32_t input_rows,
                          const char* name) {
     const std::uint64_t payload_bytes = static_cast<std::uint64_t>(rows) *
                                         static_cast<std::uint64_t>(input_rows) *
                                         sizeof(std::uint16_t);
-    if (w.qtype != QType::BF16_CTRL || w.layout != QuantLayout::Contiguous ||
+    if (w.qtype != QType::BF16 || w.layout != QuantLayout::Contiguous ||
         w.payload_bytes < payload_bytes || w.ndim != 2 || w.n != rows || w.k != input_rows ||
         w.shape[0] != rows || w.shape[1] != input_rows || w.padded_shape[0] != rows ||
         w.padded_shape[1] != input_rows || w.qhigh != nullptr || w.scales != nullptr ||

@@ -3,7 +3,14 @@
 
 #include <spdlog/logger.h>
 
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#define NINFER_STDERR_FD ::_fileno(stderr)
+#else
 #include <unistd.h>
+#define NINFER_STDERR_FD STDERR_FILENO
+#endif
 
 #include <algorithm>
 #include <array>
@@ -20,9 +27,15 @@ namespace {
 class StderrCapture {
 public:
     StderrCapture() {
+#ifdef _WIN32
+        if (::_pipe(pipe_, 4096, _O_BINARY) != 0) {
+            throw std::runtime_error(std::strerror(errno));
+        }
+#else
         if (::pipe(pipe_) != 0) { throw std::runtime_error(std::strerror(errno)); }
-        saved_ = ::dup(STDERR_FILENO);
-        if (saved_ < 0 || ::dup2(pipe_[1], STDERR_FILENO) < 0) {
+#endif
+        saved_ = ::dup(NINFER_STDERR_FD);
+        if (saved_ < 0 || ::dup2(pipe_[1], NINFER_STDERR_FD) < 0) {
             throw std::runtime_error(std::strerror(errno));
         }
         ::close(pipe_[1]);
@@ -31,7 +44,7 @@ public:
 
     ~StderrCapture() {
         if (saved_ >= 0) {
-            (void)::dup2(saved_, STDERR_FILENO);
+            (void)::dup2(saved_, NINFER_STDERR_FD);
             ::close(saved_);
         }
         if (pipe_[0] >= 0) { ::close(pipe_[0]); }
@@ -39,14 +52,17 @@ public:
 
     std::string finish() {
         std::fflush(stderr);
-        if (::dup2(saved_, STDERR_FILENO) < 0) { throw std::runtime_error(std::strerror(errno)); }
+        if (::dup2(saved_, NINFER_STDERR_FD) < 0) {
+            throw std::runtime_error(std::strerror(errno));
+        }
         ::close(saved_);
         saved_ = -1;
 
         std::string output;
         std::array<char, 4096> buffer{};
         for (;;) {
-            const ssize_t count = ::read(pipe_[0], buffer.data(), buffer.size());
+            const int count = ::read(pipe_[0], buffer.data(),
+                                     static_cast<unsigned>(buffer.size()));
             if (count == 0) { break; }
             if (count < 0) {
                 if (errno == EINTR) { continue; }
@@ -132,23 +148,23 @@ int main() {
             observer.callback({.phase      = ninfer::StartupPhase::EngineStartup,
                                .status     = ninfer::StartupStatus::Complete,
                                .elapsed_ns = 3'000'000'000});
-            startup.engine_ready({.model_id             = "qwen3.6-27b",
-                                  .weights_id           = "groupwise-int",
+            startup.engine_ready({.model_name           = "qwen3.6-27b",
+                                  .weight_formats       = {"q4_g64_fp16", "q8_g32_fp16"},
                                   .host_to_device_bytes = 16ULL << 30});
             logging.flush();
         }
         startup_output = capture.finish();
     }
-    failures +=
-        check(line_count(startup_output) == 4 &&
-                  startup_output.find("starting engine") != std::string::npos &&
-                  startup_output.find("loading weights | 16.0 GiB") != std::string::npos &&
-                  startup_output.find("weights ready | 16.0 GiB | 2.0s | 8.00 GiB/s") !=
-                      std::string::npos &&
-                  startup_output.find("engine ready | qwen3.6-27b/groupwise-int | total 3.0s") !=
-                      std::string::npos &&
-                  startup_output.find("CUDA initialized") == std::string::npos,
-              "normal startup pretty output is noisy or incomplete");
+    failures += check(
+        line_count(startup_output) == 4 &&
+            startup_output.find("starting engine") != std::string::npos &&
+            startup_output.find("loading weights | 16.0 GiB") != std::string::npos &&
+            startup_output.find("weights ready | 16.0 GiB | 2.0s | 8.00 GiB/s") !=
+                std::string::npos &&
+            startup_output.find("engine ready | qwen3.6-27b | total 3.0s | weights 16.0 GiB") !=
+                std::string::npos &&
+            startup_output.find("CUDA initialized") == std::string::npos,
+        "normal startup pretty output is noisy or incomplete");
 
     std::string tool_output;
     {

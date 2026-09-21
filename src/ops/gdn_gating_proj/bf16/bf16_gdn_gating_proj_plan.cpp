@@ -1,4 +1,6 @@
+#include "core/weight.h"
 #include "ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_plan.h"
+#include "ops/common/route_catalog.h"
 
 #include "ninfer/ops/rmsnorm.h"
 
@@ -9,8 +11,6 @@
 
 namespace ninfer::ops::detail {
 namespace {
-
-inline constexpr std::int32_t kAnyCols = std::numeric_limits<std::int32_t>::max();
 
 struct ColsSet {
     std::int32_t first;
