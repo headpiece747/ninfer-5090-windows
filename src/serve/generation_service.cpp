@@ -169,18 +169,9 @@ ninfer::OwnedMedia acquire_media(const ContentPart& part, Clock::time_point dead
     media.kind =
         part.kind == ContentKind::Image ? ninfer::MediaKind::Image : ninfer::MediaKind::Video;
     media.media_type = part.source.media_type;
-    switch (part.source.kind) {
-    case ninfer::product::media_acquire::SourceKind::Path:
-    case ninfer::product::media_acquire::SourceKind::Url:
-        media.source_name = part.source.value;
-        break;
-    case ninfer::product::media_acquire::SourceKind::Data:
-        media.source_name = "inline-data";
-        break;
-    case ninfer::product::media_acquire::SourceKind::Bytes:
-        media.source_name = "inline-bytes";
-        break;
-    }
+    media.source_name =
+        std::string(ninfer::product::media_acquire::source_name(part.source.kind,
+                                                                part.source.value));
     media.bytes               = std::move(source_bytes);
     media.image_resize_policy = part.image_resize_policy;
     return media;

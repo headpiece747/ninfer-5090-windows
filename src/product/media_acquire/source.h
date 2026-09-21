@@ -35,4 +35,20 @@ struct Source {
     return std::nullopt;
 }
 
+// The label a prepared source is recorded under.
+//
+// It was written twice, with different wording for the same case -- "inline-data" on the serving
+// path and "inline data URI" in the CLI -- so one input was recorded under two names depending on
+// which endpoint took it. The server's wording wins, because it distinguishes inline bytes from an
+// inline data URI, which the CLI's version did not.
+[[nodiscard]] inline std::string_view source_name(SourceKind kind, std::string_view value) {
+    switch (kind) {
+    case SourceKind::Data: return "inline-data";
+    case SourceKind::Bytes: return "inline-bytes";
+    case SourceKind::Path:
+    case SourceKind::Url: break;
+    }
+    return value;
+}
+
 } // namespace ninfer::product::media_acquire

@@ -83,8 +83,7 @@ OwnedMedia acquire_media(const Json& part, MediaKind kind, std::size_t message_i
     OwnedMedia result;
     result.kind       = kind;
     result.media_type = std::move(media_type);
-    result.source_name =
-        source.kind == media_acquire::SourceKind::Data ? "inline data URI" : source.value;
+    result.source_name = std::string(media_acquire::source_name(source.kind, source.value));
     result.bytes = std::move(bytes);
     return result;
 }
