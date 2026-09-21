@@ -11,7 +11,7 @@ identity without a runtime profile flag. Common framing is defined in
 [`artifact-container.md`](artifact-container.md), numeric semantics in
 [`tensor-formats.md`](tensor-formats.md), byte packing in
 [`storage-layouts.md`](storage-layouts.md), and model mathematics and state behavior in
-[`qwen3.6-27b-model.md`](qwen3.6-27b-model.md).
+[`qwen3_5-model.md`](qwen3_5-model.md).
 
 ## 1. NVFP4 artifact identity and contents
 
@@ -38,7 +38,7 @@ At startup, `none` and MTP do not materialize DFlash2 weights; DFlash2 does not 
 weights. Vision and DFlash2 may be resident together. The target always materializes `text/output_head`. The full proposal-head route reuses it; the
 optimized route additionally materializes `text/draft_head` and `text/draft_head_token_ids`.
 The Engine accepts startup-fixed `draft_tokens=1..15` (recommended 7), independently of the
-checkpoint’s source block size. See [DFlash2 mathematics and state](qwen3.8-27b-dflash2.md).
+checkpoint’s source block size. See [DFlash2 mathematics and state](dflash.md).
 
 The identity is read from the version-2 artifact directory. The filename, object count, and any
 representative tensor descriptor do not select the model or weights profile.
