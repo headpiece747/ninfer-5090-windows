@@ -208,9 +208,15 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # search_budget_exhaustions at 1, unchanged, and the change was reverted. The search stays
     # exhausted there because the boundary allowance caps it by design.
     #
-    # That leaves the cost fold's valuation, which is the shape ADR-0007 records for the private
-    # case: a checkpoint whose reuse has not arrived yet carries no demand, so its loss prices at
-    # about nothing and degrading it looks cheap.
+    # Nor is the shared retention weight. RetentionClass::SharedStable returns 0, and the portfolio
+    # fold skips an owner whose weight is zero, so a shared prefix's transition loss was never added;
+    # returning 16 instead changed nothing either, and that was reverted too.
+    #
+    # Three candidate causes have now been measured out by rebuilding and re-running this same
+    # reproduction: the pools, the search budget, and the weight. What remains is the decision
+    # itself, not its inputs -- shared_owners_degraded increments in apply_shared_action when the
+    # plan's pressure action commits, so the next step is a counter at that decision rather than
+    # another hypothesis about what feeds it.
     #
     # Whether recency beats the fold is unresolved. A diagnostic recency policy (oldest resident as the
     # victim, value gate bypassed) did change the eviction behaviour -- two shared owners evicted where
