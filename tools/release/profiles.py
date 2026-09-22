@@ -150,6 +150,15 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # same 2,740 MiB free and 10,996 MiB reserved at 8, 12 and 16) because it only decides how much of
     # the already-pinned 8 GiB host KV may be used.
     #
+    # Which states occupy the pool, from the request log at 8/8: private_owners_evicted 7,
+    # shared_owners_evicted 0, peak host_state_slots 8. The shared prefixes are never evicted, they are
+    # never retained -- the slot is gone before the capture can claim it -- and all the pressure is the
+    # private side, where the engine now retains continuations and reclaims the oldest only under
+    # pressure (upstream #251). That reclaim keeps the current request working, not every prefix, so the
+    # pool has to be sized for the states the engine actually keeps rather than for the prefixes alone.
+    # The same bounds gave 5/5 on 2026-09-17 (commit 93181817); #251 landed on 2026-09-19 and changed
+    # how many states a conversation keeps, and nothing re-ran the claim.
+    #
     # --context-cache-policy rolling ships enabled: once the pools are full, publishing a conversation's
     # newest checkpoint means replacing a resident, and by default that needs two matching reuse domains
     # or explicit evidence -- which one append-only conversation never has, so its reusable frontier
