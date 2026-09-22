@@ -246,6 +246,10 @@ Twenty-five rules, each earned by a failure rather than chosen:
   launcher passes survived until an independent review corrected it. A negative claim needs its
   scope checked too: "this layer cannot log" came from a grep limited to `context_cache/` and
   happens to be true, but it was asserted before anything had searched the rest of `src/runtime`.
+  A truncated search is not evidence of absence either: "the shared handle is never populated" came
+  from `git grep .handle.emplace` piped through `Select-Object -First 20`, which cut the match list
+  short, and an ADR was written and committed on it before a wider read found the assignment at
+  `resource_manager.h:3249`.
 - **Profile values come from `profiles.py`.** Run `tools/release/check_profile_consistency.py`
   after touching a launcher, a doc table, an opencode provider entry or a harness. Fixing tables by
   hand once touched three files and missed two.
