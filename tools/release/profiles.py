@@ -181,6 +181,15 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # local single-owner product, and two saturating conversations measured byte-identical to the
     # default policy, so there is no second tenant to protect here.
     #
+    # --spec dflash2's draft is trained on the stock model, so it is tied to that distribution rather
+    # than to the engine. Measured here with dflash2_real_test: acceptance is 21/21 on the QUASAR QAT
+    # artifact and 20/31 on NVFP4-full, both non-stock weights, so quantisation-aware training and
+    # requantisation keep the draft valid. A behaviour finetune does not: a third-party conversion
+    # recipe reports 3-5% acceptance on one, decode falling from ~180 to ~70 tok/s, and recommends
+    # --spec mtp there because the MTP head ships inside the finetune. The choice between the dflash2
+    # and mtp lanes is therefore about what an artifact's weights are, not about which route is
+    # faster.
+    #
     # What is NOT settled, measured 2026-09-21 and left open deliberately rather than guessed:
     #
     # Prefix sharing here is conditional on the frontend declaring a stable prefix. Two conversations
