@@ -230,15 +230,25 @@ ninfer::PromptInput chinese_chat(bool enable_thinking) {
 }
 
 int exercise_registered_frontend(const ninfer::Engine& engine) {
-    if (engine.count_tokens(chinese_chat(true)) != 16) {
-        std::cerr << "registered tokenizer/chat template changed the thinking prompt golden\n";
-        return 1;
+    // Report both counts rather than stopping at the first: the no-thinking prompt has no
+    // reasoning-effort preamble, so it is the like-for-like comparison against the reference tokenizer,
+    // and reaching it is what tells a tokenizer difference apart from a template difference.
+    const auto thinking_tokens = engine.count_tokens(chinese_chat(true));
+    const auto plain_tokens    = engine.count_tokens(chinese_chat(false));
+    int failures               = 0;
+    if (thinking_tokens != 16) {
+        std::cerr << "registered tokenizer/chat template changed the thinking prompt golden: expected "
+                  << 16 << ", got " << thinking_tokens
+                  << " (the reference renders this prompt with a reasoning-effort preamble)\n";
+        ++failures;
     }
-    if (engine.count_tokens(chinese_chat(false)) != 18) {
-        std::cerr << "registered tokenizer/chat template changed the no-thinking prompt golden\n";
-        return 1;
+    if (plain_tokens != 18) {
+        std::cerr << "registered tokenizer/chat template changed the no-thinking prompt golden: "
+                  << "expected " << 18 << ", got " << plain_tokens
+                  << " (the reference renders this one at 18)\n";
+        ++failures;
     }
-    return 0;
+    return failures == 0 ? 0 : 1;
 }
 
 class ObservationSink final : public ninfer::OutputSink {
