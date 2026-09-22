@@ -9,7 +9,7 @@ set "MODEL=%~dp0models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 if exist "%MODEL%" goto :model_resolved
 set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 :model_resolved
-set "QUASAR_ARGS=--vision --spec mtp --draft-tokens 4 --lm-head-draft --max-context 262144 --kv-capacity auto --kv-dtype fp8 --prefill-chunk 8192"
+set "QUASAR_ARGS=--chat-template C:\AI\ninfer-v3-windows\tools\chat_templates\qwen3_8.jinja --vision --spec mtp --draft-tokens 4 --lm-head-draft --max-context 262144 --kv-capacity auto --kv-dtype fp8 --prefill-chunk 8192"
 
 :: Select Python 3.11 explicitly per AGENTS.md. Each candidate is checked in its own labelled
 :: branch: a one-line `if <cond> for /f ...` corrupts cmd's label scan ("cannot find the batch

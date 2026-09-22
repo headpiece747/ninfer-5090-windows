@@ -28,6 +28,11 @@ set "SERVE=%~dp0ninfer-serve.exe"
 if not exist "%SERVE%" set "SERVE=C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe"
 set "MODEL=%~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer"
 if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer"
+REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
+REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
+REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
+set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
+if not exist "%TEMPLATE%" set "TEMPLATE=C:\AI\ninfer-v3-windows\tools\chat_templates\qwen3_8.jinja"
 
 if not exist "%SERVE%" (
     echo [ERROR] Engine not found.
@@ -104,6 +109,7 @@ if not errorlevel 1 (
   --context-cache-policy rolling ^
   --preserve-thinking ^
   --default-thinking-budget 4096 ^
-  --pending-timeout-ms 600000
+  --pending-timeout-ms 600000 ^
+  --chat-template %TEMPLATE%
 
 pause

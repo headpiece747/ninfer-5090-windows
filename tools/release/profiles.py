@@ -91,6 +91,10 @@ INVARIANT_FLAGS: list[tuple[str, str | None]] = [
     ("--preserve-thinking", None),
     ("--default-thinking-budget", "4096"),
     ("--pending-timeout-ms", "600000"),
+    # The template the lane renders with. The launcher resolves %TEMPLATE% beside itself; a harness
+    # gets the source-tree path from launcher_args. Without this the lane inherits whichever template
+    # its artifact happens to embed, and the two shipped artifacts embed different ones.
+    ("--chat-template", "%TEMPLATE%"),
 ]
 
 
@@ -269,6 +273,13 @@ def launcher_args(profile: dict[str, Any], port: int | None = None,
             value = model_id
         elif flag == "--max-context" and max_context is not None:
             value = str(max_context)
+        if value == "%TEMPLATE%":
+            # The launcher resolves this beside itself; a harness runs in the source tree, so point it
+            # at the same maintained file there rather than leaving a literal cmd variable.
+            from pathlib import Path as _Path
+
+            value = str(_Path(__file__).resolve().parents[2] / "tools" / "chat_templates" /
+                        "qwen3_8.jinja")
         if value is None and " " not in flag:
             args.append(flag)
         else:
@@ -290,6 +301,13 @@ def cli_args(profile: dict[str, Any]) -> list[str]:
     CLI does accept and the earlier hand-written value omitted.
     """
     out: list[str] = []
+    # The lane's template, resolved the way launcher_args resolves it, so a CLI harness renders with
+    # the same file the launcher ships rather than whichever template its artifact embeds.
+    from pathlib import Path as _Path
+
+    out.extend(["--chat-template",
+                str(_Path(__file__).resolve().parents[2] / "tools" / "chat_templates" /
+                    "qwen3_8.jinja")])
     if profile["vision"]:
         out.append("--vision")
     if profile["spec"] != "none":
