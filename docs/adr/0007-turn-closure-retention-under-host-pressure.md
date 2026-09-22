@@ -41,6 +41,27 @@ Attribution, each part measured rather than argued:
 - **Not the chat template.** Identical with the BOM strip disabled, which is a separate fix
   (`ea1c0d9e`).
 
+The shared path has the same shape, and it is measured. A live 51-request agent log shows every cache
+hit as `private endpoint` and none shared, with a conversation switch costing a 59.6 s cold prefill at
+171,953 tokens. Reproduced at a 65,536-token context with the shipped bounds, the request log shows
+the shared capture is offered and planned (`offered 1`, every refusal branch 0) while the shared owner
+is degraded and `shared_stable_prefix` hits stay 0. Its `occupancy` gives the reason: with
+`shared_active_references` at 0, no live reference protects it, while host KV sits at 653 MiB of 8 GiB
+and 2 of 16 state slots are occupied, so no pool is the constraint. `apply_shared_action` shows what
+degrading means: the published summary is replaced and the revision advanced, so a request holding the
+previous revision cannot match it.
+
+Three candidate causes were measured out by rebuilding and re-running that reproduction: the pools; the
+materialization search (grant ceiling 250 ms -> 5 s, unchanged); and the shared retention weight
+(`RetentionClass::SharedStable` returning 16 instead of 0, unchanged -- the weight multiplies a
+transition loss that is already zero when nothing live demands the checkpoint, so it cannot help).
+
+That is the same root as the private case below: the valuation has no term for a reuse that has not
+arrived yet. Prior art settles the form it should take -- SGLang's `retention_priority`, after its
+hard-pinning PR was reverted because "priority controls eviction order, not exemption", and T-LRU's
+"protected" class, which is defined by the next turn's uncached token count rather than by current
+demand.
+
 Upstream's code carries the same branch (`pressure_committed`, `pressure_private_owners_degraded` at
 `upstream/master:2512-2569`), so this is shared behaviour, not a port invention.
 
@@ -87,11 +108,12 @@ retain a known inferior design."
 
 ## Consequences
 
-- Implementation: the model layer must declare each checkpoint's required coverage -- a `TurnClosure`
-  or `ResponseReplay` exists for a later turn to reuse, an endpoint does not -- and the runtime's
-  valuation must honour it, so a required checkpoint is demoted rather than dropped while host State
-  has room. Changing the pressure target selection alone is measurably insufficient: that was tried
-  and the case failed identically, because the decision never sees a live demand for a closure.
+- Implementation: the model layer must declare each checkpoint's required coverage -- a `TurnClosure`,
+  a `ResponseReplay`, or a shared stable prefix exists for a later turn to reuse; an endpoint does not
+  -- and the runtime's valuation must honour it, so a required checkpoint is demoted rather than
+  dropped while host State has room. Changing the pressure target selection, the search grant or the
+  retention weight alone is measurably insufficient: all three were tried and the cases failed
+  unchanged, because the valuation has no term for a reuse that has not arrived yet.
 - Verification: upstream's case fails today and passes unchanged once the fix lands;
   `tests/test_resource_manager.cpp` covers pressure and degradation at unit level and is in the ASan
   subset of `tools/scripts/test_v3_asan.cmd`; the release gate is
