@@ -875,6 +875,11 @@ public:
             }
             if (result.status == ContextTransactionStatus::Published) {
                 result.active_summary = capture_summary;
+                // A published replacement must report the capacity it prepared, and a vacant-slot
+                // publication must not; the manager rejects either mismatch. The fixture reported
+                // this nowhere, so it could not express a replacement publication at all.
+                result.capacity_preparation_committed =
+                    pending_capture_publish_shared_ && pending_shared_replacement_;
                 if (pending_capture_publish_shared_) {
                     FakeSharedPrefixHandle handle;
                     handle.id          = next_shared_id_++;
@@ -1051,22 +1056,24 @@ public:
 
     [[nodiscard]] ContextTransactionReserveStatus
     reserve_active_capture(FakeCaptureOffer&&, const FakeSharedPrefixHandle*,
-                           const FakeSharedPrefixHandle*, std::optional<CheckpointRef>, bool,
+                           const FakeSharedPrefixHandle* shared_replacement,
+                           std::optional<CheckpointRef>, bool,
                            CancellationFlagView cancellation) {
         if (cancellation.requested() || abort_capture_start) {
             return ContextTransactionReserveStatus::Aborted;
         }
         pending_plan_.reset();
-        pending_capture_publish_shared_ = false;
+        pending_capture_publish_shared_  = false;
+        pending_shared_replacement_      = shared_replacement != nullptr;
         transaction_kind_               = TransactionKind::Capture;
         advance_revision();
         return ContextTransactionReserveStatus::Reserved;
     }
 
     [[nodiscard]] ContextTransactionReserveStatus reserve_active_capture_with_pressure(
-        FakeCaptureOffer&&, const FakeSharedPrefixHandle*, const FakeSharedPrefixHandle*,
-        std::optional<CheckpointRef>, bool publish_shared, FakeResourcePlan&& pressure,
-        CancellationFlagView cancellation) {
+        FakeCaptureOffer&&, const FakeSharedPrefixHandle*,
+        const FakeSharedPrefixHandle* shared_replacement, std::optional<CheckpointRef>,
+        bool publish_shared, FakeResourcePlan&& pressure, CancellationFlagView cancellation) {
         if (cancellation.requested() || abort_capture_start || pressure.revision != revision_) {
             return ContextTransactionReserveStatus::Aborted;
         }
@@ -1079,6 +1086,7 @@ public:
         }
         pending_plan_.emplace(std::move(pressure));
         pending_capture_publish_shared_ = publish_shared;
+        pending_shared_replacement_     = shared_replacement != nullptr;
         transaction_kind_               = TransactionKind::Capture;
         advance_revision();
         return ContextTransactionReserveStatus::Reserved;
@@ -1211,6 +1219,10 @@ private:
     std::optional<FakeResourcePlan> pending_plan_;
     std::unique_ptr<FakeAdmissionCandidate> capture_pressure_candidate_;
     bool pending_capture_publish_shared_ = false;
+    // Whether the capture being reserved replaces a shared victim, which the manager passes as the
+    // third argument. A published replacement must report the capacity it prepared and a vacant-slot
+    // publication must not, and this is the only place the fixture can tell the two apart.
+    bool pending_shared_replacement_ = false;
 };
 
 FakePressurePlanningSession::FakePressurePlanningSession(
@@ -1829,9 +1841,10 @@ struct FakeModelContract {
 using FakeManager = ninfer::runtime::ResourceManager<FakeModelContract>;
 
 FakeManager make_manager(std::uint32_t lanes = 1, std::uint32_t private_capacity = 4,
-                         std::uint32_t shared_capacity = 0, bool cache_enabled = true) {
-    return FakeManager(lanes, private_capacity, shared_capacity, cache_enabled, 2,
-                       ninfer::ContextCachePolicy::Default, test_cost_model());
+                         std::uint32_t shared_capacity = 0, bool cache_enabled = true,
+                         ninfer::ContextCachePolicy policy = ninfer::ContextCachePolicy::Default) {
+    return FakeManager(lanes, private_capacity, shared_capacity, cache_enabled, 2, policy,
+                       test_cost_model());
 }
 
 struct ActiveRequest {
@@ -3075,6 +3088,105 @@ void require_shared_reuse(FakeManager& manager, FakeProgram& program, std::uint3
     require(reused == expected, message);
 }
 
+// The standing `--context-cache-policy rolling` grants, at the seam where it is decided.
+//
+// One conversation, a full catalog, and a request that reuses resident 71 -- so its own committed
+// demand record lists 71's key as a resident it matched exactly -- before offering a capture at a
+// longer frontier of the same conversation. Under the default policy that capture has no standing to
+// replace a resident, and the refusal is what pins one conversation's reusable frontier; under
+// `rolling` the proven lineage admits the replacement and releases the resident it extends, and only
+// that one.
+//
+// Three fixture conventions have to line up. A published prefix records its summary checkpoint at its
+// shortlist frontier while a pressure impact reports `finish_frontier`, so the prefixes here are
+// published at the fixture's default frontier. A capture carries demand only if its own key appears in
+// the request's demand record, which the declared opportunity arranges. And a decision's default
+// immediate cost is 100 ms, which no test-sized rebuild can outbid, so it is lowered here.
+void test_rolling_lineage_admits_the_replacement_of_a_proven_resident() {
+    const std::uint32_t frontier = 16;    // the fixture's default finish_frontier
+    const std::uint32_t rebuild  = 65536; // a rebuild no action cost can outweigh
+
+    const auto publish_at = [&](FakeManager& manager, FakeProgram& program, std::uint32_t digest,
+                                std::uint64_t order, std::uint32_t offer_id,
+                                ninfer::SharedCandidateEvidence evidence) {
+        FakeRequestBasePlan base        = make_base(digest);
+        base.value.publish_continuation = false;
+        base.cache.opportunities.push_back(FakeContextCache::Opportunity{
+            .kind     = ninfer::PromptCacheMarkerKind::SharedStablePrefix,
+            .evidence = evidence,
+            .frontier = frontier,
+        });
+        const ActiveRequest active = start_active(manager, program, digest, base, order);
+        program.capture_assessment = FakeCaptureAssessment{
+            .shortlist_key          = FakeShortlistKey{.digest = digest, .frontier = frontier},
+            .shared_evidence        = evidence,
+            .protected_rebuild_work = PrefillWork{.tokens = rebuild},
+            .publishes_shared       = true,
+            .physically_feasible    = true,
+        };
+        require(manager.reserve_active_capture(program, active.lane, FakeCaptureOffer{.id = offer_id},
+                                               0, {}) ==
+                    FakeManager::ActiveCaptureReserveResult::Reserved,
+                "resident capture was not reserved");
+        auto progress      = manager.progress_context_transaction(program, {});
+        const auto outcome = std::get<FakeManager::ActiveCaptureOutcome>(std::move(progress));
+        require(outcome.status == ContextTransactionStatus::Published, "resident did not publish");
+        (void)finish_active(manager, program, active);
+    };
+
+    const auto probe = [&](ninfer::ContextCachePolicy policy,
+                           std::vector<std::uint32_t>& released) {
+        FakeManager manager                  = make_manager(1, 4, 2, true, policy);
+        FakeProgram program;
+        program.pressure_action_immediate_ns = 0;
+        publish_at(manager, program, 71, 1, 1, ninfer::SharedCandidateEvidence::ExplicitBoundary);
+        publish_at(manager, program, 72, 2, 2, ninfer::SharedCandidateEvidence::ExplicitBoundary);
+
+        // The capture is this conversation at a longer frontier: its key must differ from the
+        // residents' or the manager takes the duplicate-capture path, and it must appear in this
+        // request's own demand record, which the declared opportunity arranges.
+        FakeRequestBasePlan base        = make_base(71);
+        base.value.publish_continuation = false;
+        base.cache.opportunities.push_back(FakeContextCache::Opportunity{
+            .kind     = ninfer::PromptCacheMarkerKind::SharedStablePrefix,
+            .evidence = ninfer::SharedCandidateEvidence::EngineObserved,
+            .frontier = frontier * 2U,
+        });
+        const ActiveRequest active = start_active(manager, program, 71, base, 3);
+        program.capture_assessment = FakeCaptureAssessment{
+            .shortlist_key          = FakeShortlistKey{.digest = 71, .frontier = frontier * 2U},
+            .shared_evidence        = ninfer::SharedCandidateEvidence::EngineObserved,
+            .protected_rebuild_work = PrefillWork{.tokens = rebuild},
+            .publishes_shared       = true,
+            .physically_feasible    = true,
+        };
+        const auto reserved =
+            manager.reserve_active_capture(program, active.lane, FakeCaptureOffer{.id = 3}, 0, {});
+        if (reserved == FakeManager::ActiveCaptureReserveResult::Reserved) {
+            auto progress = manager.progress_context_transaction(program, {});
+            (void)std::get<FakeManager::ActiveCaptureOutcome>(std::move(progress));
+        }
+        // The two policies free the slot by different routes, and only one of them reports it: the
+        // default reclaims a catalogued prefix, which calls the program's release hook, while
+        // `rolling` replaces the victim inside the capture transaction, which does not. That
+        // difference is what makes the two arms distinguishable in this fixture.
+        released = program.released_shared_prefix_keys;
+        return reserved;
+    };
+
+    std::vector<std::uint32_t> rolling_released;
+    require(probe(ninfer::ContextCachePolicy::Rolling, rolling_released) ==
+                FakeManager::ActiveCaptureReserveResult::Reserved,
+            "proven lineage did not give the capture standing under the rolling policy");
+    require(rolling_released.empty(),
+            "the rolling policy fell back to reclaiming a prefix instead of replacing a resident");
+
+    std::vector<std::uint32_t> default_released;
+    (void)probe(ninfer::ContextCachePolicy::Default, default_released);
+    require(std::find(default_released.begin(), default_released.end(), 71U) != default_released.end(),
+            "the default policy did not reclaim a prefix, so this test proves nothing");
+}
+
 void test_automatic_shared_capture_reclaims_oldest_catalog_entry() {
     FakeManager manager = make_manager(1, 4, 2);
     FakeProgram program;
@@ -3741,6 +3853,8 @@ int main() {
              test_shortlist_collision_requires_program_exact_verification);
     run_test("portfolio prices a capture candidate",
              test_portfolio_prices_a_capture_candidate_without_raising_the_baseline);
+    run_test("rolling lineage admits the replacement of a proven resident",
+             test_rolling_lineage_admits_the_replacement_of_a_proven_resident);
     if (failures != 0) { return 1; }
     std::cout << "ok\n";
     return 0;
