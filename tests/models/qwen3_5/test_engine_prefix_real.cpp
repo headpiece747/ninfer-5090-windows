@@ -230,12 +230,22 @@ ninfer::PromptInput chinese_chat(bool enable_thinking) {
 }
 
 int exercise_registered_frontend(const ninfer::Engine& engine) {
+    // Raw encoding first: it takes no chat template and adds no special token, so it separates a
+    // tokenizer difference from a template difference. The reference tokenizer encodes this text as six
+    // tokens with no specials, so a difference here is the tokenizer and a match here points at the
+    // template.
+    const std::vector<ninfer::TokenId> raw = engine.tokenize_text("你好，简单介绍一下你自己。");
+    int failures                           = 0;
+    if (raw.size() != 6) {
+        std::cerr << "artifact tokenizer disagrees with the reference on raw text: expected 6 "
+                  << "tokens, got " << raw.size() << "\n";
+        ++failures;
+    }
     // Report both counts rather than stopping at the first: the no-thinking prompt has no
     // reasoning-effort preamble, so it is the like-for-like comparison against the reference tokenizer,
     // and reaching it is what tells a tokenizer difference apart from a template difference.
     const auto thinking_tokens = engine.count_tokens(chinese_chat(true));
     const auto plain_tokens    = engine.count_tokens(chinese_chat(false));
-    int failures               = 0;
     if (thinking_tokens != 16) {
         std::cerr << "registered tokenizer/chat template changed the thinking prompt golden: expected "
                   << 16 << ", got " << thinking_tokens
