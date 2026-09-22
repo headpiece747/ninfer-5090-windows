@@ -1,6 +1,6 @@
 # ADR-0007: Host pressure degrades a private owner instead of demoting its turn closure
 
-**Status:** proposed
+**Status:** accepted
 
 ## Context
 
@@ -46,34 +46,55 @@ Upstream's code carries the same branch (`pressure_committed`, `pressure_private
 
 ## Decision
 
-Not yet taken. The two options differ in what they spend, and the choice is a product one:
+Accepted: preserve the contract. When host State capacity allows, a pressure action demotes the
+owner's checkpoint instead of degrading it, so a published turn closure survives as Device/Host
+placement and can be materialized again. Degradation stays as the fallback for when host State is
+also full.
 
-1. **Preserve the contract.** Make the pressure action demote the owner's checkpoint instead of
-   dropping it, so the closure is restorable. Costs host State: the case's pool is 256 MiB
-   (`host_kv_capacity_bytes = 256ULL << 20`), the shipped launchers use `--host-state-slots 16`.
-   Keeps speculative decoding on the following turn.
-2. **Keep the behaviour.** Reuse the KV, lose the MTP state for that turn. Cheaper on host State.
-   Then §4.3's "required coverage" is intent rather than invariant, and this record is what says so.
+The evidence that this is a defect rather than a trade-off:
 
-Recommended: option 1 where host capacity allows, degrading only when it does not. The reuse already
-keeps the KV, so the cost of the current behaviour is a lost speculation opportunity, not incorrect
-output; but the contract is stated as an invariant and the host pool is sized as if it held.
+- **It contradicts upstream's design intent and upstream's own test.** The case is upstream's
+  (`tests/models/qwen3_5/test_engine_prefix_real.cpp`, introduced by Neroued in `04350ba9`), upstream
+  carries `exercise_host_restore`, and this port is 0 commits behind `upstream/master`.
+- **The port never chose it.** `git diff upstream/master -- src/runtime/engine/context_cache/` is 212
+  insertions across 5 files, and none of them touch `pressure_committed`,
+  `pressure_private_owners_degraded`, `dropped_checkpoint` or the pressure target. The decision is
+  upstream's code, untouched.
+- **It is the class of defect this release exists to remove.** 1.2.0 is about silent cache
+  shortfalls -- the frozen reusable frontier, the 3-of-5 conversation hits -- and this is another: a
+  reuse that silently loses speculative decoding, visible only as `degraded=1`.
+- **The capacity is already provisioned.** The shipped launchers pass `--host-state-slots 16`, sized
+  to hold every configuration the other bounds permit, so the State to preserve is budgeted for. The
+  current behaviour spends that budget on nothing.
+- **The cheap option taxes a headline capability.** Losing the MTP state loses speculative decoding
+  for that turn, and speculation is what the shipped launchers are named for.
+
+AGENTS.md settles the tie: "Do not sacrifice these goals to reduce the diff or implementation effort.
+Evaluate complexity, maintenance cost, and verification risk as engineering tradeoffs, not reasons to
+retain a known inferior design."
 
 ## Consequences
 
-- The case stays baselined in `tools/release/test_baseline.json` with a pointer to this record, so the
-  gate states it rather than hiding it behind a skip, and the release is not blocked.
-- The resource-manager unit test already covers pressure and degradation
-  (`tests/test_resource_manager.cpp`: `FakePressureTargetHandle`, `degradation_units`) and is in the
-  ASan subset of `tools/scripts/test_v3_asan.cmd`, so a change here has both a unit-level guard and
-  sanitizer coverage. The integration case above is the end-to-end guard.
-- If option 1 is taken, the regression guard already exists: the case fails today and will pass
-  unchanged.
+- Implementation: the pressure target selection in `materialization_planner.h`, and the action in
+  `resource_manager.h`, must prefer demotion over degradation while host State has room, keeping
+  degradation as the fallback.
+- Verification: upstream's case fails today and passes unchanged once the fix lands;
+  `tests/test_resource_manager.cpp` covers pressure and degradation at unit level and is in the ASan
+  subset of `tools/scripts/test_v3_asan.cmd`; the release gate is
+  `tools/release/check_test_baseline.py`.
+- Measurement: the trade-off is host bytes against restored speculation, so it is measured at the
+  shipped topology rather than asserted.
+- Until the fix lands the case stays baselined in `tools/release/test_baseline.json` with a pointer to
+  this record, so the gate states it rather than hiding it behind a skip and the release is not
+  blocked.
+- This is a narrow, recorded divergence from upstream, as ADR-0006 is for context parallelism, so a
+  later upstream merge can read the intent instead of fighting it.
 
 ## Why this needs recording
 
 Upstream's maintainer docs are upstream's to edit and this port does not edit them, so the port needs
 its own record of where its behaviour and that design intent disagree. Without this, the next reader
-finds a baselined test and has to re-derive the attribution from scratch, including the two
-eliminations that took the longest: that the port's own retention work is not the cause, and that no
-capture is being refused.
+finds a baselined test and has to re-derive the attribution from scratch -- including the two
+eliminations that took the longest (that the port's own retention work is not the cause, and that no
+capture is being refused) and the one that decides it (that the port never touched the decision, so
+the defect is upstream's own).

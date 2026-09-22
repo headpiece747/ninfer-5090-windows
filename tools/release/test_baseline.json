@@ -4,7 +4,7 @@
   "known_failures": {
     "ninfer_qwen3_5_prefix_real_test": {
       "case": "exercise_host_restore",
-      "reason": "Pre-existing, and recorded as a decision in docs/adr/0007-turn-closure-retention-under-host-pressure.md: under host pressure a private owner is degraded and its turn closure dropped, so the later reuse finds PrivateEndpoint instead of PrivateTurnClosure, restores no MTP state and reports degraded=1, while the design intent in upstream's docs/maintainer/resource-scheduling-and-context-cache.md says required coverage cannot change after publication. That record carries the attribution (retention work reverted to feee7122^, cache policy, BOM strip, capture counters) and the two options. Baselined so the gate states it rather than hiding it behind a skip; it does not block the release."
+      "reason": "Pre-existing, and recorded as an accepted decision in docs/adr/0007-turn-closure-retention-under-host-pressure.md: under host pressure a private owner is degraded and its turn closure dropped, so the later reuse finds PrivateEndpoint instead of PrivateTurnClosure, restores no MTP state and reports degraded=1, while the design intent in upstream's docs/maintainer/resource-scheduling-and-context-cache.md says required coverage cannot change after publication. That record carries the attribution, the evidence that this is a defect in shared code rather than a trade-off (the port never touched the pressure decision), and the implementation plan. Baselined so the gate states it rather than hiding it behind a skip until the fix lands; it does not block the release."
     },
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
