@@ -1,4 +1,30 @@
-# NInfer Windows v1.1.0 (RTX 5090)
+# NInfer Windows v1.2.0 (RTX 5090)
+
+## What changed in 1.2.0
+
+Two retention defects, and the configuration that hid them. All four launchers change, so an upgrade
+behaves differently without any action on your part.
+
+- **A growing conversation stopped reusing its own prefix.** Once the State pools filled, publishing
+  the newest checkpoint meant replacing a resident, and the capture could not be valued against doing
+  so, so the reusable frontier pinned and every later request re-prefilled its whole tail. Measured on
+  one conversation at one Device checkpoint slot: the frontier froze at 52,723 tokens with time to
+  first token rising from 2.6 s at 65k context to 15.1 s at 117k. The launchers now pass
+  `--context-cache-policy rolling`, which lets the portfolio fold decide whether a capture is worth more
+  than the resident it would displace; the frontier then tracks the conversation (104,283 of 117,180
+  tokens cached, 4.1 s).
+- **Five conversations did not all stay cached**, because the host State pool could not hold the
+  prefixes plus the private continuations they leave behind, and the shortfall was silent: five prompts
+  sent and then resent gave 3/5 hits at a 59.1% token-level rate. `--host-state-slots` is now 16, which
+  covers every configuration the other two bounds permit (7 shared prefixes plus 8 private
+  continuations). The same test gives 5/5 at 98.9%.
+- **`--device-state-slots 8` is no longer needed** as a workaround for the first defect. The launchers
+  stay at one Device slot, which saves 1.3 GiB and a measured decode cost.
+- **A release check now refuses to package** when the cache bounds stop retaining the working set, so
+  this class of silent shortfall cannot reach a release again.
+
+The request log gained a `policy` field and a `captures` group (`offered`, `no_vacancy`,
+`plan_refused`, `infeasible`) naming why a capture was refused. The log schema version is 22.
 
 First Windows release on the **v3 artifact line**, with speculative decoding working on
 upstream-shaped artifacts, four measured-optimal launchers, and two production bugs fixed
@@ -70,7 +96,7 @@ prefill or kernel paths" — the batched verify kernel is not the single-token d
 so a near-tie can flip. Speculation measured 3-4x faster (67-83 tok/s without it, 239-343
 with it).
 
-## Fixed in this release
+## Fixed in 1.1.0
 
 - **DFlash2 on upstream-shaped artifacts.** Our loader demanded a fused
   `dflash2/layers/*/attention/query_key_value` parameter that upstream's converter never

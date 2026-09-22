@@ -8,7 +8,7 @@ Docker. It runs text, image, and video prompts through a local CLI or OpenAI-/An
 HTTP APIs. The runtime is deliberately specialized: one GPU, one resident model, and a
 startup-fixed capacity of one to eight active requests.
 
-Release v1.1.0 moves to the **v3 artifact line**: four measured launchers over two artifacts, both
+v1.2.0 ships both retention fixes in every launcher; v1.1.0 moved to the **v3 artifact line**: four measured launchers over two artifacts, both
 vision-capable at the full 262,144-token context, with DFlash2 or MTP speculative decoding. The
 engine rejects v2 artifacts outright, so a v1.0.x user must download a v3 artifact or
 [upgrade the one they have](docs/weight-conversion.md#upgrade-an-existing-v2-artifact). Details in
