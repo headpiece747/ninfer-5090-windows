@@ -594,19 +594,29 @@ public:
         std::vector<PlanningOwnerRecord> capture_owner_records;
         if (candidate.publishes_shared) {
             saturating_increment(context_stats_.active_captures_offered);
-            // Explicit pressure admits every catalogued resident as a replacement victim. The
-            // standing `rolling` grants is narrower: only the residents this lane's own request
-            // matched exactly at their frontier, so one conversation's lineage cannot make an
-            // unrelated resident replaceable.
-            const bool explicit_pressure_evidence =
+            // A capture may be valued against replacing any catalogued resident, and the portfolio
+            // fold decides whether it is worth more than what it would displace. Restricting the
+            // candidates to residents the request itself matched -- its proven lineage -- fixes one
+            // append-only conversation but not the general case: with the pools full, five unrelated
+            // conversations retain only those admitted while there was room, because a newcomer with
+            // no lineage has no standing to displace anything and is simply dropped. That is upstream
+            // #270's "cannot be evicted into by ordinary traffic", and the fold is what protects a
+            // resident that is genuinely worth more.
+            //
+            // Measured at the constrained bounds (host 8 / private 8), five prompts of unequal length
+            // sent and resent: before this change the earliest three prefixes were retained, after it
+            // the three longest (99.1-99.5% reuse each), and the count is three either way -- the pool
+            // holds three prefixes beside five continuations, which is capacity and no policy changes
+            // it. The cost is nil: at the shipped bounds the same curve gives byte-identical reach and
+            // TTFT with and without this change, measured interleaved in one clock window; an earlier
+            // 4.1 s against 4.8 s was the window, not the change.
+            const bool pressure_evidence =
+                policy_ == ContextCachePolicy::Rolling ||
                 has_shared_candidate_evidence(candidate.shared_evidence,
                                               SharedCandidateEvidence::ExplicitBoundary) ||
                 has_shared_candidate_evidence(candidate.shared_evidence,
                                               SharedCandidateEvidence::RequestedAutomatic) ||
                 matching_reuse_domains(candidate.shortlist_key) >= 2U;
-            const std::span<const PrefixShortlistKey> proven_extension =
-                lane_proven_extension_keys(lane);
-            const bool pressure_evidence = explicit_pressure_evidence || !proven_extension.empty();
             if (!pressure_evidence) {
                 // Automatic-evidence candidates can only claim vacant slots. Reclaim the oldest
                 // eligible automatic entry first so a saturated catalog cannot freeze them out
@@ -637,12 +647,6 @@ public:
                     SharedCatalogEntry& entry = shared_catalog_[slot];
                     if (entry.state != SharedCatalogState::Catalogued || !entry.handle ||
                         entry.transaction_pins != 0 || shared_active_edge_count(slot) != 0) {
-                        continue;
-                    }
-                    if (!explicit_pressure_evidence &&
-                        std::find(proven_extension.begin(), proven_extension.end(),
-                                  entry.summary.checkpoint.shortlist_key) ==
-                            proven_extension.end()) {
                         continue;
                     }
                     CaptureAssessment assessment = program.inspect_capture(
@@ -1200,7 +1204,6 @@ public:
             reset_active_entry(active_[lane]);
         }
         demand_window_.clear();
-        lane_demand_domain_.fill(std::nullopt);
         demand_epoch_ = 0;
     }
 
@@ -1444,26 +1447,6 @@ private:
             if (demand_matches(demand_window_[bit], key)) { mask |= 1U << bit; }
         }
         return mask;
-    }
-
-    // The resident keys this lane's own committed demand record proves its capture extends: the keys
-    // its request matched exactly at their frontier, so a capture at the prompt's end is a strict
-    // extension of each. This is the standing a shared capture needs before it can be valued against
-    // replacing one of them, and it is deliberately the only residents `rolling` makes replaceable.
-    // Without it one append-only conversation has none: with no session key every request is its own
-    // reuse domain, `matching_reuse_domains` never reaches two, a saturated State pool can never be
-    // relieved, and the reusable frontier stops advancing. Always empty under `default`.
-    [[nodiscard]] std::span<const PrefixShortlistKey>
-    lane_proven_extension_keys(LaneId lane) noexcept {
-        if (policy_ != ContextCachePolicy::Rolling || lane.value >= lane_demand_domain_.size()) {
-            return std::span<const PrefixShortlistKey>{};
-        }
-        const std::optional<ReuseDomainId>& domain = lane_demand_domain_[lane.value];
-        if (!domain) { return std::span<const PrefixShortlistKey>{}; }
-        for (auto record = demand_window_.rbegin(); record != demand_window_.rend(); ++record) {
-            if (record->domain == *domain) { return record->exact_resident_keys; }
-        }
-        return std::span<const PrefixShortlistKey>{};
     }
 
     [[nodiscard]] std::size_t matching_reuse_domains(const PrefixShortlistKey& key) const noexcept {
@@ -2500,12 +2483,11 @@ private:
         }
     }
 
-    void commit_demand(LaneId lane, PrefixDemandRecord&& demand) noexcept {
+    void commit_demand(PrefixDemandRecord&& demand) noexcept {
         if (demand_window_.capacity() < kDemandWindowCapacity) { std::terminate(); }
         if (demand_window_.size() == kDemandWindowCapacity) {
             demand_window_.erase(demand_window_.begin());
         }
-        lane_demand_domain_[lane.value] = demand.domain;
         demand_window_.push_back(std::move(demand));
         saturating_increment(demand_epoch_);
         const PrefixDemandRecord& committed = demand_window_.back();
@@ -3090,7 +3072,7 @@ private:
         }
         StartResult start = std::move(*result.published);
         result.published.reset();
-        commit_demand(record->destination, std::move(record->demand));
+        commit_demand(std::move(record->demand));
         return MaterializationOutcome{
             .status      = ContextTransactionStatus::Published,
             .activation  = PublishedActivation(*this, std::move(start), record->destination),
@@ -3545,10 +3527,6 @@ private:
     std::vector<PrefixIndexEntry> prefix_index_;
     std::vector<CheckpointObservation> observation_scratch_;
     std::vector<PrefixDemandRecord> demand_window_;
-    // The reuse domain of the most recently committed demand record, per lane. The demand window
-    // holds records but no lane, and the active-capture path knows only its own lane, so the link is
-    // recorded where both are known: at commit time.
-    std::array<std::optional<ReuseDomainId>, kMaximumConcurrency> lane_demand_domain_{};
     std::uint32_t max_long_anchors_ = 0;
     ContextCachePolicy policy_      = ContextCachePolicy::Default;
     std::array<ActiveEntry, kMaximumConcurrency> active_{};

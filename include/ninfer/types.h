@@ -152,8 +152,12 @@ struct ContextCacheOptions {
     // conversation never reaches that bar: the identity target is the only one assessed, it is
     // physically infeasible while the pools are full, and the capture degrades to a private-only
     // publication that has no room either -- so the request retains nothing, and the reusable
-    // frontier stops advancing. `rolling` treats the lineage the engine has already proved -- the
-    // residents this request matched exactly at their frontier -- as that standing.
+    // frontier stops advancing. `rolling` lets a capture be valued against replacing any catalogued
+    // resident, and the portfolio fold decides whether it is worth more than what it would displace.
+    // Restricting the candidates to residents the request itself matched fixed one append-only
+    // conversation but left the general case: with the pools full, a newcomer with no lineage cannot
+    // be retained at all, so unrelated conversations keep only the prefixes admitted while there was
+    // room (upstream #270, "cannot be evicted into by ordinary traffic").
     //
     // Measured on this port with one Device checkpoint slot: the reusable frontier was pinned at
     // 52,723 tokens from the fourth request on, with time to first token rising from 2.6 s at 65k

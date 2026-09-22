@@ -3094,8 +3094,7 @@ void require_shared_reuse(FakeManager& manager, FakeProgram& program, std::uint3
 // demand record lists 71's key as a resident it matched exactly -- before offering a capture at a
 // longer frontier of the same conversation. Under the default policy that capture has no standing to
 // replace a resident, and the refusal is what pins one conversation's reusable frontier; under
-// `rolling` the proven lineage admits the replacement and releases the resident it extends, and only
-// that one.
+// `rolling` the capture may be valued against replacing any catalogued resident, and the fold decides.
 //
 // Three fixture conventions have to line up. A published prefix records its summary checkpoint at its
 // shortlist frontier while a pressure impact reports `finish_frontier`, so the prefixes here are
