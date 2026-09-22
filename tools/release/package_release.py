@@ -15,7 +15,8 @@ Layout follows the v1.0.x releases, with three deliberate changes:
     checkout: the archive is the distribution, so the attribution has to travel with it, and
     reading it from another clone made the archive depend on that clone existing and current.
 
-Packaging runs tools/release/check_doc_links.py and tools/release/check_test_baseline.py first, and
+Packaging runs tools/release/check_doc_links.py, tools/release/check_cache_capacity.py and
+tools/release/check_test_baseline.py first, and
 refuses to build an archive when either fails. It also refuses a Debug build of any shipped
 executable, which is what the v1.0.6 vision package contained. The link check is here because a
 rename left two
@@ -105,6 +106,15 @@ def main() -> int:
             print("  RELEASE REFUSED: the suite regressed against the recorded baseline.")
             print("  Fix the regression, or pass --skip-test-gate to accept it deliberately.")
             return 1
+
+    print("  cache hold : running tools/release/check_cache_capacity.py")
+    cache = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parent / "check_cache_capacity.py")],
+        cwd=REPO)
+    if cache.returncode != 0:
+        print("  RELEASE REFUSED: the shipped cache bounds do not retain the working set the")
+        print("  documentation claims. Sizing them is a measurement, not a packaging decision.")
+        return 1
 
     for name in EXES:
         image = BUILD / name
