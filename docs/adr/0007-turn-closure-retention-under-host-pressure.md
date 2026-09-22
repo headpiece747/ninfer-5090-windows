@@ -44,6 +44,18 @@ Attribution, each part measured rather than argued:
 Upstream's code carries the same branch (`pressure_committed`, `pressure_private_owners_degraded` at
 `upstream/master:2512-2569`), so this is shared behaviour, not a port invention.
 
+An attempt to fix it in the planner measured the mechanism instead of assuming it. A target that
+degrades a checkpoint whose `demand_mask` is non-zero was made inadmissible, and the case failed
+identically (`degraded=1`, `path=1`, `state=0`): the dropped checkpoint carries `demand_mask == 0`.
+That is the real shape of the defect. `demand_mask` records *live* demands, and at the moment of the
+pressure decision no request is asking for the turn closure yet -- the closure exists precisely so
+that a *later* turn can reuse it, which is what the design doc says a `TurnClosure` is for. Its loss
+is therefore priced at about nothing and it is dropped. The runtime cannot do better with what it
+has: `git grep 'TurnClosure\|ResponseReplay' -- src/runtime/engine/context_cache/` is empty, so the
+layer that decides what to drop cannot tell a closure from a superseded endpoint. A checkpoint's kind
+and its required coverage live in the model layer, where `program_impl.h` maps
+`RewriteCheckpointKind` to a `ReusePath`.
+
 ## Decision
 
 Accepted: preserve the contract. When host State capacity allows, a pressure action demotes the
@@ -75,9 +87,11 @@ retain a known inferior design."
 
 ## Consequences
 
-- Implementation: the pressure target selection in `materialization_planner.h`, and the action in
-  `resource_manager.h`, must prefer demotion over degradation while host State has room, keeping
-  degradation as the fallback.
+- Implementation: the model layer must declare each checkpoint's required coverage -- a `TurnClosure`
+  or `ResponseReplay` exists for a later turn to reuse, an endpoint does not -- and the runtime's
+  valuation must honour it, so a required checkpoint is demoted rather than dropped while host State
+  has room. Changing the pressure target selection alone is measurably insufficient: that was tried
+  and the case failed identically, because the decision never sees a live demand for a closure.
 - Verification: upstream's case fails today and passes unchanged once the fix lands;
   `tests/test_resource_manager.cpp` covers pressure and degradation at unit level and is in the ASan
   subset of `tools/scripts/test_v3_asan.cmd`; the release gate is
