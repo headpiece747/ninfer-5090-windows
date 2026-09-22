@@ -203,7 +203,7 @@ its own pair. This yields exactly 112 input-divisor objects.
 - `mtp/` contains MTP-private tensors.
 - `vision/` contains the Vision tower and merger.
 - `dflash2/` contains DFlash2-private tensors.
-- `frontend/` contains the six raw frontend resources.
+- `text/` and `vision/` contain the six raw frontend resources.
 
 Objects are written in this order:
 
