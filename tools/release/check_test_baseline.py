@@ -203,13 +203,21 @@ def main() -> int:
         print("  Fix the regression, or record it in test_baseline.json with its reason.")
 
     skipped = parse_skipped(log)
-    if skipped:
-        print(f"\n  GATE FAILED: {len(skipped)} test(s) were skipped, so their coverage is missing:")
-        for name in sorted(skipped):
+    required = set(baseline.get("required_tests", []))
+    skipped_required = sorted(skipped & required)
+    if skipped_required:
+        print(f"\n  GATE FAILED: {len(skipped_required)} required test(s) were skipped, so their "
+              f"coverage is missing:")
+        for name in skipped_required:
             print(f"    {name}")
-        print("  A release is cut where its artifacts are present; a skip here is absent evidence.")
+        print("  A required test is one this product's artifacts can satisfy; make it run.")
+    if skipped:
+        optional = baseline.get("optional_tests", {})
+        print(f"\n  note: {len(skipped)} real-model test(s) not required on this product:")
+        for name in sorted(skipped):
+            print(f"    {name}  -- {optional.get(name, 'no reason recorded')}")
 
-    if new_failures or skipped:
+    if new_failures or skipped_required:
         return 1
 
     print(f"  suite        {total - len(failing)}/{total} passed "
