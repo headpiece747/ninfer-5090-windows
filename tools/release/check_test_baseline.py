@@ -194,12 +194,22 @@ def main() -> int:
     new_failures = sorted(failing - known)
     fixed = sorted(known - failing)
 
+    # Skips are reported after failures, never instead of them: this check used to return here and hide
+    # a run that both skipped and failed.
+    if new_failures:
+        print("\n  GATE FAILED: new test failure(s) not in the baseline:")
+        for name in new_failures:
+            print(f"    {name}")
+        print("  Fix the regression, or record it in test_baseline.json with its reason.")
+
     skipped = parse_skipped(log)
     if skipped:
         print(f"\n  GATE FAILED: {len(skipped)} test(s) were skipped, so their coverage is missing:")
         for name in sorted(skipped):
             print(f"    {name}")
         print("  A release is cut where its artifacts are present; a skip here is absent evidence.")
+
+    if new_failures or skipped:
         return 1
 
     print(f"  suite        {total - len(failing)}/{total} passed "
