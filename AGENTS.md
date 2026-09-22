@@ -204,8 +204,9 @@ Twenty-one rules, each earned by a failure rather than chosen:
   on memory of the enclosing function cost a compile error. The permanent form is a counter, because
   the context cache cannot log: logging is a layer above `src/runtime`. Counters carry decisions only;
   a magnitude (a baseline, a threshold, an allowed time) needs a value-bearing probe or a diagnostics
-  field, and `active_captures_inherited_demand` proved the inheritance fires without saying whether
-  the value it added was enough.
+  field. A counter can prove that a mechanism fired without saying whether the value it added was
+  enough -- and the mechanism it measured was later removed as inert, which that counter could not
+  have told anyone.
 - **The build and the running product contend for the same files.** Linking `ninfer-serve.exe`
   failed with LNK1104 because a server started earlier still held it, and a test source was edited
   while `build-test` was reading it -- survived only because that phase had not yet begun. Stop the
@@ -242,10 +243,10 @@ Twenty-one rules, each earned by a failure rather than chosen:
   same probe's comment reasoned from `exp(threshold) * |state|` to a conclusion the test had
   already falsified. Reasoning that survives only until it meets the artifact belongs in a
   hypothesis, not in a comment that the next reader will trust. Advertised surface makes the same
-  kind of claim: `--context-cache-policy` was in the tree, parsed, reached the manager, changed a
-  demand mask, and did not lift the frontier it exists to lift, with nothing in `docs/serving.md` or
-  the README option list. A CLI option, a README row or a doc paragraph lands with its measurement
-  and its documentation, or it does not land.
+  kind of claim: an option once sat in this tree that parsed, reached the manager, and lifted nothing
+  it was meant to lift, with no row in `docs/serving.md` and no mention in the README -- the tree it
+  shipped in would have advertised a fix on the strength of a design document. A CLI option, a README
+  row or a doc paragraph lands with its measurement and its documentation, or it does not land.
 - **Check whether a skill is actually loaded before relying on it, and say which one you used.**
   Five project skills added mid-session (`cpp-cuda-review`, `ncu-report`, `cuda-debugging`,
   `sanitizers`, `address-sanitizer`) were invisible to the running session, and two wrong

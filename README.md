@@ -180,6 +180,17 @@ every call and no error or degradation signal anywhere. Raising the shared-prefi
 alone changed nothing; the anchor and private-continuation bounds were the binding
 constraints. All three together gave **5/5 hits at 99.1%**.
 
+A second retention limit sits above those bounds. Once the State pools are full, publishing the
+conversation's newest checkpoint means replacing a resident, and by default that requires the capture
+to be demanded by two matching reuse domains or to carry explicit evidence. With no session key every
+request is its own reuse domain, so one append-only conversation never clears that bar: measured here,
+its reusable frontier froze at 52,723 tokens and time to first token grew with the whole prompt --
+2.6 s at 65k context, 15.1 s at 117k. `--context-cache-policy rolling` supplies that standing from the
+conversation's own proven lineage, the residents its request matched exactly at their frontier, and the
+frontier then tracks the conversation: 104,283 of 117,180 tokens cached and 4.1 s to first token on the
+same workload, with one Device checkpoint slot rather than the eight that used to be needed. It is
+opt-in because it will evict a prefix that another conversation sharing it still wants.
+
 The bounds cost nothing measurable in the profile they were measured on (QUASAR DFlash2 with Vision at 262,144). `--kv-capacity auto` sizes each pool from the VRAM left after weights, so every profile's capacity is its own measured ceiling, not a shared number.
 The failure mode is silent, so it is worth setting these even when a single repeated prompt
 appears to cache perfectly — a lone resident prefix masks it.
