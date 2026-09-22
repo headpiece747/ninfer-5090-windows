@@ -226,12 +226,12 @@ The artifact preserves exactly these official-source files as `raw_bytes_v1` res
 
 | Order | Object name | Source filename | Meaning |
 |---:|---|---|---|
-| 0 | `frontend/tokenizer.json` | `tokenizer.json` | base BPE vocabulary, merges, token bytes, and its added-token subset |
-| 1 | `frontend/tokenizer_config.json` | `tokenizer_config.json` | complete added-token decoder, prefix, and special-token policy |
-| 2 | `frontend/chat_template.jinja` | `chat_template.jinja` | registered Qwen template |
-| 3 | `frontend/generation_config.json` | `generation_config.json` | default stop ids |
-| 4 | `frontend/preprocessor_config.json` | `preprocessor_config.json` | image preprocessing limits and constants |
-| 5 | `frontend/video_preprocessor_config.json` | `video_preprocessor_config.json` | video sampling and preprocessing |
+| 0 | `text/tokenizer.json` | `tokenizer.json` | base BPE vocabulary, merges, token bytes, and its added-token subset |
+| 1 | `text/tokenizer_config.json` | `tokenizer_config.json` | complete added-token decoder, prefix, and special-token policy |
+| 2 | `text/chat_template.jinja` | `chat_template.jinja` | registered Qwen template |
+| 3 | `text/generation_config.json` | `generation_config.json` | default stop ids |
+| 4 | `vision/preprocessor_config.json` | `preprocessor_config.json` | image preprocessing limits and constants |
+| 5 | `vision/video_preprocessor_config.json` | `video_preprocessor_config.json` | video sampling and preprocessing |
 
 ## 5. Text and optimized proposal inventory
 
