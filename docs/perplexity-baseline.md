@@ -18,6 +18,28 @@ The custom corpus is this repo's `docs/` and `tests/` markdown, concatenated in 
 is the like-for-like check: same text, same protocol, two artifacts. The full-corpus rows are not
 comparable with the `--quick` row, since the corpus subset differs.
 
+## Measuring a template
+
+`--chat-template` was added to this tool and then removed: perplexity scores **raw text**, so it never
+renders a chat and the flag could not change a score. Measured before removing it, three templates --
+the artifact's embedded one, `tools/chat_templates/qwen3_8.jinja`, and
+froggeric/Qwen-Fixed-Chat-Templates v22.5 -- produced byte-identical perplexities on every artifact.
+
+What the run did establish is the artifact ranking this file was missing:
+
+| artifact | PPL (--quick, fp8) |
+|---|---|
+| `qwen3_8_27b_nvfp4full` | **4.77136** |
+| `qwen3_8_27b_nvfp4` (official) | 4.82676 |
+| `qwen3_8_27b_nvfp4qat` (QUASAR) | 4.89741 |
+
+NVFP4-full is lowest, the official artifact 1.2% above it, QUASAR 2.6% above that -- the first
+like-for-like ranking of the three on one protocol.
+
+**A chat template needs a different instrument.** Perplexity cannot see one. What can are the rendered
+prompt -- the token counts the CLI reports, which is how the reasoning-effort alias gap was caught -- and
+any chat-shaped scoring route. Recorded here so the flag is not added again.
+
 ## The one open discrepancy
 
 A third-party conversion recipe publishes PPL **4.617** for the official stock artifact on this same
