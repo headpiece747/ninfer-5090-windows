@@ -159,11 +159,18 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # The same bounds gave 5/5 on 2026-09-17 (commit 93181817); #251 landed on 2026-09-19 and changed
     # how many states a conversation keeps, and nothing re-ran the claim.
     #
+    # 16 is derived rather than chosen: the other two bounds admit at most 7 shared prefixes plus 8
+    # private continuations, so 15 covers every configuration they permit and 16 is that plus one.
+    # Measured on the agent shape -- one 16,154-token prefix, six forks, then the original prompt again
+    # -- the prefix survives the fan-out at 8, 12 and 16 alike, and the forks are what is evicted, 4, 3
+    # and 2 as the pool grows. That is the intended priority, and it is why the private bound is the
+    # wrong knob to lower: an agent session forks on every tool call.
+    #
     # --context-cache-policy rolling ships enabled: once the pools are full, publishing a conversation's
     # newest checkpoint means replacing a resident, and by default that needs two matching reuse domains
     # or explicit evidence -- which one append-only conversation never has, so its reusable frontier
-    # pins (measured: 52,723 tokens, TTFT 2.6 s -> 15.1 s at 65k -> 117k context). `rolling` takes the
-    # standing from the lineage the request already proved, and the frontier then tracks the
+    # pins (measured: 52,723 tokens, TTFT 2.6 s -> 15.1 s at 65k -> 117k context). `rolling` values a
+    # capture against replacing any resident and lets the fold decide, so the frontier then tracks
     # conversation (104,283 of 117,180, TTFT 4.1 s). It was proposed upstream as opt-in for shared
     # multi-tenant servers, where it can evict a prefix another conversation still wants; this is a
     # local single-owner product, and two saturating conversations measured byte-identical to the
