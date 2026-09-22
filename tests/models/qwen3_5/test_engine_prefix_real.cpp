@@ -242,27 +242,36 @@ int exercise_registered_frontend(const ninfer::Engine& engine) {
                   << "tokens, got " << raw.size() << "\n";
         ++failures;
     }
-    // The reference renders this prompt as 18 tokens and ours is 19. Verified so far: the tokenizer
-    // matches the reference exactly on raw text, both the shipped and the snapshot template render 18 in
-    // the reference, and the vendored lexer already applies trim_blocks/lstrip_blocks and strips the
-    // trailing newline. So the difference is in this engine's own render path, and the next step is to
-    // print its token ids -- which needs a target that links the frontend, since the public
-    // PreparedPrompt exposes no ids.
-    // Report both counts rather than stopping at the first: the no-thinking prompt has no
-    // reasoning-effort preamble, so it is the like-for-like comparison against the reference tokenizer,
-    // and reaching it is what tells a tokenizer difference apart from a template difference.
+    // The reference tokenizes this exact text into these 18 ids, and the text is the reference render
+    // byte for byte (pinned in test_frontend.cpp). Asserting the ids rather than the count keeps the
+    // tokenizer's special-token handling covered, which the raw-text check above cannot reach because
+    // its text carries no control tokens.
+    const std::string reference_render =
+        "<|im_start|>user\n你好，简单介绍一下你自己。<|im_end|>\n"
+        "<|im_start|>assistant\n<think>\n\n</think>\n\n";
+    const std::vector<ninfer::TokenId> reference_ids = {
+        248045, 846, 198, 109266, 3709, 97561, 113552, 111522, 1710, 248046, 198, 248045, 74455, 198,
+        248068, 271, 248069, 271};
+    const std::vector<ninfer::TokenId> render_ids = engine.tokenize_text(reference_render);
+    if (render_ids != reference_ids) {
+        std::cerr << "artifact tokenizer disagrees with the reference on the rendered prompt: expected "
+                  << reference_ids.size() << " tokens, got " << render_ids.size() << "\n";
+        ++failures;
+    }
+    // The reference renders these prompts at 58 and 18 tokens. Both counts read one higher while the
+    // artifact's embedded template carried a UTF-8 BOM, which the renderer emitted as the first
+    // character of every prompt; the loader now strips it (see test_frontend.cpp). The thinking golden
+    // read 16 before the template gained its reasoning-effort preamble.
     const auto thinking_tokens = engine.count_tokens(chinese_chat(true));
     const auto plain_tokens    = engine.count_tokens(chinese_chat(false));
-    if (thinking_tokens != 16) {
+    if (thinking_tokens != 58) {
         std::cerr << "registered tokenizer/chat template changed the thinking prompt golden: expected "
-                  << 16 << ", got " << thinking_tokens
-                  << " (the reference renders this prompt with a reasoning-effort preamble)\n";
+                  << 58 << ", got " << thinking_tokens << "\n";
         ++failures;
     }
     if (plain_tokens != 18) {
         std::cerr << "registered tokenizer/chat template changed the no-thinking prompt golden: "
-                  << "expected " << 18 << ", got " << plain_tokens
-                  << " (the reference renders this one at 18)\n";
+                  << "expected " << 18 << ", got " << plain_tokens << "\n";
         ++failures;
     }
     return failures == 0 ? 0 : 1;
@@ -2095,53 +2104,75 @@ int verify_loaded_product(const ninfer::Engine& engine) {
 } // namespace
 
 int exercise_artifact(const char* artifact) {
+    // Name each step as it starts. This sequence returns on the first failure and several steps print
+    // nothing, so without this a failing run says only that it failed -- which cost several runs to
+    // work around when exercise_host_restore turned out to be the case that failed.
+    int step = 0;
+    const auto trace = [&step](const char* name) {
+        std::cerr << "artifact step " << ++step << ": " << name << "\n";
+    };
     {
         ninfer::EngineOptions options             = engine_options(artifact);
         options.context_cache.device_state_slots  = 2;
         options.context_cache.max_shared_prefixes = 0;
         ninfer::Engine engine(std::move(options));
+        trace("verify_loaded_product");
         if (const int result = verify_loaded_product(engine); result != 0) { return result; }
+        trace("exercise_registered_frontend");
         if (const int result = exercise_registered_frontend(engine); result != 0) { return result; }
+        trace("exercise_stream_observations");
         if (const int result = exercise_stream_observations(engine); result != 0) { return result; }
+        trace("exercise_full_prefill_chunk");
         if (const int result = exercise_full_prefill_chunk(engine); result != 0) { return result; }
+        trace("exercise_rewrite_checkpoints_private");
         if (const int result =
                 exercise_rewrite_checkpoints(engine, RewriteCheckpointCacheTopology::PrivateOnly);
             result != 0) {
             return result;
         }
+        trace("exercise_prefix");
         if (const int result = exercise_prefix(engine); result != 0) { return result; }
+        trace("exercise_abandoned_handle_capacity");
         if (const int result = exercise_abandoned_handle_capacity(engine); result != 0) {
             return result;
         }
     }
+    trace("exercise_rewrite_branch");
     if (const int result = exercise_rewrite_branch(artifact); result != 0) { return result; }
     {
         ninfer::Engine engine(engine_options(artifact));
+        trace("exercise_vision");
         if (const int result = exercise_vision(engine); result != 0) { return result; }
     }
+    trace("exercise_host_restore");
     if (const int result = exercise_host_restore(artifact); result != 0) { return result; }
     {
         // Production C=1/H=1 topology: repeated exact use promotes the shared prefix under one
         // cache Device slot; its Fork/Restore and the later ResponseReplay must then rotate
         // without a session identity or dropping either owner.
         ninfer::Engine engine(shared_replacement_engine_options(artifact));
+        trace("exercise_rewrite_checkpoints_shared");
         if (const int result =
                 exercise_rewrite_checkpoints(engine, RewriteCheckpointCacheTopology::SharedAlias);
             result != 0) {
             return result;
         }
     }
+    trace("exercise_shared_replacement_and_full_capacity_reuse");
     if (const int result = exercise_shared_replacement_and_full_capacity_reuse(artifact);
         result != 0) {
         return result;
     }
+    trace("exercise_private_long_anchor_capture_and_replacement");
     if (const int result = exercise_private_long_anchor_capture_and_replacement(artifact);
         result != 0) {
         return result;
     }
+    trace("exercise_last_private_alias_eviction");
     if (const int result = exercise_last_private_alias_eviction(artifact); result != 0) {
         return result;
     }
+    trace("exercise_concurrent_resource_settlement");
     if (const int result = exercise_concurrent_resource_settlement(artifact); result != 0) {
         return result;
     }
@@ -2187,6 +2218,8 @@ int main() {
         options.context_cache.max_shared_prefixes = 0;
         ninfer::Engine engine(std::move(options));
         result = exercise_rewrite_checkpoints(engine, RewriteCheckpointCacheTopology::PrivateOnly);
+    } else if (scenario == "host-restore") {
+        result = exercise_host_restore(artifact);
     } else if (scenario == "stream-observations") {
         auto options          = engine_options(artifact);
         options.enable_vision = false;

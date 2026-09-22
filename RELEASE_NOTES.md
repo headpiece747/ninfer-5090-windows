@@ -2,8 +2,9 @@
 
 ## What changed in 1.2.0
 
-Two retention defects, and the configuration that hid them. All four launchers change, so an upgrade
-behaves differently without any action on your part.
+Three defects: two retention faults and the configuration that hid them, plus a stray byte in the
+shipped chat template. All four launchers change, so an upgrade behaves differently without any
+action on your part.
 
 - **A growing conversation stopped reusing its own prefix.** Once the State pools filled, publishing
   the newest checkpoint meant replacing a resident, and the capture could not be valued against doing
@@ -22,6 +23,11 @@ behaves differently without any action on your part.
   stay at one Device slot, which saves 1.3 GiB and a measured decode cost.
 - **A release check now refuses to package** when the cache bounds stop retaining the working set, so
   this class of silent shortfall cannot reach a release again.
+- **Every prompt began with a stray zero-width character.** The chat template embedded in the shipped
+  artifact carried a UTF-8 byte-order mark, and the renderer emitted it as the first character of the
+  prompt: one wasted token on every request, and on the vision path it also broke prefix reuse, so a
+  follow-up turn re-prefilled instead of reusing what it had. The template loader strips a leading BOM
+  now, and both prompt goldens match the reference tokenizer's counts again (58 and 18).
 
 The request log gained a `policy` field and a `captures` group (`offered`, `no_vacancy`,
 `plan_refused`, `infeasible`) naming why a capture was refused. The log schema version is 22.

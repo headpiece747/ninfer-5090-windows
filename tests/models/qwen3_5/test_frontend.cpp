@@ -2162,6 +2162,42 @@ int test_media_preparation_cancellation() {
 
 } // namespace
 
+// Byte-level parity against the reference tokenizer, with no artifact in the loop: our shipped template
+// renders the same message, and the reference renders the no-thinking prompt as 82 characters / 18
+// tokens ending "tant\n<think>\n\n</think>\n\n". Our engine counts 19 tokens, so whatever the difference
+// is, it is visible here as a length or as a tail -- which names it instead of inferring it.
+int test_shipped_template_render_bytes() {
+    // Byte-exact against the reference tokenizer's render of the same message (82 characters, 108
+    // UTF-8 bytes, LF endings), using the template the artifact carries rather than the qwen3_6
+    // fixture that render_chat() selects.
+    const std::string source = reasoning_effort_template_source();
+    const fi::CompiledChatTemplate shipped = fi::CompiledChatTemplate::resolve(source);
+    fi::ChatRenderOptions options;
+    options.enable_thinking = false;
+    const std::vector<fi::ChatMessage> messages{
+        chat_message(ninfer::ChatRole::User, "你好，简单介绍一下你自己。")};
+    const std::string text = shipped.render(messages, options).text;
+    const std::string expected =
+        "<|im_start|>user\n你好，简单介绍一下你自己。<|im_end|>\n"
+        "<|im_start|>assistant\n<think>\n\n</think>\n\n";
+    if (text != expected) {
+        std::cerr << "shipped template render differs from the reference render: " << text.size()
+                  << " bytes vs " << expected.size() << "\n";
+        return 1;
+    }
+    // An artifact has shipped whose embedded template was this file with a UTF-8 BOM prepended and
+    // nothing else different. The lexer emitted the mark as the first character of every render, which
+    // is one token in every prompt and a zero-width character in front of the chat control tokens, so
+    // the loader strips it. This is the case that fails if that strip is ever removed.
+    const fi::CompiledChatTemplate with_bom =
+        fi::CompiledChatTemplate::resolve("\xef\xbb\xbf" + source);
+    if (with_bom.render(messages, options).text != text) {
+        std::cerr << "a leading UTF-8 BOM changed the rendered prompt\n";
+        return 1;
+    }
+    return 0;
+}
+
 int main() {
     const FrontendResources owned = resources();
     const Frontend frontend       = make_frontend(owned);
@@ -2208,5 +2244,6 @@ int main() {
     failures += test_media_preparation_cancellation();
     failures += test_invalid_media_classification();
     failures += test_disabled_vision();
+    failures += test_shipped_template_render_bytes();
     return failures == 0 ? 0 : 1;
 }

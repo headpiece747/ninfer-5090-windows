@@ -73,6 +73,11 @@ struct JinjaTemplate::Impl {
 
     Impl(std::string text, std::string name) : source_name(std::move(name)) {
         try {
+            // A byte-order mark is an encoding artifact, not template content. The lexer would emit it
+            // as the first character of every render, which costs one token in every prompt and puts a
+            // zero-width character in front of the chat control tokens. An artifact has shipped with
+            // one embedded, so strip it here rather than trusting every source file to be clean.
+            if (text.compare(0, 3, "\xef\xbb\xbf") == 0) { text.erase(0, 3); }
             unicode_internal::utf8_codepoints(text, "chat template");
             auto tokens   = jinja::lexer().tokenize(text);
             source        = std::move(tokens.source);
