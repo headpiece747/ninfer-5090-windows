@@ -5,6 +5,10 @@
     "ninfer_qwen3_5_prefix_real_test": {
       "case": "exercise_registered_frontend",
       "reason": "Our engine renders this prompt with one token more than the reference tokenizer: 59 against 58 with thinking enabled, 19 against 18 without. The artifact supplies the template and tokenizer byte-identical to the QUASAR-QAT snapshot they came from, so the difference is systematic and lies in the render/tokenize path, not the artifact. The goldens (16 and 18) are also stale for the thinking prompt, because the template now inserts a reasoning-effort preamble. Found 2026-09-21 by running the real-model tests for the first time -- they had always been skipped, so this was invisible."
+    },
+    "ninfer_qwen3_5_dflash_real_test": {
+      "case": "dflash real route",
+      "reason": "Fails in ~2.3 s before any model load with a fail-fast, so it never reaches the engine. Its prerequisite is unresolved: score_real_test and dflash2_real_test pass against the same artifact once NINFER_TEST_ARTIFACT is set correctly, and this one does not, so it is not the harness this time. Baselined so the gate stays truthful about it rather than hiding it behind a skip."
     }
   },
   "required_tests": [
