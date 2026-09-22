@@ -221,7 +221,11 @@ Twenty-five rules, each earned by a failure rather than chosen:
   also wrote three junk filenames), a log path the launcher named differently from the loop tag, a run
   too short for the request log to flush, and a server that never started. Check that the input exists
   and that the run happened before reading a single figure. A zero that cannot be explained is not a
-  result.
+  result. The same applies to a *failure*: four real-model tests failed in `cmd` because
+  `set VAR=value && ctest` sets the value **with a trailing space**, so the artifact path became
+  `...v3.ninfer ` and an extension check rejected it -- while the identical binary passed under
+  PowerShell's `$env:`. Use `set "VAR=value"` in `cmd`, never `set VAR=value && ...`, and before
+  diagnosing a test failure check that the harness handed it what you think it did.
 - **A figure in a comment carries its configuration.** A startup line reading "pinning host state |
   1.46 GiB" was recorded as the 16-slot cost and committed; it is the 8-slot figure, and three logs
   side by side give 1.46 / 2.19 / 2.92 at 8 / 12 / 16. A number that arrives without its configuration
