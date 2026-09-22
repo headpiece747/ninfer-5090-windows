@@ -200,9 +200,17 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # log shows offered 1, no_vacancy 0, plan_refused 0, infeasible 0 -- the capture is offered and
     # planned -- while shared_owners_degraded is 1 and shared_stable_prefix hits are 0: the shared
     # owner is published and then degraded, so it never serves. Host KV sits at 653 MiB of 8 GiB with
-    # 2 of 16 state slots occupied, so neither pool is the constraint, and the same window records
-    # search_budget_exhaustions 1. That points at the materialization search, not the pools: the grant
-    # that scales with the incumbent's cost still runs out when the incumbent is large.
+    # 2 of 16 state slots occupied, so neither pool is the constraint.
+    #
+    # The materialization search is not it either. Raising its absolute grant ceiling from 250 ms to
+    # 5 s -- the /20 economic term of a full-context re-prefill, so the ceiling stops binding below
+    # the term the budget calls the real governor -- left shared_stable_prefix at 0 and
+    # search_budget_exhaustions at 1, unchanged, and the change was reverted. The search stays
+    # exhausted there because the boundary allowance caps it by design.
+    #
+    # That leaves the cost fold's valuation, which is the shape ADR-0007 records for the private
+    # case: a checkpoint whose reuse has not arrived yet carries no demand, so its loss prices at
+    # about nothing and degrading it looks cheap.
     #
     # Whether recency beats the fold is unresolved. A diagnostic recency policy (oldest resident as the
     # victim, value gate bypassed) did change the eviction behaviour -- two shared owners evicted where
