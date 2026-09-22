@@ -175,6 +175,21 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # multi-tenant servers, where it can evict a prefix another conversation still wants; this is a
     # local single-owner product, and two saturating conversations measured byte-identical to the
     # default policy, so there is no second tenant to protect here.
+    #
+    # What is NOT settled, measured 2026-09-21 and left open deliberately rather than guessed:
+    #
+    # Prefix sharing here is conditional on the frontend declaring a stable prefix. Two conversations
+    # carrying 12,000 byte-identical tokens -- once inside the user turn, once as a shared system
+    # message -- both reported `root` and zero cached, so a common prefix nobody declared is never
+    # shared. A radix tree shares it automatically, which makes automatic discovery the one advantage
+    # of that design this engine lacks; how often a real workload carries such a prefix is unmeasured,
+    # and that is what would size the decision.
+    #
+    # Whether recency beats the fold is unresolved. A diagnostic recency policy (oldest resident as the
+    # victim, value gate bypassed) did change the eviction behaviour -- two shared owners evicted where
+    # the fold evicts none -- while leaving the retained set identical, which contradicts the model of
+    # what it does. The next attempt needs a per-entry use stamp and attribution of which entry was
+    # evicted before it can conclude anything, so no conclusion is recorded here.
     out.extend([("--host", "127.0.0.1"),
                 ("--port", str(profile["port"])),
                 ("--model-id", profile["model_id"]),
