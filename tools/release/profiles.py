@@ -190,6 +190,20 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # of that design this engine lacks; how often a real workload carries such a prefix is unmeasured,
     # and that is what would size the decision.
     #
+    # Answered 2026-09-22 from a live 51-request agent log: such a prefix is not rare, it is every
+    # conversation switch. An agent carries its system prompt and twelve tool definitions identically
+    # on every request, at a tool boundary the frontend does declare, and the log shows every cache
+    # hit as `private endpoint`, none shared, with a conversation switch costing a 59.6 s cold
+    # prefill at 171,953 tokens.
+    #
+    # The cause is not capacity. Reproduced at a 65,536-token context with these bounds, the request
+    # log shows offered 1, no_vacancy 0, plan_refused 0, infeasible 0 -- the capture is offered and
+    # planned -- while shared_owners_degraded is 1 and shared_stable_prefix hits are 0: the shared
+    # owner is published and then degraded, so it never serves. Host KV sits at 653 MiB of 8 GiB with
+    # 2 of 16 state slots occupied, so neither pool is the constraint, and the same window records
+    # search_budget_exhaustions 1. That points at the materialization search, not the pools: the grant
+    # that scales with the incumbent's cost still runs out when the incumbent is large.
+    #
     # Whether recency beats the fold is unresolved. A diagnostic recency policy (oldest resident as the
     # victim, value gate bypassed) did change the eviction behaviour -- two shared owners evicted where
     # the fold evicts none -- while leaving the retained set identical, which contradicts the model of
