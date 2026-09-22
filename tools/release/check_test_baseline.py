@@ -48,7 +48,9 @@ CACHE = BUILD / ".gate-cache.json"
 # The slowest test measured 262 s (ninfer_context_kv_materialize_test) and ctest has no timeout by
 # default, so this fails a hanging test rather than letting it stall a release indefinitely.
 TEST_TIMEOUT_SECONDS = 900
-FAILURE_LINE = re.compile(r"^\s*\d+\s+-\s+(\S+)\s+\(Failed\)")
+# ctest reports a failing test as "(Failed)" or, when the process aborted, as "(Exit code 0xc0000409)".
+# Matching only the first form hid four of five failures in one run.
+FAILURE_LINE = re.compile(r"^\s*\d+\s+-\s+(\S+)\s+\((?:Failed|Exit code \S+|Exception[^)]*)\)")
 
 
 def find_ctest() -> str | None:
