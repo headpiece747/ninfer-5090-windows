@@ -1,4 +1,5 @@
 #include "ninfer/engine.h"
+#include "models/qwen3_5/frontend/prepared_prompt.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -241,6 +242,12 @@ int exercise_registered_frontend(const ninfer::Engine& engine) {
                   << "tokens, got " << raw.size() << "\n";
         ++failures;
     }
+    // The reference renders this prompt as 18 tokens and ours is 19. Verified so far: the tokenizer
+    // matches the reference exactly on raw text, both the shipped and the snapshot template render 18 in
+    // the reference, and the vendored lexer already applies trim_blocks/lstrip_blocks and strips the
+    // trailing newline. So the difference is in this engine's own render path, and the next step is to
+    // print its token ids -- which needs a target that links the frontend, since the public
+    // PreparedPrompt exposes no ids.
     // Report both counts rather than stopping at the first: the no-thinking prompt has no
     // reasoning-effort preamble, so it is the like-for-like comparison against the reference tokenizer,
     // and reaching it is what tells a tokenizer difference apart from a template difference.
