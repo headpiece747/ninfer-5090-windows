@@ -72,6 +72,9 @@ hard-pinning PR was reverted because "priority controls eviction order, not exem
 "protected" class, which is defined by the next turn's uncached token count rather than by current
 demand.
 
+**Superseded for the shared case by ADR-0008:** the shared catalog's handle is never populated, so
+those entries are unusable and their valuation never mattered. The private finding below is untouched.
+
 Upstream's code carries the same branch (`pressure_committed`, `pressure_private_owners_degraded` at
 `upstream/master:2512-2569`), so this is shared behaviour, not a port invention.
 
