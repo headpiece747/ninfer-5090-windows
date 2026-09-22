@@ -305,7 +305,9 @@ Twenty-five rules, each earned by a failure rather than chosen:
   by up to ~9% between windows: measure A and then B and you have measured the window. Two findings
   died that way in one session, a 14% slot-count claim and a 9% artifact claim, and both were
   committed before the interleaved run disproved them. ADR-0003 records the detail.
-- **Do not narrate the session's own limits.** Context length, remaining room and "this needs a fresh
-  pass" are not findings about the work and not the reader's problem: an agent that raises them is
-  describing itself, and the user spends a turn saying so. Report what was measured, what remains and
-  what it needs -- never how much space is left to say it in.
+- **Do not ration work against an assumed context limit.** A session is not short: it can run long,
+  and compaction exists for when it does not fit. An agent that behaves as if it is about to run out
+  takes smaller changes than the job needs, defers the next step it has already identified, cuts an
+  investigation short, and hands over work it could have finished -- each one a worse result that
+  nobody asked for. Do the whole job now. Never cite remaining room as a reason for anything: not for
+  a smaller diff, not for stopping, not for what to attempt next.
