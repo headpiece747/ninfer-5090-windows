@@ -326,7 +326,12 @@ public:
                 if (!valid_prefix_index_entry(index)) { continue; }
                 const std::optional<PrefixShortlistKey> incoming =
                     base.prefix_shortlist_key(index.key.frontier);
-                if (!incoming || *incoming != index.key) { continue; }
+                if (!incoming || *incoming != index.key) {
+                    if (index.shared) {
+                        saturating_increment(context_stats_.shared_reuse_key_mismatch);
+                    }
+                    continue;
+                }
 
                 if (!index.shared) {
                     const CatalogEntry& entry = catalog_[index.slot];
@@ -372,9 +377,13 @@ public:
 
                 const SharedCatalogEntry& entry = shared_catalog_[index.slot];
                 if (entry.state != SharedCatalogState::Catalogued || !entry.handle) { continue; }
+                saturating_increment(context_stats_.shared_reuse_candidates);
                 std::optional<AdmissionCandidate> plan = program.inspect_admission(
                     prompt, base, *destination, nullptr, &*entry.handle, index.checkpoint, false);
-                if (!plan) { continue; }
+                if (!plan) {
+                    saturating_increment(context_stats_.shared_reuse_declined);
+                    continue;
+                }
                 if (plan->summary().reusable_prompt_tokens == 0 ||
                     plan->identity_assessment().source_mode != PrivateSourceMode::Retain) {
                     throw std::logic_error("Program returned an invalid shared candidate");
@@ -1160,6 +1169,9 @@ public:
         out.active_captures_no_vacancy              = context_stats_.active_captures_no_vacancy;
         out.active_captures_plan_refused            = context_stats_.active_captures_plan_refused;
         out.active_captures_infeasible              = context_stats_.active_captures_infeasible;
+        out.shared_reuse_candidates                 = context_stats_.shared_reuse_candidates;
+        out.shared_reuse_declined                   = context_stats_.shared_reuse_declined;
+        out.shared_reuse_key_mismatch               = context_stats_.shared_reuse_key_mismatch;
         out.historical_fork_hits            = context_stats_.historical_fork_hits;
         out.actual_context_transfer_seconds = context_stats_.actual_context_transfer_seconds;
 

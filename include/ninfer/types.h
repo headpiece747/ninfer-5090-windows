@@ -944,6 +944,15 @@ struct RuntimeStats {
     std::uint64_t private_response_replay_selections = 0;
     std::uint64_t private_long_anchor_selections     = 0;
     std::uint64_t shared_stable_prefix_selections    = 0;
+    // Why the shared path served nothing. A shared prefix can be skipped before a plan is ever asked
+    // -- the request has no shortlist key at that frontier -- or the plan can decline it, and the two
+    // are indistinguishable from shared_stable_prefix_selections alone. An automatic boundary is the
+    // end of the last message, so an automatic shared prefix is offered only to a request whose
+    // prompt matches it there; a caller that wants a shared prefix served must declare the boundary.
+    // The runtime layer cannot log, so these are counted here.
+    std::uint64_t shared_reuse_candidates            = 0;
+    std::uint64_t shared_reuse_declined              = 0;
+    std::uint64_t shared_reuse_key_mismatch          = 0;
     std::uint64_t reused_prompt_tokens               = 0;
     std::uint32_t last_selected_frontier_tokens      = 0;
 

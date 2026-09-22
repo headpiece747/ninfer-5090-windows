@@ -776,6 +776,50 @@ int test_common_objects() {
     return failures;
 }
 
+// The OpenAI protocol defines its own prompt-cache write policy, so it never uses the Engine's
+// structural shared boundaries: `allow_engine_automatic_shared_prefixes` is cleared and the
+// automatic boundary is placed at the end of the last message instead. That boundary is the whole
+// prompt, so an undeclared request only offers a shared prefix to a request whose prompt matches it
+// there. A caller that wants a shared prefix served declares the boundary, which is what gives it
+// the evidence that lets shared publication commit without surplus capacity.
+int test_prompt_cache_boundaries() {
+    int failures = 0;
+
+    const OpenAIChatRequest automatic = parse(base_request());
+    const GenerationRequest& plain    = automatic.generation;
+    failures += check(!plain.allow_engine_automatic_shared_prefixes,
+                      "an OpenAI request disables the Engine's structural shared boundaries");
+    const std::optional<CacheBoundary>& boundary =
+        plain.messages.back().content.back().cache_boundary_after;
+    failures +=
+        check(boundary.has_value() &&
+                  boundary->kind == ninfer::PromptCacheMarkerKind::SharedStablePrefix &&
+                  boundary->evidence == ninfer::SharedCandidateEvidence::DefaultAutomatic,
+              "an undeclared request places its automatic boundary at the end of the last message");
+
+    Json declared = base_request();
+    declared["messages"] =
+        Json::array({Json{{"role", "system"},
+                          {"content", Json::array({Json{{"type", "text"},
+                                                        {"text", "be brief"},
+                                                        {"prompt_cache_breakpoint",
+                                                         Json{{"mode", "explicit"}}}}})}},
+                     Json{{"role", "user"}, {"content", "hello"}}});
+    const OpenAIChatRequest explicit_request = parse(declared);
+    const GenerationRequest& explicit_plain  = explicit_request.generation;
+    failures += check(!explicit_plain.allow_engine_automatic_shared_prefixes,
+                      "a declared breakpoint still disables the Engine's structural boundaries");
+    const std::optional<CacheBoundary>& declared_boundary =
+        explicit_plain.messages.front().content.back().cache_boundary_after;
+    failures +=
+        check(declared_boundary.has_value() &&
+                  declared_boundary->kind == ninfer::PromptCacheMarkerKind::SharedStablePrefix &&
+                  declared_boundary->evidence == ninfer::SharedCandidateEvidence::ExplicitBoundary,
+              "a declared breakpoint places a shared boundary with explicit evidence");
+
+    return failures;
+}
+
 } // namespace
 
 int main() {
@@ -791,6 +835,7 @@ int main() {
     failures += test_stream_response();
     failures += test_stream_observations();
     failures += test_common_objects();
+    failures += test_prompt_cache_boundaries();
     if (failures == 0) { std::cout << "OpenAI Chat protocol tests passed\n"; }
     return failures == 0 ? 0 : 1;
 }

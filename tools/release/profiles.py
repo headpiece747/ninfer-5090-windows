@@ -209,27 +209,27 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # hit as `private endpoint`, none shared, with a conversation switch costing a 59.6 s cold
     # prefill at 171,953 tokens.
     #
-    # The cause is not capacity. Reproduced at a 65,536-token context with these bounds, the request
-    # log shows offered 1, no_vacancy 0, plan_refused 0, infeasible 0 -- the capture is offered and
-    # planned -- while shared_owners_degraded is 1 and shared_stable_prefix hits are 0: the shared
-    # owner is published and then degraded, so it never serves. Host KV sits at 653 MiB of 8 GiB with
-    # 2 of 16 state slots occupied, so neither pool is the constraint.
+    # Resolved 2026-09-22: the boundary the frontend declares is not the boundary this protocol uses.
+    # The OpenAI request path clears allow_engine_automatic_shared_prefixes -- the protocol defines
+    # its own write policy -- so the frontend's three automatic shared opportunities are never
+    # declared, and the serve layer's automatic target is the end of the last message, which is the
+    # whole prompt. A request whose prompt differs before that point is skipped at the shortlist key
+    # before a plan is asked; one whose prompt matches is offered the candidate and loses the
+    # selection to private_response_replay. A declared boundary
+    # (prompt_cache_breakpoint: {mode:"explicit"}) is published and served: two sessions sharing a
+    # system message reused 301 of 344 tokens as `shared prefix`. So a shared owner is not "never
+    # retained" -- shared_reuse_candidates counts the index entry reaching the plan -- and the
+    # degradation below is real but not the cause. Three counters in RuntimeStats carry the decision:
+    # shared_reuse_candidates, shared_reuse_declined, shared_reuse_key_mismatch.
+    # docs/adr/0009-shared-prefix-served-where-declared.md records the attribution.
     #
-    # The materialization search is not it either. Raising its absolute grant ceiling from 250 ms to
-    # 5 s -- the /20 economic term of a full-context re-prefill, so the ceiling stops binding below
-    # the term the budget calls the real governor -- left shared_stable_prefix at 0 and
-    # search_budget_exhaustions at 1, unchanged, and the change was reverted. The search stays
-    # exhausted there because the boundary allowance caps it by design.
-    #
-    # Nor is the shared retention weight. RetentionClass::SharedStable returns 0, and the portfolio
-    # fold skips an owner whose weight is zero, so a shared prefix's transition loss was never added;
-    # returning 16 instead changed nothing either, and that was reverted too.
-    #
-    # Three candidate causes have now been measured out by rebuilding and re-running this same
-    # reproduction: the pools, the search budget, and the weight. What remains is the decision
-    # itself, not its inputs -- shared_owners_degraded increments in apply_shared_action when the
-    # plan's pressure action commits, so the next step is a counter at that decision rather than
-    # another hypothesis about what feeds it.
+    # Measured out along the way, each by rebuilding and re-running the same reproduction: the pools
+    # (host KV 653 MiB of 8 GiB, 2 of 16 state slots, so neither is the constraint); the
+    # materialization search budget, whose absolute grant ceiling of 250 ms raised to 5 s left
+    # shared_stable_prefix at 0 and search_budget_exhaustions at 1, unchanged and reverted; the
+    # shared retention weight, RetentionClass::SharedStable raised from 0 to 16, unchanged and
+    # reverted; and crediting the engine's own structural boundary in the projection's credit test,
+    # unchanged. All four were readings of the code and none survived the measurement.
     #
     # Whether recency beats the fold is unresolved. A diagnostic recency policy (oldest resident as the
     # victim, value gate bypassed) did change the eviction behaviour -- two shared owners evicted where

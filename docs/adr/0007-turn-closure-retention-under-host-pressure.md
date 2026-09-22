@@ -51,6 +51,14 @@ and 2 of 16 state slots are occupied, so no pool is the constraint. `apply_share
 degrading means: the published summary is replaced and the revision advanced, so a request holding the
 previous revision cannot match it.
 
+**Superseded for the shared case by
+[ADR-0009](0009-shared-prefix-served-where-declared.md).** The degradation measured here is real, but
+it is not why a shared prefix serves no reuse: on the OpenAI protocol an undeclared request places its
+only automatic boundary at the end of the last message, so no shared prefix is offered to a request
+whose prompt differs before that point, and where one is offered it loses the selection to
+`private_response_replay`. A declared boundary is served today. The measurements in this paragraph
+stand; its conclusion about the shared path does not.
+
 Four candidate causes were measured out by rebuilding and re-running that reproduction: the pools; the
 materialization search (grant ceiling 250 ms -> 5 s, unchanged); the shared retention weight
 (`RetentionClass::SharedStable` returning 16 instead of 0, unchanged -- the weight multiplies a
