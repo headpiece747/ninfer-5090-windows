@@ -178,7 +178,13 @@ distinct ~530-token prompts sent and then resent, the defaults gave **1/5 round-
 at a 19.8% token-level hit rate**, with four of the five prompts re-prefilling in full on
 every call and no error or degradation signal anywhere. Raising the shared-prefix bound
 alone changed nothing; the anchor and private-continuation bounds were the binding
-constraints. All three together gave **5/5 hits at 99.1%**.
+constraints. All three together gave **5/5 hits at 99.1%** on a host State pool with headroom, and that
+qualifier is load-bearing: those five prefixes and the private continuations they leave behind compete
+for the same pool. Re-measured with the shipped DFlash2 bounds (`--host-state-slots 8
+--max-private-continuations 8`) the same five-prompt resend gives **3/5 hits at a 59.1% token-level
+rate** -- the last two prefixes are evicted to hold the five continuations -- and with
+`--max-private-continuations 2` it returns to **5/5 at 98.6%**. Retention policy makes no difference to
+either figure.
 
 A second retention limit sits above those bounds. Once the State pools are full, publishing the
 conversation's newest checkpoint means replacing a resident, and by default that requires the capture
