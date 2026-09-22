@@ -165,7 +165,7 @@ release surface is documented in the Windows section of `README.md`. There are t
 `build/` for the apps, and `build-test/` for the suite the release gate runs
 (`ctest --test-dir build-test`).
 
-Twenty-one rules, each earned by a failure rather than chosen:
+Twenty-five rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
@@ -211,6 +211,25 @@ Twenty-one rules, each earned by a failure rather than chosen:
   failed with LNK1104 because a server started earlier still held it, and a test source was edited
   while `build-test` was reading it -- survived only because that phase had not yet begun. Stop the
   server before rebuilding it, and do not edit a source while a build is compiling it.
+- **Never edit a file from memory.** Five edits failed in one session because the anchor was
+  reconstructed rather than read -- twice in the same file, and once after the same lesson had already
+  been written down. Read the block, or anchor on a unique substring that omits the leading whitespace,
+  which sidesteps the indentation a reconstruction gets wrong. The rule about scoping a probe by
+  reading its block is this rule with a narrower scope.
+- **Validate the harness before believing its numbers.** Four times in one session a measurement
+  returned plausible zeros: a loop variable that collided with a read-only automatic (`$Host`, which
+  also wrote three junk filenames), a log path the launcher named differently from the loop tag, a run
+  too short for the request log to flush, and a server that never started. Check that the input exists
+  and that the run happened before reading a single figure. A zero that cannot be explained is not a
+  result.
+- **A figure in a comment carries its configuration.** A startup line reading "pinning host state |
+  1.46 GiB" was recorded as the 16-slot cost and committed; it is the 8-slot figure, and three logs
+  side by side give 1.46 / 2.19 / 2.92 at 8 / 12 / 16. A number that arrives without its configuration
+  is how a wrong figure gets committed and then cited as corroboration.
+- **Redirect a long-running command to a file; a truncating filter kills it.** `Select-Object -First N`
+  closes the pipeline and terminates the command, so a full launcher verification died half way and
+  reported failure. This is the same family as swallowing output with `| Out-Null`: when the command's
+  own success is the thing being checked, let it write a file and read the file.
 - **Read primary sources before reasoning from this tree.** Upstream's converter, loader and
   maintainer notes are authoritative; the port is not. Reading a platform header settled in a
   minute what inference had concluded wrongly twice. The upstream tracker is the same kind of

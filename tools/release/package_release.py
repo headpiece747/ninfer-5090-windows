@@ -87,6 +87,15 @@ def main() -> int:
     skip_gate = "--skip-test-gate" in sys.argv[1:]
     version = positional[0] if positional else "v1.1.0"
 
+    # The archive carries RELEASE_NOTES.md, so packaging a version whose notes name a different release
+    # ships stale notes. That happened once and the archive had to be re-cut; this refuses instead.
+    notes = (REPO / "RELEASE_NOTES.md").read_text(encoding="utf-8").splitlines()
+    if not notes or version not in notes[0]:
+        print(f"  RELEASE REFUSED: RELEASE_NOTES.md is titled {notes[0] if notes else '<empty>'!r} "
+              f"but this packages {version}.")
+        print("  The archive carries those notes, so update them before packaging.")
+        return 1
+
     print("  doc links  : running tools/release/check_doc_links.py")
     links = subprocess.run(
         [sys.executable, str(Path(__file__).resolve().parent / "check_doc_links.py")],
