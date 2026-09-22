@@ -594,13 +594,19 @@ public:
         std::vector<PlanningOwnerRecord> capture_owner_records;
         if (candidate.publishes_shared) {
             saturating_increment(context_stats_.active_captures_offered);
-            const bool pressure_evidence =
+            // Explicit pressure admits every catalogued resident as a replacement victim. The
+            // standing `rolling` grants is narrower: only the residents this lane's own request
+            // matched exactly at their frontier, so one conversation's lineage cannot make an
+            // unrelated resident replaceable.
+            const bool explicit_pressure_evidence =
                 has_shared_candidate_evidence(candidate.shared_evidence,
                                               SharedCandidateEvidence::ExplicitBoundary) ||
                 has_shared_candidate_evidence(candidate.shared_evidence,
                                               SharedCandidateEvidence::RequestedAutomatic) ||
-                matching_reuse_domains(candidate.shortlist_key) >= 2U ||
-                lane_proved_lineage(lane);
+                matching_reuse_domains(candidate.shortlist_key) >= 2U;
+            const std::span<const PrefixShortlistKey> proven_extension =
+                lane_proven_extension_keys(lane);
+            const bool pressure_evidence = explicit_pressure_evidence || !proven_extension.empty();
             if (!pressure_evidence) {
                 // Automatic-evidence candidates can only claim vacant slots. Reclaim the oldest
                 // eligible automatic entry first so a saturated catalog cannot freeze them out
@@ -633,6 +639,12 @@ public:
                         entry.transaction_pins != 0 || shared_active_edge_count(slot) != 0) {
                         continue;
                     }
+                    if (!explicit_pressure_evidence &&
+                        std::find(proven_extension.begin(), proven_extension.end(),
+                                  entry.summary.checkpoint.shortlist_key) ==
+                            proven_extension.end()) {
+                        continue;
+                    }
                     CaptureAssessment assessment = program.inspect_capture(
                         offer, nullptr, &*entry.handle, private_replacement, true);
                     if (!assessment.publishes_shared) { continue; }
@@ -648,8 +660,8 @@ public:
             }
 
             if (scenarios.empty()) {
-                // A saturated catalog with no candidate standing: the offer never reaches the
-                // planner, so it degrades to a private-only publication.
+                // No candidate scenario exists: either no shared slot is vacant and none is
+                // reclaimable, or a vacancy exists but the capture has no candidate standing.
                 saturating_increment(context_stats_.active_captures_no_vacancy);
             }
             std::vector<typename CapturePlanner::OwnerPolicy> owner_policies;
@@ -833,9 +845,9 @@ public:
                     });
                 }
             }
-            if (!selected) {
-                // The scenarios existed and every plan was refused: the portfolio priced the
-                // candidate below the residents plus the cost of publishing it.
+            if (!selected && !scenarios.empty()) {
+                // Scenarios existed and every plan was refused: the portfolio priced the candidate
+                // below the residents plus the cost of publishing it.
                 saturating_increment(context_stats_.active_captures_plan_refused);
             }
         }
@@ -1434,43 +1446,24 @@ private:
         return mask;
     }
 
-    // The demand mask a capture is admitted on, under the configured policy.
-    //
-    // `default` is what this function otherwise returns: the standing this request alone evidences.
-    // A fresh capture then cannot outbid an ancestor that several past requests have demanded, which
-    // is right for concurrent conversations sharing a prefix and wrong for one append-only
-    // conversation walking forward, where every request that wanted the ancestor wants its
-    // descendant next. `rolling` therefore inherits the committed demand of every resident the
-    // request has proven it extends -- the keys it matched exactly at their frontier -- and inherits
-    // nothing else, so it cannot let one conversation's history displace another's.
-    [[nodiscard]] std::uint32_t
-    rolling_demand_mask_for(const PrefixShortlistKey& key,
-                            const PrefixDemandRecord& provisional) const noexcept {
-        std::uint32_t mask = demand_mask_for(key, provisional);
-        if (policy_ != ContextCachePolicy::Rolling) { return mask; }
-        for (const PrefixShortlistKey& resident : provisional.exact_resident_keys) {
-            mask |= committed_demand_mask_for(resident);
-        }
-        return mask;
-    }
-
-    // Whether this lane's own committed demand record proves its capture extends a resident: the
-    // request matched that resident exactly at its frontier, so a capture at the prompt's end is a
-    // strict extension of it. This is the standing a shared capture needs before it can be valued
-    // against replacing that resident. Without it one append-only conversation has none: with no
-    // session key every request is its own reuse domain, `matching_reuse_domains` never reaches two,
-    // a saturated State pool can never be relieved, and the reusable frontier stops advancing.
-    [[nodiscard]] bool lane_proved_lineage(LaneId lane) const noexcept {
+    // The resident keys this lane's own committed demand record proves its capture extends: the keys
+    // its request matched exactly at their frontier, so a capture at the prompt's end is a strict
+    // extension of each. This is the standing a shared capture needs before it can be valued against
+    // replacing one of them, and it is deliberately the only residents `rolling` makes replaceable.
+    // Without it one append-only conversation has none: with no session key every request is its own
+    // reuse domain, `matching_reuse_domains` never reaches two, a saturated State pool can never be
+    // relieved, and the reusable frontier stops advancing. Always empty under `default`.
+    [[nodiscard]] std::span<const PrefixShortlistKey>
+    lane_proven_extension_keys(LaneId lane) noexcept {
         if (policy_ != ContextCachePolicy::Rolling || lane.value >= lane_demand_domain_.size()) {
-            return false;
+            return std::span<const PrefixShortlistKey>{};
         }
         const std::optional<ReuseDomainId>& domain = lane_demand_domain_[lane.value];
-        if (!domain) { return false; }
+        if (!domain) { return std::span<const PrefixShortlistKey>{}; }
         for (auto record = demand_window_.rbegin(); record != demand_window_.rend(); ++record) {
-            if (!(record->domain == *domain)) { continue; }
-            return !record->exact_resident_keys.empty();
+            if (record->domain == *domain) { return record->exact_resident_keys; }
         }
-        return false;
+        return std::span<const PrefixShortlistKey>{};
     }
 
     [[nodiscard]] std::size_t matching_reuse_domains(const PrefixShortlistKey& key) const noexcept {
@@ -1879,7 +1872,7 @@ private:
                 .key              = *key,
                 .evidence         = opportunity.evidence,
                 .frontier         = opportunity.frontier,
-                .demand_mask      = rolling_demand_mask_for(*key, provisional_demand),
+                .demand_mask      = demand_mask_for(*key, provisional_demand),
                 .rebuild_ns       = cost_model_.prefill_ns(*rebuild),
                 .pressure_capable = declared || repeated,
             });

@@ -144,20 +144,22 @@ struct ContextCacheOptions {
     std::optional<std::uint32_t> max_private_continuations;
     std::optional<std::uint32_t> max_shared_prefixes;
     std::optional<std::uint32_t> max_long_anchors_per_continuation;
-    // How a capture's demand standing is valued.
+    // How much standing a shared capture has when the State pools are saturated.
     //
-    // `default` keeps the portfolio's existing judgement, which is right for concurrent
-    // conversations sharing a prefix: an ancestor's accumulated demand outweighs a newcomer's
-    // single-request demand. `rolling` additionally lets a capture inherit the committed demand of
-    // every resident the request has proven it extends, because for one append-only conversation
-    // the demand for an ancestor is evidence of demand for its descendant.
+    // `default` requires two matching reuse domains or explicit evidence before a capture may be
+    // valued against replacing a resident, which is right for concurrent conversations sharing a
+    // prefix. With no session key every request is its own reuse domain, so one append-only
+    // conversation never reaches that bar: the identity target is the only one assessed, it is
+    // physically infeasible while the pools are full, and the capture degrades to a private-only
+    // publication that has no room either -- so the request retains nothing, and the reusable
+    // frontier stops advancing. `rolling` treats the lineage the engine has already proved -- the
+    // residents this request matched exactly at their frontier -- as that standing.
     //
-    // Measured on this port: without it, one growing conversation's reusable frontier advances for
-    // three checkpoints and then stops once the State pools saturate, and every later request
-    // re-prefills its whole tail -- 2.6 s to first token at 65k context rising to 15.2 s at 117k,
-    // against 2.6 s and 3.6 s for the same requests with eight Device checkpoint slots rather than
-    // one. Raising the slot count buys the same reach at +1.3 GiB of runtime; inheriting demand is
-    // the fix that does not.
+    // Measured on this port with one Device checkpoint slot: the reusable frontier was pinned at
+    // 52,723 tokens from the fourth request on, with time to first token rising from 2.6 s at 65k
+    // context to 15.1 s at 117k. With `rolling` the frontier advances with the conversation
+    // (104,283 of 117,180) and first token falls to 4.1 s. Eight Device checkpoint slots buy
+    // comparable reach at +1.3 GiB of runtime.
     ContextCachePolicy policy = ContextCachePolicy::Default;
 };
 

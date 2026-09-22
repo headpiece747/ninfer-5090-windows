@@ -241,8 +241,9 @@ ServeOptions parse_serve_options(int argc, char** argv) {
                                       "max-long-anchors-per-continuation"));
             context_capacity_explicit = true;
         } else if (arg == "--context-cache-policy") {
-            // A policy, not a capacity: it reserves nothing, so it deliberately stays out of the
-            // context_capacity_explicit set that --no-prefix-reuse rejects.
+            // A policy, not a capacity: it reserves nothing, so it stays out of the
+            // context_capacity_explicit set that --no-prefix-reuse rejects. A disabled context cache
+            // forces the policy off rather than rejecting the combination.
             const std::string policy = require_value("--context-cache-policy");
             if (policy == "default") {
                 options.context_cache.policy = ContextCachePolicy::Default;

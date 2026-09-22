@@ -1829,10 +1829,9 @@ struct FakeModelContract {
 using FakeManager = ninfer::runtime::ResourceManager<FakeModelContract>;
 
 FakeManager make_manager(std::uint32_t lanes = 1, std::uint32_t private_capacity = 4,
-                         std::uint32_t shared_capacity = 0, bool cache_enabled = true,
-                         ninfer::ContextCachePolicy policy = ninfer::ContextCachePolicy::Default) {
-    return FakeManager(lanes, private_capacity, shared_capacity, cache_enabled, 2, policy,
-                       test_cost_model());
+                         std::uint32_t shared_capacity = 0, bool cache_enabled = true) {
+    return FakeManager(lanes, private_capacity, shared_capacity, cache_enabled, 2,
+                       ninfer::ContextCachePolicy::Default, test_cost_model());
 }
 
 struct ActiveRequest {
@@ -1956,21 +1955,28 @@ void test_portfolio_demand_and_owner_aggregation() {
     }
 }
 
-void test_rolling_demand_inheritance_raises_the_capture_value() {
-    // The mechanism a rolling context-cache policy relies on, with no scheduler in the way.
+void test_portfolio_prices_a_capture_candidate_without_raising_the_baseline() {
+    // What every shared-capture decision rests on, with no scheduler in the way.
     //
-    // The portfolio prices each demand bit at the largest saving among the checkpoints carrying it. A
-    // resident's bit carries the resident's baseline saving -- keeping it is cheap, evicting it costs
-    // a full rebuild -- against a small target saving. A capture's bit is the reverse, because not
-    // publishing it costs a full rebuild. Letting a capture inherit the demand of the residents it
-    // extends therefore puts those bits on the capture, where the maximum picks the capture's larger
-    // target saving, and the target value rises while the baseline value does not move: the baseline
-    // still takes its bits from the residents' own entries.
+    // The portfolio prices each demand bit at the largest saving among the checkpoints carrying it,
+    // and a capture candidate contributes zero to every baseline bit by construction: fold_target
+    // sets its baseline_recovery_ns to its own rebuild cost, so "not publishing it" saves nothing
+    // that is not counted elsewhere. Every bit a candidate carries therefore moves the target value
+    // and never the baseline, which is what makes a capture comparable with the residents it would
+    // replace.
     //
-    // That is the difference between the two folds below, and it is the whole bug: on its own demand
-    // alone a fresh capture cannot outbid an ancestor that several past requests have demanded, so
-    // one append-only conversation's reusable frontier stops advancing once the State pools saturate
-    // and every later request re-prefills its entire tail.
+    // The two folds below differ only in the candidate's demand mask. That is the shape of the
+    // saturating-pool freeze: a capture carrying less demand than a resident has accumulated cannot
+    // outbid it, so one append-only conversation's reusable frontier stops advancing and every later
+    // request re-prefills its entire tail.
+    //
+    // What fixed that freeze is not this arithmetic but the standing `--context-cache-policy rolling`
+    // gives a capture whose request proved it extends a resident. That behaviour has no unit seam
+    // here yet: the fixture can build a replacement scenario for a *new* conversation but not for a
+    // *reusing* one, because the reuse consumes the resident's explicit credit, a slot is then
+    // reclaimable, and the identity scenario reaches fold_target with impacts whose checkpoint
+    // references the fixture invents rather than the ones the manager enumerated. Closing that is
+    // what would let this file assert the published replacement and the released resident directly.
     using ninfer::runtime::ContextPortfolioCheckpointValue;
     using ninfer::runtime::ContextPortfolioOwnerPolicy;
     using ninfer::runtime::ContextPortfolioValue;
@@ -3733,8 +3739,8 @@ int main() {
     run_test("backfill proof and stats", test_backfill_proof_and_stats_follow_program_revision);
     run_test("shortlist exact verification",
              test_shortlist_collision_requires_program_exact_verification);
-    run_test("rolling demand inheritance",
-             test_rolling_demand_inheritance_raises_the_capture_value);
+    run_test("portfolio prices a capture candidate",
+             test_portfolio_prices_a_capture_candidate_without_raising_the_baseline);
     if (failures != 0) { return 1; }
     std::cout << "ok\n";
     return 0;
