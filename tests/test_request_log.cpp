@@ -215,7 +215,8 @@ int main() {
             server.at("engine").at("context_cache").at("host_state_slots") == 3 &&
             server.at("engine").at("context_cache").at("host_kv_capacity_bytes") == (64ULL << 20) &&
             server.at("engine").at("context_cache").at("max_private_continuations") == 4 &&
-            server.at("engine").at("context_cache").at("max_shared_prefixes") == 2,
+            server.at("engine").at("context_cache").at("max_shared_prefixes") == 2 &&
+            server.at("engine").at("context_cache").at("policy") == "default",
         "resolved context-cache configuration missing");
     failures += check(server.at("server").at("default_preserve_thinking") == true,
                       "server preserve-thinking default missing");
@@ -588,6 +589,10 @@ int main() {
     throughput.current.pressure_private_owners_degraded = 1;
     throughput.current.pressure_checkpoints_dropped     = 1;
     throughput.current.pressure_searches                = 1;
+    throughput.current.active_captures_offered          = 2;
+    throughput.current.active_captures_plan_refused     = 1;
+    throughput.current.active_captures_infeasible       = 1;
+    throughput.current.active_captures_completed        = 1;
     throughput.current.host_work                        = {
                                .engine_boundary_ns            = 1000000,
                                .program_submit_ns             = 2000000,
@@ -682,6 +687,11 @@ int main() {
             throughput_json.at("context_cache").at("occupancy").at("device_state_slots") == 3 &&
             throughput_json.at("context_cache").at("pressure").at("spill_pages") == 4 &&
             throughput_json.at("context_cache").at("pressure").at("private_owners_degraded") == 1 &&
+            throughput_json.at("context_cache").at("captures").at("offered") == 2 &&
+            throughput_json.at("context_cache").at("captures").at("plan_refused") == 1 &&
+            throughput_json.at("context_cache").at("captures").at("infeasible") == 1 &&
+            throughput_json.at("context_cache").at("captures").at("completed") == 1 &&
+            throughput_json.at("context_cache").at("captures").at("no_vacancy") == 0 &&
             !throughput_json.at("context_cache").contains("last_materialization"),
         "context-cache throughput statistics missing or not interval-scoped");
 
