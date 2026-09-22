@@ -21,7 +21,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import kill_servers  # noqa: E402
 
-DEFAULT_ARCHIVE = Path(r"C:\AI\releases") / "ninfer-windows-v1.1.0-rtx5090.zip"
+def _noted_version() -> str:
+    """The version RELEASE_NOTES.md is titled for.
+
+    A frozen v1.1.0 sat in the default below, so this acceptance test quietly ran against the
+    previous release's archive and reported a chat and a prompt token count from the wrong binary.
+    Reading the version from the notes means a release bump cannot leave it stale.
+    """
+    first = (Path(__file__).resolve().parents[2] / "RELEASE_NOTES.md").read_text(
+        encoding="utf-8").splitlines()[0]
+    for token in first.split():
+        if token.startswith("v") and token[1:2].isdigit():
+            return token
+    raise SystemExit(f"  RELEASE REFUSED: no version in RELEASE_NOTES.md title: {first!r}")
+
+
+DEFAULT_ARCHIVE = Path(r"C:\AI\releases") / f"ninfer-windows-{_noted_version()}-rtx5090.zip"
 ARCHIVE = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_ARCHIVE
 EXTRACT = Path(r"C:\Users\tobia\AppData\Local\Temp\opencode\release-check")
 PORT = 8086
