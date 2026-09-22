@@ -305,3 +305,7 @@ Twenty-five rules, each earned by a failure rather than chosen:
   by up to ~9% between windows: measure A and then B and you have measured the window. Two findings
   died that way in one session, a 14% slot-count claim and a 9% artifact claim, and both were
   committed before the interleaved run disproved them. ADR-0003 records the detail.
+- **Do not narrate the session's own limits.** Context length, remaining room and "this needs a fresh
+  pass" are not findings about the work and not the reader's problem: an agent that raises them is
+  describing itself, and the user spends a turn saying so. Report what was measured, what remains and
+  what it needs -- never how much space is left to say it in.

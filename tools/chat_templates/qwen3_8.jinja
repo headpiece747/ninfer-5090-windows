@@ -51,6 +51,16 @@ continuation, and accept tool-result histories whose original user turn was remo
 {%- set reasoning_instructions = '' %}
 {%- if enable_thinking is undefined or enable_thinking is true %}
     {%- set resolved_reasoning_effort = reasoning_effort|default('xhigh') %}
+    {#- Client aliases. The engine accepts none|minimal|low|medium|high|xhigh|max and the OpenAI and
+        Anthropic protocols send the same names, but this template renders three, so a value outside
+        them used to reach raise_exception and fail the whole request. Map the aliases the way
+        froggeric/Qwen-Fixed-Chat-Templates does before validating, so `high` is deep reasoning and
+        `minimal` is concise rather than an error. #}
+    {%- if resolved_reasoning_effort in ('high', 'max', 'ultracode', 'extreme') %}
+        {%- set resolved_reasoning_effort = 'xhigh' %}
+    {%- elif resolved_reasoning_effort == 'minimal' %}
+        {%- set resolved_reasoning_effort = 'low' %}
+    {%- endif %}
     {%- if resolved_reasoning_effort not in ('xhigh', 'medium', 'low') %}
         {{- raise_exception('Unexpected reasoning effort ' ~ reasoning_effort ~ '. Supported types are xhigh (default), medium, and low.') }}
     {%- endif %}
