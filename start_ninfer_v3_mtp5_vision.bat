@@ -96,11 +96,12 @@ if not errorlevel 1 (
   --kv-dtype fp8 ^
   --prefill-chunk 8192 ^
   --max-concurrency 1 ^
-  --host-state-slots 8 ^
+  --host-state-slots 16 ^
   --host-kv-mib 8192 ^
   --max-shared-prefixes 7 ^
   --max-private-continuations 8 ^
   --max-long-anchors-per-continuation 4 ^
+  --context-cache-policy rolling ^
   --preserve-thinking ^
   --default-thinking-budget 4096 ^
   --pending-timeout-ms 600000

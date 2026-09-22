@@ -82,11 +82,12 @@ INVARIANT_FLAGS: list[tuple[str, str | None]] = [
     ("--kv-dtype", "fp8"),
     ("--prefill-chunk", "8192"),
     ("--max-concurrency", "1"),
-    ("--host-state-slots", "8"),
+    ("--host-state-slots", "16"),
     ("--host-kv-mib", "8192"),
     ("--max-shared-prefixes", "7"),
     ("--max-private-continuations", "8"),
     ("--max-long-anchors-per-continuation", "4"),
+    ("--context-cache-policy", "rolling"),
     ("--preserve-thinking", None),
     ("--default-thinking-budget", "4096"),
     ("--pending-timeout-ms", "600000"),
@@ -138,6 +139,26 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # conversations reuse at 1, 2, 4 and 8 alike, while 8 costs ~1.3 GiB of runtime and 13.6% of
     # decode on QUASAR DFlash2. A larger value buys retained-state capacity for interleaved
     # conversations, which nothing here measures -- see the module docstring.
+    #
+    # --host-state-slots is the bound that decides whether a conversation's prefixes survive at all,
+    # and it has to cover the live shared prefixes plus the live private continuations: the five-prompt
+    # resend test gives 3/5 hits at 59.1% at 8 with the private bound at 8 (five prefixes plus five
+    # continuations against eight slots, so the last two prefixes are evicted), 5/5 at 98.5% at 12, and
+    # 5/5 at 98.6% either way when the private bound drops to 2 -- the private bound is the wrong knob,
+    # because an agent session forks on every tool call and each fork is a continuation that needs a
+    # slot. Measured 2026-09-21 through start_bounds.cmd; raising this costs nothing at startup (the
+    # same 2,740 MiB free and 10,996 MiB reserved at 8, 12 and 16) because it only decides how much of
+    # the already-pinned 8 GiB host KV may be used.
+    #
+    # --context-cache-policy rolling ships enabled: once the pools are full, publishing a conversation's
+    # newest checkpoint means replacing a resident, and by default that needs two matching reuse domains
+    # or explicit evidence -- which one append-only conversation never has, so its reusable frontier
+    # pins (measured: 52,723 tokens, TTFT 2.6 s -> 15.1 s at 65k -> 117k context). `rolling` takes the
+    # standing from the lineage the request already proved, and the frontier then tracks the
+    # conversation (104,283 of 117,180, TTFT 4.1 s). It was proposed upstream as opt-in for shared
+    # multi-tenant servers, where it can evict a prefix another conversation still wants; this is a
+    # local single-owner product, and two saturating conversations measured byte-identical to the
+    # default policy, so there is no second tenant to protect here.
     out.extend([("--host", "127.0.0.1"),
                 ("--port", str(profile["port"])),
                 ("--model-id", profile["model_id"]),

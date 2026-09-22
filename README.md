@@ -172,7 +172,8 @@ rate.
 ### Context-cache bounds are set deliberately, and they matter
 
 The launchers pass `--max-shared-prefixes 7 --max-private-continuations 8
---max-long-anchors-per-continuation 4`. At `--max-concurrency 1` the defaults are
+--max-long-anchors-per-continuation 4 --host-state-slots 16 --context-cache-policy rolling`. At
+`--max-concurrency 1` the defaults are
 `max(1,4)` shared, 2 private and 2 anchors, and that is quietly expensive: measured on five
 distinct ~530-token prompts sent and then resent, the defaults gave **1/5 round-2 cache hits
 at a 19.8% token-level hit rate**, with four of the five prompts re-prefilling in full on
@@ -194,8 +195,11 @@ its reusable frontier froze at 52,723 tokens and time to first token grew with t
 2.6 s at 65k context, 15.1 s at 117k. `--context-cache-policy rolling` supplies that standing from the
 conversation's own proven lineage, the residents its request matched exactly at their frontier, and the
 frontier then tracks the conversation: 104,283 of 117,180 tokens cached and 4.1 s to first token on the
-same workload, with one Device checkpoint slot rather than the eight that used to be needed. It is
-opt-in because it will evict a prefix that another conversation sharing it still wants.
+same workload, with one Device checkpoint slot rather than the eight that used to be needed. The
+launchers ship it enabled. It was proposed upstream as opt-in because a shared multi-tenant server can
+have it evict a prefix another conversation still wants; this is a local single-owner product, and two
+saturating conversations measured byte-identical to the default policy, so there is no second tenant to
+protect here.
 
 The bounds cost nothing measurable in the profile they were measured on (QUASAR DFlash2 with Vision at 262,144). `--kv-capacity auto` sizes each pool from the VRAM left after weights, so every profile's capacity is its own measured ceiling, not a shared number.
 The failure mode is silent, so it is worth setting these even when a single repeated prompt
