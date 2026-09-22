@@ -166,11 +166,10 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # and 2 as the pool grows. That is the intended priority, and it is why the private bound is the
     # wrong knob to lower: an agent session forks on every tool call.
     #
-    # What the pool costs, from our own startup line on the shipped launchers: "pinning host state |
-    # 1.46 GiB" for the 16 slots, so about 91 MiB per retained state. An independent NVFP4 build for
-    # the same Gated-DeltaNet architecture quotes roughly 75 MB per sequence for that recurrent state,
-    # which is the same order, so the bound is affordable rather than a paper number. Re-check this if
-    # the state layout changes.
+    # What the pool costs, from our own startup lines: 1.46 GiB at 8 slots, 2.19 at 12 and 2.92 at 16
+    # -- about 187 MiB per retained state, linear across the three points. An independent NVFP4 build
+    # for the same Gated-DeltaNet architecture quotes roughly 75 MB per sequence for the recurrent
+    # state alone, which is a different accounting and not a corroboration; do not cite it as one.
     #
     # --context-cache-policy rolling ships enabled: once the pools are full, publishing a conversation's
     # newest checkpoint means replacing a resident, and by default that needs two matching reuse domains
