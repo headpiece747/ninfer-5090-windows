@@ -144,6 +144,22 @@ def store_cache(key: str, log: str, recorded: str) -> None:
                      encoding="utf-8")
 
 
+def parse_skipped(log: str) -> set[str]:
+    """Tests ctest reported as Skipped.
+
+    The suite-size assertion counts a skipped test as covered, so a run on a machine without the model
+    artifacts can skip every real-model test and still read as green -- which is how the tokenizer's
+    real vocabulary went unexercised while the gate passed. A release is cut where its artifacts are
+    present, so a skip is absent evidence rather than a neutral outcome.
+    """
+    skipped: set[str] = set()
+    for line in log.splitlines():
+        stripped = line.strip()
+        if stripped.endswith("(Skipped)") and " - " in stripped:
+            skipped.add(stripped.split(" - ", 1)[1].rsplit(" (", 1)[0].strip())
+    return skipped
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--from-log", type=Path,
@@ -177,6 +193,14 @@ def main() -> int:
 
     new_failures = sorted(failing - known)
     fixed = sorted(known - failing)
+
+    skipped = parse_skipped(log)
+    if skipped:
+        print(f"\n  GATE FAILED: {len(skipped)} test(s) were skipped, so their coverage is missing:")
+        for name in sorted(skipped):
+            print(f"    {name}")
+        print("  A release is cut where its artifacts are present; a skip here is absent evidence.")
+        return 1
 
     print(f"  suite        {total - len(failing)}/{total} passed "
           f"(baseline records {len(known)} known failure(s))")
