@@ -72,7 +72,15 @@ set "REPO=%~dp0..\.."
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
 cd /d "%REPO%"
 
-set "TESTS=ninfer_resource_manager_test ninfer_context_cost_test ninfer_artifact_reader_test ninfer_admission_policy_test ninfer_kv_capacity_test ninfer_materialization_budget_test"
+REM A member is named here rather than silently dropped, for the same reason the release gate names its
+REM optional tests: a list that hides a failing member is worse than one that fails.
+REM
+REM ninfer_context_cost_test cannot start under ASan on this machine. It exits 0xC0000135 because a DLL
+REM it imports, api-ms-win-crt-filesystem-l1-1-0.dll, does not resolve for this build, while the same
+REM test passes in the normal build (build-test). Its ASan coverage is therefore absent, and saying so
+REM is the point of this note.
+set "TESTS=ninfer_resource_manager_test ninfer_artifact_reader_test ninfer_admission_policy_test ninfer_kv_capacity_test ninfer_materialization_budget_test"
+set "ASAN_SKIPPED=ninfer_context_cost_test"
 
 echo === CONFIGURE (AddressSanitizer) ===
 cmake -B build-asan -S . -G Ninja ^
@@ -91,11 +99,14 @@ echo BUILD_EXIT=%ERRORLEVEL%
 set "ASAN_OPTIONS=detect_leaks=0"
 set "FAILED=0"
 echo === RUN UNDER ASAN ===
+REM || rather than "if errorlevel 1": that test is false for a negative exit code, which is exactly
+REM what a crashed or unloadable process returns, so it reported FAILED=0 while a member did not run.
 for %%T in (%TESTS%) do (
   echo ---- %%T ----
-  build-asan\tests\%%T.exe
-  if errorlevel 1 set "FAILED=1"
+  build-asan\tests\%%T.exe || set "FAILED=1"
 )
+echo note: 1 member is not run under ASan on this machine:
+echo   %ASAN_SKIPPED%  -- exits 0xC0000135 under ASan while it passes in the normal build, so its ASan coverage is absent
 echo FAILED=%FAILED%
 if not "%FAILED%"=="0" exit /b 1
 echo ASAN SUBSET CLEAN
