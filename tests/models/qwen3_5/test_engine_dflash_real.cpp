@@ -384,7 +384,16 @@ int main() {
         248045, 846,    198, 109266, 3709,  96220, 117443, 97913,
         1710,   248046, 198, 248045, 74455, 198,   248068, 198,
     };
-    if (const int result = exercise_vision_dflash(artifact, prompt); result != 0) { return result; }
+    // This route needs a `dflash` component, and this product's artifacts ship `dflash2` instead, so
+    // the engine rejects the request with a precise message ("missing component dflash"). Without this
+    // the rejection reached std::terminate and the process died with a fail-fast (0xC0000409) that
+    // named nothing at all -- which is how this case stayed unexplained.
+    try {
+        if (const int result = exercise_vision_dflash(artifact, prompt); result != 0) { return result; }
+    } catch (const std::exception& error) {
+        std::cerr << "DFlash route unavailable: " << error.what() << "\n";
+        return 1;
+    }
 
     {
         ninfer::EngineOptions options =

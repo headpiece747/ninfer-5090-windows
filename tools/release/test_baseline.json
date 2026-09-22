@@ -8,7 +8,7 @@
     },
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
-      "reason": "Fails in ~2.3 s before any model load with a fail-fast, so it never reaches the engine. Its prerequisite is unresolved: score_real_test and dflash2_real_test pass against the same artifact once NINFER_TEST_ARTIFACT is set correctly, and this one does not, so it is not the harness this time. Baselined so the gate stays truthful about it rather than hiding it behind a skip."
+      "reason": "This route needs a `dflash` component and this product's artifacts ship `dflash2` instead: the shipped artifact's config lists dflash2 (architectures ['DFlash2DraftModel']) and no dflash, so the route cannot pass here by construction. The engine rejects the request precisely -- 'Qwen3.5 config: missing component dflash', reproduced through the shipped CLI with --spec dflash --draft-tokens 3 --vision --max-context 4096 --prefill-chunk 1024, which exits 1 in 0.1 s with that message -- but the test had no try/catch, so the rejection reached std::terminate and the process died with 0xC0000409 (ucrtbase, BEX64) in ~2.1 s printing nothing. The test now catches it and prints the engine's message, so a failure names its cause. Baselined rather than skipped so the gate stays truthful about it, matching moe_real_test."
     },
     "ninfer_qwen3_5_moe_real_test": {
       "case": "moe real route",
