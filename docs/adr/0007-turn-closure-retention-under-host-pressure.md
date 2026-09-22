@@ -56,8 +56,15 @@ materialization search (grant ceiling 250 ms -> 5 s, unchanged); the shared rete
 (`RetentionClass::SharedStable` returning 16 instead of 0, unchanged -- the weight multiplies a
 transition loss that is already zero when nothing live demands the checkpoint, so it cannot help); and
 crediting the engine's own structural boundary in the projection's credit test, which changed nothing
-either. All four were readings of the code, and none survived the measurement. The next attempt must
-instrument the decision that commits the pressure action, not edit another of its inputs.
+either. All four were readings of the code, and none survived the measurement.
+
+The same log already shows the action was gratuitous, without a new counter. `shared_owners_evicted`
+is 0 while `shared_owners_degraded` is 1: an eviction is what a full shared catalog produces, so with
+none, and with host KV at 653 MiB of 8 GiB and 2 of 16 state slots occupied, no shortage forced the
+degradation. The plan chose it. That is consistent with the valuation having no term for the shared
+owner's loss -- and it locates the next candidate: the resident path reads `entry.explicit_credit`,
+and that field is never assigned true anywhere in the manager, so a resident shared prefix contributes
+nothing to the fold even when the engine itself declared its boundary.
 
 That is the same root as the private case below: the valuation has no term for a reuse that has not
 arrived yet. Prior art settles the form it should take -- SGLang's `retention_priority`, after its
