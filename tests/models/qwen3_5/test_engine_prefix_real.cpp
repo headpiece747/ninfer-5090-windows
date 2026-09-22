@@ -574,7 +574,15 @@ int exercise_host_restore(const char* artifact) {
                   << " main=" << after_restore.main_kv_h2d_pages
                   << " backend=" << after_restore.backend_kv_h2d_pages
                   << " degraded=" << after_restore.pressure_private_owners_degraded
-                  << " evicted=" << after_restore.pressure_private_owners_evicted << '\n';
+                  << " evicted=" << after_restore.pressure_private_owners_evicted
+                  // Which branch refused the capture, rather than inferring it: a refused capture
+                  // degrades to a private-only frontier, which is the shape this failure has.
+                  << " captures[offered=" << after_restore.active_captures_offered
+                  << " no_vacancy=" << after_restore.active_captures_no_vacancy
+                  << " plan_refused=" << after_restore.active_captures_plan_refused
+                  << " infeasible=" << after_restore.active_captures_infeasible
+                  << " completed=" << after_restore.active_captures_completed
+                  << " aborted=" << after_restore.active_captures_aborted << "]\n";
         return 1;
     }
 
