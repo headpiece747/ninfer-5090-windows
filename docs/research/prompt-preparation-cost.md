@@ -232,23 +232,32 @@ The fix is worth having on its own account: it is upstream's own description of 
 through prefill and decode on a host with more cores than contexts, which is every run on this
 machine.
 
-### The remaining lead: something on this machine filters process I/O
+### The AV lead, opened and closed, and a misspelled path that looked like a filter
 
-While verifying the A/B, the build tree's `apps\infer-serve.exe` was reported missing by some APIs and
-present by others, on the same path, seconds apart:
+The last hypothesis standing was an anti-malware shim attached to the serving process. It was tested
+by uninstalling Malwarebytes, which turned out to change the machine's security state rather than
+remove it: with Malwarebytes installed it was the registered antivirus and Defender's real-time
+protection was off, and after the uninstall Defender came up with real-time protection, behaviour
+monitoring and IOAV all enabled and its `WdFilter` minifilter loaded.
 
-- `dir /b build\apps\*.exe` lists `ninfer-serve.exe`, twice, ten seconds apart;
-- PowerShell's `Test-Path` returns False for it;
-- `[System.IO.File]::ReadAllBytes` throws `FileNotFoundException` for it;
-- `mt -inputresource:...;#1` fails with *"The system cannot find the file specified"*.
+The same 229-message request reports `render 2.3s` in both states. The cost is therefore identical
+with a third-party anti-exploit product active, with no real-time protection at all, and with
+Defender's full stack active - which refutes the whole class rather than one product.
 
-A freshly linked, unsigned, 183 MB executable that some file APIs can see and others cannot is the
-signature of a filter driver interposing on file access. Malwarebytes is running on this machine;
-Defender's real-time protection is off. This has not been tested, but it is the strongest lead
-standing, and it fits the shape of the problem: an anti-exploit shim attached to a process hooks
-exactly the allocation- and I/O-dense host work that is 40x slower here, and a short-lived bench may
-not be treated the same way a long-lived server is. **One step would settle it: quit Malwarebytes and
-re-run the same probe against the same server.**
+**That test replaced a lead that should never have been written down.** An earlier revision of this
+note called a file-API disagreement "the strongest lead standing" and read it as the signature of a
+filter driver: `dir` listed `build\apps\*.exe`, while `copy`, `Test-Path`, `ReadAllBytes` and `mt`
+each reported the file missing. Every one of those commands was asking for
+`build\apps\infer-*.exe`, and the binaries are `ninfer-*.exe`. `dir` was listing names, so it was
+never answering the same question, and the mismatch read as two sets of APIs disagreeing about one
+path when they were being asked about two different paths. Copying the correct name works:
+*"1 file(s) copied."*
+
+The rule this is an instance of is already in AGENTS.md - *verify a claim about a file before
+asserting it* - and it was not followed here. Nothing else in this note depends on it: the launcher
+uses the correct name, so every server reading above stands, and the misspelling only ever reached
+the staging commands, which is why the spin-wait comparison was done by rebuilds instead of swapped
+binaries.
 
 
 
@@ -318,7 +327,8 @@ question, not a finding: no A/B on one host has been run.
   identical, and the calibration shows the process itself is ~40x slower at ordinary host
   allocation, but the cause is open. Everything tested and refuted is recorded above with its
   reading: a held allocation, CUDA initialisation, a disabled low-fragmentation heap, heap
-  serialization as the cause, and now the Segment Heap on the server itself.
+  serialization as the cause, the Segment Heap on the server itself, the upstream blocking-sync
+  change, and the whole anti-malware class.
 - **The render's own shape is understood but not optimised.** It makes three full passes per request
   and the `prefix(messages.size())` probe is ~28 ms of the 80 ms a fresh process needs - worth having
   in a process that is not already 30x off, and not the current bottleneck.
