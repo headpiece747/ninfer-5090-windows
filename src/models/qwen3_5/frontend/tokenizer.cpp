@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 #include <queue>
 #include <sstream>
 #include <stdexcept>
@@ -839,7 +840,193 @@ std::vector<int> Tokenizer::encode(std::string_view text, EncodeOptions options)
     return std::move(encoded.input_ids);
 }
 
+namespace {
+
+// A seam inside a literal span would have to split it, and the span's suppression of added-token
+// recognition is already reflected in the prefix's ids.
+bool inside_literal_span(std::span<const text::ByteSpan> spans, std::size_t offset) {
+    for (const text::ByteSpan& span : spans) {
+        if (span.begin < offset && offset < span.end) { return true; }
+    }
+    return false;
+}
+
+// The spans within [from, limit), rebased so they address the text after `from`. A span that lies
+// wholly outside contributes nothing; one that crosses either end is clamped to it, which is what
+// its suppression of added-token recognition means inside the range.
+std::vector<text::ByteSpan> spans_within(std::span<const text::ByteSpan> spans, std::size_t from,
+                                         std::size_t limit) {
+    std::vector<text::ByteSpan> clipped;
+    for (const text::ByteSpan& span : spans) {
+        if (span.end <= from || span.begin >= limit) { continue; }
+        const std::size_t begin = std::max(span.begin, from) - from;
+        const std::size_t end   = std::min(span.end, limit) - from;
+        if (begin >= end) { continue; }
+        clipped.push_back(text::ByteSpan{.begin = begin, .end = end});
+    }
+    return clipped;
+}
+
+} // namespace
+
 BoundaryEncodedText Tokenizer::encode_with_boundaries(
+    std::string_view text, std::span<const std::size_t> byte_boundaries, EncodeOptions options,
+    std::span<const text::ByteSpan> literal_spans) const {
+    if (options.parse_added_tokens) {
+        try {
+            if (std::optional<BoundaryEncodedText> spliced =
+                    splice_from_cache(text, byte_boundaries, options, literal_spans)) {
+                return std::move(*spliced);
+            }
+        } catch (const std::exception&) {
+            // A splice may only ever replace work, so a cache path that throws falls back to the
+            // full encode instead of failing the request. The count keeps that from being silent.
+            ++encode_cache_fallbacks_;
+        }
+    }
+    BoundaryEncodedText encoded =
+        encode_with_boundaries_uncached(text, byte_boundaries, options, literal_spans);
+    // A truncated encode's ids depend on where it stopped, so only complete ones are remembered.
+    if (options.parse_added_tokens && encoded.input_ids.size() < options.max_tokens) {
+        remember_encode(text, byte_boundaries, options, literal_spans, encoded);
+    }
+    return encoded;
+}
+
+std::optional<BoundaryEncodedText>
+Tokenizer::splice_from_cache(std::string_view text, std::span<const std::size_t> byte_boundaries,
+                             EncodeOptions options,
+                             std::span<const text::ByteSpan> literal_spans) const {
+    std::lock_guard<std::mutex> guard(encode_cache_mutex_);
+    for (const EncodeCacheEntry& entry : encode_cache_) {
+        if (entry.options.max_tokens != options.max_tokens) { continue; }
+        if (entry.text.empty() || entry.text.size() >= text.size()) { continue; }
+        if (text.substr(0, entry.text.size()) != entry.text) { continue; }
+
+        // Boundaries in offset order, so that "the boundary before the seam" is well defined.
+        std::vector<std::size_t> order(entry.boundaries.size());
+        std::iota(order.begin(), order.end(), std::size_t{0});
+        std::stable_sort(order.begin(), order.end(), [&entry](std::size_t lhs, std::size_t rhs) {
+            return entry.boundaries[lhs] < entry.boundaries[rhs];
+        });
+
+        // The largest cached boundary strictly inside the extension. Its frontier is known without
+        // re-deriving it, and the boundary before it supplies the window below.
+        for (std::size_t position = order.size(); position-- > 0;) {
+            const std::size_t seam_index  = order[position];
+            const std::size_t seam_offset = entry.boundaries[seam_index];
+            if (seam_offset >= text.size()) { continue; }
+            const std::optional<std::size_t> seam_frontier =
+                entry.results[seam_index].exact_frontier;
+            if (!seam_frontier || *seam_frontier == 0) { continue; }
+            if (inside_literal_span(literal_spans, seam_offset)) { continue; }
+            // The boundary before the seam supplies the window. At the first one the window starts
+            // at the beginning of the text, which is just as decidable and keeps a cached encode
+            // with a single boundary spliceable.
+            const std::size_t prev_offset =
+                position == 0 ? 0 : entry.boundaries[order[position - 1]];
+            const std::optional<std::size_t> prev_frontier =
+                position == 0 ? std::optional<std::size_t>(0)
+                              : entry.results[order[position - 1]].exact_frontier;
+            if (!prev_frontier || *prev_frontier >= *seam_frontier) { continue; }
+
+            // Every boundary of this request at or below the seam has to be one the cache answered:
+            // its result can only come from the prefix encode.
+            bool covered = true;
+            for (const std::size_t offset : byte_boundaries) {
+                if (offset > seam_offset) { continue; }
+                if (std::find(entry.boundaries.begin(), entry.boundaries.end(), offset) ==
+                    entry.boundaries.end()) {
+                    covered = false;
+                    break;
+                }
+            }
+            if (!covered) { continue; }
+
+            // The window, [prev, seam), encoded on its own must reproduce the cached ids. This is
+            // the test for a seam at an added-token boundary, and for no added token spanning it:
+            // a mid-stretch seam shortens the first stretch, and a spanning token is cut in half.
+            const std::string_view window_text =
+                std::string_view(entry.text).substr(prev_offset, seam_offset - prev_offset);
+            const std::vector<text::ByteSpan> window_spans =
+                spans_within(literal_spans, prev_offset, seam_offset);
+            const BoundaryEncodedText window = encode_with_boundaries_uncached(
+                window_text, {}, EncodeOptions{.parse_added_tokens = true}, window_spans);
+            if (window.input_ids.size() != *seam_frontier - *prev_frontier) { continue; }
+            if (!std::equal(window.input_ids.begin(), window.input_ids.end(),
+                            entry.input_ids.begin() +
+                                static_cast<std::ptrdiff_t>(*prev_frontier))) {
+                continue;
+            }
+
+            // The tail: this request's text from the seam, with the boundaries and spans above it
+            // rebased onto it.
+            const std::string_view tail_text = text.substr(seam_offset);
+            std::vector<std::size_t> tail_boundaries;
+            std::vector<std::size_t> tail_source;
+            for (std::size_t index = 0; index < byte_boundaries.size(); ++index) {
+                if (byte_boundaries[index] <= seam_offset) { continue; }
+                tail_boundaries.push_back(byte_boundaries[index] - seam_offset);
+                tail_source.push_back(index);
+            }
+            const std::vector<text::ByteSpan> tail_spans =
+                spans_within(literal_spans, seam_offset, text.size());
+            const BoundaryEncodedText tail =
+                encode_with_boundaries_uncached(tail_text, tail_boundaries, options, tail_spans);
+
+            BoundaryEncodedText spliced;
+            spliced.input_ids.assign(entry.input_ids.begin(),
+                                     entry.input_ids.begin() +
+                                         static_cast<std::ptrdiff_t>(*seam_frontier));
+            spliced.input_ids.insert(spliced.input_ids.end(), tail.input_ids.begin(),
+                                     tail.input_ids.end());
+            spliced.boundaries.resize(byte_boundaries.size());
+            for (std::size_t index = 0; index < byte_boundaries.size(); ++index) {
+                const std::size_t offset = byte_boundaries[index];
+                if (offset <= seam_offset) {
+                    const auto cached =
+                        std::find(entry.boundaries.begin(), entry.boundaries.end(), offset);
+                    spliced.boundaries[index] =
+                        entry.results[static_cast<std::size_t>(cached - entry.boundaries.begin())];
+                    continue;
+                }
+                const auto tail_position = std::find(tail_source.begin(), tail_source.end(), index);
+                if (tail_position == tail_source.end()) {
+                    throw std::logic_error("spliced encode lost a boundary");
+                }
+                const TokenBoundaryResult& result =
+                    tail.boundaries[static_cast<std::size_t>(tail_position - tail_source.begin())];
+                spliced.boundaries[index] = TokenBoundaryResult{
+                    .exact_frontier =
+                        result.exact_frontier
+                            ? std::optional<std::size_t>(*result.exact_frontier + *seam_frontier)
+                            : std::nullopt,
+                    .stable_frontier = result.stable_frontier + *seam_frontier};
+            }
+            ++encode_cache_splices_;
+            return spliced;
+        }
+    }
+    return std::nullopt;
+}
+
+void Tokenizer::remember_encode(std::string_view text, std::span<const std::size_t> byte_boundaries,
+                                EncodeOptions options,
+                                std::span<const text::ByteSpan> literal_spans,
+                                const BoundaryEncodedText& encoded) const {
+    EncodeCacheEntry entry;
+    entry.text.assign(text);
+    entry.options = options;
+    entry.boundaries.assign(byte_boundaries.begin(), byte_boundaries.end());
+    entry.literal_spans.assign(literal_spans.begin(), literal_spans.end());
+    entry.input_ids = encoded.input_ids;
+    entry.results   = encoded.boundaries;
+    std::lock_guard<std::mutex> guard(encode_cache_mutex_);
+    encode_cache_.insert(encode_cache_.begin(), std::move(entry));
+    if (encode_cache_.size() > kEncodeCacheEntries) { encode_cache_.resize(kEncodeCacheEntries); }
+}
+
+BoundaryEncodedText Tokenizer::encode_with_boundaries_uncached(
     std::string_view text, std::span<const std::size_t> byte_boundaries, EncodeOptions options,
     std::span<const text::ByteSpan> literal_spans) const {
     std::size_t previous_end = 0;

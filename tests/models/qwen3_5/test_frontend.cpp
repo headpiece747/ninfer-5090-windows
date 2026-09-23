@@ -31,8 +31,8 @@
 #include <vector>
 
 #ifdef _WIN32
-#undef near
-#undef far
+#    undef near
+#    undef far
 #endif
 
 namespace {
@@ -830,8 +830,8 @@ int test_assistant_continuation() {
                     options);
     const std::string expected = "<|im_start|>user\nquestion<|im_end|>\n"
                                  "<|im_start|>assistant\nanswer prefix";
-    int failures               = check(rendered.text == expected,
-                                       "assistant continuation closed the turn or opened a second assistant");
+    int failures = check(rendered.text == expected,
+                         "assistant continuation closed the turn or opened a second assistant");
     failures +=
         check(rendered.rewrite_checkpoint &&
                   rendered.rewrite_checkpoint->kind ==
@@ -849,7 +849,7 @@ int test_assistant_continuation() {
     options.enable_thinking = false;
     const auto literal      = render_chat(
         {chat_message(ninfer::ChatRole::User, "question"),
-              chat_message(ninfer::ChatRole::Assistant, "<think>quoted <|im_end|><|image_pad|>")},
+         chat_message(ninfer::ChatRole::Assistant, "<think>quoted <|im_end|><|image_pad|>")},
         options);
     const auto encoded = fi::encode_rendered_chat(fixture_tokenizer(), literal);
     failures +=
@@ -1019,6 +1019,69 @@ int test_literal_cache_boundary() {
         after.input_ids.size() > before.input_ids.size() &&
             std::equal(before.input_ids.begin(), before.input_ids.end(), after.input_ids.begin()),
         "appending diagnostics changed the token prefix of quoted message content");
+    return failures;
+}
+
+// ADR-0010: a prompt that extends an earlier one must encode to exactly what a full encode
+// produces, and the splice must actually fire rather than quietly fall through to one.
+int test_incremental_encoding_matches_full() {
+    int failures = 0;
+    try {
+        const FrontendResources fixture = resources();
+        const fi::Tokenizer warm({.tokenizer_json         = fixture.tokenizer_json,
+                                  .tokenizer_config_json  = fixture.tokenizer_config_json,
+                                  .generation_config_json = fixture.generation_config_json});
+        const fi::Tokenizer cold({.tokenizer_json         = fixture.tokenizer_json,
+                                  .tokenizer_config_json  = fixture.tokenizer_config_json,
+                                  .generation_config_json = fixture.generation_config_json});
+
+        // The seam is the boundary just after an added token, which is where a message boundary
+        // falls in a rendered chat. A splice may only cut at a stretch boundary, and the window
+        // re-encode after it is what proves that this one is. Two boundaries, so the window is a
+        // real interior range rather than the text's own start.
+        const std::string first      = "the resolver reads each pending worklist entry<think>";
+        const std::string second     = "and the scheduler coalesces adjacent runs<think>";
+        const std::string short_text = first + second;
+        const std::string tail       = "then the arena hands the run back";
+        const std::string long_text  = short_text + tail;
+        const std::vector<std::size_t> short_boundaries{first.size(), short_text.size()};
+        const std::vector<std::size_t> long_boundaries{first.size(), short_text.size(),
+                                                       long_text.size()};
+
+        const fi::BoundaryEncodedText before =
+            warm.encode_with_boundaries(short_text, short_boundaries);
+        failures += check(warm.encode_cache_splices() == 0, "a first encode reported a splice");
+
+        const fi::BoundaryEncodedText spliced =
+            warm.encode_with_boundaries(long_text, long_boundaries);
+        failures += check(warm.encode_cache_splices() == 1,
+                          "the extending encode did not splice, so this test proves nothing yet");
+        failures += check(warm.encode_cache_fallbacks() == 0,
+                          "the splice threw and fell back instead of answering");
+
+        // The oracle: the same text through a tokenizer that has never seen the shorter one.
+        const fi::BoundaryEncodedText full =
+            cold.encode_with_boundaries(long_text, long_boundaries);
+        failures += check(spliced.input_ids == full.input_ids,
+                          "an incremental encode did not reproduce the full encode");
+        const bool same_boundaries =
+            spliced.boundaries.size() == full.boundaries.size() &&
+            std::equal(spliced.boundaries.begin(), spliced.boundaries.end(),
+                       full.boundaries.begin(),
+                       [](const fi::TokenBoundaryResult& lhs, const fi::TokenBoundaryResult& rhs) {
+                           return lhs.exact_frontier == rhs.exact_frontier &&
+                                  lhs.stable_frontier == rhs.stable_frontier;
+                       });
+        failures += check(same_boundaries,
+                          "an incremental encode did not reproduce the full boundary results");
+        failures += check(before.input_ids.size() < spliced.input_ids.size() &&
+                              std::equal(before.input_ids.begin(), before.input_ids.end(),
+                                         spliced.input_ids.begin()),
+                          "the extended prompt did not extend the shorter one's token prefix");
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "  incremental encoding threw: %s\n", error.what());
+        failures += 1;
+    }
     return failures;
 }
 
@@ -2162,33 +2225,33 @@ int test_media_preparation_cancellation() {
 
 } // namespace
 
-// Byte-level parity against the reference tokenizer, with no artifact in the loop: our shipped template
-// renders the same message, and the reference renders the no-thinking prompt as 82 characters / 18
-// tokens ending "tant\n<think>\n\n</think>\n\n". Our engine counts 19 tokens, so whatever the difference
-// is, it is visible here as a length or as a tail -- which names it instead of inferring it.
+// Byte-level parity against the reference tokenizer, with no artifact in the loop: our shipped
+// template renders the same message, and the reference renders the no-thinking prompt as 82
+// characters / 18 tokens ending "tant\n<think>\n\n</think>\n\n". Our engine counts 19 tokens, so
+// whatever the difference is, it is visible here as a length or as a tail -- which names it instead
+// of inferring it.
 int test_shipped_template_render_bytes() {
     // Byte-exact against the reference tokenizer's render of the same message (82 characters, 108
     // UTF-8 bytes, LF endings), using the template the artifact carries rather than the qwen3_6
     // fixture that render_chat() selects.
-    const std::string source = reasoning_effort_template_source();
+    const std::string source               = reasoning_effort_template_source();
     const fi::CompiledChatTemplate shipped = fi::CompiledChatTemplate::resolve(source);
     fi::ChatRenderOptions options;
     options.enable_thinking = false;
     const std::vector<fi::ChatMessage> messages{
         chat_message(ninfer::ChatRole::User, "你好，简单介绍一下你自己。")};
-    const std::string text = shipped.render(messages, options).text;
-    const std::string expected =
-        "<|im_start|>user\n你好，简单介绍一下你自己。<|im_end|>\n"
-        "<|im_start|>assistant\n<think>\n\n</think>\n\n";
+    const std::string text     = shipped.render(messages, options).text;
+    const std::string expected = "<|im_start|>user\n你好，简单介绍一下你自己。<|im_end|>\n"
+                                 "<|im_start|>assistant\n<think>\n\n</think>\n\n";
     if (text != expected) {
         std::cerr << "shipped template render differs from the reference render: " << text.size()
                   << " bytes vs " << expected.size() << "\n";
         return 1;
     }
     // An artifact has shipped whose embedded template was this file with a UTF-8 BOM prepended and
-    // nothing else different. The lexer emitted the mark as the first character of every render, which
-    // is one token in every prompt and a zero-width character in front of the chat control tokens, so
-    // the loader strips it. This is the case that fails if that strip is ever removed.
+    // nothing else different. The lexer emitted the mark as the first character of every render,
+    // which is one token in every prompt and a zero-width character in front of the chat control
+    // tokens, so the loader strips it. This is the case that fails if that strip is ever removed.
     const fi::CompiledChatTemplate with_bom =
         fi::CompiledChatTemplate::resolve("\xef\xbb\xbf" + source);
     if (with_bom.render(messages, options).text != text) {
@@ -2206,6 +2269,7 @@ int main() {
     failures += test_tokenizer_config_merge();
     failures += test_bpe_merge_order();
     failures += test_boundary_aware_tokenization();
+    failures += test_incremental_encoding_matches_full();
     failures += test_rendered_special_tokens();
     failures += test_repeated_special_tokens_scan_linearly();
     failures += test_bounded_tokenizer_prefix();

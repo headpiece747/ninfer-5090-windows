@@ -320,6 +320,27 @@ binaries.
 
 
 
+## Incremental encoding, and what it bought
+
+With the process defect fixed, preparation was 119 ms of a 137 ms warm time to first token, and the
+only term in it still growing with the conversation: tokenize 41 ms at 130,869 tokens, about 0.3 ms
+per thousand, so roughly 80 ms at the ceiling. **ADR-0010** removes it by caching complete encodes
+and answering a request that extends one from the cached ids plus an encode of the tail alone, with
+the seam verified by re-encoding the window around it.
+
+Measured on the shipped server, the same 229-message conversation the field log produced:
+
+| request | prompt tokens | tokenize | prepared | TTFT |
+|---|--:|--:|--:|--:|
+| 228 messages, cold | 130,040 | 40.8 ms | 121 ms | 40.4 s (cold prefill) |
+| 229 messages, extending the cached one | 130,869 | **462 us** | 79.5 ms | 596 ms |
+| the same body again | 130,869 | 457 us | 78.5 ms | **93.8 ms** |
+
+88x on tokenization, on a *longer* prompt, and the engine's own `cache 100.0%` is the check that the
+spliced ids were right — an id that differed from the full encode would not have matched its cached
+state. `prepared` is now the render alone, and **the render is the whole of what still grows with a
+conversation.**
+
 ## What upstream already knows
 
 `docs/performance.md` in the upstream tree publishes

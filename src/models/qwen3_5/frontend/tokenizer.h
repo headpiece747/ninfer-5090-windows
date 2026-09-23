@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -133,6 +134,10 @@ public:
 
     std::vector<int> encode(std::string_view text, EncodeOptions options = {}) const;
     // Literal spans suppress added-token recognition without splitting ordinary NFC/BPE runs.
+    // A request whose text extends an earlier one is answered from that encode plus an encode of
+    // the tail alone. The seam is a boundary of the cached encode whose surrounding window
+    // re-encodes to the cached ids, which is what proves the splice splits the ordinary/added-token
+    // sequence without changing it; anything unproven is a full encode. ADR-0010 has the argument.
     BoundaryEncodedText
     encode_with_boundaries(std::string_view text, std::span<const std::size_t> byte_boundaries,
                            EncodeOptions options                         = {},
@@ -152,7 +157,49 @@ public:
     [[nodiscard]] bool is_valid_token(int id) const noexcept;
     [[nodiscard]] bool has_exact_token_domain(std::size_t size) const noexcept;
 
+    // How many encodes were answered from the cache instead of the whole text. Counted rather than
+    // logged because the runtime layer cannot log, and a splice that silently stopped firing would
+    // otherwise be invisible.
+    [[nodiscard]] std::size_t encode_cache_splices() const noexcept {
+        return encode_cache_splices_;
+    }
+
+    // A splice that threw and fell back to a full encode. Expected to stay zero; non-zero means the
+    // splice is rejecting a case it should handle, which a fallback would otherwise hide.
+    [[nodiscard]] std::size_t encode_cache_fallbacks() const noexcept {
+        return encode_cache_fallbacks_;
+    }
+
 private:
+    BoundaryEncodedText encode_with_boundaries_uncached(
+        std::string_view text, std::span<const std::size_t> byte_boundaries, EncodeOptions options,
+        std::span<const text::ByteSpan> literal_spans) const;
+    [[nodiscard]] std::optional<BoundaryEncodedText>
+    splice_from_cache(std::string_view text, std::span<const std::size_t> byte_boundaries,
+                      EncodeOptions options, std::span<const text::ByteSpan> literal_spans) const;
+    void remember_encode(std::string_view text, std::span<const std::size_t> byte_boundaries,
+                         EncodeOptions options, std::span<const text::ByteSpan> literal_spans,
+                         const BoundaryEncodedText& encoded) const;
+
+    // The previous complete encodes, most recent first. One entry would serve a single agent loop;
+    // a few survive an interleaved session without making eviction a policy question.
+    struct EncodeCacheEntry {
+        std::string text;
+        EncodeOptions options;
+        std::vector<std::size_t> boundaries;
+        std::vector<text::ByteSpan> literal_spans;
+        std::vector<int> input_ids;
+        std::vector<TokenBoundaryResult> results;
+    };
+
+    static constexpr std::size_t kEncodeCacheEntries = 4;
+    // prepare() runs on httplib worker threads, so a miss on contention is a full encode rather
+    // than a correctness question.
+    mutable std::mutex encode_cache_mutex_;
+    mutable std::vector<EncodeCacheEntry> encode_cache_;
+    mutable std::size_t encode_cache_splices_   = 0;
+    mutable std::size_t encode_cache_fallbacks_ = 0;
+
     std::vector<std::string> decoded_token_bytes_;
     std::vector<bool> valid_token_ids_;
     std::vector<bool> special_token_ids_;
