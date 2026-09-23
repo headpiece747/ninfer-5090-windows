@@ -122,7 +122,21 @@ What remains is the gap this ADR's own Decision names, one level down: the loss 
 checkpoint's *kind*. `TurnClosure` and `ResponseReplay` exist for a later turn; a superseded
 `SessionEndpoint` does not. The fold prices all five kinds identically, so the closure competes on the
 same footing as the endpoint it supersedes -- which is why the ADR's Decision is right that coverage
-must be declared and honoured, while its stated mechanism for how it fails is not. The grep this paragraph leaned on is correct
+must be declared and honoured, while its stated mechanism for how it fails is not.
+
+A fifth candidate was measured out the same way, and it is the one this record's Decision implies.
+A dropped checkpoint's loss is `max(baseline_saving - target_saving, 0)`, and the target's *own*
+recovery cost for it is used, because the Program emits `survives = false` **with** a real recipe
+(`pressure_planner.cpp:701`) -- so the fold's "absent means unchanged" fallback never applied to it
+and the loss was already non-zero. Pricing a non-surviving checkpoint at the whole `baseline_saving`
+instead -- the saving it carried, rather than the difference the target makes -- left the case
+byte-identical: `path=1 reused=316 outputs=2 state=0 main=3 backend=2 degraded=1 evicted=0`, the same
+line as before the change.
+
+So the loss is neither zero nor the problem: it is already non-zero, and raising it by that much does
+not outweigh the gain the target offers. What remains is its *magnitude* against a live demand, which
+no source calibrates -- see `docs/research/anticipated-reuse-pricing.md`. The next step is to
+instrument the target's own cost decomposition rather than to raise the term again. The grep this paragraph leaned on is correct
 -- `TurnClosure` and `ResponseReplay` are never named under `context_cache/` -- but its inference was
 not: that layer already reads `CheckpointRef::kind` and already distinguishes `SessionEndpoint` from
 the rest (`resource_manager.h:1537, 1542-1544, 1550, 1569`). What is missing is narrower. The
