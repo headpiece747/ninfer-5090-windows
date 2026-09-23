@@ -255,12 +255,14 @@ __global__ __launch_bounds__(
                 shared_output + token1 * kOutputStride + pair_row);
             const auto& gate = accumulators[mma_m][mma_n];
             const auto& up   = accumulators[mma_m][mma_n + kGateMmaFragments];
-            // The store rounds to bf16 on the next instruction, so the activation is the
-            // approximate form; see silu_approx in ops/common/math.cuh.
-            *destination0 = __floats2bfloat162_rn(silu_approx(gate[0] * alpha) * (up[0] * alpha),
-                                                  silu_approx(gate[1] * alpha) * (up[1] * alpha));
-            *destination1 = __floats2bfloat162_rn(silu_approx(gate[2] * alpha) * (up[2] * alpha),
-                                                  silu_approx(gate[3] * alpha) * (up[3] * alpha));
+            // The accurate activation, matching the non-TMA W4A4 route
+            // (nvfp4_linear_swiglu_w4a4.cu) and every other SwiGLU epilogue in the tree. The
+            // approximate form this replaced traded ~0.6% relative corpus perplexity for ~1.4%
+            // prefill (upstream #285), which is not worth having on the shipped NVFP4 route.
+            *destination0 = __floats2bfloat162_rn(silu(gate[0] * alpha) * (up[0] * alpha),
+                                                  silu(gate[1] * alpha) * (up[1] * alpha));
+            *destination1 = __floats2bfloat162_rn(silu(gate[2] * alpha) * (up[2] * alpha),
+                                                  silu(gate[3] * alpha) * (up[3] * alpha));
         }
     }
 

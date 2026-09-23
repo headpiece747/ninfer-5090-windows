@@ -40,6 +40,48 @@ like-for-like ranking of the three on one protocol.
 prompt -- the token counts the CLI reports, which is how the reasoning-effort alias gap was caught -- and
 any chat-shaped scoring route. Recorded here so the flag is not added again.
 
+## The accurate-activation change (2026-09-23)
+
+`nvfp4_linear_swiglu_w4a4_tma.cuh` was the only one of twelve SwiGLU activation sites using the
+approximate `silu_approx`; every other site (fp8 ×2, nvfp4 decode, nvfp4 small-t, nvfp4 non-TMA W4A4,
+q4 ×4, q8 ×3) already called the accurate `silu`. Upstream took the approximation in PR #250 and
+Neroued/ninfer#285 measured a model-level cost for it, so the TMA epilogue was restored to `silu` and
+`silu_approx` deleted. All four `ninfer_linear_swiglu_*_test` cases pass against their FP64 oracle,
+including the TMA route, which `kA4Cases` reaches at 256, 512 and 1024 tokens (`kNvfp4TmaBlockM` is
+256).
+
+The change is engine-level, so it moves every artifact. Measured fp8 on this machine:
+
+| artifact | protocol | before | after | Δ |
+|---|---|---|---|---|
+| official stock | full corpus | 4.90295 | **4.901690** | −0.03% |
+| official stock | `--quick` | 4.82676 | **4.805574** | −0.44% |
+| NVFP4-full | full corpus | not measured | **4.987682** | — |
+| NVFP4-full | `--quick` | 4.77136 | **4.824524** | +1.11% |
+| QUASAR QAT | full corpus | not measured | **5.002337** | — |
+| QUASAR QAT | `--quick` | 4.89741 | **4.948789** | +1.05% |
+
+Two things follow, and neither is the naive reading of #285.
+
+**The accurate form is not a strict perplexity improvement.** It lowers the official stock artifact
+and raises the other two. Perplexity is not monotone in numerical accuracy: a perturbation moves a
+checkpoint toward or away from its training distribution depending on the checkpoint. The accurate
+form is still the contract-correct one -- it is the FP64 oracle's own definition, eleven of twelve
+sites already used it, and upstream's published artifacts were produced with it -- but the quality
+argument is "matches the oracle and upstream", not "always scores better". The full-corpus effect on
+the two artifacts whose baseline was not measured is therefore unknown, not zero: only the official
+artifact has a full-corpus before-and-after.
+
+**`--quick` is not a subset of the full corpus.** The manifest's two modes name different text:
+`quick` is stream 00 of each domain (four documents, 261,223 tokens), `full` is all sixteen
+(1,044,876). Their magnitudes differ by more than an order of magnitude for the same change (0.44%
+against 0.03% on the official artifact), so a `--quick` delta is not an effect size for the full
+corpus.
+
+The ranking recorded in the section above (`--quick`: NVFP4-full 4.77136 < official 4.82676 < QUASAR
+4.89741) was measured before this change. After it, on both protocols, the official stock artifact is
+lowest: full corpus 4.9017 < 4.9877 < 5.0023, `--quick` 4.8056 < 4.8245 < 4.9488.
+
 ## The one open discrepancy
 
 A third-party conversion recipe publishes PPL **4.617** for the official stock artifact on this same
@@ -51,3 +93,7 @@ run against an earlier `perplexity-1m`; and the **artifact revision**, since the
 export of the stock model than the one this port carries. The scoring path itself is upstream's, not
 this port's, so a port-specific defect is not the leading explanation -- but it is not excluded either,
 and the protocol above is what would settle it.
+
+Checked and excluded since: the accurate-activation change recorded above moves the full corpus by
+−0.03%, so the engine's SwiGLU activation is not the cause of the gap. That leaves the two candidates
+named here.
