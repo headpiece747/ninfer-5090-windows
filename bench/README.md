@@ -1017,6 +1017,13 @@ the shapes a coding agent actually produces can be tested against the plain one.
 
 `--from <body.json>` replays a recorded chat-completions request body, and `--special-tokens` and
 `--thinking-default` apply the two options a server resolves that a bare template does not.
+
+`--native` is the differential loop [ADR-0012](../docs/adr/0012-native-render-for-the-registered-template.md)
+is built against. It renders the conversation a second time through the native renderer, prints the
+first byte at which the two differ, and prints the template's digest and whether a renderer is
+registered for it. Its control prints first and compares the Jinja render with itself, so the
+instrument is validated before any comparison means anything: if the control does not read
+`identical`, the loop is broken rather than the renderer.
 `--noise-threads N` runs N background threads allocating and freeing for the duration, which is how
 a process-wide heap that serializes every allocation is measured rather than assumed. Use these when
 the question is what a *serving* process spends, rather than what the template costs: a bench

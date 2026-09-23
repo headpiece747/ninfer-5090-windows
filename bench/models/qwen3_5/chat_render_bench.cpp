@@ -20,12 +20,13 @@
 //          [--chars <chars per message>] [--call-args <n>] [--tools <n>] [--warmup <n>] [--reps
 //          <n>]
 //          [--generation-prompt on|off] [--tail-assistant on|off] [--special-tokens]
-//          [--thinking-default] [--cancel-probe] [--from <body.json>] [--quiet]
+//          [--thinking-default] [--cancel-probe] [--from <body.json>] [--native] [--quiet]
 //
 // `--from` replays a recorded chat-completions body, which is how a reading can be taken of the
 // same conversation a server rendered rather than of a conversation that merely looks like it.
 
 #include "models/qwen3_5/frontend/chat_template.h"
+#include "models/qwen3_5/frontend/native_render.h"
 
 #include <algorithm>
 #include <atomic>
@@ -77,8 +78,11 @@ struct Options {
     // Report a neutral allocation loop next to the render, so the process's own allocation cost is
     // visible. This is the loop that showed the serving process ~40x slower than a fresh one.
     bool calibrate = false;
-    bool quiet     = false;
-};
+    // Render the conversation through the native renderer as well and report the first byte that
+    // differs. This is the differential loop ADR-0012 is built against; the control it prints first
+    // validates the instrument before any comparison means anything.
+    bool native = false;
+    bool quiet     = false;};
 
 void print_usage(const char* executable) {
     std::cout << "usage: " << executable
@@ -86,7 +90,7 @@ void print_usage(const char* executable) {
                  " [--tools <n>] [--warmup <n>] [--reps <n>] [--generation-prompt on|off]"
                  " [--tail-assistant on|off] [--cancel-probe] [--special-tokens]"
                  " [--thinking-default] [--from <body.json>] [--noise-threads <n>] [--calibrate]"
-                 " [--quiet]\n";
+                 " [--native] [--quiet]\n";
 }
 
 bool parse_bool(std::string_view text) {
@@ -156,6 +160,8 @@ Options parse_options(int argc, char** argv) {
             options.generation_prompt = parse_bool(next("--generation-prompt"));
         } else if (flag == "--tail-assistant") {
             options.tail_assistant = parse_bool(next("--tail-assistant"));
+        } else if (flag == "--native") {
+            options.native = true;
         } else if (flag == "--quiet") {
             options.quiet = true;
         } else if (flag == "--help" || flag == "-h") {
@@ -350,6 +356,42 @@ std::size_t total_bytes(const std::vector<fi::ChatMessage>& messages) {
 
 } // namespace
 
+// The differential loop ADR-0012 is built against. Its control -- the Jinja render compared with
+// itself -- validates the instrument before any comparison means anything, and what it reports is the
+// first byte that differs, so a native renderer can be built against an exact target rather than a
+// reading of the template.
+void report_native_comparison(const fi::CompiledChatTemplate& compiled,
+                              const std::vector<fi::ChatMessage>& messages,
+                              const fi::ChatRenderOptions& render_options,
+                              const ninfer::PreparationControl& control, std::string_view source) {
+    const auto first_difference = [](std::string_view lhs, std::string_view rhs) {
+        const std::size_t limit = std::min(lhs.size(), rhs.size());
+        for (std::size_t i = 0; i < limit; ++i) {
+            if (lhs[i] != rhs[i]) { return std::optional<std::size_t>(i); }
+        }
+        return lhs.size() == rhs.size() ? std::nullopt : std::optional<std::size_t>(limit);
+    };
+    const fi::RenderedChat jinja = compiled.render(messages, render_options, control);
+    const auto self              = first_difference(jinja.text, jinja.text);
+    std::cout << "native control      : "
+              << (self ? "differs at byte " + std::to_string(*self) : std::string("identical"))
+              << " (jinja against itself)\n";
+
+    const fi::Sha256Digest digest = fi::sha256(source);
+    const bool registered         = fi::native_render_supported(digest);
+    std::cout << "native registered   : " << (registered ? "yes" : "no") << " (template digest "
+              << fi::sha256_hex(digest) << ")\n";
+    if (!registered) { return; }
+
+    const fi::RenderedChat native = fi::render_native(messages, render_options);
+    const auto offset             = first_difference(jinja.text, native.text);
+    std::cout << "native compare      : "
+              << (offset ? "differs at byte " + std::to_string(*offset)
+                         : std::string("identical"))
+              << " (jinja " << jinja.text.size() << " bytes, native " << native.text.size()
+              << " bytes)\n";
+}
+
 int main(int argc, char** argv) {
     Options options;
     try {
@@ -453,6 +495,10 @@ int main(int argc, char** argv) {
                   << (options.thinking_default ? "template default" : "off") << "\n";
         std::cout << "cancel probe        " << (options.cancel_probe ? "on" : "off") << "\n";
         std::cout << "noise threads       " << options.noise_threads << "\n";
+        if (options.native) {
+            report_native_comparison(compiled, build_conversation(options, options.sweep.front()),
+                                     render_options, control, source);
+        }
         std::cout << "\n";
         std::cout << "messages   bytes   render ms   ms/message   boundaries   text bytes   "
                      "checkpoints\n";
