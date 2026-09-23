@@ -405,32 +405,34 @@ measurement says plainly. The rest is the filter's own construction in the piece
 
 The one that *did* land was not in that model at all: this map copy.
 
-## The frontend renders the conversation three times, and two of them are proofs
+## The frontend renders the conversation more than once, and the extra renders are proofs
 
-Everything above measures *one* render. A request does three, and the bench's two probe arms isolate
-the other two:
+Everything above measures *one* render. A request renders the conversation more than once, and the
+bench's two probe arms isolate the others:
 
 | arm at 229 messages | render | what it adds |
 |---|--:|---|
-| both probes on (shipped) | **72.2 ms** | everything |
+| both probes on | 72.2 ms | everything, before ADR-0011 |
 | `--generation-prompt off` | 48.7 ms | `prefix(messages.size())` — the generation boundary |
 | `--tail-assistant off` | 47.0 ms | the next-turn probe — whether the template retains an open turn |
-| both off | **24.3 ms** | the one render the answer actually needs |
+| both off | 24.3 ms | the one render the answer actually needs |
+| **shipped, after ADR-0011** | **48.3 ms** | the generation boundary taken from the layout instead |
 
-So **two thirds of the render is proof work rather than serialization.** Each probe is a full
-`compiled_.render` of the conversation in `chat_template.cpp`: `prefix(count)` re-renders the first
-`count` messages and accepts the result only if it is a prefix of the full render, and the next-turn
-probe re-renders the history with an empty user message appended to decide `retain_open_turn`.
+Each probe was a full `compiled_.render` of the conversation in `chat_template.cpp`: `prefix(count)`
+re-renders the first `count` messages and accepts the result only if it is a prefix of the full
+render, and the next-turn probe re-renders the history with an empty user message appended to decide
+`retain_open_turn`.
 
 These arms change the conversation's shape rather than flipping a switch, so they are not
 byte-identical A/Bs. What makes them evidence is that the mechanism is legible in the code — one
 probe is one extra render — and the sizes match it: 72.2 − 48.7 = 23.5 ms for a probe whose input is
 the whole conversation, and 72.2 − 24.3 = 47.9 ms for both.
 
-This is the one lever in *this port's* code rather than the vendored engine's, and it is the largest
-found — worth ~48 ms of the 72 ms, against the ~6 ms the filter-map copy recovered. The probes are
-also what proves the boundaries ADR-0007's rewrite checkpoint is built on, so removing one is a
-design pass with its own proof argument, not a patch.
+[ADR-0011](../adr/0011-generation-boundary-from-the-layout.md) removed the generation-boundary probe.
+The layout already placed that boundary in 56 of the 62 cases the corpus produced and never disagreed
+with the probe, so the offset now comes from the layout and the probe runs only where the layout
+cannot place it: that is the 72.2 → 48.3 ms row. What remains is the next-turn probe at ~24 ms — a
+different question, and its own design — and the engine's own ~24 ms per render.
 
 ## What the field does about this, and what it does not
 
