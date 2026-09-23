@@ -186,16 +186,33 @@ So concurrent allocators in one process really do slow this render - **2.1x at 1
 genuine contributor and it is now a documented property of the instrument, but it is **not 32x**, so
 heap serialization alone does not account for the serving process.
 
-Two things follow, and neither has been done:
+Both of those were then done, and both are now closed:
 
-1. **The Segment Heap has not been tried.** `git grep heapType` finds nothing in this tree, so the
-   process runs on the legacy NT heap - the one the issue above says scales badly - while Microsoft's
-   documented opt-in is an application manifest with `<heapType>SegmentHeap</heapType>`. The bench is
-   an executable too, so this can be A/B'd on the bench alone, with `--noise-threads 16`, before
-   anything touches the shipped apps.
-2. **The calibration has not been taken under contention.** The 40x figure came from a single-threaded
-   calibration in each process; measuring it with noise threads would say whether contention explains
-   the whole gap or only part of it.
+1. **The Segment Heap was tried, on the bench and on the server.** On the bench it is a clear win -
+   `NINFER_BENCH_SEGMENT_HEAP=ON` against `OFF`, interleaved over three rounds at both contention
+   levels, means of the best of three repeats:
+
+   | arm | noise 0 | noise 16 |
+   |---|--:|--:|
+   | legacy NT heap | 79.27 ms | 146.75 ms |
+   | Segment Heap | **67.99 ms** | **115.98 ms** |
+
+   That is 1.17x uncontended and 1.27x under contention, with no overlap between the arms in any
+   round. **It does not transfer.** The same A/B on `ninfer-serve`, built from the same source with
+   only `-DNINFER_SEGMENT_HEAP` differing and each embedded manifest checked by extracting it with
+   `mt.exe`, run through the shipped launcher with only `build\apps\infer-serve.exe` swapped, gave
+   `render 2.3s` for the NT arm (three runs) and `render 2.3s` for the segment arm (two runs). The
+   option was reverted rather than landed: it buys nothing where it would have been used.
+2. **The calibration was taken under contention, and contention is refuted.** In the bench the
+   20,000-allocation loop reads 0.50-1.10 ms in *both* heap arms and does not degrade with sixteen
+   threads allocating, while the render in the same runs roughly doubles. So the serving process's
+   40x calibration gap - pure allocation, single-threaded, in a process with no noise threads - is not
+   heap serialization.
+
+So the heap implementation and heap contention are both eliminated, each by measurement, and the
+question is smaller than it was but no closer to answered: a serving process runs this host code
+about 30x slower than a fresh one, and neither the heap it uses nor contention on that heap is why.
+
 
 
 ## What upstream already knows
@@ -262,11 +279,9 @@ question, not a finding: no A/B on one host has been run.
 
 - **What makes the serving process slow is not known.** The 32x is measured with the input held
   identical, and the calibration shows the process itself is ~40x slower at ordinary host
-  allocation, but the cause is open. The bench's diagnostic arms for the hypotheses that were tested
-  and refuted - a held allocation, CUDA initialisation, a disabled low-fragmentation heap - were
-  reverted; the readings are in the table above. Heap serialization is confirmed as a contributor and
-  not as the whole answer, and the two experiments that follow from that are the Segment Heap A/B and
-  the calibration under contention, both described above.
+  allocation, but the cause is open. Everything tested and refuted is recorded above with its
+  reading: a held allocation, CUDA initialisation, a disabled low-fragmentation heap, heap
+  serialization as the cause, and now the Segment Heap on the server itself.
 - **The render's own shape is understood but not optimised.** It makes three full passes per request
   and the `prefix(messages.size())` probe is ~28 ms of the 80 ms a fresh process needs - worth having
   in a process that is not already 30x off, and not the current bottleneck.

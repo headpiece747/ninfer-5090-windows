@@ -74,7 +74,10 @@ struct Options {
     // Background threads that allocate and free, to test whether the process's global heap is what
     // makes an otherwise identical measurement slow: the NT heap is process-wide and serialized.
     std::size_t noise_threads = 0;
-    bool quiet                = false;
+    // Report a neutral allocation loop next to the render, so the process's own allocation cost is
+    // visible. This is the loop that showed the serving process ~40x slower than a fresh one.
+    bool calibrate = false;
+    bool quiet     = false;
 };
 
 void print_usage(const char* executable) {
@@ -82,7 +85,8 @@ void print_usage(const char* executable) {
               << " [--template <path>] [--sweep <n,n,...>] [--chars <n>] [--call-args <n>]"
                  " [--tools <n>] [--warmup <n>] [--reps <n>] [--generation-prompt on|off]"
                  " [--tail-assistant on|off] [--cancel-probe] [--special-tokens]"
-                 " [--thinking-default] [--from <body.json>] [--noise-threads <n>] [--quiet]\n";
+                 " [--thinking-default] [--from <body.json>] [--noise-threads <n>] [--calibrate]"
+                 " [--quiet]\n";
 }
 
 bool parse_bool(std::string_view text) {
@@ -136,6 +140,8 @@ Options parse_options(int argc, char** argv) {
             options.from_path = next("--from");
         } else if (flag == "--noise-threads") {
             options.noise_threads = parse_size(next("--noise-threads"), "--noise-threads");
+        } else if (flag == "--calibrate") {
+            options.calibrate = true;
         } else if (flag == "--special-tokens") {
             options.special_tokens = true;
         } else if (flag == "--thinking-default") {
@@ -402,6 +408,22 @@ int main(int argc, char** argv) {
             noise_stop.store(true, std::memory_order_relaxed);
             for (std::thread& thread : noise) { thread.join(); }
         };
+
+        // A neutral allocation loop, run while the noise threads are running, so the process's
+        // allocation cost is reported next to the render's under the same contention. The checksum
+        // is printed so a loop that was optimised away or mis-sized is visible rather than fast.
+        if (options.calibrate) {
+            const auto started = Clock::now();
+            std::size_t sum    = 0;
+            for (int i = 0; i < 20000; ++i) {
+                std::string text(64, 'x');
+                text += std::to_string(i);
+                sum += text.size();
+            }
+            const double ms =
+                std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+            std::printf("calibration %.3f ms (checksum %zu)\n", ms, sum);
+        }
 
         fi::ChatRenderOptions render_options;
         render_options.add_generation_prompt = options.generation_prompt;

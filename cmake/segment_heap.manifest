@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Segment Heap application manifest, used by NINFER_BENCH_SEGMENT_HEAP on the chat render bench.
+
+  The element and its namespace are the ones Microsoft documents for `heapType`
+  (win32/sbscs/application-manifests): the value `SegmentHeap` selects the modern heap, any other
+  value is ignored, and the element is supported from Windows 10 version 2004 (build 19041).
+
+  It is an opt-in to be measured rather than a default, because the outcome is not predictable in
+  either direction. The legacy NT heap serializes every allocation process-wide and Microsoft's own
+  tracker measures it scaling badly with core count; dotnet/sdk#43611 measures the segment heap
+  adding 12.8 GB of VirtualAlloc/VirtualFree traffic and 5.1-6.8 s of CPU on an allocation-heavy
+  benchmark. On this port's render bench it is a win in both conditions - 1.17x uncontended and
+  1.27x with sixteen threads contending - and on the serving process it changed nothing at all
+  (`render 2.3s` on both arms), which is why it is a bench option and not an app one. See
+  docs/research/prompt-preparation-cost.md.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"
+          xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+  <asmv3:application>
+    <asmv3:windowsSettings xmlns="http://schemas.microsoft.com/SMI/2020/WindowsSettings">
+      <heapType>SegmentHeap</heapType>
+    </asmv3:windowsSettings>
+  </asmv3:application>
+</assembly>

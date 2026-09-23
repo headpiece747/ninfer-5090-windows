@@ -22,3 +22,14 @@ add_executable(ninfer_qwen3_5_chat_render_bench
 ninfer_internal_includes(ninfer_qwen3_5_chat_render_bench)
 target_link_libraries(ninfer_qwen3_5_chat_render_bench PRIVATE
   ninfer_model_runtime ninfer_core ninfer::json)
+
+# Opt-in Segment Heap for that bench. Microsoft's documented replacement for the legacy NT heap is an
+# application manifest; the NT heap serializes every allocation process-wide and scales badly with
+# core count, while the segment heap has been measured *adding* VirtualAlloc traffic on an
+# allocation-heavy workload. Neither direction can be assumed, so this is a build option whose two
+# arms are measured against each other rather than a default.
+option(NINFER_BENCH_SEGMENT_HEAP "Embed a Segment Heap manifest in the chat render bench" OFF)
+if(NINFER_BENCH_SEGMENT_HEAP)
+  target_link_options(ninfer_qwen3_5_chat_render_bench PRIVATE
+    "/MANIFESTINPUT:${CMAKE_SOURCE_DIR}/cmake/segment_heap.manifest")
+endif()
