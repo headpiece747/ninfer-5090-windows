@@ -65,6 +65,10 @@ constexpr bool is_ascii_alphanumeric(char byte) {
     return (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || is_ascii_digit(byte);
 }
 
+constexpr char ascii_lower(char byte) {
+    return static_cast<char>(byte >= 'A' && byte <= 'Z' ? byte - 'A' + 'a' : byte);
+}
+
 std::string_view trim_format_whitespace(std::string_view text) {
     std::size_t begin = 0;
     while (begin < text.size() && is_format_whitespace(text[begin])) { ++begin; }
@@ -224,6 +228,23 @@ const Contract::Tool* find_tool_contract(const Contract& contract, std::string_v
         std::find_if(contract.tools.begin(), contract.tools.end(),
                      [&](const auto& candidate) { return candidate.name == tool_name; });
     return tool == contract.tools.end() ? nullptr : &*tool;
+}
+
+// The declared tool whose name differs from the emitted one only by case. That is the deviation this
+// failure class most often is, and naming it turns "undeclared tool" into a diagnosis rather than a
+// question. Empty when nothing declared matches that way.
+std::string_view case_insensitive_tool_match(const Contract& contract, std::string_view tool_name) {
+    if (tool_name.empty()) { return {}; }
+    const auto same_ignoring_case = [&](std::string_view candidate) {
+        return candidate.size() == tool_name.size() &&
+               std::equal(candidate.begin(), candidate.end(), tool_name.begin(),
+                          [](char lhs, char rhs) { return ascii_lower(lhs) == ascii_lower(rhs); });
+    };
+    const auto tool = std::find_if(contract.tools.begin(), contract.tools.end(),
+                                   [&](const auto& candidate) {
+                                       return same_ignoring_case(candidate.name);
+                                   });
+    return tool == contract.tools.end() ? std::string_view{} : std::string_view(tool->name);
 }
 
 const Contract::Parameter* find_parameter_contract(const Contract::Tool& tool,
@@ -413,7 +434,9 @@ public:
                          const Contract& contract)
         : text_(text), max_name_length_(max_name_length), contract_(contract) {}
 
-    FallbackReason parse(std::vector<RawToolCall>& calls) const {
+    // `rejected_name` receives the name the region carried when parsing stopped, empty when it
+    // stopped before one was read. It is diagnostic only and never affects the verdict.
+    FallbackReason parse(std::vector<RawToolCall>& calls, std::string_view& rejected_name) const {
         std::size_t pos = 0;
         for (;;) {
             skip_format_whitespace(text_, pos);
@@ -427,7 +450,10 @@ public:
 
             RawToolCall call;
             const FallbackReason failure = parse_tool_call(pos, call);
-            if (failure != FallbackReason::None) { return failure; }
+            if (failure != FallbackReason::None) {
+                rejected_name = call.name;
+                return failure;
+            }
             calls.push_back(std::move(call));
         }
     }
@@ -608,9 +634,21 @@ ParsedToolCallOutput parse_qwen_tool_call_output(const std::string& text,
     std::vector<RawToolCall> raw_calls;
     const std::string_view tool_region = std::string_view(text).substr(first);
     const QwenToolRegionParser parser(tool_region, max_tool_name_length, contract);
-    const FallbackReason failure = parser.parse(raw_calls);
+    std::string_view rejected_name;
+    const FallbackReason failure = parser.parse(raw_calls, rejected_name);
     if (failure != FallbackReason::None) {
         out.diagnostics.fallback_reason = failure;
+        out.diagnostics.rejected_tool_name_length =
+            static_cast<std::uint32_t>(rejected_name.size());
+        // Only a valid identifier is recorded verbatim: the log gains a subject for the reason and
+        // still never carries arbitrary model text.
+        if (valid_function_name(rejected_name, max_tool_name_length)) {
+            out.diagnostics.rejected_tool_name = std::string(rejected_name);
+        }
+        if (failure == FallbackReason::UndeclaredTool) {
+            out.diagnostics.rejected_tool_near_match =
+                std::string(case_insensitive_tool_match(contract, rejected_name));
+        }
         return fallback(text, out.diagnostics);
     }
 

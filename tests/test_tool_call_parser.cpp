@@ -733,10 +733,67 @@ int test_incremental_embedded_parameter_markup() {
     return failures;
 }
 
+// A fallback must say what it rejected. "undeclared tool" with no subject cannot distinguish a model
+// that misspelled a declared name from one that invented a tool, and those need opposite responses.
+int test_fallback_diagnostics_name_the_subject() {
+    int failures = 0;
+    const auto contract =
+        output_contract_for("TodoWrite", Json{{"todos", Json{{"type", "string"}}}});
+
+    const auto misspelled = fi::parse_qwen_tool_call_output(
+        "<tool_call>\n<function=todowrite>\n<parameter=todos>\nlist\n</parameter>\n"
+        "</function>\n</tool_call>",
+        64, *contract);
+    failures += check(!misspelled.is_tool_call_response &&
+                          misspelled.diagnostics.fallback_reason ==
+                              ninfer::ToolCallParseFallbackReason::UndeclaredTool,
+                      "a name differing only by case must fall back as undeclared");
+    failures += check(misspelled.diagnostics.rejected_tool_name == "todowrite" &&
+                          misspelled.diagnostics.rejected_tool_name_length == 9,
+                      "the emitted name must travel with the reason");
+    failures += check(misspelled.diagnostics.rejected_tool_near_match == "TodoWrite",
+                      "the declared name differing only by case must be named");
+
+    // An identifier that is not declared and resembles nothing declared carries no near match.
+    const auto invented = fi::parse_qwen_tool_call_output(
+        "<tool_call>\n<function=LaunchRocket>\n</function>\n</tool_call>", 64, *contract);
+    failures += check(invented.diagnostics.rejected_tool_name == "LaunchRocket" &&
+                          invented.diagnostics.rejected_tool_near_match.empty(),
+                      "an invented name must be named without a near match");
+
+    // A name that is not an identifier is reported as a length only.
+    const auto not_an_identifier = fi::parse_qwen_tool_call_output(
+        "<tool_call>\n<function=not a name>\n</function>\n</tool_call>", 64, *contract);
+    failures += check(not_an_identifier.diagnostics.rejected_tool_name.empty() &&
+                          not_an_identifier.diagnostics.rejected_tool_name_length ==
+                              std::string("not a name").size(),
+                      "a name that is not an identifier must be reported by length alone");
+
+    // A structure that fails before a name is read reports no name at all.
+    const auto no_name = fi::parse_qwen_tool_call_output(
+        "<tool_call>\n<function\n</function>\n</tool_call>", 64, *contract);
+    failures += check(no_name.diagnostics.rejected_tool_name.empty() &&
+                          no_name.diagnostics.rejected_tool_name_length == 0,
+                      "a structure failing before a name must report no name");
+
+    // An accepted call records no rejection.
+    const auto accepted = fi::parse_qwen_tool_call_output(
+        "<tool_call>\n<function=TodoWrite>\n<parameter=todos>\nlist\n</parameter>\n"
+        "</function>\n</tool_call>",
+        64, *contract);
+    failures += check(accepted.is_tool_call_response &&
+                          accepted.diagnostics.rejected_tool_name.empty() &&
+                          accepted.diagnostics.rejected_tool_near_match.empty() &&
+                          accepted.diagnostics.rejected_tool_name_length == 0,
+                      "an accepted call must carry no rejected name");
+    return failures;
+}
+
 } // namespace
 
 int main() {
     int failures = 0;
+    failures += test_fallback_diagnostics_name_the_subject();
     failures += test_basic_legacy_parsing();
     failures += test_multiple_calls();
     failures += test_declared_strings_preserve_text();

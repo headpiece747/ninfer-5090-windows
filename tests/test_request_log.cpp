@@ -566,6 +566,60 @@ int main() {
             fallback_warning->message == "req#7 tool markup returned as text | duplicate parameter",
         "tool-call text fallback warning is absent or exposes raw content");
 
+    // The reason alone cannot tell a model that misspelled a declared name from one that invented a
+    // tool, and those need opposite responses, so the warning names the emitted tool and the declared
+    // one it almost matched, and the JSONL carries both. That is what makes this class diagnosable
+    // from a log instead of a report.
+    GenerationOutcome undeclared_outcome = outcome;
+    undeclared_outcome.tool_call_parse   = {
+          .marker_seen               = true,
+          .structured_call_count     = 0,
+          .empty_arguments_omitted   = 0,
+          .schema_mismatch_arguments = 0,
+          .fallback_reason           = ninfer::ToolCallParseFallbackReason::UndeclaredTool,
+          .rejected_tool_name        = "todowrite",
+          .rejected_tool_near_match  = "TodoWrite",
+          .rejected_tool_name_length = 9,
+    };
+    const Json undeclared_done =
+        Json::parse(format_request_done_json("serve-test", 3004, context, undeclared_outcome));
+    failures += check(undeclared_done.at("result").at("tool_call_parse").at("rejected_tool_name") ==
+                              "todowrite" &&
+                          undeclared_done.at("result")
+                                  .at("tool_call_parse")
+                                  .at("rejected_tool_near_match") == "TodoWrite" &&
+                          undeclared_done.at("result")
+                                  .at("tool_call_parse")
+                                  .at("rejected_tool_name_length") == 9,
+                      "the rejected tool name is missing from the JSONL diagnostics");
+    const std::optional<OperationalRecord> undeclared_warning =
+        render_tool_call_fallback(context, undeclared_outcome);
+    failures += check(
+        undeclared_warning &&
+            undeclared_warning->message ==
+                "req#7 tool markup returned as text | undeclared tool | emitted \"todowrite\", "
+                "declared \"TodoWrite\" differs only by case",
+        "the fallback warning does not name the tool it rejected");
+
+    // A name that is not an identifier is reported as a length: the log gains a subject for the
+    // reason without ever carrying arbitrary model text.
+    GenerationOutcome unreadable_outcome = outcome;
+    unreadable_outcome.tool_call_parse   = {
+          .marker_seen               = true,
+          .structured_call_count     = 0,
+          .empty_arguments_omitted   = 0,
+          .schema_mismatch_arguments = 0,
+          .fallback_reason           = ninfer::ToolCallParseFallbackReason::InvalidToolName,
+          .rejected_tool_name_length = 12,
+    };
+    const std::optional<OperationalRecord> unreadable_warning =
+        render_tool_call_fallback(context, unreadable_outcome);
+    failures += check(unreadable_warning &&
+                          unreadable_warning->message ==
+                              "req#7 tool markup returned as text | invalid tool name | 12 "
+                              "characters were not a valid tool name",
+                      "an unreadable tool name must be reported by length alone");
+
     const Json error =
         Json::parse(format_request_error_json("serve-test", 4000, context, "generation failed"));
     failures += check(error.at("event") == "request_error", "request error event mismatch");

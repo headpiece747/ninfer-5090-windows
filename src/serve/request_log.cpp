@@ -99,7 +99,10 @@ Json tool_call_parse_json(const ninfer::ToolCallParseDiagnostics& diagnostics) {
                 {"empty_arguments_omitted", diagnostics.empty_arguments_omitted},
                 {"schema_mismatch_arguments", diagnostics.schema_mismatch_arguments},
                 {"fallback_reason",
-                 ninfer::tool_call_parse_fallback_reason_name(diagnostics.fallback_reason)}};
+                 ninfer::tool_call_parse_fallback_reason_name(diagnostics.fallback_reason)},
+                {"rejected_tool_name", diagnostics.rejected_tool_name},
+                {"rejected_tool_near_match", diagnostics.rejected_tool_near_match},
+                {"rejected_tool_name_length", diagnostics.rejected_tool_name_length}};
 }
 
 std::string tool_choice_name(const ToolChoice& choice) {

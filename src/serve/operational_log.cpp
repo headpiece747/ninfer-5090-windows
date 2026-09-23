@@ -314,16 +314,28 @@ OperationalRecord render_request_done(const RequestLogContext& context,
 
 std::optional<OperationalRecord> render_tool_call_fallback(const RequestLogContext& context,
                                                            const GenerationOutcome& outcome) {
-    const ninfer::ToolCallParseFallbackReason reason = outcome.tool_call_parse.fallback_reason;
-    if (!outcome.tool_call_parse.marker_seen ||
-        reason == ninfer::ToolCallParseFallbackReason::None) {
+    const ninfer::ToolCallParseDiagnostics& diagnostics = outcome.tool_call_parse;
+    if (!diagnostics.marker_seen ||
+        diagnostics.fallback_reason == ninfer::ToolCallParseFallbackReason::None) {
         return std::nullopt;
     }
-    return OperationalRecord{
-        .severity = OperationalSeverity::Warning,
-        .message  = "req#" + std::to_string(context.id) + " tool markup returned as text | " +
-                   pretty_code(ninfer::tool_call_parse_fallback_reason_name(reason)),
-    };
+    std::ostringstream out;
+    out << "req#" << context.id << " tool markup returned as text | "
+        << pretty_code(ninfer::tool_call_parse_fallback_reason_name(diagnostics.fallback_reason));
+    // The reason alone cannot tell a model that misspelled a declared name from one that invented a
+    // tool, and those need opposite responses, so the subject travels with it. Only an identifier is
+    // quoted; anything else is reported as a length, which keeps model text out of the log.
+    if (!diagnostics.rejected_tool_name.empty()) {
+        out << " | emitted \"" << diagnostics.rejected_tool_name << '\"';
+        if (!diagnostics.rejected_tool_near_match.empty()) {
+            out << ", declared \"" << diagnostics.rejected_tool_near_match
+                << "\" differs only by case";
+        }
+    } else if (diagnostics.rejected_tool_name_length != 0) {
+        out << " | " << diagnostics.rejected_tool_name_length
+            << " characters were not a valid tool name";
+    }
+    return OperationalRecord{.severity = OperationalSeverity::Warning, .message = out.str()};
 }
 
 OperationalRecord render_request_failure(const RequestLogContext& context,

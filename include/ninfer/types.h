@@ -365,6 +365,16 @@ struct ToolCallParseDiagnostics {
     std::uint32_t empty_arguments_omitted       = 0;
     std::uint32_t schema_mismatch_arguments     = 0;
     ToolCallParseFallbackReason fallback_reason = ToolCallParseFallbackReason::None;
+    // What the fallback rejected. A reason with no subject cannot tell a model that misspelled a
+    // declared name from one that invented a tool, and those need opposite responses, so the emitted
+    // name travels with the reason. `rejected_tool_name` carries it only when it is a valid
+    // identifier, so the log never carries arbitrary model text; `rejected_tool_name_length` carries
+    // its length either way, which separates "no name was read" from "the name is not an
+    // identifier"; `rejected_tool_near_match` names the declared tool that differs from it only by
+    // case, which is the deviation this class most often is.
+    std::string rejected_tool_name;
+    std::string rejected_tool_near_match;
+    std::uint32_t rejected_tool_name_length = 0;
 
     [[nodiscard]] friend constexpr bool
     operator==(const ToolCallParseDiagnostics&, const ToolCallParseDiagnostics&) noexcept = default;
