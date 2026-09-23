@@ -28,6 +28,7 @@
 #include "models/qwen3_5/frontend/chat_template.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
@@ -40,6 +41,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -69,7 +71,10 @@ struct Options {
     // Replay a recorded request body instead of synthesizing a conversation. The point is to render
     // the conversation a server has already rendered, so the two readings are of the same input.
     std::filesystem::path from_path;
-    bool quiet = false;
+    // Background threads that allocate and free, to test whether the process's global heap is what
+    // makes an otherwise identical measurement slow: the NT heap is process-wide and serialized.
+    std::size_t noise_threads = 0;
+    bool quiet                = false;
 };
 
 void print_usage(const char* executable) {
@@ -77,7 +82,7 @@ void print_usage(const char* executable) {
               << " [--template <path>] [--sweep <n,n,...>] [--chars <n>] [--call-args <n>]"
                  " [--tools <n>] [--warmup <n>] [--reps <n>] [--generation-prompt on|off]"
                  " [--tail-assistant on|off] [--cancel-probe] [--special-tokens]"
-                 " [--thinking-default] [--from <body.json>] [--quiet]\n";
+                 " [--thinking-default] [--from <body.json>] [--noise-threads <n>] [--quiet]\n";
 }
 
 bool parse_bool(std::string_view text) {
@@ -129,6 +134,8 @@ Options parse_options(int argc, char** argv) {
             options.cancel_probe = true;
         } else if (flag == "--from") {
             options.from_path = next("--from");
+        } else if (flag == "--noise-threads") {
+            options.noise_threads = parse_size(next("--noise-threads"), "--noise-threads");
         } else if (flag == "--special-tokens") {
             options.special_tokens = true;
         } else if (flag == "--thinking-default") {
@@ -377,6 +384,25 @@ int main(int argc, char** argv) {
             options.sweep            = {recorded_messages.size()};
         }
 
+        // Allocate and free on other threads for the duration of the measurement. The NT heap is
+        // process-wide and every malloc/free takes its lock, so if that is what a long-lived
+        // multi-threaded process pays, this reproduces it in a process that has nothing else in it.
+        std::atomic<bool> noise_stop{false};
+        std::vector<std::thread> noise;
+        for (std::size_t i = 0; i < options.noise_threads; ++i) {
+            noise.emplace_back([&noise_stop] {
+                std::vector<std::string> keep;
+                while (!noise_stop.load(std::memory_order_relaxed)) {
+                    keep.clear();
+                    for (int j = 0; j < 2000; ++j) { keep.emplace_back(64, 'x'); }
+                }
+            });
+        }
+        const auto stop_noise = [&noise_stop, &noise] {
+            noise_stop.store(true, std::memory_order_relaxed);
+            for (std::thread& thread : noise) { thread.join(); }
+        };
+
         fi::ChatRenderOptions render_options;
         render_options.add_generation_prompt = options.generation_prompt;
         if (!options.thinking_default) { render_options.enable_thinking = false; }
@@ -404,6 +430,7 @@ int main(int argc, char** argv) {
         std::cout << "enable_thinking     "
                   << (options.thinking_default ? "template default" : "off") << "\n";
         std::cout << "cancel probe        " << (options.cancel_probe ? "on" : "off") << "\n";
+        std::cout << "noise threads       " << options.noise_threads << "\n";
         std::cout << "\n";
         std::cout << "messages   bytes   render ms   ms/message   boundaries   text bytes   "
                      "checkpoints\n";
@@ -434,6 +461,7 @@ int main(int argc, char** argv) {
                         total_bytes(messages), best, best / static_cast<double>(messages.size()),
                         resolved_boundaries(rendered), rendered.text.size(), probe_count);
         }
+        stop_noise();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "chat render bench failed: " << error.what() << "\n";

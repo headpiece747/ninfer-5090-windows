@@ -151,6 +151,52 @@ So the render is where the time is spent, and the render's code is not what is s
 process executes it about 30x slower than a fresh process does.** What makes that process slow is
 the open question, and it is not a prompt-preparation question.
 
+## What looking this up found, and what it reproduced
+
+The symptom was searched rather than reasoned about further, and two primary sources name the class
+of cause:
+
+- **microsoft/Windows-Dev-Performance issue #106, "NT heap scales horrendously in some cases"**:
+  measured durations that *increase* with core count, with the NT heap as the bottleneck, and TBB's
+  allocator and the Segment Heap not sharing the behaviour.
+- The **LLVM cfe-dev thread** on the same problem: *"The CRT heap allocator on Windows doesn't scale
+  well on large core count machines. Any multi-threaded workload ... that allocates often is impacted
+  by this. ... The heap is global to the application and thread-safe, so every malloc/free locks it,
+  which evidently doesn't scale."*
+- Microsoft's **Low-fragmentation Heap** page adds the other half: the LFH cannot be enabled when
+  heap debugging tools or Application Verifier are in use, and once enabled it cannot be disabled -
+  so a heap that never got it stays on the legacy path.
+
+That matches the shape of the evidence exactly: a cost per **allocation** rather than per byte, hence
+per message and content-independent; the same code and input in two processes; and a bench that is
+fast only because it is single-threaded. This machine has 32 logical processors, and the server runs
+an engine thread, 16 media preprocess workers, httplib workers and a stats reporter.
+
+It was then reproduced in the bench, which gained `--noise-threads N`: N background threads
+allocating and freeing strings for the duration of the measurement, against the same process-wide
+heap. Same conversation, same code:
+
+| noise threads | render |
+|--:|--:|
+| 0 | 82.65 ms |
+| 4 | 99.56 ms |
+| 16 | **171.91 ms** |
+
+So concurrent allocators in one process really do slow this render - **2.1x at 16 threads**. That is a
+genuine contributor and it is now a documented property of the instrument, but it is **not 32x**, so
+heap serialization alone does not account for the serving process.
+
+Two things follow, and neither has been done:
+
+1. **The Segment Heap has not been tried.** `git grep heapType` finds nothing in this tree, so the
+   process runs on the legacy NT heap - the one the issue above says scales badly - while Microsoft's
+   documented opt-in is an application manifest with `<heapType>SegmentHeap</heapType>`. The bench is
+   an executable too, so this can be A/B'd on the bench alone, with `--noise-threads 16`, before
+   anything touches the shipped apps.
+2. **The calibration has not been taken under contention.** The 40x figure came from a single-threaded
+   calibration in each process; measuring it with noise threads would say whether contention explains
+   the whole gap or only part of it.
+
 
 ## What upstream already knows
 
@@ -218,9 +264,9 @@ question, not a finding: no A/B on one host has been run.
   identical, and the calibration shows the process itself is ~40x slower at ordinary host
   allocation, but the cause is open. The bench's diagnostic arms for the hypotheses that were tested
   and refuted - a held allocation, CUDA initialisation, a disabled low-fragmentation heap - were
-  reverted; the readings are in the table above. A sharper next experiment would be to take the same
-  calibration *inside the server at startup*, before the artifact is loaded, and again after, to
-  separate a process that starts slow from one that becomes slow.
+  reverted; the readings are in the table above. Heap serialization is confirmed as a contributor and
+  not as the whole answer, and the two experiments that follow from that are the Segment Heap A/B and
+  the calibration under contention, both described above.
 - **The render's own shape is understood but not optimised.** It makes three full passes per request
   and the `prefix(messages.size())` probe is ~28 ms of the 80 ms a fresh process needs - worth having
   in a process that is not already 30x off, and not the current bottleneck.
