@@ -197,9 +197,20 @@ OperationalRecord render_request_start(const RequestLogContext& context) {
     }
     if (context.media_item_count != 0) {
         append_counted_clause(out, "media", context.media_item_count);
-        if (context.preparation.seconds > 0.0) {
-            out << ", prepared " << product::format_pretty_duration(context.preparation.seconds);
+    }
+    // Preparation is host-side prompt work on every request, media or not: rendering the chat
+    // template and tokenizing the whole conversation. It is O(history) per turn while the engine
+    // reuses only the tail, so it is reported unconditionally and split into its tokenizer share --
+    // a media-only field hid it, and a growing conversation's time to first token is not
+    // attributable without it.
+    if (context.preparation.seconds > 0.0) {
+        std::string clause =
+            "prepared " + product::format_pretty_duration(context.preparation.seconds);
+        if (context.preparation.tokenize_seconds > 0.0) {
+            clause += ", tokenize " +
+                      product::format_pretty_duration(context.preparation.tokenize_seconds);
         }
+        append_clause(out, clause);
     }
     if (context.tool_count != 0) { append_counted_clause(out, "tools", context.tool_count); }
     if (context.preserve_thinking == true) { append_clause(out, "preserve thinking"); }

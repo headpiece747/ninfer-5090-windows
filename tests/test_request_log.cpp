@@ -293,8 +293,16 @@ int main() {
     failures += check(
         pretty_start.message ==
             "req#7 started | openai-chat non-stream | 2 messages | max output 4,096 | thinking "
-            "xhigh, budget 256 | media 1, prepared 120 ms | preserve thinking",
+            "xhigh, budget 256 | media 1 | prepared 120 ms, tokenize 20 ms | preserve thinking",
         "pretty request-start record mismatch");
+    // Preparation happens on every request, so a request without media still reports it. Before
+    // this, the clause lived inside the media branch and a media-less request's time to first token
+    // could not be attributed at all.
+    RequestLogContext unmediated = context;
+    unmediated.media_item_count  = 0;
+    failures += check(render_request_start(unmediated).message.find("prepared 120 ms") !=
+                          std::string::npos,
+                      "preparation time is missing for a request without media");
     RequestLogContext default_thinking = context;
     default_thinking.requested_reasoning_effort.reset();
     default_thinking.thinking_budget.reset();
