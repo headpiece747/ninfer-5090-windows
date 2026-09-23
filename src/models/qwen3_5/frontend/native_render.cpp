@@ -340,17 +340,25 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
             text += kImStart;
             append_input("assistant");
             text += "\n";
+            // The execution boundaries the Jinja route derives by re-parsing its own output: the
+            // content start after the role line, the byte past the thinking opener, and the byte past
+            // the canonical reasoning close when the block carries one.
+            result.rewrite_execution_boundaries.push_back(text.size());
             const bool emit_reasoning =
                 !continuing &&
                 (!options.preserve_thinking.has_value() || *options.preserve_thinking ||
                  i > last_query_index.value_or(messages.size() - 1));
+            bool reasoning_open = false;
             if (emit_reasoning) {
                 text += kThinkOpen;
-                if (!message.reasoning_content.empty()) {
-                    append_input(trim_whitespace(message.reasoning_content));
-                }
+                reasoning_open = true;
+                result.rewrite_execution_boundaries.push_back(text.size());
+                const std::string reasoning = trim_whitespace(message.reasoning_content);
+                if (!reasoning.empty()) { append_input(reasoning); }
                 text += kThinkClose;
+                result.rewrite_execution_boundaries.push_back(text.size());
             }
+            (void)reasoning_open;
             append_input(content);
             if (!message.tool_calls.empty()) {
                 for (std::size_t call_index = 0; call_index < message.tool_calls.size();
@@ -386,8 +394,10 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
             }
         } else if (message.role == ChatRole::Tool) {
             if (first || messages[i - 1].role != ChatRole::Tool) {
+                // The template writes this opener as a literal ('<|im_start|>user'), not through
+                // `message.role`, so it is template bytes and not an input region.
                 text += kImStart;
-                append_input("user");
+                text += "user";
             }
             text += kToolResponseOpen;
             append_input(content);
@@ -402,23 +412,60 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
         result.message_boundaries[i + 1] = text.size();
     }
 
+    std::optional<std::size_t> generation_begin;
     if (options.add_generation_prompt) {
+        generation_begin = text.size();
         text += kGenPromptAssistant;
+        // The generation prompt is an unclosed assistant block, and the Jinja route records the same
+        // three boundaries for it as for any other: the content start, past the thinking opener, and
+        // past the reasoning close when the empty-thinking form is written.
+        result.rewrite_execution_boundaries.push_back(text.size());
         if (options.enable_thinking.has_value() && !*options.enable_thinking) {
             text += kGenPromptThinkOff;
         } else {
+            result.rewrite_execution_boundaries.push_back(text.size());
             text += kGenPromptThink;
+            // The open form is the thinking opener with no reasoning body yet, and the Jinja route
+            // records a boundary past it as well.
+            result.rewrite_execution_boundaries.push_back(text.size());
         }
     }
 
-    // Literal spans are the complement of the input ranges, which is what the Jinja route's input
-    // marking produces: template bytes are literal, input bytes are not.
+    // The template retains an open turn when appending a turn would not change history's rendering.
+    // For this template that turns on `last_query_index`, which the reverse pass above resolves from
+    // message content, so it is known here rather than probed.
+    const bool retain_open_turn =
+        options.preserve_thinking.has_value() && *options.preserve_thinking;
+
+    // Despite the name, `literal_spans` holds the output ranges that came from *input*, not from the
+    // template: `chat_template.cpp:346` names the result of `overlaps(literal_spans, ...)` `sourced`,
+    // and `template_bytes` inverts the same test to accept a marker as a real control token. The
+    // Jinja route's field and this one are therefore the recorded input ranges, merged into maximal
+    // runs -- `same_prefix` compares them element-wise in order.
     std::size_t cursor = 0;
+    const auto push_span = [&](std::size_t begin, std::size_t end) {
+        if (begin >= end) { return; }
+        if (!result.literal_spans.empty() && result.literal_spans.back().end == begin) {
+            result.literal_spans.back().end = end;
+            return;
+        }
+        result.literal_spans.push_back({begin, end});
+    };
     for (const text::ByteSpan& span : input_spans) {
-        if (span.begin > cursor) { result.literal_spans.push_back({cursor, span.begin}); }
+        push_span(span.begin, span.end);
         cursor = std::max(cursor, span.end);
     }
-    if (cursor < text.size()) { result.literal_spans.push_back({cursor, text.size()}); }
+    (void)cursor;
+
+    // The generation prompt's frontier is where this renderer stopped writing history, and the
+    // execution boundaries are the assistant openers it emitted -- both known here rather than
+    // derived from a probe.
+    if (options.add_generation_prompt && generation_begin) {
+        result.rewrite_checkpoint = RewriteCheckpointByteSpec{
+            .kind   = continuation || retain_open_turn ? RewriteCheckpointKind::ResponseReplay
+                                                       : RewriteCheckpointKind::TurnClosure,
+            .offset = *generation_begin};
+    }
     return result;
 }
 

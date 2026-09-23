@@ -390,6 +390,69 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
                          : std::string("identical"))
               << " (jinja " << jinja.text.size() << " bytes, native " << native.text.size()
               << " bytes)\n";
+    if (offset) {
+        const std::size_t from = *offset;
+        const auto show = [&](std::string_view text, const char* label) {
+            std::string window(text.substr(from, std::min<std::size_t>(200, text.size() - from)));
+            for (std::size_t i = 0; (i = window.find('\n', i)) != std::string::npos; ++i) {
+                window.replace(i, 1, "\\n");
+            }
+            std::cout << "native " << label << " [" << from << "..] : " << window << "\n";
+        };
+        show(jinja.text, "jinja ");
+        show(native.text, "native");
+    }
+
+    // Text identity is necessary and not sufficient: a renderer that produced the same bytes with
+    // different boundaries would pass a text-only check and then hand the engine a wrong frontier.
+    // Every field `RenderedChat` carries is compared here.
+    const auto spans = [](const std::vector<ninfer::text::ByteSpan>& values) {
+        std::string out;
+        for (const ninfer::text::ByteSpan& span : values) {
+            out += "[" + std::to_string(span.begin) + "," + std::to_string(span.end) + ")";
+        }
+        return out;
+    };
+    const auto boundaries = [](const std::vector<std::optional<std::size_t>>& values) {
+        std::string out;
+        for (const auto& value : values) {
+            out += value ? std::to_string(*value) : std::string("none");
+            out += ",";
+        }
+        return out;
+    };
+    const auto report = [](const char* field, const std::string& lhs, const std::string& rhs) {
+        std::cout << "native field        : " << field << " "
+                  << (lhs == rhs ? "identical" : "DIFFERS") << "\n";
+        if (lhs != rhs) {
+            std::cout << "native   jinja  : " << (lhs.size() > 240 ? lhs.substr(0, 240) : lhs)
+                      << "\n";
+            std::cout << "native   native : " << (rhs.size() > 240 ? rhs.substr(0, 240) : rhs)
+                      << "\n";
+        }
+    };
+    report("literal_spans", spans(jinja.literal_spans), spans(native.literal_spans));
+    if (spans(jinja.literal_spans) != spans(native.literal_spans)) {
+        std::cout << "native   jinja  full: " << spans(jinja.literal_spans) << "\n";
+        std::cout << "native   native full: " << spans(native.literal_spans) << "\n";
+    }
+    report("message_boundaries", boundaries(jinja.message_boundaries),
+           boundaries(native.message_boundaries));
+    report("cache_boundaries", boundaries(jinja.cache_boundaries),
+           boundaries(native.cache_boundaries));
+    report("starts_in_reasoning",
+           jinja.starts_in_reasoning ? "true" : "false",
+           native.starts_in_reasoning ? "true" : "false");
+    report("rewrite_execution_boundaries",
+           boundaries({jinja.rewrite_execution_boundaries.begin(),
+                      jinja.rewrite_execution_boundaries.end()}),
+           boundaries({native.rewrite_execution_boundaries.begin(),
+                      native.rewrite_execution_boundaries.end()}));
+    report("media_placeholders", std::to_string(jinja.media_placeholders.size()),
+           std::to_string(native.media_placeholders.size()));
+    report("rewrite_checkpoint",
+           jinja.rewrite_checkpoint ? std::to_string(jinja.rewrite_checkpoint->offset) : "none",
+           native.rewrite_checkpoint ? std::to_string(native.rewrite_checkpoint->offset) : "none");
 }
 
 int main(int argc, char** argv) {
