@@ -557,15 +557,21 @@ prepared 4.02 ms, contract 0 us, convert 19 us, render 3.69 ms, tokenize 94 us,
 positions 209 us, cache prep 1 us
 ```
 
-Preparation is now ~4 ms, and the request's **warm time to first token is 17.3 ms** -- so the
-remainder is outside preparation: prefill 5.8 ms, and **queue wait ~10 ms**, which is now the largest
-single term on the request.
+Preparation is now ~4 ms, and a warm request's **time to first token is 14.8 to 16.0 ms** across the
+runs recorded below -- so most of it is outside preparation. The terms outside it are prefill
+(~5.8 ms) and queue wait, and **queue wait is variable rather than constant**: 10.17 / 10.11 / 11.00 /
+10.40 ms on one set of four identical requests, and 9.70 / 9.32 / 9.05 ms (ttft 16.03 / 15.10 /
+14.84 ms minus the other terms) on another.
 
-It is not noise and it is not the wait primitive. Instrumented at the two places the engine books it:
+An earlier version of this section called it "constant, which is a timer's signature". That was wrong
+and is corrected here: the request that disproved it was the verification run that produced a *lower*
+warm TTFT than the one the claim was written from, and a figure that moves between runs is not a
+timer. What survives is the mechanism, not the constancy.
 
-- the engine books `queue_wait_ns` where the request reaches its Prefill lane, and it reads
-  10.17 / 10.11 / 11.00 / 10.40 ms across four identical requests -- constant, which is a timer's
-  signature rather than scheduling jitter's;
+It is not the wait primitive. Instrumented at the two places the engine books it:
+
+- the engine books `queue_wait_ns` where the request reaches its Prefill lane, which is the number
+  quoted above;
 - the worker's predicate wait does **not** explain it: `submit` notifies `queue_cv_`, and the probe
   shows the wait waking immediately;
 - what does explain it is the **turn the request waits for**: single worker turns measured at
@@ -574,14 +580,39 @@ It is not noise and it is not the wait primitive. Instrumented at the two places
   `snapshot_cancellations`, `cancel_active_requests` and `build_round_membership` under
   `execution_mutex_`, and the loop's own 1 ms timeout cannot account for 6-9 ms.
 
-Which of those six calls owns the time is **not established here** -- that is the next measurement,
-and it is an engine-internals question with its own authority
+Those turn readings explain the *shape* -- a request waits for a turn, and turns are milliseconds --
+but they do not close the arithmetic, and the two sets of queue-wait readings are not reconciled
+here. Which of the six calls owns the time is **not established** -- that is the next measurement, and
+it is an engine-internals question with its own authority
 (`docs/maintainer/engine-architecture.md`) rather than a frontend one.
 
 Two hypotheses were refuted on the way and are recorded so they are not re-tried: that submission
 fails to wake the worker (it notifies, and the wait wakes immediately), and that the 10 ms
 `wait_for` in `wait_for_request` is the latency (it is a predicate wait on the consumer side, woken by
 the response; it does not gate admission).
+
+## The end state, verified by the server's own record
+
+Four identical requests for the same 229-message, 92,373-token conversation, read from
+`--request-log-jsonl`. The engine's own counters are the oracle for everything the frontend did: a
+prompt served entirely from cached state cannot have had one id changed by the render, the encode
+cache or the tokenizer.
+
+| request | prepare | TTFT | prompt tokens | cache hit | computed prefill |
+|---|--:|--:|--:|--:|--:|
+| 1 cold | 33.72 ms | 23,971 ms | 92,373 | 0 | 92,373 |
+| 2 warm | 4.25 ms | **16.03 ms** | 92,373 | **92,373** | **0** |
+| 3 warm | 4.29 ms | 15.10 ms | 92,373 | 92,373 | 0 |
+| 4 warm | 4.01 ms | **14.84 ms** | 92,373 | 92,373 | 0 |
+
+`request_done: 4`, `request_rejected: 0`. The cold request is pure prefill, which is where
+upstream's own measurement says preparation belongs on a cold prompt; the warm ones are the regime
+this note is about, and preparation is 4 ms of their ~15 ms.
+
+One figure in this note moves between runs: the cold `tokenize`. It read 27.5 ms in one run and
+53.8 ms in another on the same conversation, which is host-side variance on a ~690 KB encode rather
+than anything the cache controls. The warm figure does not move -- 94 to 117 us across every run
+recorded here -- and a cold number should not be quoted without its run.
 
 ## What this note does not establish
 

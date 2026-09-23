@@ -165,7 +165,7 @@ release surface is documented in the Windows section of `README.md`. There are t
 `build/` for the apps, and `build-test/` for the suite the release gate runs
 (`ctest --test-dir build-test`).
 
-Twenty-eight rules, each earned by a failure rather than chosen:
+Thirty-two rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
@@ -342,3 +342,32 @@ Twenty-eight rules, each earned by a failure rather than chosen:
   about twenty minutes each, for two fields that could have landed together. Decide the whole set of
   instrumentation fields before editing it, or keep them in a frontend-internal struct until they
   actually have to be public.
+- **A helper that returns a view over its own temporary is a silent corruption generator.** Writing
+  `std::string_view content = trim(render_content(...))` dangles the moment the call returns, and the
+  bytes that land are whatever the allocator hands back: the text stays the *right length* and the
+  corruption appears mid-string, so a byte-identity check reports a difference at some offset and the
+  offset moves as unrelated code changes. Three separate survivors of this in one renderer, and the
+  last one was found only because a field-by-field comparison ran; a text-only check had passed it.
+  Return `std::string` from such helpers rather than a view, and when a caller only needs a view bind
+  it to something with a declared lifetime.
+- **Compare structures field by field, not by their largest member.** A renderer that produced
+  identical bytes with different cache, message and execution boundaries passed every text-only check
+  and would have handed the engine a wrong frontier. Two of that session's four defects — a
+  same-length divergence and a wrong control-channel flag — were invisible to a byte comparison and
+  found by comparing every field. The reverse also holds: a field-by-field comparison needs its
+  control (`x` against `x`) printed first, so a broken instrument reads as broken rather than as a
+  result.
+- **A projection is not a measurement, and the first live run will correct it.** `prepared` and TTFT
+  were projected twice from a render benchmark and both times were wrong: the second projection
+  omitted a term entirely (a ~10 ms engine queue wait) and was off by 2x. What fixed it was reading
+  the server's own `request-log-jsonl` and its `prepared ..., render ..., tokenize ...` breakdown,
+  which already carried the answer — the projection was built from a bench because the phase split
+  had not been read, not because it did not exist. Quote a figure with the scope it was taken at, and
+  when a component figure exists next to an end-to-end one, prefer the end-to-end one.
+- **A cache that serves an extension but not a repetition has a gap, not a design.** ADR-0010's
+  incremental encode required a *strict* prefix, so a growing conversation spliced and a retried or
+  duplicated one re-encoded the whole prompt — `splices=0` on every request, for as long as it went
+  unnoticed. The counter that would have shown it (`encode_cache_splices`) existed and was not
+  reported anywhere. When a cache has a hit counter, publish it; when it has a hit *condition*, ask
+  which common cases fall outside it.
+
