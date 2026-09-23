@@ -9,16 +9,21 @@ upstream publishes. Read this before pulling an upstream release.
 ancestors of `dev`:
 
 ```
-git merge-base dev upstream/master   ->  4c0fe48a   (== upstream/master's tip)
+git merge-base dev upstream/master   ->  594930e7   (== upstream/master's tip)
 git rev-list --count <base>..upstream/master  ->  0
-git rev-list --count <base>..dev              ->  261
+git rev-list --count <base>..dev              ->  267
 ```
 
-**Last integrated: `4c0fe48a`, 2026-09-23** (`7d28a683`), two commits: `4c0fe48a` blocking CUDA
-synchronization (PR #302, closing issue #301) and `c4ae8a9c` restoring the accurate silu in the
-NVFP4 SwiGLU. Neither touched the port's divergence surface; the silu commit conflicted only in a
-comment and was resolved in upstream's favour on the code, since the port already carried the same
-accurate activation.
+**Last integrated: `594930e7`, 2026-09-23** (`fd548294`), one commit: the Q5 parent of both q4/q5
+small-column input projections moving to the split4 shape, with the row-block experiment header
+removed. No conflicts, and nothing in it touches the divergence surface below; two op tests were
+auto-merged rather than taken whole, because the port carries its own MSVC changes in them, and the
+gate passed on the combination.
+
+Before that, **`4c0fe48a`** (`7d28a683`): `4c0fe48a` blocking CUDA synchronization (PR #302, closing
+issue #301) and `c4ae8a9c` restoring the accurate silu in the NVFP4 SwiGLU. Neither touched the
+divergence surface either; the silu commit conflicted only in a comment and was resolved in
+upstream's favour on the code, since the port already carried the same accurate activation.
 
 So there is **no merge debt and nothing blocked on upstream**. Their future fixes apply to a base
 we already contain. The work below is about recognising our own patches when upstream touches the
@@ -26,8 +31,9 @@ same files, not about catching up.
 
 ## Scale
 
-`git diff --stat upstream/master dev` reports **384 files, +27,304 / -5,342** at `4c0fe48a`
-(was 250 files, +22,017 / -342 at `9e163eee`; the per-area table below is the `9e163eee` snapshot).
+`git diff --stat upstream/master dev` reports **384 files, +27,572 / -5,342** at `594930e7`
+(was 384 files, +27,304 / -5,342 at `4c0fe48a`, and 250 files, +22,017 / -342 at `9e163eee`; the
+per-area table below is the `9e163eee` snapshot).
 
 | Area | Files | Kind |
 | --- | --- | --- |
@@ -59,6 +65,7 @@ arise for them.
 | `tests/*` | MSVC portability: `<array>` for CTAD, `constexpr` on `std::sqrt`, fixture share mode | `24e8850d`, `7effcafb`, `d8117ed4`, `1d4c108c` |
 | `bench/context_cost/model_context_fixture.cpp` | `attention_pairs` divided through `ninfer::Uint128` instead of `__int128`, which MSVC x64 does not support - with it, every target in the benchmark tree failed to compile, so `NINFER_BUILD_BENCHMARKS=ON` could not build on Windows at all | `e9328d03` |
 | `bench/models/qwen3_5/benchmarks.cmake`, `bench/models/qwen3_5/chat_render_bench.cpp`, `bench/README.md` | host-only chat-template render cost bench: reads a template, synthesizes its conversation, needs no artifact and no GPU | `c81e5bcf` |
+| `.codex/hooks.json`, `.codex/hooks/clang_format.py` | removed: upstream's Codex hook runs clang-format from a Linux path and is not usable on this port. A merge resolves the modify/delete silently as "deleted by us", so it stays removed by design rather than by accident — worth knowing, because an incoming change to it will not conflict and will not appear in the merge stat | `c49eed3b` |
 
 `src/core/uint128.h` is **ours only** — it does not exist upstream, so the `constexpr` work in
 `4df4d2e8` cannot conflict. It was mis-classified as upstream-owned in an earlier pass.
