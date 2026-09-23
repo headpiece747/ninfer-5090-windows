@@ -101,7 +101,28 @@ identically (`degraded=1`, `path=1`, `state=0`): the dropped checkpoint carries 
 That is the real shape of the defect. `demand_mask` records *live* demands, and at the moment of the
 pressure decision no request is asking for the turn closure yet -- the closure exists precisely so
 that a *later* turn can reuse it, which is what the design doc says a `TurnClosure` is for. Its loss
-is therefore priced at about nothing and it is dropped. The grep this paragraph leaned on is correct
+is therefore priced at about nothing and it is dropped.
+
+**Corrected: the loss is not zero, and the weight experiment could not have moved it.** Reading the
+supply side settles both. `MaterializationCheckpointPolicy` is built at `resource_manager.h:2070` and
+`:2128` with `rebuild_ns = cost_model_.prefill_ns(checkpoint.rebuild_work)` and
+`baseline_recovery_ns = price_checkpoint_recovery_work(...)` -- functions of the checkpoint and the
+cost model, not of the demand mask. The fold then takes `max(baseline_saving - target_saving)` per
+owner (`context_portfolio_value.h:78-80`), also demand-independent, and only the *public*
+accumulation at `:82` is gated on the mask. So a checkpoint with `demand_mask == 0` still carries a
+loss; what it lacks is any public *gain*, and a pressure action whose gain elsewhere exceeds that
+loss is still chosen.
+
+The retention-weight experiment was therefore not a candidate at all. It raised
+`RetentionClass::SharedStable` from 0 to 16, and this case sets `max_shared_prefixes = 0`, so no
+owner in the reproduction carries that class; the private owner's weight (`RecentPrivate` 4 or
+`LiveSession` 16, `resource_manager.h:1499-1511`) was untouched. "Unchanged" was guaranteed.
+
+What remains is the gap this ADR's own Decision names, one level down: the loss does not know the
+checkpoint's *kind*. `TurnClosure` and `ResponseReplay` exist for a later turn; a superseded
+`SessionEndpoint` does not. The fold prices all five kinds identically, so the closure competes on the
+same footing as the endpoint it supersedes -- which is why the ADR's Decision is right that coverage
+must be declared and honoured, while its stated mechanism for how it fails is not. The grep this paragraph leaned on is correct
 -- `TurnClosure` and `ResponseReplay` are never named under `context_cache/` -- but its inference was
 not: that layer already reads `CheckpointRef::kind` and already distinguishes `SessionEndpoint` from
 the rest (`resource_manager.h:1537, 1542-1544, 1550, 1569`). What is missing is narrower. The
