@@ -434,6 +434,16 @@ with the probe, so the offset now comes from the layout and the probe runs only 
 cannot place it: that is the 72.2 → 48.3 ms row. What remains is the next-turn probe at ~24 ms — a
 different question, and its own design — and the engine's own ~24 ms per render.
 
+That remaining probe was then measured too, because it is the same shape of candidate: it decides
+`retain_open_turn`, and the frontend already holds a typed `preserve_thinking` option that looks like
+it should answer the same question. It does not. Instrumented over the corpus and the bench, the
+probe disagreed with that hint in **3 of 12** calls, and the *same* typed value produced both answers.
+The template explains why: whether the tail assistant's reasoning is emitted turns on
+`last_query_index`, which the template computes by testing whether a user message's **content** is
+wrapped in `<tool_response>`. The answer is a content test, so no option and no shape signature
+determines it, and a cheap probe over a smaller conversation would be answering about a different
+conversation. It stays.
+
 ## What the field does about this, and what it does not
 
 `third_party/llama-jinja` is llama.cpp's `common/jinja` engine, introduced by their PR #18462 to

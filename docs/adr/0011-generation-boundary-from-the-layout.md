@@ -67,10 +67,15 @@ additional statement that a *truncated* render reproduces that prefix. It was ne
 differ, in 56 corpus cases or in the 229-message conversation, and the probe still guards every case
 the layout cannot place.
 
-The next-turn probe is **not** changed. It answers a different question — whether appending a turn
-changes the history's rendering, which for this template family it does, because the tail assistant's
-reasoning is emitted by a condition on the last user message's index — and the request is already at
-two renders, so it cannot be merged away. Deriving it instead is its own design.
+The next-turn probe is **not** changed, and this was measured rather than assumed. It answers a
+different question — whether appending a turn changes the history's rendering — and the obvious
+shortcut, deriving it from the typed `preserve_thinking` option, is refuted: instrumented over the
+frontend corpus and the bench, the probe disagreed with the hint in **3 of 12** calls, and the same
+typed value produced both answers. The reason is in the template: whether the tail assistant's
+reasoning is emitted turns on `last_query_index`, which the template computes by testing whether a
+user message's **content** is wrapped in `<tool_response>`. So neither the typed option nor any shape
+signature determines the answer — it is a content test, and only executing the template observes it.
+The request is also already at two renders, so the probe cannot be merged away.
 
 ## Consequences
 
