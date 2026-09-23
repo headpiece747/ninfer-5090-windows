@@ -2,12 +2,15 @@
 
 #include "models/qwen3_5/frontend/digest.h"
 #include "text/unicode.h"
+#include "ninfer/types.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace ninfer::models::qwen3_5::frontend {
 
@@ -264,6 +267,9 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
     // Every literal this renderer emits is template bytes, so a literal span is the complement of the
     // ranges an input contributed. Collected as input ranges and inverted at the end.
     std::vector<text::ByteSpan> input_spans;
+    // One entry per tool definition, in request order, so a ToolBoundary marker can resolve to a
+    // rendered frontier rather than a source offset.
+    std::vector<std::size_t> tool_ends;
     const auto append_input = [&](std::string_view bytes) {
         if (bytes.empty()) { return; }
         input_spans.push_back({text.size(), text.size() + bytes.size()});
@@ -281,6 +287,7 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
             // The tool definitions come from the request, so the Jinja route marks them as input; the
             // serialization is this renderer's, but the bytes are the caller's.
             append_input(to_json(definition));
+            tool_ends.push_back(text.size());
         }
         text += kToolsBlockEnd;
         text += kToolsReminder;
@@ -489,6 +496,31 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
             .kind   = continuation || retain_open_turn ? RewriteCheckpointKind::ResponseReplay
                                                        : RewriteCheckpointKind::TurnClosure,
             .offset = *generation_begin};
+    }
+
+    // Cache markers resolve to a rendered frontier by location kind, as the Jinja path resolves them:
+    // a message boundary is that message's frontier, and a tool boundary is where the definition at
+    // that index ends. The two kinds that need a source offset against a region's mapping -- a leading
+    // instruction boundary and a message-part boundary -- stay absent, the same answer the Jinja path
+    // gives when the layout cannot place them.
+    result.cache_boundaries.resize(options.cache_markers.size());
+    for (std::size_t i = 0; i < options.cache_markers.size(); ++i) {
+        const PromptCacheMarker& marker = options.cache_markers[i];
+        switch (marker.location) {
+        case PromptCacheMarkerLocation::MessageBoundary:
+            if (marker.after_message_count < result.message_boundaries.size()) {
+                result.cache_boundaries[i] = result.message_boundaries[marker.after_message_count];
+            }
+            break;
+        case PromptCacheMarkerLocation::ToolBoundary:
+            if (marker.after_tool_count > 0 && marker.after_tool_count <= tool_ends.size()) {
+                result.cache_boundaries[i] = tool_ends[marker.after_tool_count - 1];
+            }
+            break;
+        case PromptCacheMarkerLocation::LeadingInstructionBoundary:
+        case PromptCacheMarkerLocation::MessagePartBoundary:
+            break;
+        }
     }
     return result;
 }
