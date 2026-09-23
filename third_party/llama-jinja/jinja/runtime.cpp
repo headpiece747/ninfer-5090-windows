@@ -249,8 +249,13 @@ value binary_expression::execute_impl(context& ctx) {
 static value try_builtin_func(context& ctx, const std::string& name, value& input,
                               bool undef_on_missing = false) {
 
-    auto builtins = input->get_builtins();
-    auto it       = builtins.find(name);
+    // A reference, not a copy: get_builtins() returns the type's static map, so taking it by value
+    // copied that whole map on every filter application -- about 1374 of them for a 229-message
+    // chat template. Measured on the render bench, this is 77.5 ms to 71.4 ms for that template with
+    // the rendered bytes unchanged, so the copy was a few milliseconds of it rather than most of it:
+    // the rest of a filter application's cost lies elsewhere in this path.
+    const func_builtins& builtins = input->get_builtins();
+    auto it                       = builtins.find(name);
     if (it != builtins.end()) { return mk_val<value_func>(name, it->second, input); }
     if (undef_on_missing) { return mk_val<value_undefined>(name); }
     throw std::runtime_error("Unknown (built-in) filter '" + name + "' for type " + input->type());

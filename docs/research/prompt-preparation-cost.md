@@ -341,6 +341,46 @@ spliced ids were right — an id that differed from the full encode would not ha
 state. `prepared` is now the render alone, and **the render is the whole of what still grows with a
 conversation.**
 
+## The render, decomposed
+
+With tokenization no longer growing, the render is the whole of preparation (77.7 ms of 79.5) and the
+only term still linear in the conversation. It is three template executions — the output, the
+`prefix(messages.size())` probe that proves where the generation prompt begins, and the checkpoint
+probe that decides whether the open turn is retained — each a whole-conversation loop through the
+interpreter.
+
+The render bench takes a template path, so each construct can be priced with no code change.
+`{{ messages|length }}` is the floor: everything `CompiledChatTemplate::render` does besides the
+template itself — the Json context build, `inspect_prompt_layout`, the `prefix` probe, and the
+checkpoint probe's own render — with no per-message work at all.
+
+| arm | render at 229 messages | isolates |
+|---|--:|---|
+| the shipped template | 75.4-80.2 ms | everything |
+| `{{ messages\|length }}` | **3.47 ms** | **this port's own C++: 4%** |
+| a bare `for` emitting `{{ m.content }}` | 8.99 ms | the loop machinery: ~5.5 ms |
+| the shipped template minus every `\|trim` | 62.1 ms | the ~1374 trims: ~17 ms |
+| ... minus the `render_content` macro calls | 51.3 ms | the macro: ~11 ms |
+| ... minus the `<think>` assembly | 37.7 ms | the reasoning path: ~24 ms |
+
+So **86% of the render is the template's own logic running in the interpreter**, and 4% is this
+port's code. The render is not something this port made slow, and the addressable part is the
+interpreter's per-application cost rather than our plumbing.
+
+Doubling every `|trim` — idempotent, so the rendered bytes are unchanged — costs another 22 ms, so a
+filter's cost is per *application*, not something amortisable. `try_builtin_func` showed why:
+
+```cpp
+auto builtins = input->get_builtins();   // get_builtins() returns a const reference
+```
+
+`auto` copied the type's static filter map on every filter application. Taking it by reference is the
+whole change; on the same bench it takes the render from 77.5 ms to **71.4 ms** with the rendered
+bytes unchanged. The copy was a few milliseconds of the trims' ~17 ms rather than most of it, which
+the same measurement says plainly — the rest is the filter's object construction, the macro call and
+the concatenations, all of them in upstream's vendored llama-jinja and therefore upstream's property
+as much as this port's.
+
 ## What upstream already knows
 
 `docs/performance.md` in the upstream tree publishes

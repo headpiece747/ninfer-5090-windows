@@ -45,7 +45,7 @@ per-area table below is the `9e163eee` snapshot).
 | `src/models` | 9 | **shared** |
 | `docs/*` | 16 | ours only |
 | `src/runtime`, `src/product`, `src/artifact`, `src/serve`, `src/core`, `include/ninfer` | 19 | mixed |
-| `third_party/llama-jinja`, `bench/ops` | 2 | ours only |
+| `third_party/llama-jinja` | 2 | **shared**, not ours only as an earlier pass recorded: the files are upstream's, tracked at `upstream/master`. Corrected here because it changes the reconciliation surface |
 
 ## The reconciliation surface
 
@@ -83,6 +83,7 @@ of these files, read our diff before merging.**
 | `src/runtime/engine/context_cache/resource_manager.h` | reclaim retained continuations at active-capture admission (+116/-2) | `d05ee90a` | medium — upstream issue #251; they may fix it their own way |
 | `src/runtime/engine/context_cache/materialization_budget.h` | scale the search grant off the 5 ms pin (+9/-1) | `2fcffaa9`, `e92cd9d7` | medium — upstream issue #229; same caveat |
 | `src/ops/linear/nvfp4/nvfp4_w4a4_tma.cuh` | pass the W4A4 TMA descriptor by value so it survives graph capture | `1218d574` | medium — see `ninfer-tma-descriptor-graph-capture.md` |
+| `third_party/llama-jinja/jinja/runtime.cpp` | take `get_builtins()` by reference in `try_builtin_func`; the vendored copy took the type's static filter map by value and copied it on every filter application, ~1374 of them for a 229-message prompt | *(this worktree)* | low — an efficiency fix with byte-identical output, measured at 77.5 ms to 71.4 ms on the render bench. Upstream's own copy of the vendored file carries the same line, so it is a candidate to send them rather than a divergence to defend |
 
 ### Already reconciled
 
