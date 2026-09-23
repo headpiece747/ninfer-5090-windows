@@ -263,9 +263,12 @@ registry write and no elevation:
 | process | prepared | render | tokenize |
 |---|--:|--:|--:|
 | `ninfer-serve.exe` (has the IFEO entry) | 3.7 s | 2.3 s | 1.4 s |
-| **the same binary as `serve-noifeo.exe`** | **122 ms** | **80.7 ms** | **40.7 ms** |
+| the same binary as `serve-noifeo.exe` | **122 ms** | **80.7 ms** | **40.7 ms** |
+| `ninfer-serve.exe` after removing the entry | **121 ms** | **79.5 ms** | **41.6 ms** |
 
-30x on preparation and 28x on the render that dominates it, from one copy of one file.
+30x on preparation and 28x on the render that dominates it, from one copy of one file - and the
+third row is the same reading end to end through the shipped launcher, with the real name and no
+override, after the entry was removed in an elevated shell.
 
 That closes every loose end in this note at once, which is itself the check that it is the right
 answer. The cost is per **allocation** rather than per byte, because it is a stack walk per
@@ -385,8 +388,11 @@ question, not a finding: no A/B on one host has been run.
   initialisation, a disabled low-fragmentation heap, heap serialization as the cause, the Segment
   Heap on the server itself, the upstream blocking-sync change, the anti-malware class, a spawned
   thread, and allocation churn.
-- **The fix has not been applied here.** Removing the entry needs an administrator shell, so the
-  measurement used a copy of the binary under a different name instead. The commands are above.
+- **The fix is applied and verified.** The entry was removed in an elevated shell, and the shipped
+  launcher then reported `prepared 121 ms` and `render 79.5 ms` for the same 229-message request,
+  against 3.7 s and 2.3 s with the entry present. The launchers now refuse to start when their own
+  executable carries such an entry, with the commands and an escape hatch, so a recurrence is
+  visible instead of silent.
 - **The render's own shape is understood but not optimised.** It makes three full passes per request
   and the `prefix(messages.size())` probe is ~28 ms of the 80 ms a fresh process needs - worth having
   in a process that is not already 30x off, and not the current bottleneck.
