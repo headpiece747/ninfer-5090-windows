@@ -257,8 +257,12 @@ __global__ __launch_bounds__(
             const auto& up   = accumulators[mma_m][mma_n + kGateMmaFragments];
             // The accurate activation, matching the non-TMA W4A4 route
             // (nvfp4_linear_swiglu_w4a4.cu) and every other SwiGLU epilogue in the tree. The
-            // approximate form this replaced traded ~0.6% relative corpus perplexity for ~1.4%
-            // prefill (upstream #285), which is not worth having on the shipped NVFP4 route.
+            // approximate form this replaced traded corpus perplexity for ~1.4% prefill
+            // (upstream #285), which is not worth having on the shipped NVFP4 route. Upstream
+            // restored it in c4ae8a9c, measuring 4.617111902 with the approximation against
+            // 4.615642116 with silu over the full ninfer-ppl-1m-v1 corpus (1,044,557 scored
+            // tokens, context 4096, stride 2048, INT8 KV), with all four domain aggregates
+            // higher under the approximation.
             *destination0 = __floats2bfloat162_rn(silu(gate[0] * alpha) * (up[0] * alpha),
                                                   silu(gate[1] * alpha) * (up[1] * alpha));
             *destination1 = __floats2bfloat162_rn(silu(gate[2] * alpha) * (up[2] * alpha),
