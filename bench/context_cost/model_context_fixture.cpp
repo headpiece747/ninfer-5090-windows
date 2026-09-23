@@ -6,6 +6,7 @@
 #include "core/host_kv_arena.h"
 #include "core/layout.h"
 #include "core/paged_kv_cache.h"
+#include "core/uint128.h"
 #include "ninfer/engine.h"
 
 #include <cuda_runtime.h>
@@ -397,8 +398,10 @@ std::vector<TextCase> text_cases(std::uint32_t chunk) {
 }
 
 std::uint64_t attention_pairs(std::uint32_t prefix, std::uint32_t suffix) {
-    const unsigned __int128 pairs = static_cast<unsigned __int128>(prefix) * suffix +
-                                    static_cast<unsigned __int128>(suffix) * (suffix + 1ULL) / 2U;
+    // MSVC has no __int128, so this divides through ninfer::Uint128 (core/uint128.h) - the tree's
+    // constexpr 128-bit shim, native where the compiler provides one, which the context-cost
+    // arithmetic already uses for the same reason.
+    const Uint128 pairs = Uint128(prefix) * suffix + Uint128(suffix) * (suffix + 1ULL) / 2U;
     if (pairs > std::numeric_limits<std::uint64_t>::max()) {
         throw std::overflow_error("prefill attention-pair count exceeds uint64");
     }
