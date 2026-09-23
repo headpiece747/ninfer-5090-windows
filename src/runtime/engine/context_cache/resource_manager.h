@@ -2775,11 +2775,20 @@ private:
             entry.state = CatalogState::Catalogued;
             return;
         }
+        // A demotion moves replicas; it does not change which checkpoints exist. Advancing the
+        // revision for that invalidates the handle the next request holds, so a turn closure stops
+        // matching even though nothing was lost (ADR-0007).
+        const bool identity_unchanged =
+            dropped == 0 && result.final_summary &&
+            continuation_checkpoint_count(entry.summary) ==
+                continuation_checkpoint_count(*result.final_summary);
         assign_continuation_summary(entry.summary, *result.final_summary);
         migrate_observations(entry, *result.final_summary, entry.retention);
-        advance_revision(entry.revision);
-        refresh_session_owner_revision(claim.capability.owner.id, slot, entry.revision);
-        saturating_increment(context_stats_.pressure_private_owners_degraded);
+        if (!identity_unchanged) {
+            advance_revision(entry.revision);
+            refresh_session_owner_revision(claim.capability.owner.id, slot, entry.revision);
+            saturating_increment(context_stats_.pressure_private_owners_degraded);
+        }
         record_checkpoint_drops(context_stats_, dropped);
         entry.state = CatalogState::Catalogued;
     }

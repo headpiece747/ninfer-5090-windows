@@ -1,7 +1,7 @@
 # ADR-0007: A pressure action must not invalidate a turn closure's identity
 
-**Status:** accepted. The layer-3 fix is implemented and measured but not landed, and the case is
-still red for a second, independent reason -- see "The failure is layered".
+**Status:** accepted. The layer-3 fix is landed and the case is still red for a second, independent
+reason -- see "The failure is layered".
 
 ## Context
 
@@ -35,7 +35,7 @@ Both are wrong. Instrumenting the decision instead of reasoning about it produce
 |---|---|---|---|
 | 1 | the valuation underprices a required checkpoint, so the planner prefers a target that drops one | **refuted** | 153 assessed targets; preserving targets cost an order of magnitude *less* (ordinal 2: `total=103,030,219 dropped=0` against ordinal 1: `total=1,720,454,858 dropped=2`) |
 | 2 | the sealed target drops the checkpoint | **refuted** | both sealed targets report `dropped=0`, and the closure is present in `before` and in `after` |
-| 3 | a content-identical degrade advances the owner's revision, so the next request's handle stops matching | **confirmed; fix implemented** | `[probe-apply] dropped=0 before[endpoint=1 rewrite=1 anchors=0] after[endpoint=1 rewrite=1 anchors=0] revision_before=4`; preserving the revision when the checkpoint set is unchanged takes `degraded` from 1 to 0 |
+| 3 | a content-identical degrade advances the owner's revision, so the next request's handle stops matching | **confirmed; fixed** | `[probe-apply] dropped=0 before[endpoint=1 rewrite=1 anchors=0] after[endpoint=1 rewrite=1 anchors=0] revision_before=4`; preserving the revision when the checkpoint set is unchanged takes `degraded` from 1 to 0 |
 | 4 | the closure loses the candidate selection, so `PrivateEndpoint` is chosen over `PrivateTurnClosure` | **open** | the closure exists throughout; the selected checkpoint is the endpoint, and `inspect_admission` maps `SessionEndpoint` to `PrivateEndpoint` (`request_plan.cpp:490-502`) |
 
 Layers 1 and 2 were eliminated by measurement, layer 3 was found and fixed, and layer 4 is what the
