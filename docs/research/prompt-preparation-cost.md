@@ -390,9 +390,14 @@ question, not a finding: no A/B on one host has been run.
   thread, and allocation churn.
 - **The fix is applied and verified.** The entry was removed in an elevated shell, and the shipped
   launcher then reported `prepared 121 ms` and `render 79.5 ms` for the same 229-message request,
-  against 3.7 s and 2.3 s with the entry present. The launchers now refuse to start when their own
-  executable carries such an entry, with the commands and an escape hatch, so a recurrence is
-  visible instead of silent.
+  against 3.7 s and 2.3 s with the entry present. A second run after the next upstream merge
+  reproduced it exactly - `prepared 120 ms`, `render 78.1 ms` on a cold request and `prepared
+  119 ms`, `render 77.5 ms` on a warm one - and the warm request, with `cache 130,869 (100.0%,
+  private endpoint)`, reports **TTFT 137 ms** for a 130,869-token conversation against the 3.2-5.4 s
+  this note opened with. The cold one is 40.8 s, of which preparation is 120 ms: pure prefill, which
+  is where upstream's own measurement says preparation belongs on a cold prompt.
+- **The launchers now refuse to start when their own executable carries such an entry**, with the
+  commands and an escape hatch, so a recurrence is visible instead of silent.
 - **The render's own shape is understood but not optimised.** It makes three full passes per request
   and the `prefix(messages.size())` probe is ~28 ms of the 80 ms a fresh process needs - worth having
   in a process that is not already 30x off, and not the current bottleneck.
