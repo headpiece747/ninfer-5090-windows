@@ -405,6 +405,35 @@ measurement says plainly. The rest is the filter's own construction in the piece
 
 The one that *did* land was not in that model at all: this map copy.
 
+## What the field does about this, and what it does not
+
+`third_party/llama-jinja` is llama.cpp's `common/jinja` engine, introduced by their PR #18462 to
+replace `minja`, and the piece table is its input-marking feature — the same one this port uses for
+`TemplateInputRegion`. Two things follow from looking it up rather than reasoning about it.
+
+**The engine's known quadratic trap is not ours.** llama.cpp PR #27034, *"jinja : fix quadratic cost
+in `gather_string_parts`"* (issue #26974), found two O(N²) terms in that function: `string::append`
+ended in `return *this;` and returned by value, so every call copied the whole accumulated parts
+vector, and the merge loop called `vector::erase` inside itself. Their isolated table goes from
+0.0682 s to 0.0002 s at N=4,000 and from a growth factor of 4.0 per doubling to 2.2. Our vendored copy
+carries `string& append(const string&)` and merges inline through `parts.back()` with no erase loop,
+so it is a newer revision that already has both halves — and this port's render measures **0.35 ms per
+message, flat from 32 to 229 messages**, which is the shape a fixed engine has. There was nothing to
+port.
+
+**No interpreter-level speedup is coming.** llama.cpp's engine is an AST walk by design — *"each
+statement or expression recursively calls `execute(ctx)`"* — so the remaining cost is the engine's
+architecture rather than an oversight in it. What llama.cpp ships *beside* it is the answer it uses
+for a known format: a hand-written renderer in `src/llama-chat.cpp` that *"renders messages directly
+in C++ … without needing Jinja"*, with the Jinja path as the generic fallback for templates it does
+not know. Upstream NInfer's own tracker has the same idea as a closed feature request — #78, *"Sharp
+v22.1 terseness as a compiled renderer option"* — and reports nothing about the render's cost.
+
+So the render is addressable, but not by a fix. It needs an explicit C++ renderer for the registered
+template, with the Jinja path kept for `--chat-template` overrides. That is this repository's own
+idiom — *prefer explicit implementations for supported architectures* — and it is a deliverable rather
+than a defect, which is why it stops here rather than being started unasked.
+
 ## What upstream already knows
 
 `docs/performance.md` in the upstream tree publishes
