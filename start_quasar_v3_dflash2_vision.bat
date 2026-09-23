@@ -56,6 +56,38 @@ REM process exit 0xC0000135 before printing a reason, a busy port yields a bare 
 REM a second model on this 32 GB card yields a runtime-reservation FATAL.
 for %%F in ("%SERVE%") do set "SERVE_DIR=%%~dpF"
 
+REM A stale debug-heap configuration on this executable's *name* is the most cryptic failure of
+REM all, because nothing fails and nothing prints. It comes from an earlier session running gflags
+REM or Application Verifier against the engine and leaving the entry behind:
+REM     Image File Execution Options\<name>   GlobalFlag 0x1000, heap tagging
+REM     Image File Execution Options          USTEnabled = <name>, user-mode stack trace database
+REM Either one makes the allocator capture a stack on every allocation. Prompt preparation is
+REM allocation-dense, so it costs about thirty times what it should -- measured at 3.7 s against
+REM 122 ms for a 229-message prompt -- and that is most of the time to first token on a long
+REM conversation. Nothing in this tree sets either value, so a machine that has one is a machine
+REM someone debugged on.
+for %%F in ("%SERVE%") do set "SERVE_NAME=%%~nxF"
+set "IFEO_ROOT=HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options"
+set "IFEO_STALE="
+reg query "%IFEO_ROOT%\%SERVE_NAME%" >nul 2>&1 && set "IFEO_STALE=1"
+for /f "tokens=3" %%V in ('reg query "%IFEO_ROOT%" /v USTEnabled 2^>nul ^| findstr /i "USTEnabled"') do (
+    if /i "%%V"=="%SERVE_NAME%" set "IFEO_STALE=1"
+)
+if defined IFEO_STALE if not defined NINFER_ALLOW_DEBUG_HEAP (
+    echo [ERROR] %SERVE_NAME% carries an Image File Execution Options entry.
+    echo         The operating system is making its heap tag every allocation and record a
+    echo         stack trace for it. Nothing fails and no log says so, but host prompt
+    echo         preparation costs about thirty times what it should.
+    echo.
+    echo         Remove the entry in an administrator shell, then start this launcher again:
+    echo             reg delete "%IFEO_ROOT%\%SERVE_NAME%" /f
+    echo             reg delete "%IFEO_ROOT%" /v USTEnabled /f
+    echo.
+    echo         To start anyway, accepting the cost, set NINFER_ALLOW_DEBUG_HEAP=1 first.
+    pause
+    exit /b 1
+)
+
 for %%D in (avcodec avformat avutil swscale swresample) do (
     if not exist "%SERVE_DIR%%%D-*.dll" (
         echo [ERROR] FFmpeg runtime DLL missing: %%D-*.dll
