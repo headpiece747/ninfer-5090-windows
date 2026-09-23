@@ -547,6 +547,42 @@ server row in PR #205 is 14.18 ms for an 8,475-token prompt, ~600k tokens/s. Tha
 different hosts, and this port carries both merged encode changes. It is recorded here as an open
 question, not a finding: no A/B on one host has been run.
 
+## The term that replaced both, and is not in preparation at all
+
+With the render replaced (ADR-0012) and the encode cache answering repeats (ADR-0010), the live
+split on a warm 229-message request is:
+
+```
+prepared 4.02 ms, contract 0 us, convert 19 us, render 3.69 ms, tokenize 94 us,
+positions 209 us, cache prep 1 us
+```
+
+Preparation is now ~4 ms, and the request's **warm time to first token is 17.3 ms** -- so the
+remainder is outside preparation: prefill 5.8 ms, and **queue wait ~10 ms**, which is now the largest
+single term on the request.
+
+It is not noise and it is not the wait primitive. Instrumented at the two places the engine books it:
+
+- the engine books `queue_wait_ns` where the request reaches its Prefill lane, and it reads
+  10.17 / 10.11 / 11.00 / 10.40 ms across four identical requests -- constant, which is a timer's
+  signature rather than scheduling jitter's;
+- the worker's predicate wait does **not** explain it: `submit` notifies `queue_cv_`, and the probe
+  shows the wait waking immediately;
+- what does explain it is the **turn the request waits for**: single worker turns measured at
+  9.026 / 6.489 / 6.692 / 9.156 ms while a request sat pending. A turn is
+  `expire_pending_requests`, `progress_context_transaction`, `settle_terminal_requests`,
+  `snapshot_cancellations`, `cancel_active_requests` and `build_round_membership` under
+  `execution_mutex_`, and the loop's own 1 ms timeout cannot account for 6-9 ms.
+
+Which of those six calls owns the time is **not established here** -- that is the next measurement,
+and it is an engine-internals question with its own authority
+(`docs/maintainer/engine-architecture.md`) rather than a frontend one.
+
+Two hypotheses were refuted on the way and are recorded so they are not re-tried: that submission
+fails to wake the worker (it notifies, and the wait wakes immediately), and that the 10 ms
+`wait_for` in `wait_for_request` is the latency (it is a predicate wait on the consumer side, woken by
+the response; it does not gate admission).
+
 ## What this note does not establish
 
 - **What makes the serving process slow is answered above**, and the answer is an Image File
