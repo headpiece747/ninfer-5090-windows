@@ -405,6 +405,43 @@ public:
             }
         }
 
+        // A private owner's turn closure and its session endpoint are two checkpoints of the same
+        // continuation. When a pressure action has demoted the closure's State, the closure is the
+        // reuse source: reusing the endpoint instead burns the demoted State and reuses a few more
+        // tokens. That is narrow on purpose -- a device-resident closure has nothing to restore, so
+        // this rule does not fire for one, and across owners nothing changes: a different owner that
+        // reuses more still wins the ordinary comparison, so this orders candidates rather than
+        // exempting one.
+        if (cache_enabled_) {
+            std::vector<std::uint32_t> demoted_closure_slots;
+            for (const Candidate& candidate : candidates) {
+                if (!candidate.private_source || !candidate.selected_observation ||
+                    candidate.selected_observation->checkpoint.kind != CheckpointKind::TurnClosure) {
+                    continue;
+                }
+                const CatalogEntry& entry = catalog_[candidate.private_source->slot];
+                if (!entry.summary.rewrite ||
+                    entry.summary.rewrite->state_residency == ReplicaResidency::DeviceOnly) {
+                    continue;
+                }
+                demoted_closure_slots.push_back(candidate.private_source->slot);
+            }
+            if (!demoted_closure_slots.empty()) {
+                candidates.erase(
+                    std::remove_if(candidates.begin(), candidates.end(),
+                                   [&](const Candidate& candidate) {
+                                       return candidate.private_source &&
+                                              candidate.selected_observation &&
+                                              candidate.selected_observation->checkpoint.kind ==
+                                                  CheckpointKind::SessionEndpoint &&
+                                              std::find(demoted_closure_slots.begin(),
+                                                        demoted_closure_slots.end(),
+                                                        candidate.private_source->slot) !=
+                                                  demoted_closure_slots.end();
+                                   }),
+                    candidates.end());
+            }
+        }
         std::optional<Choice> selected =
             plan_materialization(program, prompt, base, *destination, candidates, publication_order,
                                  planning_started, provisional_demand, allowance);

@@ -2,10 +2,6 @@
   "recorded": "2026-09-21",
   "suite_size": 124,
   "known_failures": {
-    "ninfer_qwen3_5_prefix_real_test": {
-      "case": "exercise_host_restore",
-      "reason": "Pre-existing, and recorded as an accepted decision in docs/adr/0007-turn-closure-retention-under-host-pressure.md: under host pressure a private owner is degraded and its turn closure dropped, so the later reuse finds PrivateEndpoint instead of PrivateTurnClosure, restores no MTP state and reports degraded=1, while the design intent in upstream's docs/maintainer/resource-scheduling-and-context-cache.md says required coverage cannot change after publication. That record carries the attribution, the evidence that this is a defect in shared code rather than a trade-off (the port never touched the pressure decision), and the implementation plan. Baselined so the gate states it rather than hiding it behind a skip until the fix lands; it does not block the release."
-    },
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
       "reason": "This route needs a `dflash` component and this product's artifacts ship `dflash2` instead: the shipped artifact's config lists dflash2 (architectures ['DFlash2DraftModel']) and no dflash, so the route cannot pass here by construction. The engine rejects the request precisely -- 'Qwen3.5 config: missing component dflash', reproduced through the shipped CLI with --spec dflash --draft-tokens 3 --vision --max-context 4096 --prefill-chunk 1024, which exits 1 in 0.1 s with that message -- but the test had no try/catch, so the rejection reached std::terminate and the process died with 0xC0000409 (ucrtbase, BEX64) in ~2.1 s printing nothing. The test now catches it and prints the engine's message, so a failure names its cause. Baselined rather than skipped so the gate stays truthful about it, matching moe_real_test."

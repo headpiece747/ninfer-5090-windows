@@ -1,7 +1,7 @@
 # ADR-0007: A pressure action must not invalidate a turn closure's identity
 
-**Status:** accepted. The layer-3 fix is landed and the case is still red for a second, independent
-reason -- see "The failure is layered".
+**Status:** accepted and implemented. Layers 3 and 4 are landed and `exercise_host_restore` passes;
+the case's baseline entry was removed with the fix.
 
 ## Context
 
@@ -36,12 +36,12 @@ Both are wrong. Instrumenting the decision instead of reasoning about it produce
 | 1 | the valuation underprices a required checkpoint, so the planner prefers a target that drops one | **refuted** | 153 assessed targets; preserving targets cost an order of magnitude *less* (ordinal 2: `total=103,030,219 dropped=0` against ordinal 1: `total=1,720,454,858 dropped=2`) |
 | 2 | the sealed target drops the checkpoint | **refuted** | both sealed targets report `dropped=0`, and the closure is present in `before` and in `after` |
 | 3 | a content-identical degrade advances the owner's revision, so the next request's handle stops matching | **confirmed; fixed** | `[probe-apply] dropped=0 before[endpoint=1 rewrite=1 anchors=0] after[endpoint=1 rewrite=1 anchors=0] revision_before=4`; preserving the revision when the checkpoint set is unchanged takes `degraded` from 1 to 0 |
-| 4 | the closure is offered but loses the candidate ranking, because the endpoint reuses more tokens | **cause identified** | one request is offered both: `kind=0 (SessionEndpoint) frontier=316` and `kind=1 (TurnClosure) frontier=305`, and the endpoint is selected -- 11 more tokens of KV reuse, on a device-resident checkpoint that needs no restore, while the closure's state and KV are the ones on host |
+| 4 | the closure is offered but loses the candidate ranking, because the endpoint reuses more tokens | **fixed; case green** | one request is offered both -- `kind=0 (SessionEndpoint) frontier=316` and `kind=1 (TurnClosure) frontier=305` -- and the endpoint was selected: 11 more tokens of KV reuse, on a device-resident checkpoint needing no restore, while the closure's state and KV are the ones on host. Forcing the closure to be the only private candidate turned the case green; preferring a demoted closure over its owner's endpoint does too, and a device-resident closure is left alone |
 
-Layers 1 and 2 were eliminated by measurement, layer 3 was found and fixed, and layer 4 is what the
-case still fails on. Layer 3 is a defect in its own right -- a pressure action that changes nothing
-about an owner must not move its identity -- but whether it is *necessary* for this case is unknown,
-because the case still fails for layer 4. The case needs both.
+Layers 1 and 2 were eliminated by measurement; layers 3 and 4 were found, fixed, and each verified by
+the case going green only once both are present. Layer 3 is a defect in its own right -- a pressure
+action that changes nothing about an owner must not move its identity -- and layer 4 is an ordering
+rule within one owner rather than a price. The case needs both.
 
 The case's assertion is sharper than this record previously described it. `exercise_host_restore`
 (`test_engine_prefix_real.cpp:497`) builds a `LiveSession` owner with an explicit session key, demotes
@@ -136,7 +136,24 @@ contract expressed where it was being violated, and it is implemented in `apply_
 (`resource_manager.h`) by preserving the revision when `dropped == 0` and the checkpoint count is
 unchanged. Degradation stays as the fallback for when the checkpoint set genuinely shrinks.
 
-The case still needs layer 4 addressed before it passes, and until then it stays baselined.
+Layer 4 is the second half of the same decision, and it is an ordering rule rather than a price: for
+one private owner, its turn closure is the reuse base and its session endpoint is not a competitor.
+The closure carries the complete continuation state, which is exactly the state and KV a pressure
+action demotes; the endpoint reuses a few more tokens while bypassing that demoted state. The rule is
+bounded by construction -- across owners nothing changes, so a different owner that reuses more still
+wins the ordinary comparison -- and it exempts nothing.
+
+It fires only when the closure's State is actually on host. A device-resident closure has nothing to
+restore, and preferring it there is what an over-broad first version did. The gate caught that: with
+every closure preferred, `exercise_shared_replacement_and_full_capacity_reuse` went from
+`active_captures_completed` 1 -> 2 to 1 -> 1, because a `Disposable` owner's device-resident closure
+was chosen over the endpoint that would have captured again. The `ReplicaResidency` check is the
+narrowing that keeps both scenarios true.
+
+A derived price was tried first and refuted by measurement. The case requests two output tokens, so a
+draft round never fits and `drafted_tokens` is 0 in both configurations: there is no speculative saving
+to price, and no derived term can decide this selection. The justification for the rule is therefore
+the contract, not arithmetic dressed up as a price.
 
 The evidence that layer 3 is a defect rather than a trade-off:
 
@@ -160,19 +177,21 @@ retain a known inferior design."
 
 ## Consequences
 
-- Implementation: layer 3 is a revision-preservation rule in `apply_private_action`. Layer 4 is still
-  unlocated beyond "the closure is present and the endpoint is selected"; the next step is to
-  instrument the candidate set the runtime offers and how `plan_materialization`
-  (`resource_manager.h:410`) ranks it.
-- Verification: the case is red today and is the acceptance criterion for both layers. Layer 3's
-  evidence is the degrade counter moving 1 -> 0 with the case otherwise unchanged;
-  `tests/test_resource_manager.cpp` covers pressure and degradation at unit level and is in the ASan
-  subset of `tools/scripts/test_v3_asan.cmd`; the release gate is
+- Implementation: layer 3 is a revision-preservation rule in `apply_private_action`; layer 4 is an
+  ordering rule where the private reuse candidates are built, in `inspect` (`resource_manager.h`),
+  keyed on `CheckpointRef::kind`.
+- Verification: the case passes and is the acceptance criterion for both layers. Layer 3's evidence is
+  the degrade counter moving 1 -> 0 with the case otherwise unchanged; layer 4's is the same case green
+  with the rule and red without it, plus the fourteen sibling scenarios that caught an over-broad
+  version of it. `tests/test_resource_manager.cpp` covers pressure and degradation at unit level and
+  is in the ASan subset of `tools/scripts/test_v3_asan.cmd`; the release gate is
   `tools/release/check_test_baseline.py`.
-- Measurement: the trade-off is host bytes against restored speculation, so it is measured at the
-  shipped topology rather than asserted.
-- Until the case passes it stays baselined in `tools/release/test_baseline.json` with a pointer to this
-  record, so the gate states it rather than hiding it behind a skip and the release is not blocked.
+- Measurement: the trade-off is host bytes against the reuse the demoted State buys, so it is measured
+  at the shipped topology rather than asserted. Speculation is *not* the stake: the case requests two
+  output tokens, so `drafted_tokens` is 0 and no draft round runs either way.
+- The case passes, so its entry was removed from `tools/release/test_baseline.json`; the gate treats a
+  passing test that is still baselined as a stale baseline, which is why the fix and the baseline
+  removal travel together. The two remaining entries are unattainable by construction.
 - This is a narrow, recorded divergence from upstream, as ADR-0006 is for context parallelism, so a
   later upstream merge can read the intent instead of fighting it.
 
