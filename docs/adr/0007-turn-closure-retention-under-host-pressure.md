@@ -59,6 +59,12 @@ whose prompt differs before that point, and where one is offered it loses the se
 `private_response_replay`. A declared boundary is served today. The measurements in this paragraph
 stand; its conclusion about the shared path does not.
 
+One reading in this paragraph is now suspect on its own. `shared_active_references` was read from a
+`runtime_stats()` snapshot taken after the request completed, and until commit `5076f445` the
+post-release snapshot was published *after* `complete_success` woke the caller, so an immediate read
+could return the previous decode boundary. The occupancy figures above remain the record of what that
+log reported; they are not evidence that no live reference existed.
+
 Four candidate causes were measured out by rebuilding and re-running that reproduction: the pools; the
 materialization search (grant ceiling 250 ms -> 5 s, unchanged); the shared retention weight
 (`RetentionClass::SharedStable` returning 16 instead of 0, unchanged -- the weight multiplies a
