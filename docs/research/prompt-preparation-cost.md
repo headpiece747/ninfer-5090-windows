@@ -213,6 +213,25 @@ So the heap implementation and heap contention are both eliminated, each by meas
 question is smaller than it was but no closer to answered: a serving process runs this host code
 about 30x slower than a fresh one, and neither the heap it uses nor contention on that heap is why.
 
+### The upstream blocking-sync fix is now in the tree, and it is a different cost
+
+Upstream landed `4c0fe48a`, *"perf(core): block on CUDA synchronization instead of spin-waiting"*
+(PR #302, closing issue #301), and this port merged it on 2026-09-23 as `7d28a683`. It sets
+`cudaDeviceScheduleBlockingSync` when the DeviceContext binds its device, because
+`cudaDeviceScheduleAuto` spin-waits whenever the host has more cores than active CUDA contexts -
+keeping a core at 100% for as long as the GPU is busy, which is this card's situation exactly at 32
+logical processors to one context.
+
+It was worth checking against this question, and it does not answer it: the same 229-message request
+after the merge reports `render 2.4s`, against 2.3-2.7s before it. That is what the two measurements
+cover rather than a disappointment - `render` is host work *before* the request is submitted, while
+the spin-wait burns a core *while the GPU is busy*. The preparation window's process CPU was already
+about one core (4.17s of CPU over 4.4s of wall), so nothing was spinning in it.
+
+The fix is worth having on its own account: it is upstream's own description of a core held at 100%
+through prefill and decode on a host with more cores than contexts, which is every run on this
+machine.
+
 ### The remaining lead: something on this machine filters process I/O
 
 While verifying the A/B, the build tree's `apps\infer-serve.exe` was reported missing by some APIs and

@@ -9,10 +9,16 @@ upstream publishes. Read this before pulling an upstream release.
 ancestors of `dev`:
 
 ```
-git merge-base dev upstream/master   ->  9e163eee   (== upstream/master's tip)
+git merge-base dev upstream/master   ->  4c0fe48a   (== upstream/master's tip)
 git rev-list --count <base>..upstream/master  ->  0
-git rev-list --count <base>..dev              ->  123
+git rev-list --count <base>..dev              ->  261
 ```
+
+**Last integrated: `4c0fe48a`, 2026-09-23** (`7d28a683`), two commits: `4c0fe48a` blocking CUDA
+synchronization (PR #302, closing issue #301) and `c4ae8a9c` restoring the accurate silu in the
+NVFP4 SwiGLU. Neither touched the port's divergence surface; the silu commit conflicted only in a
+comment and was resolved in upstream's favour on the code, since the port already carried the same
+accurate activation.
 
 So there is **no merge debt and nothing blocked on upstream**. Their future fixes apply to a base
 we already contain. The work below is about recognising our own patches when upstream touches the
@@ -20,7 +26,8 @@ same files, not about catching up.
 
 ## Scale
 
-`git diff --stat upstream/master dev` reports **250 files, +22,017 / -342**.
+`git diff --stat upstream/master dev` reports **384 files, +27,304 / -5,342** at `4c0fe48a`
+(was 250 files, +22,017 / -342 at `9e163eee`; the per-area table below is the `9e163eee` snapshot).
 
 | Area | Files | Kind |
 | --- | --- | --- |
@@ -75,6 +82,14 @@ of these files, read our diff before merging.**
 `src/models/qwen3_5/load/dflash.cpp`, `weights.h` and the fused-binding removal in `9898ecb1` are
 settled: upstream was correct and our earlier fused binding was the divergence. Nothing to watch.
 See the README for the full account.
+
+The accurate silu in the NVFP4 SwiGLU is settled the same way, from the other direction. This port
+landed it before upstream did, on contract and oracle grounds rather than scores; upstream restored
+it in `c4ae8a9c` and measured the same conclusion (4.617111902 with the approximation against
+4.615642116 with silu on the full ninfer-ppl-1m-v1 corpus). `src/ops/common/math.cuh` is therefore
+identical between `dev` and upstream, and the only remaining difference in
+`nvfp4_linear_swiglu_w4a4_tma.cuh` is the port's own descriptor-by-value fix (`1218d574`) plus the
+comment recording why the accurate activation is kept.
 
 ## Two upstream issues we have already fixed
 
