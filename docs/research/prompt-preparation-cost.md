@@ -213,6 +213,24 @@ So the heap implementation and heap contention are both eliminated, each by meas
 question is smaller than it was but no closer to answered: a serving process runs this host code
 about 30x slower than a fresh one, and neither the heap it uses nor contention on that heap is why.
 
+### The remaining lead: something on this machine filters process I/O
+
+While verifying the A/B, the build tree's `apps\infer-serve.exe` was reported missing by some APIs and
+present by others, on the same path, seconds apart:
+
+- `dir /b build\apps\*.exe` lists `ninfer-serve.exe`, twice, ten seconds apart;
+- PowerShell's `Test-Path` returns False for it;
+- `[System.IO.File]::ReadAllBytes` throws `FileNotFoundException` for it;
+- `mt -inputresource:...;#1` fails with *"The system cannot find the file specified"*.
+
+A freshly linked, unsigned, 183 MB executable that some file APIs can see and others cannot is the
+signature of a filter driver interposing on file access. Malwarebytes is running on this machine;
+Defender's real-time protection is off. This has not been tested, but it is the strongest lead
+standing, and it fits the shape of the problem: an anti-exploit shim attached to a process hooks
+exactly the allocation- and I/O-dense host work that is 40x slower here, and a short-lived bench may
+not be treated the same way a long-lived server is. **One step would settle it: quit Malwarebytes and
+re-run the same probe against the same server.**
+
 
 
 ## What upstream already knows
