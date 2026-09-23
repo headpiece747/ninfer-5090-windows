@@ -65,43 +65,92 @@ and `:138` makes the emitted `<think>` block depend on `last_query_index` - whic
 of a given prefix can legitimately change between turns, and why the probes exist. How large that
 constant factor is, is measured below.
 
-## What the render actually costs
+## What the render actually costs, and what the bench got wrong
 
 An earlier reading in this session inferred the render from `prepared - tokenize` and named it the
-dominant term. **That inference was wrong, and the bench that refutes it is in this tree**:
-`bench/models/qwen3_5/chat_render_bench.cpp`, a host-only instrument that needs no artifact and no
-GPU - it reads a template and synthesizes its own conversation.
+dominant term. A bench was then built to check that inference, it measured **~80 ms** for a
+229-message conversation, and the note originally concluded from it that the render was ruled out.
 
-`ninfer_qwen3_5_chat_render_bench --template tools/chat_templates/qwen3_8.jinja`, 3000 characters
-per message, 5 tools, 3 repeats, reporting the best of the repeats:
+**That conclusion was wrong, and the way it was wrong is the most useful thing here.** The bench is
+real and it is in this tree - `bench/models/qwen3_5/chat_render_bench.cpp`, host-only, no artifact
+and no GPU - and it does measure what it says. What it does not do is reproduce the state of the
+process that serves requests, and for this measurement that turned out to be the whole question.
 
-| messages | bytes | `CompiledChatTemplate::render` | ms/message | boundaries resolved |
+The server's own phase timers, on a real 229-message / 130,869-token request:
+
+```
+prepared 3.8s, contract 1.0 ms, convert 0.6 ms, render 2.4s, tokenize 1.4s, positions 0.3 ms, cache prep 0.02 ms
+```
+
+The phases sum to 3.803 s against 3.8 s reported, so preparation is fully accounted for and **the
+render is 2.4 s of it** - the dominant term after all. `prepare_context_cache` (16-21 us),
+`convert_messages` (0.4-0.6 ms), `build_tool_call_output_contract` (~0.8 ms) and
+`assign_text_positions` (~0.3 ms) are all negligible on the real path, as reading had suggested.
+
+### The render's cost is per message, not per byte
+
+Two requests against the same server, same total bytes, different message counts:
+
+| shape | messages | prompt tokens | out bytes | render |
 |---|--:|--:|--:|--:|
-| 32 | 94,918 | 14.47 ms | 0.45 | 32 |
-| 64 | 191,287 | 23.48 ms | 0.37 | 64 |
-| 128 | 384,038 | 43.18 ms | 0.34 | 128 |
-| 229 | 689,748 | **79.84 ms** | 0.35 | 229 |
+| long conversation | 229 | 130,869 | 711,925 | **2,386 ms** |
+| same bytes, few messages | 2 | 126,410 | 694,305 | **82 ms** |
 
-The structure the code reading predicted is real and separable, and two further arms test whether the
-shapes an agent conversation actually has make it worse. `render` is the best of 3 repeats; the probe
-count is the number of times the interpreter's checkpoint fired in one render.
+Same bytes, 29x apart. And within the 229-message family the cost is flat across shapes - 229
+messages of tools, no tools, tool calls, no tool calls, reasoning, no reasoning all land between
+956 ms and 2,656 ms - so it tracks the **number of messages**, not the content, not the tools, and
+not the bytes.
 
-| arm | render | checkpoints | reading |
-|---|--:|--:|---|
-| full agent turn | **79.84 ms** | 0 | the baseline |
-| `--generation-prompt off` | 51.72 ms | 0 | the `prefix(messages.size())` probe costs ~28 ms |
-| `--call-args 20000` | 92.27 ms | 0 | 20 KB tool-call arguments add 15%; no blow-up |
-| `--cancel-probe` | 81.00 ms | **301** | the checkpoint fires per statement, not per loop iteration |
+That is the signature of a per-**allocation** cost rather than a per-byte one: each message costs a
+few Json objects and strings regardless of how big they are.
 
-So the render is **~80 ms at 229 messages and 690 KB**, linear in size at 0.35 ms/message, and it
-does not blow up on the shapes an agent conversation actually has. The interpreter is not
-pathological, and the per-statement cancellation checkpoint - which chains to an httplib
-`select()`-based socket probe in production - fires only a few hundred times per render.
+### The same body, same code, in two processes
 
-That leaves the field log's 4.5 s at this conversation size **unattributed**, and it rules out the
-render as its cause. `prepare_context_cache` is ruled out by reading (it builds vectors of markers),
-and `convert_messages` and `assign_text_positions` are move-only and three linear writes. All of them
-are now bracketed by named fields in the `started` record, which is what the next server run reads.
+The bench gained `--from <body.json>`, so it can render the conversation a server rendered instead
+of one that merely looks like it. Same body, same code, same three render calls, same 300
+checkpoints, same output size:
+
+| process | messages | calls | checkpoints | render_ms |
+|---|--:|--:|--:|--:|
+| server (`ninfer-serve`) | 229 | 3 | 300 | **2,430-2,708** |
+| bench, same body | 229 | 3 | 300 | **76.4** |
+
+A 32x difference with the input held identical, so the cause is **process-level, not in the
+frontend**. A neutral calibration loop - 20,000 short string allocations, identical checksum
+1,368,890 in both - makes it visible:
+
+| process | calibration_ms |
+|---|--:|
+| bench | **0.56 - 3.10** |
+| server | **23.9 - 34.6** |
+
+The server process runs ordinary host allocation ~40x slower than a fresh process on the same
+machine, and the render, which is allocation-dense, inherits it.
+
+### What was ruled out, each by a measurement
+
+- **Build tree and flags**: the same bench measures 77.7 ms linked against `build/` and 77.8 ms
+  against `build-test/`; both trees are Release with identical `/O2 /Ob2 /DNDEBUG`.
+- **Memory pressure and commit**: the server commits 40.3 GiB on a 47.8 GiB machine with a 12.5 GiB
+  working set, so the trimmed-heap theory looked strong. Restarting with `--host-state-slots 4
+  --host-kv-mib 1024` dropped the commit to 30.3 GiB and the working set to 3.1 GiB, and the render
+  stayed at 2,418 ms with calibration at 34.6 ms.
+- **Holding a large allocation**: reserving 16 GiB committed-but-untouched in the bench changed
+  calibration from 0.568 to 0.591 ms.
+- **CUDA in the process**: initialising the CUDA runtime in the bench changed calibration from
+  0.564 to 0.562 ms.
+- **CPU starvation**: the server's wall and CPU times track each other (4.4 s wall, 4.17 s process
+  CPU over a warm request), so the thread is running, not descheduled.
+- **Priority and affinity**: `Normal`, all 32 logical processors.
+- **The cancellation socket probe**: the interpreter's checkpoint fires 300 times per request and
+  costs 6.5 ms in total, even though each call ends in an httplib `select()`.
+- **Cache markers, template identity, special tokens, thinking default, tool-call argument size,
+  tool schemas**: each varied, none moved the reading.
+
+So the render is where the time is spent, and the render's code is not what is slow: **the serving
+process executes it about 30x slower than a fresh process does.** What makes that process slow is
+the open question, and it is not a prompt-preparation question.
+
 
 ## What upstream already knows
 
@@ -165,16 +214,19 @@ question, not a finding: no A/B on one host has been run.
 
 ## What this note does not establish
 
-- **The field log's 4.5 s is still unattributed.** The render is ruled out at ~80 ms, and
-  `prepare_context_cache`, `convert_messages`, `assign_text_positions` and the tool-call contract are
-  ruled out by reading. The remaining candidates are bracketed by named fields in the `started`
-  record; the reading is the next server run.
-- **The bench's conversation is synthetic.** It matches the field log in bytes and message count, but
-  it is not the field log's conversation, so it establishes the render's cost at that size rather
-  than this workload's render cost exactly.
-- **No fix is proposed here.** The candidates - fewer full renders per request (~28 ms of the 80 ms),
-  a verified encoding splice across turns like vLLM's, and whatever the unattributed time turns out
-  to be - differ in risk and size, and the split decides which is worth more.
+- **What makes the serving process slow is not known.** The 32x is measured with the input held
+  identical, and the calibration shows the process itself is ~40x slower at ordinary host
+  allocation, but the cause is open. The bench's diagnostic arms for the hypotheses that were tested
+  and refuted - a held allocation, CUDA initialisation, a disabled low-fragmentation heap - were
+  reverted; the readings are in the table above. A sharper next experiment would be to take the same
+  calibration *inside the server at startup*, before the artifact is loaded, and again after, to
+  separate a process that starts slow from one that becomes slow.
+- **The render's own shape is understood but not optimised.** It makes three full passes per request
+  and the `prefix(messages.size())` probe is ~28 ms of the 80 ms a fresh process needs - worth having
+  in a process that is not already 30x off, and not the current bottleneck.
+- **No fix is proposed here.** The obvious candidates (fewer full renders per request, a verified
+  encoding splice across turns like vLLM's) are dwarfed by the process-level factor, so fixing them
+  first would be optimising the wrong thing.
 - **Preparation runs concurrently.** It runs on `httplib::ThreadPool` workers
   (`src/serve/http_server.cpp:238-240`), so anything shared across requests needs real
   synchronization.

@@ -1013,8 +1013,13 @@ proves a byte offset is a safe prefix-cache boundary. `--generation-prompt off` 
 `--tail-assistant off` turn off the conditions that trigger those probes, so each one's cost is read
 as a difference rather than assumed. `--cancel-probe` reports how often the interpreter's
 per-statement checkpoint fires, and `--call-args` sets the size of a tool call's argument JSON, so
-the shapes a coding agent actually produces can be tested against the plain one. The recorded
-reading for the Qwen3.8 template is in
+the shapes a coding agent actually produces can be tested against the plain one.
+
+`--from <body.json>` replays a recorded chat-completions request body, and `--special-tokens` and
+`--thinking-default` apply the two options a server resolves that a bare template does not. Use them
+when the question is what a *serving* process spends, rather than what the template costs: a bench
+measures its own process, and a serving process is not the same one. The recorded reading for the
+Qwen3.8 template, and the process-level difference it exposed, are in
 [`../docs/research/prompt-preparation-cost.md`](../docs/research/prompt-preparation-cost.md).
 
 ## Token-decision Op benchmarks

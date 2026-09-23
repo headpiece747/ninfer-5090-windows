@@ -1,8 +1,8 @@
 // Host-only: what one prompt preparation costs, by conversation length.
 //
 // The frontend renders a chat template more than once per request. `CompiledChatTemplate::render`
-// runs the output render, and then, to prove which byte offsets are safe prefix-cache boundaries, it
-// runs `prefix(...)` probes that each re-render a variant of the whole conversation
+// runs the output render, and then, to prove which byte offsets are safe prefix-cache boundaries,
+// it runs `prefix(...)` probes that each re-render a variant of the whole conversation
 // (src/models/qwen3_5/frontend/chat_template.cpp:252, :294, :394). Every one of those renders walks
 // the message list twice through the Jinja interpreter, because the template scans it in reverse to
 // find `last_query_index` and then forward to emit the turns.
@@ -17,8 +17,13 @@
 // It needs no artifact and no GPU: the template is the only input.
 //
 // usage: ninfer_qwen3_5_chat_render_bench [--template <path>] [--sweep 32,64,128,229]
-//          [--chars <chars per message>] [--tools <n>] [--warmup <n>] [--reps <n>]
-//          [--generation-prompt on|off] [--tail-assistant on|off] [--quiet]
+//          [--chars <chars per message>] [--call-args <n>] [--tools <n>] [--warmup <n>] [--reps
+//          <n>]
+//          [--generation-prompt on|off] [--tail-assistant on|off] [--special-tokens]
+//          [--thinking-default] [--cancel-probe] [--from <body.json>] [--quiet]
+//
+// `--from` replays a recorded chat-completions body, which is how a reading can be taken of the
+// same conversation a server rendered rather than of a conversation that merely looks like it.
 
 #include "models/qwen3_5/frontend/chat_template.h"
 
@@ -39,8 +44,8 @@
 
 namespace {
 
-namespace fi    = ninfer::models::qwen3_5::frontend;
-using Clock     = std::chrono::steady_clock;
+namespace fi = ninfer::models::qwen3_5::frontend;
+using Clock  = std::chrono::steady_clock;
 
 struct Options {
     std::filesystem::path template_path = "tools/chat_templates/qwen3_8.jinja";
@@ -52,17 +57,27 @@ struct Options {
     int repetitions                     = 3;
     bool generation_prompt              = true;
     bool tail_assistant                 = true;
-    // Install a cancellation callback so the interpreter's per-statement checkpoint runs, as it does
-    // in production where the callback is an httplib socket probe. The arm reports how often it fires.
-    bool cancel_probe                   = false;
-    bool quiet                          = false;
+    // The server resolves the template with the artifact's special tokens, which makes those names
+    // control variables rather than ordinary inputs; the bench passes none unless asked.
+    bool special_tokens = false;
+    // The server does not send enable_thinking, so the template's own default applies.
+    bool thinking_default = false;
+    // Install a cancellation callback so the interpreter's per-statement checkpoint runs, as it
+    // does in production where the callback is an httplib socket probe. The arm reports how often
+    // it fires.
+    bool cancel_probe = false;
+    // Replay a recorded request body instead of synthesizing a conversation. The point is to render
+    // the conversation a server has already rendered, so the two readings are of the same input.
+    std::filesystem::path from_path;
+    bool quiet = false;
 };
 
 void print_usage(const char* executable) {
     std::cout << "usage: " << executable
               << " [--template <path>] [--sweep <n,n,...>] [--chars <n>] [--call-args <n>]"
                  " [--tools <n>] [--warmup <n>] [--reps <n>] [--generation-prompt on|off]"
-                 " [--tail-assistant on|off] [--cancel-probe] [--quiet]\n";
+                 " [--tail-assistant on|off] [--cancel-probe] [--special-tokens]"
+                 " [--thinking-default] [--from <body.json>] [--quiet]\n";
 }
 
 bool parse_bool(std::string_view text) {
@@ -74,7 +89,9 @@ bool parse_bool(std::string_view text) {
 std::size_t parse_size(const char* text, const char* label) {
     std::size_t consumed = 0;
     const auto value     = std::stoull(text, &consumed);
-    if (text[consumed] != '\0') { throw std::invalid_argument(std::string(label) + " is not a count"); }
+    if (text[consumed] != '\0') {
+        throw std::invalid_argument(std::string(label) + " is not a count");
+    }
     return static_cast<std::size_t>(value);
 }
 
@@ -95,7 +112,9 @@ Options parse_options(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string_view flag(argv[i]);
         const auto next = [&](const char* label) -> const char* {
-            if (i + 1 >= argc) { throw std::invalid_argument(std::string("missing value for ") + label); }
+            if (i + 1 >= argc) {
+                throw std::invalid_argument(std::string("missing value for ") + label);
+            }
             return argv[++i];
         };
         if (flag == "--template") {
@@ -108,6 +127,12 @@ Options parse_options(int argc, char** argv) {
             options.call_args_chars = parse_size(next("--call-args"), "--call-args");
         } else if (flag == "--cancel-probe") {
             options.cancel_probe = true;
+        } else if (flag == "--from") {
+            options.from_path = next("--from");
+        } else if (flag == "--special-tokens") {
+            options.special_tokens = true;
+        } else if (flag == "--thinking-default") {
+            options.thinking_default = true;
         } else if (flag == "--tools") {
             options.tool_count = parse_size(next("--tools"), "--tools");
         } else if (flag == "--warmup") {
@@ -136,7 +161,9 @@ std::string read_file(const std::filesystem::path& path) {
     const auto size = file.tellg();
     std::string source(static_cast<std::size_t>(size), '\0');
     file.seekg(0);
-    if (!file.read(source.data(), size)) { throw std::invalid_argument("cannot read " + path.string()); }
+    if (!file.read(source.data(), size)) {
+        throw std::invalid_argument("cannot read " + path.string());
+    }
     return source;
 }
 
@@ -144,10 +171,10 @@ std::string read_file(const std::filesystem::path& path) {
 // honest parameter.
 std::string filler(std::size_t target_chars, std::size_t seed) {
     static constexpr std::string_view kWords[] = {
-        "the",   "resolver", "reads",   "each",  "pending", "worklist", "entry",  "and",
-        "writes", "back",    "a",       "dirty", "flag",    "before",   "yield",  "to",
-        "the",   "scheduler", "which",  "then",  "coalesces", "adjacent", "runs", "in",
-        "one",   "pass",     "over",    "the",   "arena",   "without",  "copying"};
+        "the",    "resolver",  "reads", "each",  "pending",   "worklist", "entry",  "and",
+        "writes", "back",      "a",     "dirty", "flag",      "before",   "yield",  "to",
+        "the",    "scheduler", "which", "then",  "coalesces", "adjacent", "runs",   "in",
+        "one",    "pass",      "over",  "the",   "arena",     "without",  "copying"};
     constexpr std::size_t kWordCount = sizeof(kWords) / sizeof(kWords[0]);
     std::string out;
     out.reserve(target_chars + 64);
@@ -162,8 +189,7 @@ std::string filler(std::size_t target_chars, std::size_t seed) {
 
 std::string tool_json(std::size_t index, std::size_t fill_chars) {
     return std::string("{\"type\":\"function\",\"function\":{\"name\":\"tool_") +
-           std::to_string(index) +
-           "\",\"description\":\"" + filler(fill_chars, index) +
+           std::to_string(index) + "\",\"description\":\"" + filler(fill_chars, index) +
            "\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},"
            "\"limit\":{\"type\":\"integer\"}},\"required\":[\"path\"]}}}";
 }
@@ -181,47 +207,49 @@ fi::ChatMessage text_message(ninfer::ChatRole role, std::string content) {
     return message;
 }
 
-// The agent-loop shape: a system turn, then repeating user / assistant-with-tool-call / tool result /
-// assistant-answer groups. Assistant turns carry reasoning content because preservation is on for
+// The agent-loop shape: a system turn, then repeating user / assistant-with-tool-call / tool result
+// / assistant-answer groups. Assistant turns carry reasoning content because preservation is on for
 // this workload and the template's `<think>` emission depends on it.
 std::vector<fi::ChatMessage> build_conversation(const Options& options, std::size_t message_count) {
     std::vector<fi::ChatMessage> messages;
     messages.reserve(message_count);
-    messages.push_back(text_message(ninfer::ChatRole::System,
-                                    "You are a coding agent.\n" + filler(options.chars_per_message, 0)));
+    messages.push_back(
+        text_message(ninfer::ChatRole::System,
+                     "You are a coding agent.\n" + filler(options.chars_per_message, 0)));
     std::size_t group = 0;
     while (messages.size() < message_count) {
         messages.push_back(
             text_message(ninfer::ChatRole::User, filler(options.chars_per_message, 1 + group)));
         if (messages.size() >= message_count) { break; }
 
-        fi::ChatMessage assistant = text_message(ninfer::ChatRole::Assistant, std::string{});
+        fi::ChatMessage assistant   = text_message(ninfer::ChatRole::Assistant, std::string{});
         assistant.reasoning_content = filler(options.chars_per_message / 2, 2 + group);
         fi::ToolCall call;
-        call.id              = "call_" + std::to_string(group);
-        call.name            = "write_file";
-        call.arguments_json  = call_arguments(options.call_args_chars, 6 + group);
+        call.id             = "call_" + std::to_string(group);
+        call.name           = "write_file";
+        call.arguments_json = call_arguments(options.call_args_chars, 6 + group);
         assistant.tool_calls.push_back(std::move(call));
         messages.push_back(std::move(assistant));
         if (messages.size() >= message_count) { break; }
 
-        fi::ChatMessage tool = text_message(
-            ninfer::ChatRole::Tool, "<tool_response>\n" + filler(options.chars_per_message, 3 + group) +
-                                        "\n</tool_response>");
+        fi::ChatMessage tool =
+            text_message(ninfer::ChatRole::Tool, "<tool_response>\n" +
+                                                     filler(options.chars_per_message, 3 + group) +
+                                                     "\n</tool_response>");
         tool.tool_call_id = "call_" + std::to_string(group);
         messages.push_back(std::move(tool));
         if (messages.size() >= message_count) { break; }
 
-        fi::ChatMessage answer        = text_message(ninfer::ChatRole::Assistant,
-                                                     filler(options.chars_per_message, 4 + group));
-        answer.reasoning_content      = filler(options.chars_per_message / 2, 5 + group);
+        fi::ChatMessage answer =
+            text_message(ninfer::ChatRole::Assistant, filler(options.chars_per_message, 4 + group));
+        answer.reasoning_content = filler(options.chars_per_message / 2, 5 + group);
         messages.push_back(std::move(answer));
         ++group;
     }
     messages.resize(message_count);
     if (!options.tail_assistant) {
-        // The checkpoint probe is gated on a closed assistant message after the last real user turn.
-        // Ending on a user turn removes that condition without shortening the conversation.
+        // The checkpoint probe is gated on a closed assistant message after the last real user
+        // turn. Ending on a user turn removes that condition without shortening the conversation.
         messages.push_back(text_message(ninfer::ChatRole::User, "status?"));
     }
     return messages;
@@ -232,9 +260,70 @@ double milliseconds(Clock::duration duration) {
 }
 
 std::size_t resolved_boundaries(const fi::RenderedChat& rendered) {
-    return static_cast<std::size_t>(std::count_if(rendered.message_boundaries.begin(),
-                                                  rendered.message_boundaries.end(),
-                                                  [](const auto& value) { return value.has_value(); }));
+    return static_cast<std::size_t>(
+        std::count_if(rendered.message_boundaries.begin(), rendered.message_boundaries.end(),
+                      [](const auto& value) { return value.has_value(); }));
+}
+
+// Replay a recorded OpenAI chat-completions body. The point is to render the conversation the
+// server has already rendered, so the two measurements are of the same input rather than of two
+// conversations that merely look alike.
+struct RecordedRequest {
+    std::vector<fi::ChatMessage> messages;
+    std::vector<std::string> tool_jsons;
+};
+
+ninfer::ChatRole role_from(std::string_view name) {
+    if (name == "system") { return ninfer::ChatRole::System; }
+    if (name == "developer") { return ninfer::ChatRole::Developer; }
+    if (name == "user") { return ninfer::ChatRole::User; }
+    if (name == "assistant") { return ninfer::ChatRole::Assistant; }
+    if (name == "tool") { return ninfer::ChatRole::Tool; }
+    throw std::invalid_argument("unknown role " + std::string(name));
+}
+
+RecordedRequest load_recorded_request(const std::filesystem::path& path) {
+    const nlohmann::json body = nlohmann::json::parse(read_file(path));
+    RecordedRequest recorded;
+    for (const auto& entry : body.at("messages")) {
+        fi::ChatMessage message;
+        message.role = role_from(entry.at("role").get<std::string>());
+        if (entry.contains("content")) {
+            const auto& content = entry.at("content");
+            if (content.is_string()) {
+                message.parts.push_back(fi::ChatPart::text_part(content.get<std::string>()));
+            } else if (content.is_array()) {
+                for (const auto& part : content) {
+                    if (part.contains("text")) {
+                        message.parts.push_back(
+                            fi::ChatPart::text_part(part.at("text").get<std::string>()));
+                    }
+                }
+            }
+        }
+        if (entry.contains("reasoning_content") && entry.at("reasoning_content").is_string()) {
+            message.reasoning_content = entry.at("reasoning_content").get<std::string>();
+        }
+        if (entry.contains("tool_call_id") && entry.at("tool_call_id").is_string()) {
+            message.tool_call_id = entry.at("tool_call_id").get<std::string>();
+        }
+        if (entry.contains("tool_calls")) {
+            for (const auto& call : entry.at("tool_calls")) {
+                fi::ToolCall parsed;
+                parsed.id             = call.value("id", std::string{});
+                parsed.name           = call.at("function").value("name", std::string{});
+                const auto& arguments = call.at("function").at("arguments");
+                parsed.arguments_json =
+                    arguments.is_string() ? arguments.get<std::string>() : arguments.dump();
+                message.tool_calls.push_back(std::move(parsed));
+            }
+        }
+        recorded.messages.push_back(std::move(message));
+    }
+    if (body.contains("tools")) {
+        for (const auto& tool : body.at("tools")) { recorded.tool_jsons.push_back(tool.dump()); }
+    }
+    return recorded;
 }
 
 std::size_t total_bytes(const std::vector<fi::ChatMessage>& messages) {
@@ -260,27 +349,49 @@ int main(int argc, char** argv) {
 
     try {
         const std::string source = read_file(options.template_path);
-        const fi::CompiledChatTemplate compiled =
-            fi::CompiledChatTemplate::resolve(source, options.template_path.string());
+        // compile_chat_template builds this from the artifact's tokenizer_config.json over exactly
+        // these keys; the values only have to be present for the control-variable mode to match.
+        nlohmann::ordered_json special_tokens = nlohmann::ordered_json::object();
+        if (options.special_tokens) {
+            for (const char* key : {"bos_token", "eos_token", "pad_token", "unk_token", "sep_token",
+                                    "cls_token", "mask_token"}) {
+                special_tokens[key] = "<|endoftext|>";
+            }
+            special_tokens["additional_special_tokens"] = nlohmann::ordered_json::array(
+                {"<|im_start|>", "<|im_end|>", "<|vision_start|>", "<|vision_end|>",
+                 "<|vision_pad|>", "<|image_pad|>", "<|video_pad|>"});
+        }
+        const fi::CompiledChatTemplate compiled = fi::CompiledChatTemplate::resolve(
+            source, options.template_path.string(), std::move(special_tokens));
 
         std::vector<std::string> tool_jsons;
         for (std::size_t i = 0; i < options.tool_count; ++i) {
             tool_jsons.push_back(tool_json(i, 400));
         }
 
+        std::vector<fi::ChatMessage> recorded_messages;
+        if (!options.from_path.empty()) {
+            RecordedRequest recorded = load_recorded_request(options.from_path);
+            recorded_messages        = std::move(recorded.messages);
+            tool_jsons               = std::move(recorded.tool_jsons);
+            options.sweep            = {recorded_messages.size()};
+        }
+
         fi::ChatRenderOptions render_options;
         render_options.add_generation_prompt = options.generation_prompt;
-        render_options.enable_thinking       = false;
-        render_options.preserve_thinking     = true;
-        render_options.tool_jsons            = tool_jsons;
+        if (!options.thinking_default) { render_options.enable_thinking = false; }
+        render_options.preserve_thinking = true;
+        render_options.tool_jsons        = tool_jsons;
 
         // The interpreter calls its checkpoint once per executed statement. In production that
         // callback ends in an httplib socket probe, so this arm counts how often it would fire.
         std::size_t checkpoints = 0;
         ninfer::PreparationControl control;
         if (options.cancel_probe) {
-            control.cancellation =
-                ninfer::CancellationView([&checkpoints] { ++checkpoints; return false; });
+            control.cancellation = ninfer::CancellationView([&checkpoints] {
+                ++checkpoints;
+                return false;
+            });
         }
 
         std::cout << "template            " << options.template_path.string() << "\n";
@@ -289,12 +400,17 @@ int main(int argc, char** argv) {
         std::cout << "tools               " << options.tool_count << "\n";
         std::cout << "generation prompt   " << (options.generation_prompt ? "on" : "off") << "\n";
         std::cout << "tail assistant      " << (options.tail_assistant ? "on" : "off") << "\n";
+        std::cout << "special tokens      " << (options.special_tokens ? "on" : "off") << "\n";
+        std::cout << "enable_thinking     "
+                  << (options.thinking_default ? "template default" : "off") << "\n";
         std::cout << "cancel probe        " << (options.cancel_probe ? "on" : "off") << "\n";
         std::cout << "\n";
-        std::cout << "messages   bytes   render ms   ms/message   boundaries   text bytes   checkpoints\n";
+        std::cout << "messages   bytes   render ms   ms/message   boundaries   text bytes   "
+                     "checkpoints\n";
 
         for (const std::size_t count : options.sweep) {
-            const std::vector<fi::ChatMessage> messages = build_conversation(options, count);
+            const std::vector<fi::ChatMessage> messages =
+                recorded_messages.empty() ? build_conversation(options, count) : recorded_messages;
 
             fi::RenderedChat rendered;
             for (int i = 0; i < options.warmup; ++i) {
@@ -311,13 +427,12 @@ int main(int argc, char** argv) {
                 samples.push_back(milliseconds(Clock::now() - started));
                 probes.push_back(checkpoints);
             }
-            const double best = *std::min_element(samples.begin(), samples.end());
+            const double best             = *std::min_element(samples.begin(), samples.end());
             const std::size_t probe_count = *std::max_element(probes.begin(), probes.end());
 
             std::printf("%8zu %7zu %11.2f %12.4f %12zu %12zu %13zu\n", messages.size(),
-                        total_bytes(messages), best,
-                        best / static_cast<double>(messages.size()), resolved_boundaries(rendered),
-                        rendered.text.size(), probe_count);
+                        total_bytes(messages), best, best / static_cast<double>(messages.size()),
+                        resolved_boundaries(rendered), rendered.text.size(), probe_count);
         }
         return 0;
     } catch (const std::exception& error) {

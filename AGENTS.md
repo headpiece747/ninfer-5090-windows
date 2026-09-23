@@ -323,13 +323,19 @@ Twenty-eight rules, each earned by a failure rather than chosen:
   perplexity and accuracy figures in `docs/`, the compiled tok/s in `tools/release/profiles.py`, and
   every ADR that quotes a score. A measurement is a claim about a revision, so it carries the revision
   that produced it, the way a startup figure carries its configuration.
-- **A residual computed by subtraction is not an attribution.** `prepared - tokenize` was read as
-  "the render", twice, and the render led the investigation for a day: `CompiledChatTemplate::render`
-  measured at **80 ms** for a 229-message, 690 KB conversation, against a residual of 3.4 s — off by
-  forty times, because the remainder of a total also contains every phase nobody bracketed. Measure
-  the phase you intend to act on, or bracket them all; do not name the leftover after the one you
-  happened to think of. `bench/models/qwen3_5/chat_render_bench.cpp` is the instrument that settled
-  it, and it needs no artifact and no GPU.
+- **A bench that does not reproduce the process can refute a true hypothesis.** `prepared - tokenize`
+  was read as "the render", and a host bench was built to check that reading. The bench measured
+  `CompiledChatTemplate::render` at **80 ms** for a 229-message, 690 KB conversation, which appeared
+  to rule the render out, so the render was set aside and the note said so. The live server's own
+  phase timer then put the same call at **2.4 s**, and replaying the server's *exact* request body
+  through the bench still gave 76 ms against the server's 2,430 ms — same body, same code, same three
+  render calls, same 300 checkpoints. A neutral allocation loop in both showed the server runs
+  ordinary host allocation ~40x slower than a fresh process on the same machine: the difference was
+  the process, not the input, and the bench had been right about its own measurement while wrong about
+  what it stood in for. Two lessons: a stand-in must reproduce the *conditions* of the thing it
+  replaces, not only its input; and when a bench and the live system disagree, find out which one is
+  lying before acting on either. What caught it was bracketing the total — the phase fields put the
+  time in the render, where the bench had said there was none.
 - **Batch what goes into `include/ninfer/types.h`, because the device tree reaches it.** `src/ops/*.cu`
   and `src/core/*.cu` include `core/paged_kv_storage.h`, which includes that header, so adding one
   field to a public stats struct rebuilt every CUDA object in `build-test` — twice in one session,
