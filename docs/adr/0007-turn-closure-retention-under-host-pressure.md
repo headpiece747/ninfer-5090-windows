@@ -76,15 +76,20 @@ The same log already shows the action was gratuitous, without a new counter. `sh
 is 0 while `shared_owners_degraded` is 1: an eviction is what a full shared catalog produces, so with
 none, and with host KV at 653 MiB of 8 GiB and 2 of 16 state slots occupied, no shortage forced the
 degradation. The plan chose it. That is consistent with the valuation having no term for the shared
-owner's loss -- and it locates the next candidate: the resident path reads `entry.explicit_credit`,
-and that field is never assigned true anywhere in the manager, so a resident shared prefix contributes
-nothing to the fold even when the engine itself declared its boundary.
+owner's loss -- and it locates the next candidate: the resident path reads `entry.explicit_credit`.
+Correction: that field *is* assigned (`resource_manager.h:3265-3269`), but only for
+`ExplicitBoundary` or `RequestedAutomatic` evidence, and it expires with the demand window (`:2519`).
+A boundary the *engine* declared -- `EngineStructural`, `EngineObserved`, `DefaultAutomatic` -- still
+gets no credit, so the conclusion holds while the mechanism stated here does not. ADR-0009 measured
+the same rule from the reuse side.
 
 That is the same root as the private case below: the valuation has no term for a reuse that has not
-arrived yet. Prior art settles the form it should take -- SGLang's `retention_priority`, after its
-hard-pinning PR was reverted because "priority controls eviction order, not exemption", and T-LRU's
-"protected" class, which is defined by the next turn's uncached token count rather than by current
-demand.
+arrived yet. Prior art settles the form it should take -- SGLang's `priority` plus `retention_seconds` (the name
+`retention_priority` is TensorRT-LLM's), after its hard-pinning PR was reverted because "priority
+controls eviction order, not exemption", and T-LRU's "protected" class, which is defined by the next
+turn's uncached token count rather than by current demand. Both are now sourced from primary
+references in `docs/research/anticipated-reuse-pricing.md`, which also covers vLLM, TensorRT-LLM,
+LMCache, Mooncake, Dynamo, the classical replacement policies, and Marconi's hybrid-state taxonomy.
 Upstream's code carries the same branch (`pressure_committed`, `pressure_private_owners_degraded` at
 `upstream/master:2512-2569`), so this is shared behaviour, not a port invention.
 
@@ -94,11 +99,17 @@ identically (`degraded=1`, `path=1`, `state=0`): the dropped checkpoint carries 
 That is the real shape of the defect. `demand_mask` records *live* demands, and at the moment of the
 pressure decision no request is asking for the turn closure yet -- the closure exists precisely so
 that a *later* turn can reuse it, which is what the design doc says a `TurnClosure` is for. Its loss
-is therefore priced at about nothing and it is dropped. The runtime cannot do better with what it
-has: `git grep 'TurnClosure\|ResponseReplay' -- src/runtime/engine/context_cache/` is empty, so the
-layer that decides what to drop cannot tell a closure from a superseded endpoint. A checkpoint's kind
-and its required coverage live in the model layer, where `program_impl.h` maps
-`RewriteCheckpointKind` to a `ReusePath`.
+is therefore priced at about nothing and it is dropped. The grep this paragraph leaned on is correct
+-- `TurnClosure` and `ResponseReplay` are never named under `context_cache/` -- but its inference was
+not: that layer already reads `CheckpointRef::kind` and already distinguishes `SessionEndpoint` from
+the rest (`resource_manager.h:1537, 1542-1544, 1550, 1569`). What is missing is narrower. The
+*valuation* never consults the kind, and `ContextPortfolioCheckpointValue`
+(`context_portfolio_value.h:21-27`) carries only `owner`, `demand_mask` and the three recovery times,
+so `MaterializationCheckpointPolicy`'s `checkpoint.kind`, `retention_class`, `selected_hit_count` and
+`last_hit_epoch` (`materialization_planner.h:23-32`) are dropped on the way into the fold. The
+declaration this ADR asks the model layer for already exists; the plumbing from the planner's policy
+structs into the portfolio value does not. `docs/research/anticipated-reuse-pricing.md` sources what
+every production engine does with that declaration.
 
 ## Decision
 
