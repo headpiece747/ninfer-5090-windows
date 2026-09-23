@@ -391,6 +391,8 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
               << " (jinja " << jinja.text.size() << " bytes, native " << native.text.size()
               << " bytes)\n";
     if (offset) {
+        // The first differing byte is what identifies a divergence; the surrounding window is what
+        // makes it readable, and it is only worth printing when there is one.
         const std::size_t from = *offset;
         const auto show = [&](std::string_view text, const char* label) {
             std::string window(text.substr(from, std::min<std::size_t>(200, text.size() - from)));

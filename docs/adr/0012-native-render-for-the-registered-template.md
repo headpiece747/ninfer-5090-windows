@@ -1,6 +1,7 @@
 # ADR-0012: the registered template is rendered in C++, gated by its digest
 
-Status: proposed (2026-09-23). Design pass only; no implementation yet.
+Status: accepted and implemented (2026-09-23). The native renderer is landing; the
+[verification](#verification) section states what was measured and what is still projected.
 
 ## Context
 
@@ -101,12 +102,17 @@ synthesized conversations, including the arms that vary tools, thinking, continu
 
 ## Consequences
 
-- Projected: the render drops from 48.3 ms to near the 3.47 ms floor, so `prepared` ≈ 4-5 ms and warm
-  TTFT ≈ 19 ms. That is a projection from the floor measurement, not a measurement; the loop will
-  produce the real figure.
-- The boundary machinery simplifies: no `prefix()` probe, no next-turn probe, and no marker parsing to
-  establish what the renderer already knows.
-- `--chat-template` overrides and every unrecognised artifact continue through Jinja unchanged.
+- **Measured**: the render drops from 48.3 ms to **5.99 ms** on the same 229-message conversation --
+  8.1x, against a 3.47 ms floor for the frontend's own work. The interpreter path renders the same
+  conversation in 48.33 ms through an unregistered template, so the comparison holds the input fixed
+  and varies only the path.
+- **Projected, not measured**: `prepared` ≈ 8 ms and warm TTFT ≈ 22 ms. Those follow from the render
+  figure and the field log's split, and the end-to-end path has not been timed with the new renderer.
+- The boundary machinery simplifies: no `prefix()` probe and no marker parsing to establish what the
+  renderer knows, which is where the second half of the win comes from.
+- `--chat-template` overrides and every unrecognised artifact continue through Jinja unchanged. Both
+  directions were checked: the registered digest takes the native path, and `qwen3_6.jinja`'s digest
+  is not registered and still renders at the interpreter's rate.
 - The renderer is written for one digest and one template; it is not a family, a plugin or a
   discovery mechanism, and adding a second template means a second transcription.
 
