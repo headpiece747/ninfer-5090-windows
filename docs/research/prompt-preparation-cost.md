@@ -574,22 +574,42 @@ It is not the wait primitive. Instrumented at the two places the engine books it
   quoted above;
 - the worker's predicate wait does **not** explain it: `submit` notifies `queue_cv_`, and the probe
   shows the wait waking immediately;
-- what does explain it is the **turn the request waits for**: single worker turns measured at
-  9.026 / 6.489 / 6.692 / 9.156 ms while a request sat pending. A turn is
-  `expire_pending_requests`, `progress_context_transaction`, `settle_terminal_requests`,
-  `snapshot_cancellations`, `cancel_active_requests` and `build_round_membership` under
-  `execution_mutex_`, and the loop's own 1 ms timeout cannot account for 6-9 ms.
+- the cost is inside the **admission attempt**, and every part of it is now attributed. One reading per
+  segment, microseconds, from a warm 229-message request:
 
-Those turn readings explain the *shape* -- a request waits for a turn, and turns are milliseconds --
-but they do not close the arithmetic, and the two sets of queue-wait readings are not reconciled
-here. Which of the six calls owns the time is **not established** -- that is the next measurement, and
-it is an engine-internals question with its own authority
-(`docs/maintainer/engine-architecture.md`) rather than a frontend one.
+  | segment | cost | share |
+  |---|--:|--:|
+  | the six turn calls (`expire`, `progress`, `settle`, `cancel`, `membership`) | **~1** | 0% |
+  | `ensure_base_plan` | **4364-4555** | ~43% |
+  | `inspect_admission` | **670-883** | ~8% |
+  | `grant_head` | **0.1** | 0% |
+  | `admit_planned_request` | **4667-5169** | ~47% |
+  | total | **10069-10623** | |
 
-Two hypotheses were refuted on the way and are recorded so they are not re-tried: that submission
-fails to wake the worker (it notifies, and the wait wakes immediately), and that the 10 ms
-`wait_for` in `wait_for_request` is the latency (it is a predicate wait on the consumer side, woken by
-the response; it does not gate admission).
+  Reproduced across four turns: `ensure_base_plan=4554.6 inspect_admission=738.4 grant=0.1
+  admit_planned=5086.4`, and `4364.0 / 791.8 / 0.1 / 4732.8`, and `4486.2 / 883.1 / 0.1 / 4687.3`.
+
+So the six control-path calls this section originally blamed account for **a microsecond**, and that
+attribution was wrong. What the time actually is:
+
+- **`ensure_base_plan` is the model's own `plan_request` for this prompt**, and it is guarded to run
+  once per request (`if (!request->base_plan)`), so it is not redundant work — it is the plan the
+  engine needs before it can admit anything;
+- **`admit_planned_request` is the admission itself** — reserving against the resource manager and
+  placing the request in a lane;
+- `readiness=0` on every reading, so the planner is planning each warm request rather than finding it
+  already ready.
+
+Neither is a defect with a cache to add: both are per-request planning work on the critical path
+before the first token. Whether that planning could be cheaper — or hoisted off the submission path —
+is an engine-architecture question, and it is now a question with numbers attached rather than a
+suspicion.
+
+Three hypotheses were refuted on the way and are recorded so they are not re-tried: that submission
+fails to wake the worker (it notifies, and the wait wakes immediately); that the 10 ms `wait_for` in
+`wait_for_request` is the latency (it is a predicate wait on the consumer side, woken by the response;
+it does not gate admission); and that one of the six control-path calls in a worker turn owns the
+time (they are a microsecond between them, and the cost is in the admission attempt further in).
 
 ## The end state, verified by the server's own record
 
