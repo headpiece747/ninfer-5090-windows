@@ -361,25 +361,49 @@ checkpoint probe's own render — with no per-message work at all.
 | a bare `for` emitting `{{ m.content }}` | 8.99 ms | the loop machinery: ~5.5 ms |
 | the shipped template minus every `\|trim` | 62.1 ms | the ~1374 trims: ~17 ms |
 | ... minus the `render_content` macro calls | 51.3 ms | the macro: ~11 ms |
-| ... minus the `<think>` assembly | 37.7 ms | the reasoning path: ~24 ms |
 
-So **86% of the render is the template's own logic running in the interpreter**, and 4% is this
-port's code. The render is not something this port made slow, and the addressable part is the
-interpreter's per-application cost rather than our plumbing.
+So **96% of the render is the template's own logic running in the interpreter**, and 4% is this
+port's code — the render is not something this port made slow. What is left after those rows is
+~40 ms of the template's other per-message work: the branches, the `set`s, and a value construction
+per operation.
 
-Doubling every `|trim` — idempotent, so the rendered bytes are unchanged — costs another 22 ms, so a
-filter's cost is per *application*, not something amortisable. `try_builtin_func` showed why:
+Two further arms were run and **neither is evidence**, which is worth recording because one of them
+was briefly taken as such:
+
+- An arm with the `<think>` assembly removed read 37.7 ms, and was written here as "the reasoning
+  path: ~24 ms". It is confounded: removing that assembly halved the output, from 715,028 bytes to
+  368,085, so most of the difference was producing less text rather than doing less work.
+- An arm that made the `+` path cheaper — one copy instead of three, plus an in-place append when the
+  left operand is uniquely owned, byte-identical output — read 71.8-72.6 ms against 71.4, so it made
+  no difference and was reverted. The concatenation is not the cost.
+
+What the second of those rules out is explained by the type: `jinja::string` is not a flat string but
+a piece table,
+
+```cpp
+struct string {
+    std::vector<string_part> parts;   // each part carrying its input-region origin
+```
+
+so `append` is a vector push and is already cheap, while every value construction and every `strip`
+rebuilds parts. That is where the trims' ~17 ms goes, and it is a *model*, not a hot line — the
+remaining levers are all of that kind, inside upstream's vendored llama-jinja. Optimising them is a
+library redesign rather than a fix to this port, which is where this line of work stops.
+
+The doubling arm is the one that found it. **Doubling every `|trim` is idempotent, so the rendered
+bytes are unchanged**, and it costs another 22 ms — a filter's cost is per *application*, not
+something amortisable. `try_builtin_func` is why:
 
 ```cpp
 auto builtins = input->get_builtins();   // get_builtins() returns a const reference
 ```
 
-`auto` copied the type's static filter map on every filter application. Taking it by reference is the
-whole change; on the same bench it takes the render from 77.5 ms to **71.4 ms** with the rendered
-bytes unchanged. The copy was a few milliseconds of the trims' ~17 ms rather than most of it, which
-the same measurement says plainly — the rest is the filter's object construction, the macro call and
-the concatenations, all of them in upstream's vendored llama-jinja and therefore upstream's property
-as much as this port's.
+`auto` copied the type's static filter map on every filter application, ~1374 of them for this
+template. Taking it by reference takes the render from 77.5 ms to **71.4 ms** with the rendered bytes
+unchanged — a few milliseconds of the trims' ~17 ms rather than most of it, which the same
+measurement says plainly. The rest is the filter's own construction in the piece-table model above.
+
+The one that *did* land was not in that model at all: this map copy.
 
 ## What upstream already knows
 
