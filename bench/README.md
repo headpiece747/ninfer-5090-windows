@@ -995,6 +995,28 @@ Run separate invocations for `K=1..15`, `full|optimized`, representative context
 `--no-cuda-graph`. This complete-round benchmark measures the DFlash model's actual greedy
 acceptance. Transaction correctness is covered by the state and Engine tests.
 
+## Chat-template render benchmark
+
+`ninfer_qwen3_5_chat_render_bench` measures the largest host cost of prompt preparation: it reads a
+Jinja chat template, synthesizes its own conversation, and reports `CompiledChatTemplate::render`
+against message count, in milliseconds and milliseconds per message. It needs no artifact and no
+GPU, so it runs wherever the tree builds:
+
+```bash
+cmake --build build --parallel --target ninfer_qwen3_5_chat_render_bench
+./build/bench/ninfer_qwen3_5_chat_render_bench \
+  --template tools/chat_templates/qwen3_8.jinja --sweep 32,64,128,229
+```
+
+The template renders more than once per request: once for the output and again for each probe that
+proves a byte offset is a safe prefix-cache boundary. `--generation-prompt off` and
+`--tail-assistant off` turn off the conditions that trigger those probes, so each one's cost is read
+as a difference rather than assumed. `--cancel-probe` reports how often the interpreter's
+per-statement checkpoint fires, and `--call-args` sets the size of a tool call's argument JSON, so
+the shapes a coding agent actually produces can be tested against the plain one. The recorded
+reading for the Qwen3.8 template is in
+[`../docs/research/prompt-preparation-cost.md`](../docs/research/prompt-preparation-cost.md).
+
 ## Token-decision Op benchmarks
 
 The G1 benchmark calls public `argmax` for the Qwen3.6-35B full physical vocabulary with 248077

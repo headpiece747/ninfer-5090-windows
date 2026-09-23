@@ -13,3 +13,12 @@ add_executable(ninfer_qwen3_5_dflash_round_bench
 ninfer_internal_includes(ninfer_qwen3_5_dflash_round_bench)
 target_link_libraries(ninfer_qwen3_5_dflash_round_bench PRIVATE
   ninfer_engine ninfer_model_runtime ninfer_core)
+
+# Host-only chat-template render cost by conversation length. It reads a template and synthesizes
+# its own conversation, so it needs no artifact and no GPU, and it separates the frontend's extra
+# boundary-proving renders by turning the conditions that trigger them on and off.
+add_executable(ninfer_qwen3_5_chat_render_bench
+  "${CMAKE_CURRENT_LIST_DIR}/chat_render_bench.cpp")
+ninfer_internal_includes(ninfer_qwen3_5_chat_render_bench)
+target_link_libraries(ninfer_qwen3_5_chat_render_bench PRIVATE
+  ninfer_model_runtime ninfer_core ninfer::json)
