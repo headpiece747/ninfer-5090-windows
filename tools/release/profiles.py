@@ -208,6 +208,8 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # on every request, at a tool boundary the frontend does declare, and the log shows every cache
     # hit as `private endpoint`, none shared, with a conversation switch costing a 59.6 s cold
     # prefill at 171,953 tokens.
+    # The log is recorded at docs/research/agent-session-field-log-2026-09-22.md, with the startup
+    # configuration it was measured under and every request's cache path.
     #
     # Resolved 2026-09-22: the boundary the frontend declares is not the boundary this protocol uses.
     # The OpenAI request path clears allow_engine_automatic_shared_prefixes -- the protocol defines

@@ -43,7 +43,9 @@ Attribution, each part measured rather than argued:
 
 The shared path has the same shape, and it is measured. A live 51-request agent log shows every cache
 hit as `private endpoint` and none shared, with a conversation switch costing a 59.6 s cold prefill at
-171,953 tokens. Reproduced at a 65,536-token context with the shipped bounds, the request log shows
+171,953 tokens. The log itself is now recorded in
+[`docs/research/agent-session-field-log-2026-09-22.md`](../research/agent-session-field-log-2026-09-22.md),
+which is also the field evidence for this ADR: of its 49 cache hits, every single one is an endpoint. Reproduced at a 65,536-token context with the shipped bounds, the request log shows
 the shared capture is offered and planned (`offered 1`, every refusal branch 0) while the shared owner
 is degraded and `shared_stable_prefix` hits stay 0. Its `occupancy` gives the reason: with
 `shared_active_references` at 0, no live reference protects it, while host KV sits at 653 MiB of 8 GiB

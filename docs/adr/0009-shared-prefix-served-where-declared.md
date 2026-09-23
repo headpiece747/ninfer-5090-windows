@@ -10,7 +10,10 @@ Supersedes the shared-prefix paragraph of
 A shared prefix is an immutable reuse source that several private branches may fork
 (`docs/maintainer/resource-scheduling-and-context-cache.md` §4.3, §7.2). The shipped launchers enable
 it, the request log counts it, and a live 51-request agent log showed every cache hit as
-`private endpoint` with none shared. The question was whether the feature is broken or unused.
+`private endpoint` with none shared. That log is recorded in
+[`docs/research/agent-session-field-log-2026-09-22.md`](../research/agent-session-field-log-2026-09-22.md):
+two of its requests are conversation switches, both reporting `cache 0 (0.0%)`, one of them a 59.6 s
+cold prefill at 171,953 tokens. The question was whether the feature is broken or unused.
 
 The first measurement was wrong because the harness was wrong. `loop_shared_reuse.py`'s `--identical`
 flag was meant to send two byte-identical prompts; it replaced the marker in the first user turn only,
