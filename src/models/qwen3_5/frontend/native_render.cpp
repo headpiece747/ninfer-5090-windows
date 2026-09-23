@@ -278,7 +278,9 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
         text += kToolsBlock;
         for (const Json& definition : tool_definitions) {
             text += "\n";
-            text += to_json(definition);
+            // The tool definitions come from the request, so the Jinja route marks them as input; the
+            // serialization is this renderer's, but the bytes are the caller's.
+            append_input(to_json(definition));
         }
         text += kToolsBlockEnd;
         text += kToolsReminder;
@@ -290,7 +292,7 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
         text += kImEnd;
         text += "\n";
     } else if (instruction(messages.front().role)) {
-        const std::string_view content =
+        const std::string content =
             trim_whitespace(render_content(messages.front(), true, false, image_count, video_count));
         if (!content.empty()) {
             text += kImStart;
@@ -340,25 +342,16 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
             text += kImStart;
             append_input("assistant");
             text += "\n";
-            // The execution boundaries the Jinja route derives by re-parsing its own output: the
-            // content start after the role line, the byte past the thinking opener, and the byte past
-            // the canonical reasoning close when the block carries one.
-            result.rewrite_execution_boundaries.push_back(text.size());
             const bool emit_reasoning =
                 !continuing &&
                 (!options.preserve_thinking.has_value() || *options.preserve_thinking ||
                  i > last_query_index.value_or(messages.size() - 1));
-            bool reasoning_open = false;
             if (emit_reasoning) {
                 text += kThinkOpen;
-                reasoning_open = true;
-                result.rewrite_execution_boundaries.push_back(text.size());
                 const std::string reasoning = trim_whitespace(message.reasoning_content);
                 if (!reasoning.empty()) { append_input(reasoning); }
                 text += kThinkClose;
-                result.rewrite_execution_boundaries.push_back(text.size());
             }
-            (void)reasoning_open;
             append_input(content);
             if (!message.tool_calls.empty()) {
                 for (std::size_t call_index = 0; call_index < message.tool_calls.size();
@@ -416,19 +409,50 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
     if (options.add_generation_prompt) {
         generation_begin = text.size();
         text += kGenPromptAssistant;
-        // The generation prompt is an unclosed assistant block, and the Jinja route records the same
-        // three boundaries for it as for any other: the content start, past the thinking opener, and
-        // past the reasoning close when the empty-thinking form is written.
-        result.rewrite_execution_boundaries.push_back(text.size());
         if (options.enable_thinking.has_value() && !*options.enable_thinking) {
             text += kGenPromptThinkOff;
         } else {
-            result.rewrite_execution_boundaries.push_back(text.size());
             text += kGenPromptThink;
-            // The open form is the thinking opener with no reasoning body yet, and the Jinja route
-            // records a boundary past it as well.
-            result.rewrite_execution_boundaries.push_back(text.size());
         }
+    }
+
+    // The execution boundaries, derived from the finished text exactly as the Jinja route derives them:
+    // walk every assistant block and record its content start, then the byte past the thinking opener
+    // only when the block's body actually begins with one. Deriving them here rather than recording
+    // them as blocks are written is what keeps a block with no thinking body -- the generation prompt,
+    // an assistant with no reasoning -- at one boundary instead of three.
+    for (std::size_t pos = 0; (pos = text.find(kImStart, pos)) != std::string::npos;) {
+        const std::size_t header_end = text.find('\n', pos + kImStart.size());
+        if (header_end == std::string::npos) { break; }
+        const std::string_view role =
+            std::string_view(text).substr(pos + kImStart.size(), header_end - pos - kImStart.size());
+        const std::size_t next     = text.find(kImStart, header_end + 1);
+        const std::size_t close    = text.find(kImEnd, header_end + 1);
+        const bool closed          = close != std::string::npos &&
+                            (next == std::string::npos || close < next);
+        const std::size_t content_end =
+            closed ? close : (next == std::string::npos ? text.size() : next);
+        if (role == "assistant") {
+            result.rewrite_execution_boundaries.push_back(header_end + 1);
+            const std::string_view body =
+                std::string_view(text).substr(header_end + 1, content_end - header_end - 1);
+            if (body.starts_with(kThinkOpen)) {
+                result.rewrite_execution_boundaries.push_back(header_end + 1 + kThinkOpen.size());
+                const std::size_t reasoning_close =
+                    text.find(kThinkClose, header_end + 1 + kThinkOpen.size());
+                if (reasoning_close != std::string::npos && reasoning_close < content_end) {
+                    result.rewrite_execution_boundaries.push_back(reasoning_close +
+                                                                  kThinkClose.size());
+                }
+            }
+            // Only the final, unclosed assistant block controls the initial output channel: it starts
+            // in reasoning when its body opens thinking and never closes it.
+            if (!closed && next == std::string::npos) {
+                result.starts_in_reasoning =
+                    body.starts_with(kThinkOpen) && body.find(kThinkClose) == std::string_view::npos;
+            }
+        }
+        pos = next;
     }
 
     // The template retains an open turn when appending a turn would not change history's rendering.

@@ -51,6 +51,18 @@ oracle that proves the C++ one.
 - The template is not edited. It is the artifact's, it is already the thing the model was trained
   against, and the Jinja route must keep rendering it exactly as it does now.
 
+## The two semantics the transcription has to reproduce exactly
+
+Both were read out of the vendored interpreter rather than assumed, because both are places a
+difference would be silent:
+
+- **`|trim` is `strip(true, true)` over *codepoints*, not bytes.** `runtime.cpp:274` aliases `trim` to
+  `strip`; `value.cpp:545` calls `string::strip(true, true)`; and that walks `unicode::characters`
+  testing `unicode::whitespace(cp)` = `(0x1c..0x1f) || 0x85 || utf8proc_category in {ZS, ZL, ZP}`.
+  The native renderer therefore trims by Unicode whitespace, not by `isspace`.
+- **`tojson` uses `json.dumps`' defaults**: `indent = -1`, item separator `", "`, key separator `": "`,
+  `ensure_ascii` false (`value.cpp:136-158`).
+
 ## Why C++ is the right form here and not a generic template engine
 
 `AGENTS.md` asks for explicit implementations for supported architectures and forbids string-driven
