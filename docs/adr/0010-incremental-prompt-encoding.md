@@ -44,6 +44,26 @@ by the seam, and the boundary results come from the cache below the seam and fro
 above it, shifted by the seam frontier. Any failed step means a full encode, and the full result
 replaces the cache entry.
 
+### An exact repeat needs none of that, and was missing
+
+Step 1 requires a *strict* prefix, so this design never served a prompt equal to a cached one: a
+retried, duplicated or re-sent request re-encoded the whole conversation while a growing one spliced.
+That is the opposite of what the cache is for, and it was found only by reading the live preparation
+split — `prepared 31.4 ms, render 3.79 ms, tokenize 27.4 ms` on a warm request, with the counters
+showing `splices=0 fallbacks=0` on every request.
+
+An exact repeat is answered from the entry directly, before the seam search: same text, same
+`max_tokens`, same boundary offsets in the same order, and equal literal spans. Nothing is spliced and
+nothing is re-derived, because the entry *is* the answer to that text, that boundary set and that
+option set — there is no seam to place and no window to re-encode, so steps 2 to 5 have nothing to
+check. The boundary set and the literal spans are part of the comparison rather than assumed equal,
+because both are part of what the entry answers.
+
+Measured on the request that showed the problem (229 messages, 92,373 tokens): `tokenize`
+28.5 ms → 192 µs, `prepared` 32.6 ms → 4.21 ms, wall 23.98 s → 0.018 s. `test_repeated_encoding_matches_full`
+checks the repeat against a cold tokenizer as the oracle, checks it agrees with the encode it came
+from, and checks that a boundary set the cache never answered is not served as a repeat.
+
 ## Why step 5 is the right test
 
 `encode_with_boundaries` walks the text as alternating *ordinary stretches* and *added tokens*: it
@@ -72,9 +92,12 @@ that are not ordered and disjoint, and a span crossing the seam would have to be
   request, so the fallback is visible instead of silent — and it is expected to stay at zero.
 - **The render is not covered, and cannot be by this design.** A chat template is a whole-
   conversation loop that may legitimately rewrite its earlier output — the Qwen3.8 template gates its
-  `<think>` block on `last_query_index`, which moves forward every turn — so the rendered prefix is
-  not a function of the messages before it and there is nothing to reuse. The render is the larger
-  half of preparation (78 ms of the 119 ms above) and it needs a different answer.
+  ` thinking` block on `last_query_index`, which moves forward every turn — so the rendered prefix is
+  not a function of the messages before it and there is nothing to reuse. That conclusion stands: the
+  render needed a different answer, and got one in
+  [ADR-0012](0012-native-render-for-the-registered-template.md), which renders the registered template
+  in C++ instead of interpreting it. On the same 229-message conversation this record measured at
+  78 ms, that path renders in **3.79 ms**.
 - **Concurrency:** `prepare` runs on `httplib::ThreadPool` workers, so the cache is a small ring
   guarded by a mutex, and a miss on contention is a full encode rather than a correctness question.
 - **Evidence: a byte-identity test, and a live measurement.** `test_incremental_encoding_matches_full`
@@ -88,8 +111,11 @@ that are not ordered and disjoint, and a span crossing the seam would have to be
   one, `prepared` from 121 ms to 79.5 ms, and a fully cached request's time to first token from 137 ms
   to **93.8 ms**. The engine reported `cache 100.0%`, which is the independent check: spliced ids that
   differed from the full encode would not have matched its cached state.
-- **Tokenization no longer grows with the conversation.** It is now a per-extension cost. The render
-  remains linear, so it is the whole of the growth that is left.
+- **Tokenization no longer grows with the conversation.** It is now a per-extension cost, and an
+  exact repeat costs a cache lookup. What remained of preparation after both was measured on the
+  shipped server and the split is now `prepared 4.02 ms, render 3.69 ms, tokenize 94 us` on a warm
+  229-message request — so neither of the two terms this record was written about is the largest one
+  any more, and the term that is (a constant ~10 ms of engine queue wait) is outside preparation.
 
 ## Alternatives rejected
 
