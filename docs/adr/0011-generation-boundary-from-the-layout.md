@@ -83,6 +83,13 @@ The request is also already at two renders, so the probe cannot be merged away.
   boundary. Applied to the field log's own split (`render 77.7 ms` of `prepared 79.5 ms`, warm TTFT
   93.8 ms), that is `prepared` ≈ 55 ms and warm TTFT ≈ 70 ms — derived from the log, not re-measured
   end to end.
+- **Superseded in scope, not in decision.** [ADR-0012](0012-native-render-for-the-registered-template.md)
+  later replaced the interpreter for the registered template, so the `prefix()` path this record
+  decongests no longer runs for that template at all; it still runs for every template the native
+  renderer does not know. The projection above described the interpreter path as it stood when this
+  was written, and a live request now measures `render 3.69 ms` of a `prepared 4.02 ms`. The decision
+  in this record — take the boundary from the layout the render produced, and prove it where the
+  layout cannot place it — is unchanged and still what the Jinja path does.
 - No template loses its fallback: the probe runs exactly where it did before, minus the cases the
   layout covers.
 - Verification: `tests/models/qwen3_5/test_frontend.cpp` asserts `rewrite_checkpoint->offset` against

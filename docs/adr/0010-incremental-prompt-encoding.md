@@ -115,7 +115,10 @@ that are not ordered and disjoint, and a span crossing the seam would have to be
   exact repeat costs a cache lookup. What remained of preparation after both was measured on the
   shipped server and the split is now `prepared 4.02 ms, render 3.69 ms, tokenize 94 us` on a warm
   229-message request — so neither of the two terms this record was written about is the largest one
-  any more, and the term that is (a constant ~10 ms of engine queue wait) is outside preparation.
+  any more, and the largest term (a variable engine queue wait, outside preparation) is not this
+  record's to fix. `docs/research/prompt-preparation-cost.md` carries the readings and the correction:
+  an earlier version of that section called the wait constant, and a later verification run that
+  produced a lower TTFT disproved it.
 
 ## Alternatives rejected
 
