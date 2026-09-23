@@ -165,7 +165,7 @@ release surface is documented in the Windows section of `README.md`. There are t
 `build/` for the apps, and `build-test/` for the suite the release gate runs
 (`ctest --test-dir build-test`).
 
-Twenty-six rules, each earned by a failure rather than chosen:
+Twenty-eight rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
@@ -323,3 +323,16 @@ Twenty-six rules, each earned by a failure rather than chosen:
   perplexity and accuracy figures in `docs/`, the compiled tok/s in `tools/release/profiles.py`, and
   every ADR that quotes a score. A measurement is a claim about a revision, so it carries the revision
   that produced it, the way a startup figure carries its configuration.
+- **A residual computed by subtraction is not an attribution.** `prepared - tokenize` was read as
+  "the render", twice, and the render led the investigation for a day: `CompiledChatTemplate::render`
+  measured at **80 ms** for a 229-message, 690 KB conversation, against a residual of 3.4 s — off by
+  forty times, because the remainder of a total also contains every phase nobody bracketed. Measure
+  the phase you intend to act on, or bracket them all; do not name the leftover after the one you
+  happened to think of. `bench/models/qwen3_5/chat_render_bench.cpp` is the instrument that settled
+  it, and it needs no artifact and no GPU.
+- **Batch what goes into `include/ninfer/types.h`, because the device tree reaches it.** `src/ops/*.cu`
+  and `src/core/*.cu` include `core/paged_kv_storage.h`, which includes that header, so adding one
+  field to a public stats struct rebuilt every CUDA object in `build-test` — twice in one session,
+  about twenty minutes each, for two fields that could have landed together. Decide the whole set of
+  instrumentation fields before editing it, or keep them in a frontend-internal struct until they
+  actually have to be public.

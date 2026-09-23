@@ -50,6 +50,8 @@ arise for them.
 | `src/serve/http_transport.cpp` | `winsock2.h`/`mstcpip.h` include order and the `_WIN32` keepalive branch | `369e5be1`, `556b6e02` |
 | `CMakeLists.txt`, `src/CMakeLists.txt` | `WIN32_LEAN_AND_MEAN`, FFmpeg target decoupling, libcurl conditionality | `8d9a26f9`, `590ccfc8`, `b77d64bf` |
 | `tests/*` | MSVC portability: `<array>` for CTAD, `constexpr` on `std::sqrt`, fixture share mode | `24e8850d`, `7effcafb`, `d8117ed4`, `1d4c108c` |
+| `bench/context_cost/model_context_fixture.cpp` | `attention_pairs` divided through `ninfer::Uint128` instead of `__int128`, which MSVC x64 does not support - with it, every target in the benchmark tree failed to compile, so `NINFER_BUILD_BENCHMARKS=ON` could not build on Windows at all | `e9328d03` |
+| `bench/models/qwen3_5/benchmarks.cmake`, `bench/models/qwen3_5/chat_render_bench.cpp`, `bench/README.md` | host-only chat-template render cost bench: reads a template, synthesizes its conversation, needs no artifact and no GPU | `c81e5bcf` |
 
 `src/core/uint128.h` is **ours only** — it does not exist upstream, so the `constexpr` work in
 `4df4d2e8` cannot conflict. It was mis-classified as upstream-owned in an earlier pass.
