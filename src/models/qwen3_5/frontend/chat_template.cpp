@@ -1,6 +1,8 @@
 #include "models/qwen3_5/frontend/chat_template.h"
 
+#include "models/qwen3_5/frontend/digest.h"
 #include "models/qwen3_5/frontend/media_cache.h"
+#include "models/qwen3_5/frontend/native_render.h"
 #include "models/qwen3_5/frontend/prompt_layout.h"
 #include "text/unicode.h"
 
@@ -146,8 +148,12 @@ bool ChatMessage::has_media() const noexcept {
 
 CompiledChatTemplate CompiledChatTemplate::resolve(std::string_view source, std::string source_name,
                                                    Json special_tokens) {
+    // The digest decides which path renders this template, and it is taken here once so a request
+    // never pays for the comparison. `native_render_supported` is false for every source this port
+    // has not transcribed, which is what keeps an unrecognised template correct rather than fast.
+    const bool native = native_render_supported(sha256(source));
     return CompiledChatTemplate(text::JinjaTemplate(std::string(source), std::move(source_name)),
-                                std::move(special_tokens));
+                                std::move(special_tokens), native);
 }
 
 RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messages,
@@ -155,6 +161,7 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
                                           const PreparationControl& control) const {
     if (messages.empty()) throw std::invalid_argument("chat requires at least one message");
     check_preparation_control(control, "chat template");
+    if (native_) { return render_native(messages, options); }
     const bool continuation =
         options.continuation == PromptContinuationMode::ContinueFinalAssistant;
     Json context = template_parameters(options, special_tokens_);

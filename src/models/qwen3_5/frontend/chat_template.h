@@ -131,16 +131,23 @@ public:
     [[nodiscard]] static CompiledChatTemplate
     resolve(std::string_view source, std::string source_name = "chat_template.jinja",
             nlohmann::ordered_json special_tokens = nlohmann::ordered_json::object());
+    // Renders through the native path when this template's source is transcribed (see
+    // `docs/adr/0012-native-render-for-the-registered-template.md`), and through the interpreter
+    // otherwise. The two are gated on the source digest, so an unrecognised or changed template
+    // costs speed and never correctness.
     [[nodiscard]] RenderedChat render(const std::vector<ChatMessage>& messages,
                                       ChatRenderOptions options         = {},
                                       const PreparationControl& control = {}) const;
 
 private:
-    CompiledChatTemplate(text::JinjaTemplate compiled, nlohmann::ordered_json special_tokens)
-        : compiled_(std::move(compiled)), special_tokens_(std::move(special_tokens)) {}
+    CompiledChatTemplate(text::JinjaTemplate compiled, nlohmann::ordered_json special_tokens,
+                         bool native)
+        : compiled_(std::move(compiled)), special_tokens_(std::move(special_tokens)),
+          native_(native) {}
 
     text::JinjaTemplate compiled_;
     nlohmann::ordered_json special_tokens_;
+    bool native_ = false;
 };
 
 } // namespace ninfer::models::qwen3_5::frontend
