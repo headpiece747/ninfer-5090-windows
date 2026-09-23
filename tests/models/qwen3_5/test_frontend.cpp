@@ -1085,6 +1085,66 @@ int test_incremental_encoding_matches_full() {
     return failures;
 }
 
+int test_repeated_encoding_matches_full() {
+    int failures = 0;
+    try {
+        const FrontendResources fixture = resources();
+        const fi::Tokenizer warm({.tokenizer_json         = fixture.tokenizer_json,
+                                  .tokenizer_config_json  = fixture.tokenizer_config_json,
+                                  .generation_config_json = fixture.generation_config_json});
+        const fi::Tokenizer cold({.tokenizer_json         = fixture.tokenizer_json,
+                                  .tokenizer_config_json  = fixture.tokenizer_config_json,
+                                  .generation_config_json = fixture.generation_config_json});
+
+        const std::string first  = "the resolver reads each pending worklist entry thinking";
+        const std::string second = "and the scheduler coalesces adjacent runs thinking";
+        const std::string text   = first + second;
+        const std::vector<std::size_t> boundaries{first.size(), text.size()};
+
+        const fi::BoundaryEncodedText before = warm.encode_with_boundaries(text, boundaries);
+        failures += check(warm.encode_cache_splices() == 0, "a first encode reported a splice");
+
+        // The same text, the same boundaries and the same options: a retried or duplicated request.
+        // This must be answered from the cache rather than re-encoded -- an extension spliced before
+        // this case existed, but a repeat fell through to a full encode of the whole conversation.
+        const fi::BoundaryEncodedText repeated = warm.encode_with_boundaries(text, boundaries);
+        failures += check(warm.encode_cache_splices() == 1,
+                          "a repeated encode did not answer from the cache");
+        failures += check(warm.encode_cache_fallbacks() == 0,
+                          "the repeated encode fell back instead of answering");
+
+        // The oracle, as for the extending case: a tokenizer that has never seen this text.
+        const fi::BoundaryEncodedText full = cold.encode_with_boundaries(text, boundaries);
+        failures += check(repeated.input_ids == full.input_ids,
+                          "a repeated encode did not reproduce the full encode");
+        failures += check(repeated.input_ids == before.input_ids,
+                          "a repeated encode disagreed with the encode it came from");
+        const bool same_boundaries =
+            repeated.boundaries.size() == full.boundaries.size() &&
+            std::equal(repeated.boundaries.begin(), repeated.boundaries.end(),
+                       full.boundaries.begin(),
+                       [](const fi::TokenBoundaryResult& lhs, const fi::TokenBoundaryResult& rhs) {
+                           return lhs.exact_frontier == rhs.exact_frontier &&
+                                  lhs.stable_frontier == rhs.stable_frontier;
+                       });
+        failures += check(same_boundaries,
+                          "a repeated encode did not reproduce the full boundary results");
+
+        // A repeat with *different* boundaries must not be served from the entry, because the
+        // boundary results are part of what the entry answers.
+        const fi::BoundaryEncodedText narrowed =
+            warm.encode_with_boundaries(text, std::vector<std::size_t>{first.size()});
+        failures += check(warm.encode_cache_splices() == 1,
+                          "a boundary set the cache never answered was served as a repeat");
+        failures += check(narrowed.input_ids == full.input_ids,
+                          "the narrowed boundary set changed the ids");
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "  repeated encoding threw: %s\n", error.what());
+        failures += 1;
+    }
+    return failures;
+}
+
 int test_official_resource_guards() {
     FrontendResources stale_pad     = resources();
     nlohmann::json tokenizer_config = nlohmann::json::parse(stale_pad.tokenizer_config_json);
@@ -2270,6 +2330,7 @@ int main() {
     failures += test_bpe_merge_order();
     failures += test_boundary_aware_tokenization();
     failures += test_incremental_encoding_matches_full();
+    failures += test_repeated_encoding_matches_full();
     failures += test_rendered_special_tokens();
     failures += test_repeated_special_tokens_scan_linearly();
     failures += test_bounded_tokenizer_prefix();

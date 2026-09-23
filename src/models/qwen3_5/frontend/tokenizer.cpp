@@ -900,7 +900,26 @@ Tokenizer::splice_from_cache(std::string_view text, std::span<const std::size_t>
     std::lock_guard<std::mutex> guard(encode_cache_mutex_);
     for (const EncodeCacheEntry& entry : encode_cache_) {
         if (entry.options.max_tokens != options.max_tokens) { continue; }
-        if (entry.text.empty() || entry.text.size() >= text.size()) { continue; }
+        if (entry.text.empty()) { continue; }
+
+        // An exact repeat needs no seam and no proof: the entry is the answer to this text, this
+        // boundary set and this option set, so returning it cannot change any id. The splice below
+        // only ever serves an *extension*, which is why a retried or duplicated request used to
+        // re-encode the whole conversation while a growing one did not.
+        if (entry.text.size() == text.size() && entry.text == text &&
+            entry.boundaries.size() == byte_boundaries.size() &&
+            std::equal(entry.boundaries.begin(), entry.boundaries.end(), byte_boundaries.begin()) &&
+            entry.literal_spans.size() == literal_spans.size() &&
+            std::equal(entry.literal_spans.begin(), entry.literal_spans.end(),
+                       literal_spans.begin(),
+                       [](const text::ByteSpan& lhs, const text::ByteSpan& rhs) {
+                           return lhs.begin == rhs.begin && lhs.end == rhs.end;
+                       })) {
+            ++encode_cache_splices_;
+            return BoundaryEncodedText{.input_ids = entry.input_ids, .boundaries = entry.results};
+        }
+
+        if (entry.text.size() >= text.size()) { continue; }
         if (text.substr(0, entry.text.size()) != entry.text) { continue; }
 
         // Boundaries in offset order, so that "the boundary before the seam" is well defined.
