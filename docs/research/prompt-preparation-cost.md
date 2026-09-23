@@ -146,10 +146,18 @@ machine, and the render, which is allocation-dense, inherits it.
   costs 6.5 ms in total, even though each call ends in an httplib `select()`.
 - **Cache markers, template identity, special tokens, thinking default, tool-call argument size,
   tool schemas**: each varied, none moved the reading.
+- **A spawned thread**: the server renders on an httplib worker while the bench renders on main, so
+  the render was run on a freshly spawned thread in the bench: 75.7-77.2 ms against 80.2-80.8 ms on
+  main, inside the drift and slightly faster if anything.
+- **Allocation churn**: loading an artifact allocates, touches and frees tens of GiB. Doing 16 GiB
+  of that in the bench before measuring, in 64 chunks, changed the render from 80.19 and 80.76 ms
+  (baseline, run before and after) to 80.26 ms.
+
+Both of those arms were reverted once they had answered their question; the readings are here.
 
 So the render is where the time is spent, and the render's code is not what is slow: **the serving
-process executes it about 30x slower than a fresh process does.** What makes that process slow is
-the open question, and it is not a prompt-preparation question.
+process executes it about 30x slower than a fresh process does.** The answer is below, and it is a
+property of one executable rather than of prompt preparation at all.
 
 ## What looking this up found, and what it reproduced
 
@@ -231,6 +239,54 @@ about one core (4.17s of CPU over 4.4s of wall), so nothing was spinning in it.
 The fix is worth having on its own account: it is upstream's own description of a core held at 100%
 through prefill and decode on a host with more cores than contexts, which is every run on this
 machine.
+
+### The answer: a debug-heap configuration left on one executable
+
+`ninfer-serve.exe` carried an Image File Execution Options entry, and no other binary on the machine
+did:
+
+```
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\ninfer-serve.exe
+    GlobalFlag                 REG_DWORD    0x1000     (FLG_HEAP_ENABLE_TAGGING)
+    StackTraceDatabaseSizeInMB : 1024
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+    USTEnabled : ninfer-serve.exe                       (user-mode stack trace database)
+HKLM\...\{ApplicationVerifierGlobalSettings}
+    VerifierProviders : vrfcore.dll vfbasics.dll ...
+```
+
+`USTEnabled` arms the user-mode stack trace database for that executable, which makes the allocator
+capture a stack on every allocation; heap tagging is the other half. IFEO is keyed on the executable
+*name*, so the same bytes under another name are unaffected - which is how it was proven, with no
+registry write and no elevation:
+
+| process | prepared | render | tokenize |
+|---|--:|--:|--:|
+| `ninfer-serve.exe` (has the IFEO entry) | 3.7 s | 2.3 s | 1.4 s |
+| **the same binary as `serve-noifeo.exe`** | **122 ms** | **80.7 ms** | **40.7 ms** |
+
+30x on preparation and 28x on the render that dominates it, from one copy of one file.
+
+That closes every loose end in this note at once, which is itself the check that it is the right
+answer. The cost is per **allocation** rather than per byte, because it is a stack walk per
+allocation. It is content-independent for the same reason. It is 30x between two processes running
+identical code on identical input, because one has the flag and the other does not. It never
+appeared in the bench or in the test suite because neither of those binaries has an entry - and
+"a fresh process is fast, the server is slow" was the same fact seen from the other side.
+
+**Nothing in this tree sets it.** `git grep` finds no reference to gflags, AppVerifier or Image File
+Execution Options, and the entry is on one executable, so it is a leftover from a manual debugging
+session on this machine rather than a property of the port. The fix is two commands in an
+administrator shell:
+
+```
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\ninfer-serve.exe" /f
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options" /v USTEnabled /f
+```
+
+Until that is done a launcher can sidestep it by running a copy of the binary under a name with no
+entry, which is what the measurement above did. On the field log's workload the change is
+`prepared` 3.7 s to 122 ms at 229 messages, which is most of a 5.4 s time to first token.
 
 ### The AV lead, opened and closed, and a misspelled path that looked like a filter
 
@@ -323,12 +379,14 @@ question, not a finding: no A/B on one host has been run.
 
 ## What this note does not establish
 
-- **What makes the serving process slow is not known.** The 32x is measured with the input held
-  identical, and the calibration shows the process itself is ~40x slower at ordinary host
-  allocation, but the cause is open. Everything tested and refuted is recorded above with its
-  reading: a held allocation, CUDA initialisation, a disabled low-fragmentation heap, heap
-  serialization as the cause, the Segment Heap on the server itself, the upstream blocking-sync
-  change, and the whole anti-malware class.
+- **What makes the serving process slow is answered above**, and the answer is an Image File
+  Execution Options entry on `ninfer-serve.exe` that no other binary has. Sixteen other hypotheses
+  were tested and refuted first, each with its reading recorded: a held allocation, CUDA
+  initialisation, a disabled low-fragmentation heap, heap serialization as the cause, the Segment
+  Heap on the server itself, the upstream blocking-sync change, the anti-malware class, a spawned
+  thread, and allocation churn.
+- **The fix has not been applied here.** Removing the entry needs an administrator shell, so the
+  measurement used a copy of the binary under a different name instead. The commands are above.
 - **The render's own shape is understood but not optimised.** It makes three full passes per request
   and the `prefix(messages.size())` probe is ~28 ms of the 80 ms a fresh process needs - worth having
   in a process that is not already 30x off, and not the current bottleneck.
