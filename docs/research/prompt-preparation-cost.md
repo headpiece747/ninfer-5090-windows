@@ -405,6 +405,33 @@ measurement says plainly. The rest is the filter's own construction in the piece
 
 The one that *did* land was not in that model at all: this map copy.
 
+## The frontend renders the conversation three times, and two of them are proofs
+
+Everything above measures *one* render. A request does three, and the bench's two probe arms isolate
+the other two:
+
+| arm at 229 messages | render | what it adds |
+|---|--:|---|
+| both probes on (shipped) | **72.2 ms** | everything |
+| `--generation-prompt off` | 48.7 ms | `prefix(messages.size())` — the generation boundary |
+| `--tail-assistant off` | 47.0 ms | the next-turn probe — whether the template retains an open turn |
+| both off | **24.3 ms** | the one render the answer actually needs |
+
+So **two thirds of the render is proof work rather than serialization.** Each probe is a full
+`compiled_.render` of the conversation in `chat_template.cpp`: `prefix(count)` re-renders the first
+`count` messages and accepts the result only if it is a prefix of the full render, and the next-turn
+probe re-renders the history with an empty user message appended to decide `retain_open_turn`.
+
+These arms change the conversation's shape rather than flipping a switch, so they are not
+byte-identical A/Bs. What makes them evidence is that the mechanism is legible in the code — one
+probe is one extra render — and the sizes match it: 72.2 − 48.7 = 23.5 ms for a probe whose input is
+the whole conversation, and 72.2 − 24.3 = 47.9 ms for both.
+
+This is the one lever in *this port's* code rather than the vendored engine's, and it is the largest
+found — worth ~48 ms of the 72 ms, against the ~6 ms the filter-map copy recovered. The probes are
+also what proves the boundaries ADR-0007's rewrite checkpoint is built on, so removing one is a
+design pass with its own proof argument, not a patch.
+
 ## What the field does about this, and what it does not
 
 `third_party/llama-jinja` is llama.cpp's `common/jinja` engine, introduced by their PR #18462 to
@@ -426,8 +453,22 @@ statement or expression recursively calls `execute(ctx)`"* — so the remaining 
 architecture rather than an oversight in it. What llama.cpp ships *beside* it is the answer it uses
 for a known format: a hand-written renderer in `src/llama-chat.cpp` that *"renders messages directly
 in C++ … without needing Jinja"*, with the Jinja path as the generic fallback for templates it does
-not know. Upstream NInfer's own tracker has the same idea as a closed feature request — #78, *"Sharp
-v22.1 terseness as a compiled renderer option"* — and reports nothing about the render's cost.
+not know. Upstream NInfer's tracker reports nothing about the render's cost. The one hit that looks
+like this idea, closed feature request #78 (*"Sharp v22.1 terseness as a compiled renderer option"*),
+is not one: read, it asks to add a second built-in chat style by threading a `ChatStyle` enum through
+the frontend, and "compiled" there means "implemented in C++ rather than as a template" — not a
+compiled renderer for the template.
+
+Two other options were checked, and both are real and worse trades here:
+
+- **Compiling the AST to closures** — the standard tree-walking-interpreter speedup, reported at
+  roughly 1.5–2× (Mitchell: 2.1 s to 1.4 s; pl-rants: 2×; Lambda Land: 2×) — would speed up *every*
+  template rather than one, but it is the same kind of change the piece table already is: a rewrite of
+  the vendored engine's execution model, and upstream's to make.
+- **Replacing the engine with `minja`** (google/minja, header-only; used by Jan, GPT4All and Docker
+  Model Runner) is a downgrade rather than an alternative: llama.cpp introduced `common/jinja` to
+  replace minja, and the piece table is the input marking that `TemplateInputRegion` relies on. minja
+  predates it.
 
 So the render is addressable, but not by a fix. It needs an explicit C++ renderer for the registered
 template, with the Jinja path kept for `--chat-template` overrides. That is this repository's own
