@@ -47,3 +47,13 @@ exact delta by diffing the canonical JSON index.
 
 Consequence for this fork: `tools/release/profiles.py` measures the **published** artifact, the
 split form, because that is what `download_model.py` fetches.
+
+### Amendment (2026-09-23): the absolute scores above are pre-`512f5b2b`
+
+The perplexity figures quoted above were measured before `512f5b2b` restored the accurate `silu` in
+the NVFP4 fused SwiGLU TMA epilogue. That change is engine-level and moves this artifact from 1.606336
+to 1.609905 overall (full corpus, fp8). The equality the paragraph claims is between the two *forms*
+of one artifact, and both moved together, so the finding stands and the numbers do not.
+
+Recorded because a numerics change re-states every absolute figure of this kind, and nothing in the
+tree notices when it happens -- which is how this one came to be stale.

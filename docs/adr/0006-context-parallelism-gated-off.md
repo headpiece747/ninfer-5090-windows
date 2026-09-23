@@ -45,7 +45,12 @@ placed seam with no valid adapter yet.
 - The measured 143 us CP win is not shipped. The chunked pipeline runs at its non-CP cost.
 - The failing case is retained as the regression guard and as the specification for unit 3:
   `35b context-parallel gated off` in `tests/ops/test_gated_delta_net.cpp`. It passes with the gate
-  off and goes red at index 12600648 the moment CP is re-enabled without the correction.
+  off and goes red the moment CP is re-enabled without the correction. The failing index `12600648`
+  is quoted from the gating commit `ac469924`'s own message; it appears nowhere in the tree and is
+  not reproducible without re-enabling the gate, so the case's name is the durable reference and the
+  index is provenance.
+- The predicate the gate removed is recoverable from `ac469924`, and re-enabling CP needs it back:
+  `cp_enabled` returned `be_h <= 40 || (be_h <= 56 && total_chunks >= 128)`.
 - Re-enabling CP requires the exact affine correction `h = ht + M @ h`, where `M` is the segment's
   128x128 transition matrix. The transition is a matrix, not a scalar, because the per-token delta
   depends on the state; a parallel prefix scan over scalars is therefore not available.
