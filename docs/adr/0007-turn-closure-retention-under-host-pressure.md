@@ -36,12 +36,21 @@ Both are wrong. Instrumenting the decision instead of reasoning about it produce
 | 1 | the valuation underprices a required checkpoint, so the planner prefers a target that drops one | **refuted** | 153 assessed targets; preserving targets cost an order of magnitude *less* (ordinal 2: `total=103,030,219 dropped=0` against ordinal 1: `total=1,720,454,858 dropped=2`) |
 | 2 | the sealed target drops the checkpoint | **refuted** | both sealed targets report `dropped=0`, and the closure is present in `before` and in `after` |
 | 3 | a content-identical degrade advances the owner's revision, so the next request's handle stops matching | **confirmed; fixed** | `[probe-apply] dropped=0 before[endpoint=1 rewrite=1 anchors=0] after[endpoint=1 rewrite=1 anchors=0] revision_before=4`; preserving the revision when the checkpoint set is unchanged takes `degraded` from 1 to 0 |
-| 4 | the closure loses the candidate selection, so `PrivateEndpoint` is chosen over `PrivateTurnClosure` | **open** | the closure exists throughout; the selected checkpoint is the endpoint, and `inspect_admission` maps `SessionEndpoint` to `PrivateEndpoint` (`request_plan.cpp:490-502`) |
+| 4 | the closure is offered but loses the candidate ranking, because the endpoint reuses more tokens | **cause identified** | one request is offered both: `kind=0 (SessionEndpoint) frontier=316` and `kind=1 (TurnClosure) frontier=305`, and the endpoint is selected -- 11 more tokens of KV reuse, on a device-resident checkpoint that needs no restore, while the closure's state and KV are the ones on host |
 
 Layers 1 and 2 were eliminated by measurement, layer 3 was found and fixed, and layer 4 is what the
 case still fails on. Layer 3 is a defect in its own right -- a pressure action that changes nothing
 about an owner must not move its identity -- but whether it is *necessary* for this case is unknown,
 because the case still fails for layer 4. The case needs both.
+
+The case's assertion is sharper than this record previously described it. `exercise_host_restore`
+(`test_engine_prefix_real.cpp:497`) builds a `LiveSession` owner with an explicit session key, demotes
+its complete MTP checkpoint with a second request, then re-asserts the *same* prompt with reuse enabled
+and requires three things (`:563-568`): `prefix_reuse_path == PrivateTurnClosure`, `state_h2d` above the
+pressure count, and `main_kv_h2d_pages` / `backend_kv_h2d_pages` above it. So it requires the state
+**and the KV** to come back from host. Selecting a device-resident endpoint satisfies the KV
+requirement trivially and leaves every host-restore counter unchanged, which is why the failure reads
+`state=0 main=3 backend=2`: those are the demote counts, unchanged on the way back.
 
 One further reading from the same probe is worth keeping: `base_public=0` and `tgt_public=0` on all
 153 targets, so no checkpoint in this scenario carries any live demand and the whole decision cost is
