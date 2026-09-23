@@ -370,4 +370,3 @@ Thirty-two rules, each earned by a failure rather than chosen:
   unnoticed. The counter that would have shown it (`encode_cache_splices`) existed and was not
   reported anywhere. When a cache has a hit counter, publish it; when it has a hit *condition*, ask
   which common cases fall outside it.
-
