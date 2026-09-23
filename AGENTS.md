@@ -165,7 +165,7 @@ release surface is documented in the Windows section of `README.md`. There are t
 `build/` for the apps, and `build-test/` for the suite the release gate runs
 (`ctest --test-dir build-test`).
 
-Twenty-five rules, each earned by a failure rather than chosen:
+Twenty-six rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
@@ -315,3 +315,11 @@ Twenty-five rules, each earned by a failure rather than chosen:
   investigation short, and hands over work it could have finished -- each one a worse result that
   nobody asked for. Do the whole job now. Never cite remaining room as a reason for anything: not for
   a smaller diff, not for stopping, not for what to attempt next.
+- **A numerics change re-states every recorded figure, and the tree will not tell you.** `512f5b2b`
+  restored the accurate `silu` in one SwiGLU epilogue and moved the QUASAR artifact's corpus
+  perplexity from 1.606336 to 1.609905, which silently made the scores quoted in ADR-0003 stale within
+  hours of their being written -- nothing failed, no check moved, and an ADR audit found it only by
+  reading. After any change to an Op's arithmetic, sweep the recorded measurements yourself: the
+  perplexity and accuracy figures in `docs/`, the compiled tok/s in `tools/release/profiles.py`, and
+  every ADR that quotes a score. A measurement is a claim about a revision, so it carries the revision
+  that produced it, the way a startup figure carries its configuration.
