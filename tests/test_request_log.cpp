@@ -277,6 +277,11 @@ int main() {
     prepared.preparation.media_preprocess_seconds      = 0.08;
     prepared.preparation.media_preprocess_work_seconds = 0.31;
     prepared.preparation.tokenize_seconds              = 0.02;
+    prepared.preparation.render_seconds                = 0.09;
+    prepared.preparation.context_cache_seconds         = 0.005;
+    prepared.preparation.convert_seconds               = 0.003;
+    prepared.preparation.contract_seconds              = 0.001;
+    prepared.preparation.positions_seconds             = 0.0004;
     prepared.preparation.media_items                   = 1;
     prepared.preparation.media_cache_misses            = 1;
     prepared.preparation.built_patch_bytes             = 49152;
@@ -293,15 +298,25 @@ int main() {
     failures += check(
         pretty_start.message ==
             "req#7 started | openai-chat non-stream | 2 messages | max output 4,096 | thinking "
-            "xhigh, budget 256 | media 1 | prepared 120 ms, tokenize 20 ms | preserve thinking",
+            "xhigh, budget 256 | media 1 | prepared 120 ms, contract 1.00 ms, convert 3.00 ms, "
+            "render 90.0 ms, tokenize 20.0 ms, positions 400 us, cache prep 5.00 ms | preserve "
+            "thinking",
         "pretty request-start record mismatch");
     // Preparation happens on every request, so a request without media still reports it. Before
     // this, the clause lived inside the media branch and a media-less request's time to first token
     // could not be attributed at all.
-    RequestLogContext unmediated = context;
-    unmediated.media_item_count  = 0;
-    failures += check(render_request_start(unmediated).message.find("prepared 120 ms") !=
-                          std::string::npos,
+    RequestLogContext unmediated       = context;
+    unmediated.media_item_count        = 0;
+    const std::string unmediated_start = render_request_start(unmediated).message;
+    // The split is what makes the remainder attributable, so every phase is asserted here rather
+    // than the total alone: a preparation whose cost is not the render must say which phase it is.
+    failures += check(unmediated_start.find("prepared 120 ms") != std::string::npos &&
+                          unmediated_start.find("contract 1.00 ms") != std::string::npos &&
+                          unmediated_start.find("convert 3.00 ms") != std::string::npos &&
+                          unmediated_start.find("render 90.0 ms") != std::string::npos &&
+                          unmediated_start.find("tokenize 20.0 ms") != std::string::npos &&
+                          unmediated_start.find("positions 400 us") != std::string::npos &&
+                          unmediated_start.find("cache prep 5.00 ms") != std::string::npos,
                       "preparation time is missing for a request without media");
     RequestLogContext default_thinking = context;
     default_thinking.requested_reasoning_effort.reset();

@@ -667,6 +667,11 @@ PromptPreparationStats PreparedPrompt::preparation_stats() const noexcept {
         .media_preprocess_seconds      = stats.media_preprocess_seconds,
         .media_preprocess_work_seconds = stats.media_preprocess_work_seconds,
         .tokenize_seconds              = stats.tokenize_seconds,
+        .render_seconds                = stats.render_seconds,
+        .context_cache_seconds         = stats.context_cache_seconds,
+        .convert_seconds               = stats.convert_seconds,
+        .contract_seconds              = stats.contract_seconds,
+        .positions_seconds             = stats.positions_seconds,
         .media_items                   = stats.media_items,
         .media_bytes                   = stats.media_bytes,
         .raw_patches                   = stats.raw_patches,
@@ -724,8 +729,11 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
     std::vector<ChatRole> message_roles;
     message_roles.reserve(input.messages.size());
     for (const ChatMessage& message : input.messages) { message_roles.push_back(message.role); }
+    const auto contract_started = Clock::now();
     const auto tool_call_output =
         fi::build_tool_call_output_contract(options.tool_jsons, !options.tool_jsons.empty());
+    const double contract_seconds =
+        std::chrono::duration<double>(Clock::now() - contract_started).count();
     const std::optional<std::uint32_t> leading_boundary =
         leading_instruction_boundary(message_roles);
     std::vector<PromptCacheMarker> rendered_markers = cache_hints.markers;
@@ -740,17 +748,22 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
         });
     }
     const std::size_t message_count       = input.messages.size();
+    const auto convert_started            = Clock::now();
     std::vector<fi::ChatMessage> messages = convert_messages(std::move(input.messages));
     const bool has_media =
         std::any_of(messages.begin(), messages.end(),
                     [](const fi::ChatMessage& message) { return message.has_media(); });
+    const double convert_seconds =
+        std::chrono::duration<double>(Clock::now() - convert_started).count();
     if (has_media && !impl_->vision_enabled) {
         throw std::invalid_argument("Vision is disabled for this Engine");
     }
 
-    auto prepared              = std::make_unique<PreparedPromptData>();
-    PreparedPromptData& result = *prepared;
-    result.tool_call_output    = tool_call_output;
+    auto prepared                   = std::make_unique<PreparedPromptData>();
+    PreparedPromptData& result      = *prepared;
+    result.tool_call_output         = tool_call_output;
+    result.prepare.contract_seconds = contract_seconds;
+    result.prepare.convert_seconds  = convert_seconds;
     std::vector<std::optional<std::uint32_t>> message_boundaries;
     std::vector<std::optional<std::uint32_t>> cache_boundaries;
     if (has_media) {
@@ -793,8 +806,11 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
         message_boundaries = std::move(processed.message_boundaries);
         cache_boundaries   = std::move(processed.cache_boundaries);
     } else {
+        const auto render_started       = Clock::now();
         const fi::RenderedChat rendered = impl_->chat_template.render(
             messages, render_options(options, rendered_markers), control);
+        result.prepare.render_seconds =
+            std::chrono::duration<double>(Clock::now() - render_started).count();
         result.starts_in_reasoning  = rendered.starts_in_reasoning;
         const auto tokenize_started = Clock::now();
         fi::EncodedChat encoded     = fi::encode_rendered_chat(
@@ -809,16 +825,22 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
         result.identity.rewrite_checkpoint = encoded.rewrite_checkpoint;
         result.identity.rewrite_execution_frontiers =
             std::move(encoded.rewrite_execution_frontiers);
-        message_boundaries = std::move(encoded.message_boundaries);
-        cache_boundaries   = std::move(encoded.cache_boundaries);
+        message_boundaries           = std::move(encoded.message_boundaries);
+        cache_boundaries             = std::move(encoded.cache_boundaries);
+        const auto positions_started = Clock::now();
         assign_text_positions(result);
+        result.prepare.positions_seconds =
+            std::chrono::duration<double>(Clock::now() - positions_started).count();
     }
     (void)checked_token_count(result.token_ids.size());
-    result.identity.reusable = true;
-    result.context_cache     = prepare_context_cache(
+    result.identity.reusable         = true;
+    const auto context_cache_started = Clock::now();
+    result.context_cache             = prepare_context_cache(
         std::move(cache_hints), message_count, message_boundaries, rendered_markers,
         cache_boundaries, result.vision_items, engine_tool_marker_index, leading_boundary,
         checked_token_count(result.token_ids.size()));
+    result.prepare.context_cache_seconds =
+        std::chrono::duration<double>(Clock::now() - context_cache_started).count();
     result.prepare.seconds = std::chrono::duration<double>(Clock::now() - start).count();
     return PreparedPrompt(std::move(prepared));
 }

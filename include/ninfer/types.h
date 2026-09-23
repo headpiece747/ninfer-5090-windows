@@ -556,6 +556,16 @@ struct PromptPreparationStats {
     double media_preprocess_seconds      = 0.0;
     double media_preprocess_work_seconds = 0.0;
     double tokenize_seconds              = 0.0;
+    // Host phases of preparation other than tokenization. `seconds` covers the whole call, so these
+    // exist to keep the remainder attributable: a growing conversation's time to first token cannot
+    // be acted on while "not tokenization" is one unmeasured term. The host-only chat render bench
+    // puts the template render at ~80 ms for a 229-message, 690 KB conversation, so a preparation
+    // that far exceeds that has to be read against these brackets rather than against the render.
+    double render_seconds                = 0.0;
+    double context_cache_seconds         = 0.0;
+    double convert_seconds               = 0.0;
+    double contract_seconds              = 0.0;
+    double positions_seconds             = 0.0;
     std::size_t media_items              = 0;
     std::size_t media_bytes              = 0;
     std::uint64_t raw_patches            = 0;

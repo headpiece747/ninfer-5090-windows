@@ -198,18 +198,28 @@ OperationalRecord render_request_start(const RequestLogContext& context) {
     if (context.media_item_count != 0) {
         append_counted_clause(out, "media", context.media_item_count);
     }
-    // Preparation is host-side prompt work on every request, media or not: rendering the chat
-    // template and tokenizing the whole conversation. It is O(history) per turn while the engine
-    // reuses only the tail, so it is reported unconditionally and split into its tokenizer share --
-    // a media-only field hid it, and a growing conversation's time to first token is not
-    // attributable without it.
+    // Preparation is host-side prompt work on every request, media or not: building the tool-call
+    // contract, converting the messages, rendering the chat template, tokenizing the whole
+    // conversation and planning the context-cache request. It is O(history) per turn while the
+    // engine reuses only the tail, so it is reported unconditionally and split into its host phases
+    // in the order they run -- a media-only field hid it, and a growing conversation's time to
+    // first token is not attributable while "not tokenization" is one unmeasured term. A request
+    // with media renders inside the processor and reports that component's own tokenize and
+    // media-preprocess timings instead, so `render` and `positions` are absent for it.
     if (context.preparation.seconds > 0.0) {
         std::string clause =
             "prepared " + product::format_pretty_duration(context.preparation.seconds);
-        if (context.preparation.tokenize_seconds > 0.0) {
-            clause += ", tokenize " +
-                      product::format_pretty_duration(context.preparation.tokenize_seconds);
-        }
+        const auto phase = [&clause](std::string_view name, double seconds) {
+            if (seconds > 0.0) {
+                clause += ", " + std::string(name) + " " + product::format_pretty_duration(seconds);
+            }
+        };
+        phase("contract", context.preparation.contract_seconds);
+        phase("convert", context.preparation.convert_seconds);
+        phase("render", context.preparation.render_seconds);
+        phase("tokenize", context.preparation.tokenize_seconds);
+        phase("positions", context.preparation.positions_seconds);
+        phase("cache prep", context.preparation.context_cache_seconds);
         append_clause(out, clause);
     }
     if (context.tool_count != 0) { append_counted_clause(out, "tools", context.tool_count); }

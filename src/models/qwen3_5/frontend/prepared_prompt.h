@@ -126,6 +126,11 @@ struct PrepareStats {
     double media_preprocess_seconds      = 0.0;
     double media_preprocess_work_seconds = 0.0;
     double tokenize_seconds              = 0.0;
+    double render_seconds                = 0.0;
+    double context_cache_seconds         = 0.0;
+    double convert_seconds               = 0.0;
+    double contract_seconds              = 0.0;
+    double positions_seconds             = 0.0;
     std::size_t media_items              = 0;
     std::size_t media_bytes              = 0;
     std::uint64_t raw_patches            = 0;
