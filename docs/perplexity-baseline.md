@@ -13,6 +13,8 @@ eval/corpora/perplexity-1m/manifest.json --kv-dtype <dtype>`. That is upstream's
 | `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT) | fp8 | **5.88829** | custom corpus, 177,400 tokens |
 | `qwen3_8_27b_nvfp4full.v3.ninfer` (NVFP4-full) | fp8 | **5.92007** | custom corpus, same text |
 | `qwen3_8_27b_nvfp4swift.v3.ninfer` (Swift, re-encoded) | fp8 | **4.68429** | `--quick`, 2026-09-24; the same recipe importing the checkpoint's FP8 scored **4.84938** |
+| `qwen3_8_27b_nvfp4swift.v3.ninfer` (Swift, re-encoded) | fp8 | **4.92432** | full corpus, 6.03k tok/s |
+| Swift, FP8 imported (superseded) | fp8 | **4.93874** | full corpus, 4.72k tok/s; the build the re-encode replaced |
 
 The custom corpus is this repo's `docs/` and `tests/` markdown, concatenated in sorted order
 (177,400 tokens). On it the two shipped artifacts sit 0.5% apart with QUASAR marginally better, which
@@ -35,13 +37,21 @@ What the run did establish is the artifact ranking this file was missing:
 | `qwen3_8_27b_nvfp4` (official) | 4.82676 |
 | `qwen3_8_27b_nvfp4qat` (QUASAR) | 4.89741 |
 
-Swift's re-encoded artifact is lowest, NVFP4-full 1.9% above it, the official artifact 3.0% above
-that and QUASAR 4.6% above that. Swift is also the one artifact here whose text weights are not
-imported: its attention and GDN are encoded to NVFP4 from the finetune's BF16 source, because the
-same recipe importing ModelOpt's per-tensor FP8 scored 4.84938 -- a per-tensor FP8 scale is coarser
-than NVFP4's one scale per 16-element block, so the block scales more than pay for the narrower
-codes. That comparison is like-for-like: one recipe, one checkpoint, only the attention and GDN
-encoding differs.
+On `--quick`, Swift's re-encoded artifact is lowest, NVFP4-full 1.9% above it, the official artifact
+3.0% above that and QUASAR 4.6% above that. Swift is also the one artifact here whose text weights
+are not imported: its attention and GDN are encoded to NVFP4 from the finetune's BF16 source,
+because the same recipe importing ModelOpt's per-tensor FP8 scored 4.84938 -- a per-tensor FP8 scale
+is coarser than NVFP4's one scale per 16-element block, so the block scales more than pay for the
+narrower codes. That comparison is like-for-like: one recipe, one checkpoint, only the attention and
+GDN encoding differs.
+
+**The `--quick` ranking does not generalize, and this is the row that shows it.** On the full corpus
+the official stock is 4.90295, the re-encoded Swift 4.92432 (0.44% above it) and the superseded Swift
+4.93874 (0.73% above). So Swift is lowest on the four-stream subset and *not* lowest on the 496-window
+corpus: a finetune can win one subset and lose the corpus, and `--quick` selects one stream per
+domain while `full` scores every window. Quote a `--quick` ranking as a `--quick` ranking. The
+re-encode's own gain is the part that holds on both protocols: 3.4% on the subset, 0.29% on the
+corpus, same direction, one recipe and one checkpoint.
 
 **A chat template needs a different instrument.** Perplexity cannot see one. What can are the rendered
 prompt -- the token counts the CLI reports, which is how the reasoning-effort alias gap was caught -- and
