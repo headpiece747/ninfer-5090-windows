@@ -202,6 +202,9 @@ tokens per request, temperature 1.0 / top_p 0.95 / top_k 20, seed 42, rule scori
 | FP8-importing | **29 / 30** | **29 / 30** | 0 of 60 |
 | attention and GDN re-encoded to NVFP4 | **28 / 30** | **28 / 30** | 0 of 60 |
 
+Run directories `eval/runs/20260924T080957Z-3e88e8bd` (FP8-importing) and
+`eval/runs/20260924T091113Z-3e88e8bd` (re-encoded).
+
 The FP8-importing build reproduces the 29 / 30 recorded above. The re-encoded build is one sample
 lower on each suite, and all four of its misses are wrong boxed values, not truncated generations.
 Sampling is deterministic per prompt at a fixed seed, so the difference is a property of these 60
@@ -214,7 +217,8 @@ direction, not a resolved cost, and it agrees with the decomposition in
 **A score below the documented budget measures the budget.** An earlier pass at 65,536 output tokens
 scored 28 / 30 and 27 / 30 and truncated generations at `output_limit`: 4 of 60 for the FP8-importing
 build and 2 of 60 for the re-encoded one, every one of them graded as a miss. The documented budget is
-122,880, and at 65,536 neither number is an accuracy figure.
+122,880, and at 65,536 neither number is an accuracy figure. Those runs are
+`eval/runs/20260924T071153Z-1b49b02d` and `eval/runs/20260924T062448Z-1b49b02d`.
 
 Prepare and inspect Needle-in-a-Haystack without issuing model requests:
 
