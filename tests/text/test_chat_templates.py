@@ -100,6 +100,35 @@ class ChatTemplates(unittest.TestCase):
         self.assertIn("Reasoning effort is set to xhigh.", default)
         self.assertTrue(default.endswith("<|im_start|>assistant\n<think>\n"))
 
+    def test_reasoning_effort_aliases(self):
+        """Every value the engine passes reaches a rendered level instead of raising."""
+        rendered = {
+            "none": "",
+            "minimal": "Reasoning effort is set to low.",
+            "low": "Reasoning effort is set to low.",
+            "medium": "",
+            "high": "Reasoning effort is set to xhigh.",
+            "xhigh": "Reasoning effort is set to xhigh.",
+            "max": "Reasoning effort is set to xhigh.",
+        }
+        for effort, instruction in rendered.items():
+            with self.subTest(effort=effort):
+                # The engine sends `none` with thinking already false (chat_template.cpp), so that
+                # is the arm to render here; the other six arrive as themselves.
+                text = self.render(
+                    "qwen3_8",
+                    [message("user", "hi")],
+                    reasoning_effort=effort,
+                    enable_thinking=effort != "none",
+                )
+                if instruction:
+                    self.assertIn(instruction, text)
+                else:
+                    self.assertNotIn("Reasoning effort is set to", text)
+        # A value no client can reach the template with is still refused rather than ignored.
+        with self.assertRaises(ValueError):
+            self.render("qwen3_8", [message("user", "hi")], reasoning_effort="bogus")
+
     def test_tools_and_instruction_preamble(self):
         tools = [
             {

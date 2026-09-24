@@ -80,7 +80,9 @@ struct Options {
     bool calibrate = false;
     // Render the conversation through the native renderer as well and report the first byte that
     // differs. This is the differential loop ADR-0012 is built against; the control it prints first
-    // validates the instrument before any comparison means anything.
+    // validates the instrument before any comparison means anything. It compares every engine
+    // reasoning-effort arm as well as the default, because the client aliases are where the two
+    // implementations differ.
     bool native = false;
     bool quiet     = false;};
 
@@ -455,6 +457,33 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
     report("rewrite_checkpoint",
            jinja.rewrite_checkpoint ? std::to_string(jinja.rewrite_checkpoint->offset) : "none",
            native.rewrite_checkpoint ? std::to_string(native.rewrite_checkpoint->offset) : "none");
+
+    // The arms above compare the default effort only, which leaves the client aliases -- the one
+    // place the two implementations carry independent logic -- uncompared. `none` is the engine's
+    // arm (thinking already false); the other six arrive as themselves.
+    struct EffortArm {
+        ninfer::ReasoningEffort effort;
+        bool thinking;
+    };
+    const EffortArm arms[] = {
+        {ninfer::ReasoningEffort::None, false},  {ninfer::ReasoningEffort::Minimal, true},
+        {ninfer::ReasoningEffort::Low, true},    {ninfer::ReasoningEffort::Medium, true},
+        {ninfer::ReasoningEffort::High, true},   {ninfer::ReasoningEffort::XHigh, true},
+        {ninfer::ReasoningEffort::Max, true},
+    };
+    for (const EffortArm& arm : arms) {
+        fi::ChatRenderOptions options = render_options;
+        options.reasoning_effort      = arm.effort;
+        options.enable_thinking       = arm.thinking;
+        const fi::RenderedChat arm_jinja  = compiled.render(messages, options, control);
+        const fi::RenderedChat arm_native = fi::render_native(messages, options);
+        const auto arm_offset             = first_difference(arm_jinja.text, arm_native.text);
+        std::cout << "native effort       : " << ninfer::reasoning_effort_name(arm.effort)
+                  << " (thinking " << (arm.thinking ? "on" : "off") << ") "
+                  << (arm_offset ? "differs at byte " + std::to_string(*arm_offset)
+                                 : std::string("identical"))
+                  << "\n";
+    }
 }
 
 int main(int argc, char** argv) {

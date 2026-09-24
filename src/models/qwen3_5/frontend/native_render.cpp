@@ -22,12 +22,16 @@ struct Registration {
     Sha256Digest digest;
 };
 
-// `tools/chat_templates/qwen3_8.jinja`, the template the shipped artifacts embed and the one the
-// launchers pass explicitly. Its bytes digest to this value; any other source is not transcribed and
-// takes the Jinja path, which is what bounds the cost of a template changing under this port.
+// `tools/chat_templates/qwen3_8.jinja`, the template the launchers pass explicitly and the one this
+// port's artifacts embed. The digest is over the file's exact bytes, so a comment edit, a whitespace
+// change or a line-ending change retires the fast path: recompute it and update this constant.
+// `test_registered_template_digest_matches_file` fails if the two drift apart. An artifact whose
+// embedded template differs -- the older releases embed one that predates the effort aliases -- is
+// not transcribed and takes the Jinja path, which is what bounds the cost of a template changing
+// here.
 constexpr Sha256Digest kQwen38TemplateDigest{
-    0xea, 0x10, 0x06, 0x6b, 0x7a, 0xd5, 0xec, 0xf8, 0xa6, 0xc8, 0x48, 0xfe, 0x9f, 0x18, 0xcb, 0xde,
-    0xe3, 0xe4, 0x69, 0x3b, 0x2d, 0x85, 0xf7, 0xe1, 0xb8, 0xb6, 0x94, 0xa4, 0x20, 0x35, 0x5f, 0x3b};
+    0x01, 0xbe, 0xfc, 0xc8, 0xce, 0x31, 0x8d, 0x03, 0x62, 0x87, 0xa5, 0x0a, 0xcc, 0x4f, 0x66, 0x38,
+    0x9b, 0x6c, 0xb8, 0xd0, 0x2d, 0xb7, 0xb4, 0x98, 0xb8, 0x91, 0xd1, 0x6d, 0xc3, 0x59, 0x09, 0x8c};
 
 constexpr std::array<Registration, 1> kRegistrations{{{kQwen38TemplateDigest}}};
 

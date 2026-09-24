@@ -4,6 +4,7 @@
 #include "models/qwen3_5/frontend/chat_template.h"
 #include "models/qwen3_5/frontend/digest.h"
 #include "models/qwen3_5/frontend/media_cache.h"
+#include "models/qwen3_5/frontend/native_render.h"
 #include "models/qwen3_5/frontend/processor.h"
 #include "models/qwen3_5/frontend/test_access.h"
 #include "models/qwen3_5/frontend/tokenizer.h"
@@ -2321,6 +2322,48 @@ int test_shipped_template_render_bytes() {
     return 0;
 }
 
+int test_registered_template_digest_matches_file() {
+    // The native renderer is registered for one exact byte string. This is the check that a template
+    // edit which forgets to update `kQwen38TemplateDigest` fails loudly instead of silently retiring
+    // the fast path, and it is also what makes the CRLF sensitivity of the digest visible.
+    const std::string source = reasoning_effort_template_source();
+    return check(fi::native_render_supported(fi::sha256(source)),
+                 "the shipped template is not the registered one: the native renderer is inactive");
+}
+
+int test_reasoning_effort_aliases() {
+    // The differential loop compares the two renderers on the default effort only, so the client
+    // aliases are pinned here. `high`, `max` and the extra client aliases map to the deepest
+    // rendered level, `minimal` to the shallowest, and `medium` renders no instruction at all --
+    // which is why `high` must not map there. The engine sends `none` with enable_thinking already
+    // false, so it never reaches this branch.
+    const fi::CompiledChatTemplate shipped =
+        fi::CompiledChatTemplate::resolve(reasoning_effort_template_source());
+    const std::vector<fi::ChatMessage> messages{chat_message(ninfer::ChatRole::User, "hi")};
+    struct Case {
+        ninfer::ReasoningEffort effort;
+        const char* instruction;
+    };
+    const Case cases[] = {
+        {ninfer::ReasoningEffort::Minimal, "Reasoning effort is set to low."},
+        {ninfer::ReasoningEffort::Low, "Reasoning effort is set to low."},
+        {ninfer::ReasoningEffort::High, "Reasoning effort is set to xhigh."},
+        {ninfer::ReasoningEffort::XHigh, "Reasoning effort is set to xhigh."},
+        {ninfer::ReasoningEffort::Max, "Reasoning effort is set to xhigh."},
+    };
+    int failures = 0;
+    for (const Case& item : cases) {
+        const auto rendered = shipped.render(messages, {.reasoning_effort = item.effort}).text;
+        failures += check(rendered.find(item.instruction) != std::string::npos,
+                          "a client reasoning effort did not reach its rendered level");
+    }
+    const auto medium =
+        shipped.render(messages, {.reasoning_effort = ninfer::ReasoningEffort::Medium}).text;
+    failures += check(medium.find("Reasoning effort is set to") == std::string::npos,
+                      "medium injected a reasoning instruction");
+    return failures;
+}
+
 int main() {
     const FrontendResources owned = resources();
     const Frontend frontend       = make_frontend(owned);
@@ -2370,5 +2413,7 @@ int main() {
     failures += test_invalid_media_classification();
     failures += test_disabled_vision();
     failures += test_shipped_template_render_bytes();
+    failures += test_registered_template_digest_matches_file();
+    failures += test_reasoning_effort_aliases();
     return failures == 0 ? 0 : 1;
 }

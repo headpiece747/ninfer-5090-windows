@@ -42,9 +42,10 @@ PROFILES = {
     for profile, port in zip(SHIPPED, _HARNESS_PORTS)
 }
 
-# The artifact's chat template (artifact:chat_template.jinja line 55) implements exactly
-# these four. `minimal` and `high` raise "Unexpected reasoning effort" and return HTTP 400,
-# even though the engine's own validation message lists all six.
+# The template the launchers pass maps every value the engine advertises onto one of the three
+# levels it renders, so `minimal` and `high` no longer raise "Unexpected reasoning effort". This
+# bench keeps its own scope to the values that render a distinct prompt: the aliases collapse onto
+# `low` and `xhigh`, and `medium` injects no instruction at all.
 EFFORTS = ["none", "low", "medium", "xhigh"]
 
 TASKS = [

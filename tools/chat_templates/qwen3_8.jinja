@@ -2,7 +2,8 @@
 SPDX-License-Identifier: Apache-2.0
 Derived from Qwen/Qwen3.8-27B chat_template.jinja.
 NInfer changes: preserve positional system/developer turns, support final-assistant
-continuation, and accept tool-result histories whose original user turn was removed.
+continuation, accept tool-result histories whose original user turn was removed, and map
+the client reasoning-effort aliases the engine accepts onto the three the template renders.
 #}
 {%- set image_count = namespace(value=0) %}
 {%- set video_count = namespace(value=0) %}
@@ -51,11 +52,13 @@ continuation, and accept tool-result histories whose original user turn was remo
 {%- set reasoning_instructions = '' %}
 {%- if enable_thinking is undefined or enable_thinking is true %}
     {%- set resolved_reasoning_effort = reasoning_effort|default('xhigh') %}
-    {#- Client aliases. The engine accepts none|minimal|low|medium|high|xhigh|max and the OpenAI and
-        Anthropic protocols send the same names, but this template renders three, so a value outside
-        them used to reach raise_exception and fail the whole request. Map the aliases the way
-        froggeric/Qwen-Fixed-Chat-Templates does before validating, so `high` is deep reasoning and
-        `minimal` is concise rather than an error. #}
+    {#- Client aliases. The engine hands this template one of none|minimal|low|medium|high|xhigh|max,
+        and `none` already arrives with enable_thinking false. Three levels render here, so every
+        other value used to reach raise_exception and fail the request -- which is what Claude Code's
+        default `high` hit. Map onto the nearest rendered level, as
+        froggeric/Qwen-Fixed-Chat-Templates does: `high`, `max` and the client aliases
+        `ultracode`/`extreme` are deep reasoning, `minimal` is concise. `medium` renders no
+        instruction, so `high` must not map there. #}
     {%- if resolved_reasoning_effort in ('high', 'max', 'ultracode', 'extreme') %}
         {%- set resolved_reasoning_effort = 'xhigh' %}
     {%- elif resolved_reasoning_effort == 'minimal' %}
