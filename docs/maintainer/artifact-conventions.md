@@ -56,12 +56,14 @@ lower ceiling. State that as the trade it is. The endpoints are the part that pa
 reason this file's original sentence gave — a Q8 group scale is finer than one scale per row, so
 preserving the producer's W8 code word was not the same thing as preserving the model's accuracy.
 
-**A source's bf16 exceptions are not a rule either.** NVFP4-full keeps 27 projections bf16, which is
-its own source's mixed-precision allocation transplanted by the fork, with no reason recorded
-anywhere. Applying that pattern to Swift's weights measures *worse* than encoding everything to
-NVFP4: 4.7701 and 4.93254 against 4.68429 and 4.92432 on the subset and the corpus, for 0.77 GB more
-file and about 0.5 GiB more resident. Follow a source's allocation when importing its codes; do not
-transplant a pattern between checkpoints without measuring it.
+**A source's bf16 exceptions are not a rule either.** NVFP4-full keeps 27 projections bf16 by
+applying the Qwen3.6-27B nvfp4 exception pattern to this checkpoint — a sibling model's allocation,
+transplanted with no reason recorded (Section 14.1 of the artifact reference). Applying that same
+pattern to Swift's weights measures *worse* than encoding everything to NVFP4: 4.7701 and 4.93254
+against 4.68429 and 4.92432 on the subset and the corpus, for 0.77 GB more file and about 0.5 GiB
+more resident. Follow a source's allocation when importing its codes; do not transplant a pattern
+between checkpoints without measuring it. Note that the pattern remains unmeasured on nvfp4full's own
+weights, where it still applies.
 
 The rule follows: **import a source's NVFP4 codes where they exist and are structurally compatible;
 locally encode to NVFP4 everywhere else. Do not import FP8 codes into a shipped artifact.** An
