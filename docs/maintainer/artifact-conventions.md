@@ -93,6 +93,18 @@ rounding into the NVFP4 result.
 - Both shipped artifacts ship a `verify_*` entry point that revalidates the complete ordered
   directory, both W8 endpoints against base rows, and the input divisors.
 
+### A file hash is not the artifact's identity
+
+`tools/artifact/writer.py` seeds the 16-byte `artifact_id` from `uuid4()`, so two builds of one recipe
+differ in every byte of the file hash while being the same model. Measured on the Swift re-encode: a
+rebuild from the current recipe **on the other device** — CPU, against the original CUDA build —
+produced identical index JSON, identical `file_bytes`, and an identical payload digest
+(`7e9a3bebc65526c9b2aaf6502dafc82c32477ad309f8c306ff9195b2ee272bee`); only `artifact_id` differed. So
+a file-level `sha256` answers a different question and reports a false mismatch. Compare with
+`python3 tools/release/compare_artifacts.py A.ninfer B.ninfer`, which diffs the index and digests the
+payload region separately and states why the id differs. Publish the file hash for download
+verification and the payload digest as the artifact's identity.
+
 ## 3. Keep device weights inside the envelope that reaches the full context
 
 The engine refuses a profile whose minimum runtime reservation plus its 1 GiB automatic headroom
@@ -111,6 +123,13 @@ So **~17 GiB of device weights is the measured envelope** for the full native co
 this is an empirical boundary from four points, not a formula. A conversion that lands above it has
 three options: re-encode FP8 text to NVFP4 (section 1), ship a documented lower ceiling, or raise
 the ceiling with `--kv-dtype nvfp4` and pay the quality cost in section 5.
+
+The same 3 GiB also shows up as resident KV, at different serving flags — so it is a second
+measurement, not a second expression of the row above. Started identically with
+`--kv-dtype int8 --kv-capacity auto --max-context 252928 --max-concurrency 2`, the re-encoded Swift
+artifact reports **367,296 tokens** of KV capacity at 13.2 GiB runtime and the FP8-importing build it
+replaced **283,712 tokens** at 10.4 GiB: **83,584 more resident tokens** for a download 3 GB smaller.
+The flags were the same, so the difference is the artifact.
 
 ## 4. The lane shape
 
@@ -161,7 +180,10 @@ tok/s and acceptance, the opencode entries, the packager's list, and the harness
 
 ## 6. Checklist for a new artifact
 
-1. Convert with an official recipe; the plan must be equivalent to the source recipe's.
+1. Convert with an official recipe; the plan must be equivalent to the source recipe's. Record the
+   exact invocation next to the artifact — sources, `--components`, `--resource` overrides, `--name`
+   and the recipe revision — because the artifact's own provenance stores only local source *paths*,
+   and the recipe id is not versioned: two different behaviours have shipped under one id.
 2. Text all-NVFP4 (section 1). If the source keeps FP8, encode locally — do not import it.
 3. Device weights inside the envelope (section 3), or a ceiling you can document.
 4. Register the artifact in `v3_profile_matrix.ARTS`; `ceiling`, then `sweep`, then `profile`.
