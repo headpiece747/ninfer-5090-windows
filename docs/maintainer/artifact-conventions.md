@@ -204,6 +204,17 @@ Then `tools/release/check_profile_consistency.py` must pass. It is the checklist
 byte-identical to the table's render, the README and RELEASE_NOTES tables quoting the measured
 tok/s and acceptance, the opencode entries, the packager's list, and the harnesses' coverage.
 
+**A recorded measurement is a claim about a revision, and the lane figures had drifted.** The
+acceptance values in section 4 and in `profiles.py` were measured on 2026-09-17. Re-measured on
+2026-09-24 by sweeping the *unchanged* fetched artifact, its DFlash2 lane accepts **45.7%** against the
+recorded 62.5%, and its MTP d4 lane **62.4%** against the recorded 58.3%. Nothing failed in between:
+`check_profile_consistency.py` verifies that the launchers, the tables and `profiles.py` agree with each
+*other*, and they did. Re-measure these before a release. Two lessons already in the port's cards
+apply: compare alternatives by interleaving them within one window, because sweeping A and then B
+measures the window -- swept twice each way, the fetched artifact and the rebuilt one reproduced to a
+tenth of a point, which is what made the drift visible instead of invisible; and a figure carries the
+artifact it was taken on, which the lane table's rows did not.
+
 ## 6. Checklist for a new artifact
 
 1. Convert with an official recipe; the plan must be equivalent to the source recipe's. Record the

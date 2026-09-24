@@ -58,12 +58,11 @@ ARTS = {
     # cometkim's fuller-NVFP4 profile: 18.07 GiB, NVFP4 DFlash2 module, upstream-shaped
     # draft bindings (no fused query_key_value), 17.03 GiB device weights with DFlash2.
     "nvfp4full": NVFP4FULL,
-    # UkisAI's Swift finetune, converted by this port. It is the one artifact here whose text
-    # attention and GDN projections are imported FP8 rather than NVFP4, so its device weights sit
-    # above the envelope the shipped artifacts hold: measured 18.90 GiB (MTP) and 20.50 GiB
-    # (DFlash2), giving 240,000 / 180,224 at fp8 KV where those reach 262,144. Re-encoding the
-    # projections to NVFP4 needs the fork-local encoder, which is absent from this tree; see
-    # docs/maintainer/artifact-conventions.md.
+    # UkisAI's Swift finetune, re-encoded by this port: the attention and GDN projections its source
+    # keeps in FP8 are encoded to NVFP4 from the finetune's BF16 export, and both W8 endpoints are Q8,
+    # so the artifact is all-NVFP4 and reaches the full context. The build it replaces -- the one
+    # published from the source's own FP8 import -- sits above the envelope and reached 240,000 (MTP)
+    # and 180,224 (DFlash2) at fp8 KV. See docs/maintainer/artifact-conventions.md section 1.
     "swift": SWIFT,
 }
 LADDER = [262144, 240000, 212992, 180224, 163840, 131072]
