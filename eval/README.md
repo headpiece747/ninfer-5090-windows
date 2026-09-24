@@ -220,6 +220,23 @@ build and 2 of 60 for the re-encoded one, every one of them graded as a miss. Th
 122,880, and at 65,536 neither number is an accuracy figure. Those runs are
 `eval/runs/20260924T071153Z-1b49b02d` and `eval/runs/20260924T062448Z-1b49b02d`.
 
+**Resolution without a thousand samples.** A binary score discards almost everything a sample carries:
+60 problems yielded 6 discordant pairs, and no affordable count separates a 2-sample gap on a task
+whose ceiling is 95%. A continuous score per problem does not have that problem. Scoring each problem's
+statement plus its gold answer with `ninfer-perplexity` — 60 streams, 11,243 tokens, three seconds
+against each artifact — gives 60 paired values, built from the two run directories above.
+
+| | FP8-importing | re-encoded |
+|---|---:|---:|
+| corpus PPL | 6.45298 | **6.41944** |
+| problems where this build scores lower | **40 of 60** | 20 of 60 |
+
+The token-weighted aggregate favours the re-encoded build by 0.52%, while the per-problem sign test
+favours the FP8-importing build (p = 0.0135), and the paired t does not separate them (t = 1.49,
+p = 0.14) because the per-problem differences are heavy-tailed. So this instrument resolves *that* the
+two builds differ on this domain — which the binary score could not — while the direction depends on
+whether problems or tokens are weighted. It is a sensitivity measurement, not an accuracy one.
+
 Prepare and inspect Needle-in-a-Haystack without issuing model requests:
 
 ```bash
