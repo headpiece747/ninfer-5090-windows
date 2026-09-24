@@ -58,6 +58,11 @@ ARTS = {
     # cometkim's fuller-NVFP4 profile: 18.07 GiB, NVFP4 DFlash2 module, upstream-shaped
     # draft bindings (no fused query_key_value), 17.03 GiB device weights with DFlash2.
     "nvfp4full": NVFP4FULL,
+    # UkisAI's Swift finetune, converted by this port. ModelOpt NVFP4/FP8, all 64 MLP layers
+    # NVFP4. A behaviour finetune, so the stock dflash2 draft was expected to lose acceptance;
+    # measured at 43.1% over six prompts against MTP's 47.2%, which does not reproduce the
+    # 3-5% recorded in profiles.py for a finetune. Depth and ceiling are not measured yet.
+    "swift": "qwen3_8_27b_nvfp4swift.v3.ninfer",
 }
 LADDER = [262144, 240000, 212992, 180224, 163840, 131072]
 MTP_DEPTHS = [2, 3, 4, 5]
