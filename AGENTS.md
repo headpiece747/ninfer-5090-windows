@@ -165,7 +165,7 @@ release surface is documented in the Windows section of `README.md`. There are t
 `build/` for the apps, and `build-test/` for the suite the release gate runs
 (`ctest --test-dir build-test`).
 
-Thirty-two rules, each earned by a failure rather than chosen:
+Thirty-five rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
@@ -366,7 +366,23 @@ Thirty-two rules, each earned by a failure rather than chosen:
   when a component figure exists next to an end-to-end one, prefer the end-to-end one.
 - **A cache that serves an extension but not a repetition has a gap, not a design.** ADR-0010's
   incremental encode required a *strict* prefix, so a growing conversation spliced and a retried or
-  duplicated one re-encoded the whole prompt — `splices=0` on every request, for as long as it went
+  duplicated one re-encoded the whole prompt - `splices=0` on every request, for as long as it went
   unnoticed. The counter that would have shown it (`encode_cache_splices`) existed and was not
   reported anywhere. When a cache has a hit counter, publish it; when it has a hit *condition*, ask
   which common cases fall outside it.
+- **A server left running holds its own executable, and "I stopped it earlier" is not a check.** A
+  `ninfer-serve.exe` from an instrumentation run outlived its measurement by the rest of a session,
+  holding `build/apps/ninfer-serve.exe` and listening on its port. Every "no process listed = idle"
+  report in between was true when it was made and stale by the end. The failure it produces next is
+  LNK1104 on the following rebuild, which reads as a broken build rather than a held file. Stop the
+  server before every rebuild and verify at the moment it matters: `Get-Process` *and* a port check,
+  both in the same command as the thing that depends on them.
+- **A scratch wrapper is part of the probe, and probes get removed.** A `.cmd` written only to launch
+  an instrumented server is a live hazard, not a note: it can be re-run, it can leave a process
+  behind, and its logs outlive the finding. Delete the wrapper and its logs with the probe, in the
+  same turn, rather than sweeping them when the session happens to notice.
+- **Read the access level off the Hub API, not off an impression.** A model was assumed gated and a
+  download deferred for it; `https://huggingface.co/api/models/<repo>` returns `gated` and `private`
+  directly and both read `false`. A gate seen on one repository says nothing about the next one - the
+  check is one request, and asserting a *negative* about access without making it is as wrong as
+  asserting one about code without reading it.
