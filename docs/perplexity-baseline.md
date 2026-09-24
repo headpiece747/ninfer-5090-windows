@@ -75,6 +75,13 @@ scales being finer than a per-tensor FP8 scale, and that reading was wrong. Re-e
 is bought for resident bytes and context, not for accuracy — the artifact conventions now state it as
 that trade.
 
+**Every variant row is reproducible without editing the recipe.** Each is the shipped recipe plus a
+`--override` file that reassigns one thing, from the same sources, components and resources. The
+bf16-exception rows reassign the 27 projections NVFP4-full keeps bf16 to `bf16`/`cast_direct` from
+`swift_bf16` and drop the activation divisors the recipe had recorded for them; the FP8-endpoint rows
+reassign `text/token_embedding` and `text/output_head` to `fp8`/`fp8_row_maxabs` from `swift_bf16`.
+The published artifact's own invocation is in Section 16 of the artifact reference.
+
 **A chat template needs a different instrument.** Perplexity cannot see one. What can are the rendered
 prompt -- the token counts the CLI reports, which is how the reasoning-effort alias gap was caught -- and
 any chat-shaped scoring route. Recorded here so the flag is not added again.
