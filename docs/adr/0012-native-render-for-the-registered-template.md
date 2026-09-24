@@ -80,13 +80,35 @@ literals inlined — not a reinterpretation.
 The whole build is gated on one instrument, and it exists before the renderer does: a host-only
 differential loop that renders one conversation both ways, reports the **first differing byte** and
 the differing boundaries, and times both. It runs over the frontend test corpus and the bench's
-synthesized conversations, including the arms that vary tools, thinking, continuation and tail shape.
+synthesized conversations, including the arms that vary tools, thinking, continuation, tail shape and
+media.
 
 - Byte-identity is the acceptance criterion, not similarity: the rendered text and every field of
   `RenderedChat` must be equal.
 - The Jinja path stays compiled in, so the oracle is always available and the differential test is a
-  permanent gate rather than a one-off.
+  permanent gate rather than a one-off. **Obtaining the oracle is the part that goes wrong.**
+  `CompiledChatTemplate::render` dispatches to the native renderer whenever the template digest is
+  registered, so resolving the same source twice and calling `render` on both compares the native
+  renderer with itself. The loop resolves its oracle from the source plus a trailing template
+  comment: the digest changes, the comment emits nothing, and the interpreter renders. Its control
+  compares the oracle against a source carrying a literal the template emits, so a comparison
+  reporting "identical" reads as a broken instrument rather than a clean result -- a control that
+  compares a render with itself cannot fail and validates nothing.
+- A corpus without media cannot see a media divergence. The synthesized conversation had no media
+  parts, and the fixture-template media tests resolve `qwen3_6.jinja`, whose digest is unregistered
+  and therefore take the Jinja path.
 - The renderer is not selected until the loop is green across the corpus.
+
+### What the loop did not catch
+
+It compared the native renderer with itself from the day the renderer landed until the oracle was
+fixed, so it could not detect any native defect. Two shipped under it: `render_native` emitted the
+media placeholder text and never recorded `MediaPlaceholderByteSpec`, and it appended the template's
+`<|vision_start|><|image_pad|><|vision_end|>` wrapper inside the message's input span, so on
+tokenization the wrapper was literal text rather than control tokens. Both stayed latent until the
+launchers began passing the registered template, which selected the native path for every lane; from
+that commit on, every image and video request failed with `invalid_prompt`, and the launcher verifier
+recorded ninety passing runs followed by none.
 
 ## Risks
 

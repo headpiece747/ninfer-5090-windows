@@ -84,6 +84,10 @@ struct Options {
     // reasoning-effort arm as well as the default, because the client aliases are where the two
     // implementations differ.
     bool native = false;
+    // A media arm for the differential loop. The synthesized conversation had no media parts, so the
+    // loop compared `media_placeholders` on a corpus that could never populate it -- which is how a
+    // native renderer that never records them shipped.
+    bool media = false;
     bool quiet     = false;};
 
 void print_usage(const char* executable) {
@@ -164,6 +168,8 @@ Options parse_options(int argc, char** argv) {
             options.tail_assistant = parse_bool(next("--tail-assistant"));
         } else if (flag == "--native") {
             options.native = true;
+        } else if (flag == "--media") {
+            options.media = true;
         } else if (flag == "--quiet") {
             options.quiet = true;
         } else if (flag == "--help" || flag == "-h") {
@@ -239,8 +245,20 @@ std::vector<fi::ChatMessage> build_conversation(const Options& options, std::siz
                      "You are a coding agent.\n" + filler(options.chars_per_message, 0)));
     std::size_t group = 0;
     while (messages.size() < message_count) {
-        messages.push_back(
-            text_message(ninfer::ChatRole::User, filler(options.chars_per_message, 1 + group)));
+        fi::ChatMessage user =
+            text_message(ninfer::ChatRole::User, filler(options.chars_per_message, 1 + group));
+        if (options.media) {
+            // A media part between two text parts, so the placeholder's byte offset is neither zero
+            // nor the end of the content -- which is where an offset that ignores the surrounding
+            // text or the trim would go unnoticed.
+            fi::MediaData media;
+            media.media_type  = "image/png";
+            media.source_name = "bench";
+            media.bytes       = {0x89, 0x50, 0x4e, 0x47};
+            user.parts.push_back(fi::ChatPart::image(std::move(media)));
+            user.parts.push_back(fi::ChatPart::text_part(" after the image"));
+        }
+        messages.push_back(std::move(user));
         if (messages.size() >= message_count) { break; }
 
         fi::ChatMessage assistant   = text_message(ninfer::ChatRole::Assistant, std::string{});
@@ -365,7 +383,8 @@ std::size_t total_bytes(const std::vector<fi::ChatMessage>& messages) {
 void report_native_comparison(const fi::CompiledChatTemplate& compiled,
                               const std::vector<fi::ChatMessage>& messages,
                               const fi::ChatRenderOptions& render_options,
-                              const ninfer::PreparationControl& control, std::string_view source) {
+                              const ninfer::PreparationControl& control, std::string_view source,
+                              const nlohmann::ordered_json& special_tokens) {
     const auto first_difference = [](std::string_view lhs, std::string_view rhs) {
         const std::size_t limit = std::min(lhs.size(), rhs.size());
         for (std::size_t i = 0; i < limit; ++i) {
@@ -373,11 +392,30 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
         }
         return lhs.size() == rhs.size() ? std::nullopt : std::optional<std::size_t>(limit);
     };
-    const fi::RenderedChat jinja = compiled.render(messages, render_options, control);
-    const auto self              = first_difference(jinja.text, jinja.text);
+    // `CompiledChatTemplate::render` dispatches to the native renderer whenever the template digest
+    // is registered, so rendering the *same* source twice compares native with itself -- which is how
+    // a native renderer that never recorded media placeholders, and that classifies the template's
+    // media wrapper as input bytes, passed this loop. A trailing template comment changes the digest
+    // and emits nothing -- no surrounding newline, which would leak into the render -- so the oracle
+    // is the interpreter and the comparison is real.
+    const fi::CompiledChatTemplate oracle = fi::CompiledChatTemplate::resolve(
+        std::string(source) + "{#differential-oracle#}", "jinja-oracle", special_tokens);
+    const fi::RenderedChat jinja = oracle.render(messages, render_options, control);
+    const fi::RenderedChat self  = oracle.render(messages, render_options, control);
+    const auto control_offset    = first_difference(jinja.text, self.text);
+    // A control that cannot fail validates nothing: comparing a render with itself is a tautology.
+    // This one compares the oracle against a source with a literal the template will emit, so a
+    // comparison that reports "identical" is a broken instrument rather than a clean result.
+    const fi::CompiledChatTemplate mutated = fi::CompiledChatTemplate::resolve(
+        std::string(source) + "differential-control", "jinja-control", special_tokens);
+    const fi::RenderedChat changed = mutated.render(messages, render_options, control);
+    const auto control_probe       = first_difference(jinja.text, changed.text);
     std::cout << "native control      : "
-              << (self ? "differs at byte " + std::to_string(*self) : std::string("identical"))
-              << " (jinja against itself)\n";
+              << (control_offset ? "differs at byte " + std::to_string(*control_offset)
+                                 : std::string("identical"))
+              << " (oracle against itself); "
+              << (control_probe ? "detects a difference" : "DETECTS NOTHING (broken instrument)")
+              << "\n";
 
     const fi::Sha256Digest digest = fi::sha256(source);
     const bool registered         = fi::native_render_supported(digest);
@@ -511,7 +549,7 @@ int main(int argc, char** argv) {
                  "<|vision_pad|>", "<|image_pad|>", "<|video_pad|>"});
         }
         const fi::CompiledChatTemplate compiled = fi::CompiledChatTemplate::resolve(
-            source, options.template_path.string(), std::move(special_tokens));
+            source, options.template_path.string(), special_tokens);
 
         std::vector<std::string> tool_jsons;
         for (std::size_t i = 0; i < options.tool_count; ++i) {
@@ -584,6 +622,7 @@ int main(int argc, char** argv) {
         std::cout << "tools               " << options.tool_count << "\n";
         std::cout << "generation prompt   " << (options.generation_prompt ? "on" : "off") << "\n";
         std::cout << "tail assistant      " << (options.tail_assistant ? "on" : "off") << "\n";
+        std::cout << "media parts         " << (options.media ? "on" : "off") << "\n";
         std::cout << "special tokens      " << (options.special_tokens ? "on" : "off") << "\n";
         std::cout << "enable_thinking     "
                   << (options.thinking_default ? "template default" : "off") << "\n";
@@ -591,7 +630,7 @@ int main(int argc, char** argv) {
         std::cout << "noise threads       " << options.noise_threads << "\n";
         if (options.native) {
             report_native_comparison(compiled, build_conversation(options, options.sweep.front()),
-                                     render_options, control, source);
+                                     render_options, control, source, special_tokens);
         }
         std::cout << "\n";
         std::cout << "messages   bytes   render ms   ms/message   boundaries   text bytes   "
