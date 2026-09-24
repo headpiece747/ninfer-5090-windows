@@ -932,6 +932,10 @@ registered profiles. It is produced and verified by the fork-local tools
 `tools.convert.qwen3_8_27b.{nvfp4_encode, calibrate_nvfp4full, convert_nvfp4full, verify_nvfp4full}`
 and binds through the same registered target as an additional weights contract.
 
+Those tools are not part of this port's tree: `tools/convert/` here carries `quantization/` and
+`sources/` only. The commands below describe the producing fork, not something this checkout can
+run.
+
 ### 14.1 Identity and contents
 
 ```text
