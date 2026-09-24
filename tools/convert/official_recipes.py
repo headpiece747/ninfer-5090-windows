@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .methods import cast_direct, fp8_row_maxabs, grouped_absmax, import_encoded
+from .proposal import add_proposal
 
 Q4 = "q4_g64_fp16"
 Q5 = "q5_g64_fp16"
@@ -174,10 +175,61 @@ def qwen3_8_27b_nvfp4(model, recipe, sources):
         )
 
 
+def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
+    """Swift's ModelOpt checkpoint: every MLP layer NVFP4, the head re-encoded to FP8.
+
+    The checkpoint declares its own scheme, so the built-in reader resolves both
+    encodings. Unlike the compressed-tensors recipe there is no separate
+    `quantized` source: ModelOpt stores its quantized matrices beside everything
+    else in the primary checkpoint.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    base = sources["base"]
+    recipe.assign("text/token_embedding", format=FP8, method=fp8_row_maxabs)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding" or name.endswith(
+            ("/gdn/a_projection", "/gdn/b_projection")
+        ):
+            continue
+        if name == "text/output_head":
+            # ModelOpt stores the head NVFP4, and linear_topk takes a Q8 or an FP8
+            # head only; re-encoded from the decoded values, so it keeps Swift's error.
+            recipe.assign(
+                name,
+                format=FP8,
+                method=fp8_row_maxabs,
+                source=model.source(name, base),
+                activation_policy="AllowA8",
+            )
+            continue
+        if "/mlp/" in name:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, base, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+        else:
+            recipe.assign(
+                name,
+                format=FP8,
+                method=import_encoded,
+                source=model.source(name, base, FP8),
+                activation_policy="AllowA8",
+            )
+    add_proposal(recipe, source=model.source("text/output_head", base))
+
+
 RECIPES = {
     "qwen3_6_27b": qwen3_6_27b,
     "qwen3_6_27b_nvfp4": qwen3_6_27b_nvfp4,
     "qwen3_8_27b": qwen3_8_27b,
     "qwen3_8_27b_nvfp4": qwen3_8_27b_nvfp4,
+    "qwen3_8_27b_nvfp4_swift": qwen3_8_27b_nvfp4_swift,
     "qwen3_6_35b_a3b": qwen3_6_35b_a3b,
 }
