@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .methods import cast_direct, fp8_row_maxabs, grouped_absmax, import_encoded
 from .proposal import add_proposal
+from .quantization.nvfp4 import nvfp4_maxabs
 
 Q4 = "q4_g64_fp16"
 Q5 = "q5_g64_fp16"
@@ -175,19 +176,53 @@ def qwen3_8_27b_nvfp4(model, recipe, sources):
         )
 
 
-def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
-    """Swift's ModelOpt checkpoint: every MLP layer NVFP4, the head re-encoded to FP8.
+# The Swift checkpoint's attention and GDN projections are ModelOpt FP8, and importing them is what
+# leaves 9 GiB of 8-bit weights in the artifact. They are re-encoded to NVFP4 from the finetune's own
+# BF16 source instead -- the choice NVFP4-full made for its source's 233 FP8 matrices. See
+# docs/maintainer/artifact-conventions.md, section 1.
+_ATTENTION_MODULES = {
+    "query": "self_attn.q_proj", "gate": "self_attn.q_proj", "key": "self_attn.k_proj",
+    "value": "self_attn.v_proj", "output": "self_attn.o_proj",
+}
+_GDN_MODULES = {
+    "query": "linear_attn.in_proj_qkv", "key": "linear_attn.in_proj_qkv",
+    "value": "linear_attn.in_proj_qkv", "z": "linear_attn.in_proj_z",
+    "output": "linear_attn.out_proj",
+}
 
-    The checkpoint declares its own scheme, so the built-in reader resolves both
-    encodings. Unlike the compressed-tensors recipe there is no separate
-    `quantized` source: ModelOpt stores its quantized matrices beside everything
-    else in the primary checkpoint.
+
+def _activation_divisor(store, prefix: str, module: str) -> float:
+    """The NVFP4 activation divisor, recovered from the checkpoint's own multiplier.
+
+    ModelOpt exports an FP8 site's `input_scale` as `amax / 448`, and the NVFP4 global scale is
+    `amax / (6 * 448)`, so the divisor this port binds is `2688 / amax = 6 / input_scale`. Reusing
+    the producer's own calibration is both cheaper and more faithful than re-measuring it over a
+    different corpus.
+    """
+    name = f"{prefix}{module}.input_scale"
+    if not store.has(name):
+        raise ValueError(f"{name}: no activation scale to derive the divisor from")
+    return 6.0 / float(store.read_flat(name).reshape(1))
+
+
+def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
+    """Swift re-encoded to match the shipped artifacts: no FP8 code word reaches the artifact.
+
+    Attention and GDN are encoded to NVFP4 from the finetune's BF16 source, and both W8 endpoints
+    are Q8 from that source, which is what the two shipped artifacts bind. The MLP stays imported
+    from ModelOpt's NVFP4 codes, which is lossless. Device weights therefore sit inside the
+    envelope that reaches the full native context.
     """
     if "num_experts" in model.config:
         raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
     _optional(model, recipe)
     base = sources["base"]
-    recipe.assign("text/token_embedding", format=FP8, method=fp8_row_maxabs)
+    bf16 = sources["swift_bf16"]
+    prefix = "model.language_model." if "text_config" in base.config else "model."
+    # Both shipped artifacts bind q8_g32_fp16 to both W8 endpoints, and the base source owns them;
+    # taking them from the BF16 source also avoids re-encoding the head from its NVFP4 codes.
+    _assign(recipe, "text/token_embedding", Q8,
+            source=model.source("text/token_embedding", bf16))
     for name, parameter in model.parameters.items():
         if not name.startswith("text/") or not parameter.projection:
             continue
@@ -196,15 +231,7 @@ def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
         ):
             continue
         if name == "text/output_head":
-            # ModelOpt stores the head NVFP4, and linear_topk takes a Q8 or an FP8
-            # head only; re-encoded from the decoded values, so it keeps Swift's error.
-            recipe.assign(
-                name,
-                format=FP8,
-                method=fp8_row_maxabs,
-                source=model.source(name, base),
-                activation_policy="AllowA8",
-            )
+            _assign(recipe, name, Q8, source=model.source(name, bf16))
             continue
         if "/mlp/" in name:
             recipe.assign(
@@ -214,15 +241,25 @@ def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
                 source=model.source(name, base, "nvfp4"),
                 activation_policy="AllowA4",
             )
-        else:
-            recipe.assign(
-                name,
-                format=FP8,
-                method=import_encoded,
-                source=model.source(name, base, FP8),
-                activation_policy="AllowA8",
+            continue
+        role = name.rsplit("/", 1)[1]
+        modules = _ATTENTION_MODULES if "/attention/" in name else _GDN_MODULES
+        module = modules.get(role)
+        if module is None:
+            raise ValueError(f"{name}: no NVFP4 site is registered for this projection")
+        divisor = _activation_divisor(base, f"{prefix}layers.{name.split('/')[2]}.", module)
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            source=model.source(name, bf16),
+            activation_policy="AllowA4",
+        )
+        for input_name in parameter.inputs:
+            recipe.use(
+                name, input_name, auxiliaries={"activation_input_divisor": divisor}
             )
-    add_proposal(recipe, source=model.source("text/output_head", base))
+    add_proposal(recipe, source=model.source("text/output_head", bf16))
 
 
 RECIPES = {
