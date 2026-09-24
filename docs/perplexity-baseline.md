@@ -12,6 +12,7 @@ eval/corpora/perplexity-1m/manifest.json --kv-dtype <dtype>`. That is upstream's
 | `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT) | fp8 | **4.89741** | `--quick` (4 streams, 261,223 tokens) |
 | `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT) | fp8 | **5.88829** | custom corpus, 177,400 tokens |
 | `qwen3_8_27b_nvfp4full.v3.ninfer` (NVFP4-full) | fp8 | **5.92007** | custom corpus, same text |
+| `qwen3_8_27b_nvfp4swift.v3.ninfer` (Swift, re-encoded) | fp8 | **4.68429** | `--quick`, 2026-09-24; the same recipe importing the checkpoint's FP8 scored **4.84938** |
 
 The custom corpus is this repo's `docs/` and `tests/` markdown, concatenated in sorted order
 (177,400 tokens). On it the two shipped artifacts sit 0.5% apart with QUASAR marginally better, which
@@ -29,12 +30,18 @@ What the run did establish is the artifact ranking this file was missing:
 
 | artifact | PPL (--quick, fp8) |
 |---|---|
+| `qwen3_8_27b_nvfp4swift` (Swift, re-encoded) | **4.68429** |
 | `qwen3_8_27b_nvfp4full` | **4.77136** |
 | `qwen3_8_27b_nvfp4` (official) | 4.82676 |
 | `qwen3_8_27b_nvfp4qat` (QUASAR) | 4.89741 |
 
-NVFP4-full is lowest, the official artifact 1.2% above it, QUASAR 2.6% above that -- the first
-like-for-like ranking of the three on one protocol.
+Swift's re-encoded artifact is lowest, NVFP4-full 1.9% above it, the official artifact 3.0% above
+that and QUASAR 4.6% above that. Swift is also the one artifact here whose text weights are not
+imported: its attention and GDN are encoded to NVFP4 from the finetune's BF16 source, because the
+same recipe importing ModelOpt's per-tensor FP8 scored 4.84938 -- a per-tensor FP8 scale is coarser
+than NVFP4's one scale per 16-element block, so the block scales more than pay for the narrower
+codes. That comparison is like-for-like: one recipe, one checkpoint, only the attention and GDN
+encoding differs.
 
 **A chat template needs a different instrument.** Perplexity cannot see one. What can are the rendered
 prompt -- the token counts the CLI reports, which is how the reasoning-effort alias gap was caught -- and
