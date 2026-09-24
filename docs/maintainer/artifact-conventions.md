@@ -33,11 +33,28 @@ Two routes reach it, and both are legitimate:
   from the BF16 source, with the site input divisors either calibrated (NVFP4-full) or recovered
   from the checkpoint's own `input_scale` (Swift; the derivation is in the next subsection).
 
-Re-encoding is not a concession. Measured on the fixed 1M corpus, Swift's re-encoded artifact scores
-**4.68429** against the same recipe's FP8-importing build at **4.84938**: a per-tensor FP8 scale is
-coarser than NVFP4's one scale per 16-element block, so the block scales more than pay for the
-narrower codes. "Import every code word unchanged" preserves the producer's representation, which is
-not the same thing as preserving the model's accuracy.
+**Re-encoding buys resident bytes, not accuracy — and the two changes were measured apart.** Swift's
+artifact was first credited with a 4.68429-against-4.84938 `--quick` win over the build it replaced,
+and the block scales were credited with it. That was wrong. The two builds differ in two ways, and
+holding one fixed reverses the sign of the other. Three builds isolate them, each adjacent pair
+differing in exactly one change — verified by hashing every binding, which leaves the endpoints as two
+objects (`text/token_embedding`, `text/output_head`) and the text stack as 320:
+
+| attention and GDN | endpoints | `--quick` | full |
+|---|---|---:|---:|
+| FP8, imported | FP8 | 4.84938 | 4.93874 |
+| NVFP4, re-encoded | FP8 | 4.85155 | 4.96342 |
+| NVFP4, re-encoded | **Q8** | **4.68429** | **4.92432** |
+
+The endpoints are worth **−3.45% / −0.79%** (Q8 against FP8) and the attention and GDN re-encode is
+worth **+0.05% / +0.50%**: it costs a little and it does not pay. The net, −3.40% / −0.29%, is the
+figure that was misattributed to the block scales.
+
+So the rule above rests on section 3's measurement and not on accuracy: a re-encoded text stack is
+~3 GiB smaller, which is 83,584 more resident KV tokens and the full context instead of a documented
+lower ceiling. State that as the trade it is. The endpoints are the part that pays, and for the
+reason this file's original sentence gave — a Q8 group scale is finer than one scale per row, so
+preserving the producer's W8 code word was not the same thing as preserving the model's accuracy.
 
 **A source's bf16 exceptions are not a rule either.** NVFP4-full keeps 27 projections bf16, which is
 its own source's mixed-precision allocation transplanted by the fork, with no reason recorded

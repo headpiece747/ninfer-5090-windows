@@ -191,6 +191,31 @@ RealWorldQA at 618/765 samples):
 | ERQA | 66.25% | 265 / 400 |
 | RealWorldQA | 82.22% | 629 / 765 |
 
+A Swift fine-tune campaign ran the AIME pair only, against two builds of the same artifact — the
+FP8-importing build this port makes from the same sources, and a re-encode of its attention and GDN
+to NVFP4 — to measure what the re-encode costs at the task level. Protocol as above: 252,928-token
+context with 1,024-token prefill chunks, int8 KV, MTP at draft 3, concurrency two, 122,880 output
+tokens per request, temperature 1.0 / top_p 0.95 / top_k 20, seed 42, rule scoring.
+
+| build | AIME 2025 | AIME 2026 | generations stopped at the cap |
+|---|---:|---:|---:|
+| FP8-importing | **29 / 30** | **29 / 30** | 0 of 60 |
+| attention and GDN re-encoded to NVFP4 | **28 / 30** | **28 / 30** | 0 of 60 |
+
+The FP8-importing build reproduces the 29 / 30 recorded above. The re-encoded build is one sample
+lower on each suite, and all four of its misses are wrong boxed values, not truncated generations.
+Sampling is deterministic per prompt at a fixed seed, so the difference is a property of these 60
+prompts rather than run-to-run noise — but it is also not significant: the standard error of a
+two-proportion difference at p ~ 0.95 over 60 samples is about four percentage points. This records a
+direction, not a resolved cost, and it agrees with the decomposition in
+[`docs/perplexity-baseline.md`](../docs/perplexity-baseline.md), where re-encoding the text stack costs
+0.05% on the subset and 0.50% on the full corpus.
+
+**A score below the documented budget measures the budget.** An earlier pass at 65,536 output tokens
+scored 28 / 30 and 27 / 30 and truncated generations at `output_limit`: 4 of 60 for the FP8-importing
+build and 2 of 60 for the re-encoded one, every one of them graded as a miss. The documented budget is
+122,880, and at 65,536 neither number is an accuracy figure.
+
 Prepare and inspect Needle-in-a-Haystack without issuing model requests:
 
 ```bash

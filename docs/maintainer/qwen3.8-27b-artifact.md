@@ -1160,3 +1160,125 @@ resources, and the weight-divisor derivation cross-check `d_w = binary32(2688/am
 single-tensor site families match exactly and the residual envelope (median exactly 1.0, maximum
 1.1667) is explained by site-scale sharing with the decoded control tensors and one saturating
 E2M1 step at a site's top element.
+
+## 16. Fork artifact: `nvfp4swift`
+
+This fork builds an artifact from UkisAI's Swift-Qwen3.8-27B, a reasoning-efficient fine-tune of
+Qwen3.8-27B distributed in NVIDIA ModelOpt's mixed NVFP4/FP8 quantization. It is the first artifact
+here whose source keeps its full-attention and GDN projections in E4M3 instead of NVFP4, so its text
+stack is part NVFP4 imported from that source and part NVFP4 encoded locally from the fine-tune's
+BF16 export. It ships the two lanes of Section 4 like the others; its public file pin lands with its
+publication.
+
+### 16.1 Identity and contents
+
+```text
+filename   = qwen3_8_27b_nvfp4swift.v3.ninfer
+name       = qwen3.8-27b
+recipe     = qwen3_8_27b_nvfp4_swift
+converter  = ninfer-v3 (tools.convert)
+components = text, vision, mtp, dflash2
+bytes      = 19,782,449,156 (18.42 GiB)
+sha256     = 6353a46f54dbf9d5cc46d718d88ded9f54bcbbbf25f9f879989ef1a560f01bcc
+payload    = 7e9a3bebc65526c9b2aaf6502dafc82c32477ad309f8c306ff9195b2ee272bee
+```
+
+The artifact holds 1513 bindings over 1590 objects — 1072 reached from bindings and 844 `uses` — plus
+the six frontend resources. Its Text allocation is all-NVFP4: 256 parents cover every
+`attention/query_key_gate_value`, `attention/output`, `gdn/query_key_value_z`, `gdn/output`,
+`mlp/gate_up` and `mlp/down`, with 256 site-level fp32 input divisors. The token embedding and the
+full output head are `q8_g32_fp16` encoded from the BF16 source. Vision keeps the source's Q4/Q5/Q6,
+MTP its Q8, the indexed proposal head its Q4, and the DFlash2 companion its W8G32.
+
+| Format | Objects |
+|---|---:|
+| `bf16` | 579 |
+| `fp32` | 608 |
+| `int32` | 1 |
+| `nvfp4` | 256 |
+| `q4_g64_fp16` | 55 |
+| `q5_g64_fp16` | 54 |
+| `q6_g64_fp16` | 1 |
+| `q8_g32_fp16` | 30 |
+| resource | 6 |
+
+| Layout | Objects |
+|---|---:|
+| `contiguous_le_v1` | 1188 |
+| `row_split_k128_v1` | 140 |
+| `block_scale_k16_m128x4_v1` | 256 |
+| resource | 6 |
+
+### 16.2 Sources and provenance
+
+| source | revision | supplies |
+|---|---|---|
+| `ukisai/Swift-Qwen3.8-27B-NVFP4` | `4cf1019102c2fe9841c07109ac84acb40dabd9ec` | the MLP's NVFP4 codes and site input scales, Vision, MTP, the proposal head |
+| `ukisai/Swift-Qwen3.8-27b` | `6b5cb4859c92dba0a3f195ce9ad4b1b75a6a2418` | the BF16 weights the attention, GDN and both endpoints are encoded from |
+| `z-lab/Qwen3.8-27B-DFlash2` | `50307d4c4cde6860d4eee73e2547cd786fe8e8a4` | the DFlash2 companion |
+
+The two Swift checkpoints agree on every tensor that is not quantized: all **798** BF16 tensors are
+byte-identical between them, which is the premise the re-encode rests on and is checked rather than
+assumed. The BF16 export is ungated, so the re-encode needs no credentials. ModelOpt stores each
+site's activation amax in `input_scale`, and the divisor bound for an FP8 site being re-encoded is
+`d_x = 6 / input_scale`, derived in Section 1 of the artifact conventions.
+
+The FP8-importing build this artifact replaces is published at
+`CaptainArni/Swift-Qwen3.8-27B-NInfer` (22,783,241,220 bytes, sha256 `5412a0e7...`). This port's own
+build of that recipe carries the same weights and differs from the published file only in the chat
+template, so the two are comparable on every axis this section measures.
+
+### 16.3 Production and verification
+
+```bash
+python3 -m tools.convert \
+  --model /path/to/Swift-Qwen3.8-27B-NVFP4 \
+  --recipe qwen3_8_27b_nvfp4_swift \
+  --source swift_bf16=/path/to/Swift-Qwen3.8-27b \
+  --source dflash2=/path/to/Qwen3.8-27B-DFlash2 \
+  --components text,vision,mtp,dflash2 \
+  --resource chat_template.jinja=tools/chat_templates/qwen3_8.jinja \
+  --name qwen3.8-27b --device cpu \
+  --out models/qwen3_8_27b_nvfp4swift.v3.ninfer
+```
+
+The recipe imports the MLP's NVFP4 codes and re-encodes the attention and GDN from the BF16 export, so
+a rebuild reproduces the artifact on either device: converting the same sources on CPU, against the
+published CUDA build, produced identical index JSON, identical `file_bytes`, and the payload digest
+above, with only the random `artifact_id` differing. Compare with
+`tools/release/compare_artifacts.py`, never by file hash. Every object is reachable from a binding, a
+`use`, a resource or a proposal.
+
+Hashing every binding against the FP8-importing build shows the re-encode's blast radius is exactly
+the text stack: Vision's 441 bindings, the MLP's 192, DFlash2's 91 and MTP's 16 are byte-identical,
+and only attention (80 of 112) and GDN (240 of 528) differ, plus the two endpoints. Vision, MTP and
+DFlash2 therefore cannot behave differently because of this conversion.
+
+### 16.4 Measured results (RTX 5090)
+
+Perplexity on the fixed 1M corpus, `fp8` KV, against the FP8-importing build of the same sources:
+
+| build | `--quick` | full |
+|---|---:|---:|
+| FP8-importing | 4.84938 | 4.93874 |
+| re-encoded, endpoints FP8 | 4.85155 | 4.96342 |
+| **re-encoded, endpoints Q8** | **4.68429** | **4.92432** |
+
+Three builds separate the two changes, each adjacent pair differing in exactly one. The Q8 endpoints
+are worth -3.45% / -0.79% and re-encoding the text stack costs +0.05% / +0.50%, so re-encoding is
+bought for resident bytes and context rather than accuracy; the endpoints are where the accuracy comes
+from. Section 1 of the artifact conventions carries that argument.
+
+| | re-encoded | FP8-importing |
+|---|---:|---:|
+| device weights, MTP lane | 15.3 GiB | 18.90 GiB |
+| file | 19.78 GB | 22.78 GB |
+| KV capacity, int8, `auto`, 252928 context | 367,296 tokens | 283,712 tokens |
+| context reach at `fp8` KV | 262,144 | 240,000; 180,224 with DFlash2 |
+| DFlash2 lane acceptance | 60.9% | 45.5% |
+
+The DFlash2 acceptance is the re-encode's largest measured win: the z-lab draft was trained against
+the stock model's hidden states, and a text stack whose attention is NVFP4 like the stock artifacts'
+moves those states closer to it. AIME 2025 and AIME 2026 at the documented 122,880-token budget score
+28 / 30 each, against the FP8-importing build's 29 / 30 each; at 60 samples the difference is not
+significant, and `eval/README.md` records it with its protocol.

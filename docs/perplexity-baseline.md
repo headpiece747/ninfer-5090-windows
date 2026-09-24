@@ -17,6 +17,8 @@ eval/corpora/perplexity-1m/manifest.json --kv-dtype <dtype>`. That is upstream's
 | Swift, FP8 imported (superseded) | fp8 | **4.93874** | full corpus, 4.72k tok/s; the build the re-encode replaced |
 | Swift, re-encoded with NVFP4-full's bf16 exceptions | fp8 | **4.7701** | `--quick`; 27 projections kept bf16 |
 | Swift, re-encoded with NVFP4-full's bf16 exceptions | fp8 | **4.93254** | full corpus |
+| Swift, re-encoded, endpoints as FP8 | fp8 | **4.85155** | `--quick`; isolates the endpoints, which are Q8 in the rows above |
+| Swift, re-encoded, endpoints as FP8 | fp8 | **4.96342** | full corpus |
 
 The custom corpus is this repo's `docs/` and `tests/` markdown, concatenated in sorted order
 (177,400 tokens). On it the two shipped artifacts sit 0.5% apart with QUASAR marginally better, which
@@ -62,6 +64,16 @@ build's 4.68429 and 4.92432, on both protocols, while costing 0.77 GB more file 
 more resident. So the ordering on both is all-NVFP4, then exceptions, then the FP8 import. That
 pattern came from a third party's mixed-precision checkpoint, was transplanted by the fork to a
 different one, and nothing recorded why; on Swift's weights it does not pay for itself.
+
+**The endpoints, not the block scales, are where the re-encode's win comes from.** The re-encoded
+build differs from the FP8-importing one in two ways, and three builds isolate them, because each
+adjacent pair differs in exactly one change — verified by hashing every binding, which leaves the two
+endpoints as two objects and the text stack as 320. The endpoints alone are worth **−3.45% / −0.79%**
+(Q8 against FP8, two rows above); re-encoding attention and GDN alone is worth **+0.05% / +0.50%**, a
+small cost. The net **−3.40% / −0.29%** is the figure an earlier reading credited to NVFP4's block
+scales being finer than a per-tensor FP8 scale, and that reading was wrong. Re-encoding the text stack
+is bought for resident bytes and context, not for accuracy — the artifact conventions now state it as
+that trade.
 
 **A chat template needs a different instrument.** Perplexity cannot see one. What can are the rendered
 prompt -- the token counts the CLI reports, which is how the reasoning-effort alias gap was caught -- and
