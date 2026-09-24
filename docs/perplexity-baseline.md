@@ -15,6 +15,8 @@ eval/corpora/perplexity-1m/manifest.json --kv-dtype <dtype>`. That is upstream's
 | `qwen3_8_27b_nvfp4swift.v3.ninfer` (Swift, re-encoded) | fp8 | **4.68429** | `--quick`, 2026-09-24; the same recipe importing the checkpoint's FP8 scored **4.84938** |
 | `qwen3_8_27b_nvfp4swift.v3.ninfer` (Swift, re-encoded) | fp8 | **4.92432** | full corpus, 6.03k tok/s |
 | Swift, FP8 imported (superseded) | fp8 | **4.93874** | full corpus, 4.72k tok/s; the build the re-encode replaced |
+| Swift, re-encoded with NVFP4-full's bf16 exceptions | fp8 | **4.7701** | `--quick`; 27 projections kept bf16 |
+| Swift, re-encoded with NVFP4-full's bf16 exceptions | fp8 | **4.93254** | full corpus |
 
 The custom corpus is this repo's `docs/` and `tests/` markdown, concatenated in sorted order
 (177,400 tokens). On it the two shipped artifacts sit 0.5% apart with QUASAR marginally better, which
@@ -52,6 +54,14 @@ corpus: a finetune can win one subset and lose the corpus, and `--quick` selects
 domain while `full` scores every window. Quote a `--quick` ranking as a `--quick` ranking. The
 re-encode's own gain is the part that holds on both protocols: 3.4% on the subset, 0.29% on the
 corpus, same direction, one recipe and one checkpoint.
+
+**The bf16 exception pattern is a source allocation, not a rule, and it measures worse here.** The
+third build is the same re-encode with NVFP4-full's pattern applied -- 27 projections kept bf16, 247
+NVFP4 parents exactly as that artifact has. It scores 4.7701 and 4.93254 against the all-NVFP4
+build's 4.68429 and 4.92432, on both protocols, while costing 0.77 GB more file and about 0.5 GiB
+more resident. So the ordering on both is all-NVFP4, then exceptions, then the FP8 import. That
+pattern came from a third party's mixed-precision checkpoint, was transplanted by the fork to a
+different one, and nothing recorded why; on Swift's weights it does not pay for itself.
 
 **A chat template needs a different instrument.** Perplexity cannot see one. What can are the rendered
 prompt -- the token counts the CLI reports, which is how the reasoning-effort alias gap was caught -- and
