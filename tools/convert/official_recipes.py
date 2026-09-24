@@ -176,6 +176,41 @@ def qwen3_8_27b_nvfp4(model, recipe, sources):
         )
 
 
+def _nvfp4_draft(recipe, model, sources):
+    """Encode this port's draft projections as NVFP4 instead of upstream's Q8.
+
+    Measured on this port's own bench, interleaved against the fetched QUASAR artifact in one window:
+    Q8 accepts 54.8% and NVFP4 58.0%, while the fetched artifact accepts 45.7% -- its table's 62.5%
+    was recorded on 2026-09-17 and does not reproduce today on that same file. The skip list is
+    upstream's, which measured better than encoding those sites too (42.2% when the convolution kernel
+    projections were included). No activation divisor is needed: these sites permit A16 and A8, and
+    A4 -- the only policy that would require one -- is not permitted. The text stack is untouched, so
+    a rebuild's MTP digests are identical to the Q8 build's.
+    """
+    skip = (
+        "/moe/router",
+        "/moe/shared_score",
+        "/attention_conv/kernel_projection",
+        "/mlp_conv/kernel_projection",
+        "/candidate_selector/hidden_projection",
+    )
+    for name, parameter in model.parameters.items():
+        if not parameter.projection:
+            continue
+        component = name.split("/", 1)[0]
+        if component not in ("dflash", "dflash2") or component not in model.components:
+            continue
+        if name.endswith(skip):
+            continue
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            source=model.source(name, sources[component]),
+            activation_policy="A16Only",
+        )
+
+
 def qwen3_8_27b_nvfp4_qat(model, recipe, sources):
     """QAT-sourced text: nothing is re-encoded, because the source quantized every linear.
 
@@ -192,6 +227,7 @@ def qwen3_8_27b_nvfp4_qat(model, recipe, sources):
     if "num_experts" in model.config:
         raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
     _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
     base = sources["base"]
     bf16 = sources["bf16"]
     _assign(recipe, "text/token_embedding", Q8)
