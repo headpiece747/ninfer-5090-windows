@@ -127,17 +127,24 @@ verification and the payload digest as the artifact's identity.
 The engine refuses a profile whose minimum runtime reservation plus its 1 GiB automatic headroom
 does not fit in what remains after weights, and it reports the byte counts when it refuses.
 
-| device weights | reach at fp8 KV |
-|---|---|
-| 16.1 GiB (QUASAR) | 262,144 |
-| 17.0 GiB (NVFP4-full) | 262,144 |
-| 18.90 GiB (Swift, FP8 imported) | 240,000 |
-| 19.7 GiB (the port's earlier image) | below the full context |
-| 20.50 GiB (Swift, FP8 imported, DFlash2) | 180,224 |
-| 15.3 GiB (Swift re-encoded) | 262,144 |
+| device weights | reach at `fp8` KV, vision on | vision off |
+|---|---:|---:|
+| 16.1 GiB (QUASAR) | 262,144 | 262,144 |
+| 17.0 GiB (NVFP4-full) | 262,144 | 262,144 |
+| 18.90 GiB (Swift, FP8 imported) | 240,000 | 262,144 |
+| 19.7 GiB (the port's earlier image) | below the full context | below the full context |
+| 20.50 GiB (Swift, FP8 imported, DFlash2) | 180,224 | 180,224 |
+| 15.3 GiB (Swift re-encoded) | 262,144 | 262,144 |
 
-So **~17 GiB of device weights is the measured envelope** for the full native context at `fp8` KV;
-this is an empirical boundary from four points, not a formula. A conversion that lands above it has
+Vision is a column because it decides a row: the FP8-imported Swift build serves the full context
+with vision off and stops at 240,000 with it on. Both Swift lanes ship vision on, so 240,000 is their
+ceiling for that build. Measured by `ceiling` mode, which renders the launcher's own configuration —
+`--device-state-slots 1`, `--prefill-chunk 8192` and the context-cache set included, which together
+reserve about 1.4 GiB more than the bare flags and are what put that build over the line.
+
+So the envelope for the full native context at `fp8` KV **with vision on** sits between 17.0 GiB
+(in) and 18.90 GiB (out) of device weights — an empirical boundary from five builds, not a formula.
+Vision off moves it above 18.90 GiB, which is why the column above exists. A conversion that lands above it has
 three options: re-encode FP8 text to NVFP4 (section 1), ship a documented lower ceiling, or raise
 the ceiling with `--kv-dtype nvfp4` and pay the quality cost in section 5.
 
