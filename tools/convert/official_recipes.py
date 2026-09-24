@@ -176,6 +176,44 @@ def qwen3_8_27b_nvfp4(model, recipe, sources):
         )
 
 
+def qwen3_8_27b_nvfp4_qat(model, recipe, sources):
+    """QAT-sourced text: nothing is re-encoded, because the source quantized every linear.
+
+    QUASAR's export carries 496 fused NVFP4 sites covering every text linear, and it quantizes
+    `gdn/a_projection` and `gdn/b_projection` too, where the other two sources leave them BF16. Those
+    two are BF16 from the base checkpoint regardless: they are (96, 5120) and
+    `block_scale_k16_m128x4_v1` requires N divisible by 128, so the layout cannot hold them at all --
+    which is also why the shipped `nvfp4qat` lists attention, GDN qkv/z/output and MLP but not a or b.
+    Measured against the built model, every other text projection resolves to a real NVFP4 site, and
+    the only one that does not is `text/output_head`, which this source's quantizer ignores; that head
+    and the embedding are Q8. The embedding has no inputs, so it is not a projection and never enters
+    the loop below. `gdn/convolution`, `a_log`, `dt_bias` and every norm stay BF16.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    base = sources["base"]
+    bf16 = sources["bf16"]
+    _assign(recipe, "text/token_embedding", Q8)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8)
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            recipe.assign(name, source=model.source(name, bf16))
+            continue
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=import_encoded,
+            source=model.source(name, base, "nvfp4"),
+            activation_policy="AllowA4",
+        )
+    add_proposal(recipe, source=model.source("text/output_head", base))
+
+
 # The Swift checkpoint's attention and GDN projections are ModelOpt FP8, and importing them is what
 # leaves 9 GiB of 8-bit weights in the artifact. They are re-encoded to NVFP4 from the finetune's own
 # BF16 source instead -- the choice NVFP4-full made for its source's 233 FP8 matrices. See
@@ -267,6 +305,7 @@ RECIPES = {
     "qwen3_6_27b_nvfp4": qwen3_6_27b_nvfp4,
     "qwen3_8_27b": qwen3_8_27b,
     "qwen3_8_27b_nvfp4": qwen3_8_27b_nvfp4,
+    "qwen3_8_27b_nvfp4_qat": qwen3_8_27b_nvfp4_qat,
     "qwen3_8_27b_nvfp4_swift": qwen3_8_27b_nvfp4_swift,
     "qwen3_6_35b_a3b": qwen3_6_35b_a3b,
 }

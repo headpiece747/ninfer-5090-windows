@@ -57,7 +57,13 @@ The built-in recipes are ordinary Python functions in
 | `qwen3_6_35b_a3b` | Q4 experts, Q5/Q6 expert down, Q8 shared/projection weights | None |
 | `qwen3_6_27b_nvfp4` | Imported NVFP4, selected BF16 projections, Q8 vocabulary weights | `quantized` |
 | `qwen3_8_27b_nvfp4` | Imported NVFP4/FP8, FP8 embedding generated from BF16 | `quantized` |
+| `qwen3_8_27b_nvfp4_qat` | Imported NVFP4 for every text linear; Q8 embedding and head | `bf16` |
 | `qwen3_8_27b_nvfp4_swift` | Imported ModelOpt NVFP4 MLP; attention, GDN and both W8 endpoints re-encoded from the BF16 source | `swift_bf16` |
+
+The QAT recipe's `bf16` source supplies only `gdn/a_projection` and `gdn/b_projection`. Its own
+checkpoint quantizes them, but at (96, 5120) the `block_scale_k16_m128x4_v1` layout cannot hold them --
+it requires N divisible by 128 -- so they are taken from the base checkpoint as BF16, which is also how
+the other two sources leave them.
 
 These names select conversion choices. Runtime execution is selected from the architecture,
 configuration and actual bindings stored in the artifact. `--name` sets the public model name;
