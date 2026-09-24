@@ -8,6 +8,10 @@ REM crash rather than a missing DLL.
 REM
 REM Expected result on this port: 122 of 122 pass.
 REM
+REM Set NINFER_TEST_ARTIFACT before running if you also intend to run the baseline gate: three
+REM real-model tests are required on this product, and CTest marks them skipped without it, so the
+REM gate fails with "3 required test(s) were skipped" while this recipe's own pass count hides them.
+REM
 REM After a suite run, tools\release\check_test_baseline.py confirms no NEW failure appeared. The
 REM recorded baseline is in tools\release\test_baseline.json.
 setlocal
