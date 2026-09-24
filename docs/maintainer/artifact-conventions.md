@@ -15,7 +15,8 @@ owns what a new one must *match*.
 |---|---:|---:|---:|
 | `nvfp4qat.v3.ninfer` (QUASAR) | 13.75 GiB | **0.00 GiB** | 262,144 |
 | `nvfp4full.v3.ninfer` | 13.47 GiB | **0.00 GiB** | 262,144 |
-| `nvfp4swift.v3.ninfer` (standing exception) | 8.96 GiB | **9.09 GiB** | 240,000 / 180,224 |
+| `nvfp4.v3.ninfer` (the port's earlier image, not shipped) | 7.84 GiB | 11.08 GiB | below the full context |
+| `nvfp4swift.v3.ninfer` (imported FP8; re-encode pending) | 8.96 GiB | **9.09 GiB** | 240,000 / 180,224 |
 
 Neither shipped artifact carries a single FP8 tensor. Their attention, GDN and MLP projections are
 all NVFP4, and that is what keeps resident bytes low enough for the full context — see section 3.
@@ -36,17 +37,38 @@ locally encode to NVFP4 everywhere else. Do not import FP8 codes into a shipped 
 imported FP8 matrix is 8-bit where the shipped artifacts are 4-bit, on a memory-bound decode, and
 it costs ladder steps at the context ceiling.
 
-### The machinery this needs, and where it is
+### The encoder, and how the activation divisor is obtained
 
-Local NVFP4 encoding is not in this tree. `tools/artifact/formats.py` keeps `Nvfp4Format` separate
-from `QuantFormat`, and `tools/convert/quantization/groupwise.py` refuses anything that is not a
-`QuantFormat`, so `grouped_absmax` — the port's only local quantizer — cannot produce
-`block_scale_k16_m128x4_v1`. NVFP4 enters this port only through `import_encoded`.
+`tools/convert/quantization/nvfp4.py` is the encoder (`NVFP4_MAXABS_DIVISOR_RNE_V1`), ported from
+the fork that produced the all-NVFP4 artifacts. A recipe passes it directly —
+`recipe.assign(..., method=nvfp4_maxabs)` — rather than through `METHODS`, because the module
+imports `AuxiliaryValue` from `methods` and registering it there would be an import cycle.
 
-The fork-local package `tools/convert/qwen3_8_27b/` supplies the missing half
-(`nvfp4_encode`, `calibrate_nvfp4full`, `convert_nvfp4full`, `verify_nvfp4full`), and it is absent
-here. **Until it is ported, section 1 cannot be satisfied in this tree**, which is why Swift's
-artifact is the standing exception rather than a second violation waiting to be fixed.
+It is not `grouped_absmax`. `Nvfp4Format` is a separate class from `QuantFormat`, and the block
+scale is E4M3FN over 16-column groups under a global divisor, so the row-split quantizer cannot
+produce `block_scale_k16_m128x4_v1`. Its two scales follow Transformer Engine's NVFP4 recipe:
+
+```text
+s_global = global_amax / (448 * 6)        s_block = (block_amax / 6) / s_global
+```
+
+**The activation divisor is derived, not calibrated.** The fork measures it with a forward pass over
+a fixed corpus, which needs `transformers` and `accelerate`. A ModelOpt checkpoint already carries
+the activation amax its own producer calibrated with, in the per-site `input_scale`:
+
+| site | stored | divisor to bind |
+|---|---|---|
+| already NVFP4 | `input_scale = amax / (6 * 448)` | `d_x = 1 / input_scale` |
+| FP8, being re-encoded | `input_scale = amax / 448` | `d_x = 6 / input_scale` |
+
+The two differ only by NVFP4's factor of 6 in the global scale, and a ModelOpt checkpoint proves
+both maxima are 448: its scaled codes saturate exactly 448.0 in the FP8 and the NVFP4 matrices
+alike. The `1 / input_scale` form is already the divisor this port binds for imported NVFP4 sites,
+which the published Swift artifact exercises end to end.
+
+Prefer encoding from the checkpoint's **BF16** source when one exists — `ukisai/Swift-Qwen3.8-27b`
+is ungated and 18 shards — rather than dequantizing FP8 and re-quantizing it, which carries the FP8
+rounding into the NVFP4 result.
 
 ## 2. Imported words are copied, local words are proven
 
@@ -67,6 +89,7 @@ does not fit in what remains after weights, and it reports the byte counts when 
 | 16.1 GiB (QUASAR) | 262,144 |
 | 17.0 GiB (NVFP4-full) | 262,144 |
 | 18.90 GiB (Swift MTP) | 240,000 |
+| 19.7 GiB (the port's earlier image) | below the full context |
 | 20.50 GiB (Swift DFlash2) | 180,224 |
 
 So **~17 GiB of device weights is the measured envelope** for the full native context at `fp8` KV;
