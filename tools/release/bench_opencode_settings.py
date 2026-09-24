@@ -35,11 +35,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import kill_servers  # noqa: E402
 from profiles import PROFILES as SHIPPED, launcher_args  # noqa: E402
 
-_HARNESS_PORTS = [8101, 8102, 8103, 8104]
+# The harness binds its own ports, because a launcher may already hold the shipped one. Derived
+# from the table's length rather than kept as a literal list: a hand-kept list zipped against
+# SHIPPED silently drops every profile past its end.
+_HARNESS_PORT_BASE = 8101
 PROFILES = {
     profile["file"].replace("start_", "").replace("_vision.bat", "").replace("_", "-"):
-        dict(profile, port=port)
-    for profile, port in zip(SHIPPED, _HARNESS_PORTS)
+        dict(profile, port=_HARNESS_PORT_BASE + index)
+    for index, profile in enumerate(SHIPPED)
 }
 
 # The template the launchers pass maps every value the engine advertises onto one of the three

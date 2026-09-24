@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from make_launchers_v3 import render  # noqa: E402
 from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, launcher_args, template_path  # noqa: E402
 from v3_profile_matrix import build_args  # noqa: E402
+from bench_opencode_settings import PROFILES as BENCH_PROFILES  # noqa: E402
 
 WT = Path(__file__).resolve().parents[2]
 OPENCODE = Path(r"C:\Users\tobia\.config\opencode\opencode.json")
@@ -212,6 +213,11 @@ def main() -> int:
     bench = read(WT / "tools" / "release" / "bench_opencode_settings.py")
     check("bench harness derives its profiles from the module",
           "from profiles import PROFILES as SHIPPED" in bench)
+    # Derived, and complete: a literal port list zipped against the table truncates silently, so
+    # assert the coverage rather than the derivation.
+    check("bench harness covers every shipped profile",
+          len(BENCH_PROFILES) == len(PROFILES),
+          f"{len(BENCH_PROFILES)} keys against {len(PROFILES)} profiles")
     check("bench harness does not restate the artifact filenames",
           "qwen3_8_27b_" not in bench)
 

@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import kill_servers, wait_ready  # noqa: E402
-from profiles import PROFILES, QUASAR, NVFP4FULL, INVARIANT_FLAGS, by_file, launcher_args, template_path  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, SWIFT, INVARIANT_FLAGS, by_file, launcher_args, template_path  # noqa: E402
 
 EXE = Path(__file__).resolve().parents[2] / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
@@ -58,11 +58,13 @@ ARTS = {
     # cometkim's fuller-NVFP4 profile: 18.07 GiB, NVFP4 DFlash2 module, upstream-shaped
     # draft bindings (no fused query_key_value), 17.03 GiB device weights with DFlash2.
     "nvfp4full": NVFP4FULL,
-    # UkisAI's Swift finetune, converted by this port. ModelOpt NVFP4/FP8, all 64 MLP layers
-    # NVFP4. A behaviour finetune, so the stock dflash2 draft was expected to lose acceptance;
-    # measured at 43.1% over six prompts against MTP's 47.2%, which does not reproduce the
-    # 3-5% recorded in profiles.py for a finetune. Depth and ceiling are not measured yet.
-    "swift": "qwen3_8_27b_nvfp4swift.v3.ninfer",
+    # UkisAI's Swift finetune, converted by this port. It is the one artifact here whose text
+    # attention and GDN projections are imported FP8 rather than NVFP4, so its device weights sit
+    # above the envelope the shipped artifacts hold: measured 18.90 GiB (MTP) and 20.50 GiB
+    # (DFlash2), giving 240,000 / 180,224 at fp8 KV where those reach 262,144. Re-encoding the
+    # projections to NVFP4 needs the fork-local encoder, which is absent from this tree; see
+    # docs/maintainer/artifact-conventions.md.
+    "swift": SWIFT,
 }
 LADDER = [262144, 240000, 212992, 180224, 163840, 131072]
 MTP_DEPTHS = [2, 3, 4, 5]
@@ -92,6 +94,15 @@ CEILINGS = {
     ("nvfp4full", "mtp", True, True): 262144,
     ("nvfp4full", "dflash2", False, True): 262144,
     ("nvfp4full", "dflash2", True, True): 262144,
+    # swift (UkisAI's finetune, this port's ModelOpt conversion), measured 2026-09-23 on the
+    # published artifact. Its DFlash2 draft is the z-lab companion at q8_g32_fp16, not a 4-bit
+    # module, so it costs ~2.4 GiB resident against MTP's 0.8 and gives up three ladder steps
+    # where the shipped artifacts hold 262,144. The vision lane is one step below the text lane
+    # in both cases.
+    ("swift", "mtp", False, True): 262144,
+    ("swift", "mtp", True, True): 240000,
+    ("swift", "dflash2", False, True): 180224,
+    ("swift", "dflash2", True, True): 180224,
 }
 
 
@@ -326,7 +337,7 @@ def profile_args(profile: dict, log_jsonl: Path,
 
 def build_args(art: str, spec: str, draft: int, vision: bool, max_context: int,
                log_jsonl: Path, greedy: bool = False, kv_capacity: str = "auto",
-               lm_head: bool = True) -> list[str]:
+               lm_head: bool = True, kv_dtype: str = "fp8") -> list[str]:
     """Arguments for one probe run.
 
     This harness explores combinations the four shipped profiles do not cover -- spec "none",
@@ -351,7 +362,9 @@ def build_args(art: str, spec: str, draft: int, vision: bool, max_context: int,
     for flag, value in INVARIANT_FLAGS:
         if flag == "--kv-capacity":
             continue  # already emitted above, from the caller's value
-        if value == "%TEMPLATE%":
+        if flag == "--kv-dtype":
+            value = kv_dtype  # a probe may vary it; every launcher ships fp8
+        elif value == "%TEMPLATE%":
             # This path composes the shipped flags itself instead of going through launcher_args, so
             # it has to resolve the launcher's cmd variable too. Left literal it is a startup failure
             # that the ladder reports as a context refusal, which is a measurement of nothing.
@@ -368,7 +381,7 @@ def build_args(art: str, spec: str, draft: int, vision: bool, max_context: int,
 def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = False,
                 max_context: int = 0, measure: bool = True, greedy: bool = False,
                 lm_head: bool = True, profile: dict | None = None,
-                slots: str | None = None) -> dict:
+                slots: str | None = None, kv_dtype: str = "fp8") -> dict:
     if profile is None:
         tag = (f"{art}-v3-{spec}-d{draft}{'-vision' if vision else ''}-ctx{max_context}"
                f"{'' if lm_head else '-nolmh'}")
@@ -385,7 +398,7 @@ def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = Fa
     if profile is None:
         CURRENT_MODEL_ID = f"{art}-v3-{spec}"
         args = build_args(art, spec, draft, vision, max_context, jsonl, greedy=greedy,
-                          lm_head=lm_head)
+                          lm_head=lm_head, kv_dtype=kv_dtype)
     else:
         args, CURRENT_MODEL_ID = profile_args(profile, jsonl, slots=slots)
         art, spec, draft = ART_BY_FILE[profile["art"]], profile["spec"], profile["draft"]
@@ -485,13 +498,18 @@ def mode_sweep(art: str, vision: bool, lm_head: bool = True) -> None:
 
 
 def mode_correct(art: str, vision: bool) -> None:
-    """Is speculative decoding output-preserving on this artifact?
+    """Record the greedy digest and decode rate of every speculative configuration.
 
     The depth sweep showed depths producing different digests, but request-level
     temperature 0 is not exact argmax (the server's default top_k still applies), so
     this pass runs the server with --greedy and sends no sampling fields: the only
     configuration where "identical tokens" is a meaningful claim. No-spec is the
     control; every speculative configuration is compared against it.
+
+    ADR-0002 records the answer: speculation is not bit-identical, on any artifact, and
+    depth is chosen on measured decode rate rather than on agreement with the control.
+    So a run that reports "match control: none" is the expected result, not a defect --
+    what it produces is the per-configuration digest and the speculative speed-up.
     """
     print(f"\n=== correctness, greedy, no request sampling: {art} / vision={vision}")
     rows: list[tuple[str, str, int]] = []
@@ -511,10 +529,11 @@ def mode_correct(art: str, vision: bool) -> None:
 
 
 def mode_verify(art: str, spec: str, draft: int, vision: bool, max_context: int,
-                lm_head: bool = True) -> None:
+                lm_head: bool = True, kv_dtype: str = "fp8") -> None:
     print(f"\n=== verify: {art} / {spec} d{draft} / vision={vision} / ctx {max_context:,}"
-          f" / lm-head-draft={lm_head}")
-    rec = run_profile(art, spec, draft, vision, max_context, measure=True, lm_head=lm_head)
+          f" / lm-head-draft={lm_head} / kv {kv_dtype}")
+    rec = run_profile(art, spec, draft, vision, max_context, measure=True, lm_head=lm_head,
+                      kv_dtype=kv_dtype)
     show(rec)
     for line in rec.get("spec_lines", [])[-4:]:
         print(f"           | {line[:150]}")
@@ -549,6 +568,9 @@ def main() -> int:
                     help="profile mode: shipped launcher file; repeatable, default all four")
     ap.add_argument("--device-state-slots", dest="slots", default=None,
                     help="profile mode: override the profile's slot count to choose the value")
+    ap.add_argument("--kv-dtype", default="fp8",
+                    choices=["bf16", "int8", "fp8", "nvfp4", "k8v4"],
+                    help="probe modes: vary the KV dtype the launchers ship as fp8")
     args = ap.parse_args()
 
     if not EXE.exists():
@@ -575,7 +597,8 @@ def main() -> int:
         spec = (args.specs or ["mtp"])[0]
         mode_verify((args.arts or ["quasar"])[0], spec,
                     args.draft if args.draft is not None else (5 if spec == "mtp" else 7),
-                    args.vision, args.max_context, lm_head=not args.no_lm_head)
+                    args.vision, args.max_context, lm_head=not args.no_lm_head,
+                    kv_dtype=args.kv_dtype)
 
     print(f"\nrecords: {RECORDS}")
     return 0
