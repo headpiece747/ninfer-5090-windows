@@ -15,11 +15,11 @@ owns what a new one must *match*.
 |---|---:|---:|---:|
 | `nvfp4qat.v3.ninfer` (QUASAR) | 13.75 GiB | **0.00 GiB** | 262,144 |
 | `nvfp4full.v3.ninfer` | 13.47 GiB | **0.00 GiB** | 262,144 |
+| `nvfp4swift.v3.ninfer` | 12.74 GiB | **0.00 GiB** | 262,144 |
 | `nvfp4.v3.ninfer` (the port's earlier image, not shipped) | 7.84 GiB | 11.08 GiB | below the full context |
-| `nvfp4swift.v3.ninfer` (imported FP8; re-encode pending) | 8.96 GiB | **9.09 GiB** | 240,000 / 180,224 |
 
-Neither shipped artifact carries a single FP8 tensor. Their attention, GDN and MLP projections are
-all NVFP4, and that is what keeps resident bytes low enough for the full context — see section 3.
+None of the three ships a single FP8 tensor. Their attention, GDN and MLP projections are all
+NVFP4, and that is what keeps resident bytes low enough for the full context — see section 3.
 
 Two routes reach it, and both are legitimate:
 
@@ -28,9 +28,16 @@ Two routes reach it, and both are legitimate:
   words bit-exactly yields an all-NVFP4 artifact. "No local encoder run and no calibration corpus
   are involved."
 - **The source keeps some text projections in FP8.** NVFP4-full's source (`unsloth/Qwen3.8-27B-nvfp4`)
-  carries 233 row-scaled FP8 matrices. The fork imports only its 112 NVFP4 MLP parents and
-  **locally quantizes the remaining 135 parents to NVFP4** from the BF16 base, using the documented
-  encoder profile and a calibration pass for the site input divisors.
+  carries 233 row-scaled FP8 matrices; Swift's ModelOpt checkpoint keeps its attention and GDN in
+  E4M3. Both import the NVFP4 codes the source does have and **locally encode the rest to NVFP4**
+  from the BF16 source, with the site input divisors either calibrated (NVFP4-full) or recovered
+  from the checkpoint's own `input_scale` (Swift; the derivation is in the next subsection).
+
+Re-encoding is not a concession. Measured on the fixed 1M corpus, Swift's re-encoded artifact scores
+**4.68429** against the same recipe's FP8-importing build at **4.84938**: a per-tensor FP8 scale is
+coarser than NVFP4's one scale per 16-element block, so the block scales more than pay for the
+narrower codes. "Import every code word unchanged" preserves the producer's representation, which is
+not the same thing as preserving the model's accuracy.
 
 The rule follows: **import a source's NVFP4 codes where they exist and are structurally compatible;
 locally encode to NVFP4 everywhere else. Do not import FP8 codes into a shipped artifact.** An
@@ -88,9 +95,10 @@ does not fit in what remains after weights, and it reports the byte counts when 
 |---|---|
 | 16.1 GiB (QUASAR) | 262,144 |
 | 17.0 GiB (NVFP4-full) | 262,144 |
-| 18.90 GiB (Swift MTP) | 240,000 |
+| 18.90 GiB (Swift, FP8 imported) | 240,000 |
 | 19.7 GiB (the port's earlier image) | below the full context |
-| 20.50 GiB (Swift DFlash2) | 180,224 |
+| 20.50 GiB (Swift, FP8 imported, DFlash2) | 180,224 |
+| 15.3 GiB (Swift re-encoded) | 262,144 |
 
 So **~17 GiB of device weights is the measured envelope** for the full native context at `fp8` KV;
 this is an empirical boundary from four points, not a formula. A conversion that lands above it has
