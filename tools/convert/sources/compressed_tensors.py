@@ -14,6 +14,15 @@ import torch
 from tools.artifact.codecs.fp8_row import validate_fp8_row_words
 from tools.artifact.formats import valid_positive_fp32_word
 from .logical import EncodedRows, LogicalSource
+from .quant_scheme import (
+    COMPRESSED_TENSORS_FP8,
+    COMPRESSED_TENSORS_NVFP4,
+    MODELOPT_FP8,
+    MODELOPT_NVFP4,
+    Encoding,
+    modelopt_scale_word,
+    read_declared_scheme,
+)
 from .safetensors import SafetensorsSource, tensor_source
 
 
@@ -29,11 +38,21 @@ def _divisor_word(store: SafetensorsSource, name: str) -> bytes:
 
 
 def compressed_matrix_source(
-    store: SafetensorsSource, prefix: str, shape: tuple[int, int], format: str
+    store: SafetensorsSource, prefix: str, shape: tuple[int, int], format: str,
+    encoding: Encoding | None = None,
 ) -> LogicalSource:
-    """Interpret the current compressed-tensors NVFP4 or per-row FP8 representation."""
+    """Interpret one producer's encoded matrix.
+
+    `format` is the port's encoding ("nvfp4" or "fp8_e4m3fn_row_bf16"); `encoding`
+    says how the producer stores it, defaulting to the compressed-tensors
+    convention this file was written for.
+    """
     if format not in ("nvfp4", "fp8_e4m3fn_row_bf16"):
         raise ValueError(f"unsupported encoded source format {format}")
+    if encoding is None:
+        encoding = (
+            COMPRESSED_TENSORS_NVFP4 if format == "nvfp4" else COMPRESSED_TENSORS_FP8
+        )
     n, k = shape
     if format == "nvfp4" and k % 16:
         raise ValueError(f"{prefix}: NVFP4 source K must be divisible by 16")
@@ -45,14 +64,25 @@ def compressed_matrix_source(
                 f"{name}: expected {dtype}{expected}, got {info.dtype}{info.shape}"
             )
 
-    def divisor(suffix: str) -> bytes:
-        return _divisor_word(store, f"{prefix}.{suffix}")
+    def scale_word(suffix: str) -> bytes:
+        """The bound divisor, inverted first when the producer stored a multiplier."""
+        name = f"{prefix}.{suffix}"
+        if not encoding.divisors_stored_as_multipliers:
+            return _divisor_word(store, name)
+        return modelopt_scale_word(store, name)
+
+    def global_divisor() -> bytes:
+        return scale_word(encoding.global_scale_key)
+
+    def input_divisor() -> bytes:
+        return scale_word(encoding.input_scale_key)
 
     def encoded(begin: int, end: int) -> EncodedRows:
         if not 0 <= begin < end <= n:
             raise ValueError(f"{prefix}: invalid encoded rows [{begin},{end})")
         if format == "nvfp4":
-            packed, scale = f"{prefix}.weight_packed", f"{prefix}.weight_scale"
+            packed = f"{prefix}.{encoding.codes_key}"
+            scale = f"{prefix}.{encoding.scales_key}"
             signature(packed, (n, k // 2), "U8")
             signature(scale, (n, k // 16), "F8_E4M3")
             codes = store.read_flat(packed, begin * (k // 2), end * (k // 2)).reshape(
@@ -65,18 +95,28 @@ def compressed_matrix_source(
             )
             if bool((scales > 0x7E).any()):
                 raise ValueError(f"{scale}: expected nonnegative finite E4M3FN scales")
-            return EncodedRows(format, codes, scales, divisor("weight_global_scale"))
-        weight, scale = f"{prefix}.weight", f"{prefix}.weight_scale"
+            return EncodedRows(format, codes, scales, global_divisor())
+        weight = f"{prefix}.{encoding.codes_key}"
+        scale = f"{prefix}.{encoding.scales_key}"
         signature(weight, shape, "F8_E4M3")
         info = store.describe(scale)
-        if info.dtype != "BF16" or prod(info.shape) != n:
-            raise ValueError(f"{scale}: expected one BF16 scale per row")
+        if encoding.row_scale_from_tensor_scale:
+            # One stored multiplier, restated on every row. A uniform multiplier is
+            # the same number on each row, so this is a faithful restatement of
+            # per-tensor scaling in the only geometry this port has for FP8.
+            if info.dtype != "F32" or prod(info.shape) != 1:
+                raise ValueError(f"{scale}: expected a single FP32 tensor scale")
+            row_scale = store.read_flat(scale).reshape(1).to(torch.bfloat16)
+            scales = row_scale.expand(end - begin).contiguous()
+        else:
+            if info.dtype != "BF16" or prod(info.shape) != n:
+                raise ValueError(f"{scale}: expected one BF16 scale per row")
+            scales = store.read_flat(scale, begin, end)
         codes = (
             store.read_flat(weight, begin * k, end * k)
             .view(torch.uint8)
             .reshape(end - begin, k)
         )
-        scales = store.read_flat(scale, begin, end)
         validate_fp8_row_words(codes, scales)
         return EncodedRows(format, codes, scales)
 
@@ -128,9 +168,53 @@ def compressed_matrix_source(
         f"{store.path}:{prefix} ({format})",
         read,
         encoded,
-        (lambda: divisor("weight_global_scale")) if format == "nvfp4" else None,
-        (lambda: divisor("input_global_scale")) if format == "nvfp4" else None,
+        (global_divisor if format == "nvfp4" and encoding.global_scale_key else None),
+        (input_divisor if format == "nvfp4" and encoding.input_scale_key else None),
     )
+
+
+def _encoding_for(store: SafetensorsSource, prefix: str, format: str) -> Encoding:
+    """Which producer's storage this matrix uses.
+
+    When the checkpoint declares its scheme, the declaration decides and a
+    disagreement with the tensor names is an error rather than a silent choice:
+    reading ModelOpt codes through the compressed-tensors keys would produce
+    weights that load and are wrong.
+
+    `lm_head` is the one matrix ModelOpt declares unprefixed while the weight map
+    carries it without a `.weight` suffix, so it is also probed at its bare name.
+    """
+    declared = read_declared_scheme(store)
+    if declared:
+        algorithm = declared.get(prefix) or declared.get(prefix + ".weight")
+        if algorithm is not None:
+            if algorithm == "NVFP4":
+                if format == "nvfp4":
+                    return MODELOPT_NVFP4
+                raise ValueError(
+                    f"{prefix}: declared NVFP4 but the recipe asked for {format}"
+                )
+            if algorithm.startswith("FP8"):
+                if format == "fp8_e4m3fn_row_bf16":
+                    return MODELOPT_FP8
+                raise ValueError(
+                    f"{prefix}: declared {algorithm} but the recipe asked for {format}"
+                )
+            raise ValueError(f"{prefix}: unsupported declared quant_algo {algorithm!r}")
+        # Declared checkpoints are all-or-nothing: a matrix absent from the
+        # declaration is one the producer left unquantized.
+        raise ValueError(f"{prefix}: absent from the checkpoint's declared quant scheme")
+    # No declaration: identify the producer from the keys it wrote. ModelOpt's
+    # NVFP4 carries a `weight_scale_2` where compressed-tensors carries a
+    # `weight_packed`; its FP8 carries one FP32 tensor scale where
+    # compressed-tensors carries one BF16 scale per row.
+    if format == "nvfp4":
+        if store.has(f"{prefix}.weight_scale_2"):
+            return MODELOPT_NVFP4
+        return COMPRESSED_TENSORS_NVFP4
+    if store.describe(f"{prefix}.weight_scale").dtype == "F32":
+        return MODELOPT_FP8
+    return COMPRESSED_TENSORS_FP8
 
 
 def matrix_source(
@@ -147,14 +231,19 @@ def matrix_source(
         nonlocal resolved
         if resolved is None:
             actual = format
-            if actual is None and store.has(prefix + ".weight_packed"):
+            if actual is None and (
+                store.has(prefix + ".weight_packed")
+                or store.has(prefix + ".weight_scale_2")
+            ):
                 actual = "nvfp4"
             if actual is None and store.describe(name).dtype == "F8_E4M3":
                 actual = "fp8_e4m3fn_row_bf16"
             resolved = (
                 tensor_source(store, name, shape)
                 if actual is None
-                else compressed_matrix_source(store, prefix, shape, actual)
+                else compressed_matrix_source(
+                    store, prefix, shape, actual, _encoding_for(store, prefix, actual)
+                )
             )
         return resolved
 
