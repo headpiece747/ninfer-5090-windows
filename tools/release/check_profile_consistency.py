@@ -21,7 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from make_launchers_v3 import render  # noqa: E402
-from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, launcher_args  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, launcher_args, template_path  # noqa: E402
+from v3_profile_matrix import build_args  # noqa: E402
 
 WT = Path(__file__).resolve().parents[2]
 OPENCODE = Path(r"C:\Users\tobia\.config\opencode\opencode.json")
@@ -227,9 +228,15 @@ def main() -> int:
               or "launcher_args" in body)
 
     # The matrix explores combinations no profile covers, so it composes the invariants rather
-    # than calling launcher_args. Assert that specifically.
+    # than calling launcher_args. Assert that specifically -- and assert the composed result, because
+    # a text check cannot see the launcher's `%TEMPLATE%` reaching the command line unresolved, which
+    # is a startup failure that the context ladder then reports as a refusal.
     matrix = read(WT / "tools" / "release" / "v3_profile_matrix.py")
     check("matrix composes INVARIANT_FLAGS", "INVARIANT_FLAGS" in matrix)
+    composed = build_args("quasar", "mtp", 4, True, 262144, Path("unused.jsonl"))
+    check("matrix resolves the launcher's cmd variables", "%TEMPLATE%" not in composed,
+          " ".join(composed))
+    check("matrix points at the maintained template file", template_path() in composed)
 
     for note in notes:
         print(f"\n   note: {note}")

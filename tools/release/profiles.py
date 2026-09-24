@@ -44,7 +44,18 @@ headroom to buy speed. Route, depth and this flag are measurements, never conven
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Iterable
+
+
+def template_path() -> str:
+    """The lane's template in the source tree.
+
+    A launcher resolves `%TEMPLATE%` beside itself; a harness runs in the source tree, so it points
+    at the same maintained file there. Every consumer of `INVARIANT_FLAGS` must go through this:
+    leaving the literal cmd variable on a command line is a startup failure, not a measurement.
+    """
+    return str(Path(__file__).resolve().parents[2] / "tools" / "chat_templates" / "qwen3_8.jinja")
 
 # The QUASAR artifact is our own quantisation-aware-trained image; NVFP4-full is the fuller one
 # published by cometkim. "ninfer" alone is ambiguous and should not be used. See CONTEXT.md.
@@ -276,12 +287,7 @@ def launcher_args(profile: dict[str, Any], port: int | None = None,
         elif flag == "--max-context" and max_context is not None:
             value = str(max_context)
         if value == "%TEMPLATE%":
-            # The launcher resolves this beside itself; a harness runs in the source tree, so point it
-            # at the same maintained file there rather than leaving a literal cmd variable.
-            from pathlib import Path as _Path
-
-            value = str(_Path(__file__).resolve().parents[2] / "tools" / "chat_templates" /
-                        "qwen3_8.jinja")
+            value = template_path()
         if value is None and " " not in flag:
             args.append(flag)
         else:
@@ -305,11 +311,7 @@ def cli_args(profile: dict[str, Any]) -> list[str]:
     out: list[str] = []
     # The lane's template, resolved the way launcher_args resolves it, so a CLI harness renders with
     # the same file the launcher ships rather than whichever template its artifact embeds.
-    from pathlib import Path as _Path
-
-    out.extend(["--chat-template",
-                str(_Path(__file__).resolve().parents[2] / "tools" / "chat_templates" /
-                    "qwen3_8.jinja")])
+    out.extend(["--chat-template", template_path()])
     if profile["vision"]:
         out.append("--vision")
     if profile["spec"] != "none":

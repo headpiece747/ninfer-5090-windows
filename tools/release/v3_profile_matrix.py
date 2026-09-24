@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import kill_servers, wait_ready  # noqa: E402
-from profiles import PROFILES, QUASAR, NVFP4FULL, INVARIANT_FLAGS, by_file, launcher_args  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, INVARIANT_FLAGS, by_file, launcher_args, template_path  # noqa: E402
 
 EXE = Path(__file__).resolve().parents[2] / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
@@ -351,6 +351,11 @@ def build_args(art: str, spec: str, draft: int, vision: bool, max_context: int,
     for flag, value in INVARIANT_FLAGS:
         if flag == "--kv-capacity":
             continue  # already emitted above, from the caller's value
+        if value == "%TEMPLATE%":
+            # This path composes the shipped flags itself instead of going through launcher_args, so
+            # it has to resolve the launcher's cmd variable too. Left literal it is a startup failure
+            # that the ladder reports as a context refusal, which is a measurement of nothing.
+            value = template_path()
         a.append(flag) if value is None else a.extend([flag, value])
     a += ["--log-stats-interval-ms", "2000",
           "--request-log-jsonl", str(log_jsonl),

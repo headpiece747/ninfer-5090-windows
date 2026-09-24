@@ -51,14 +51,15 @@ def main() -> int:
     kill_servers()
     time.sleep(3)
     if options.artifact is not None:
-        # An artifact that is not a shipped profile: the invariant flags the launchers pass, and a
-        # small context because this probe only needs one short reply.
-        args = [EXE, str(options.artifact), "--host", "127.0.0.1", "--port", str(options.port),
-                "--model-id", options.model_id, "--max-context", "32768", "--kv-capacity", "auto",
-                "--kv-dtype", "fp8", "--max-concurrency", "1", "--preserve-thinking",
-                "--default-thinking-budget", "4096"]
-        if options.spec != "none":
-            args += ["--spec", options.spec, "--draft-tokens", "3", "--lm-head-draft"]
+        # An artifact that is not a shipped profile. The invariant flags still come from the module:
+        # composing them here is the drift launcher_args exists to prevent, and the effort arms need
+        # the shipped --preserve-thinking and thinking budget to mean anything.
+        profile = dict(port=options.port, model_id=options.model_id, ctx=32768,
+                       device_state_slots=1, spec=options.spec, draft=3, vision=False,
+                       lm_head=True)
+        args = [EXE, str(options.artifact)] + launcher_args(profile, port=options.port,
+                                                            model_id=options.model_id,
+                                                            max_context=32768)
         log_path = Path(r"C:\AI\bench\effort_probe_artifact.txt")
     else:
         # The profile's shipped flags. Context is overridden small because this probe only needs
