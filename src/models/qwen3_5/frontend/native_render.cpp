@@ -46,6 +46,11 @@ constexpr std::string_view kImStart       = "<|im_start|>";
 constexpr std::string_view kImEnd         = "<|im_end|>";
 constexpr std::string_view kThinkOpen         = "<" "think" ">\n";
 constexpr std::string_view kThinkClose        = "\n</" "think" ">\n\n";
+// The pad tokens the media placeholders expand into. `processor.cpp` matches these exact bytes when
+// it validates a placeholder against the item it came from, so the recorded span must cover the pad
+// and nothing else.
+constexpr std::string_view kImagePad           = "<|image_pad|>";
+constexpr std::string_view kVideoPad           = "<|video_pad|>";
 constexpr std::string_view kToolCallOpen  = "\n\n<tool_call>\n<function=";
 constexpr std::string_view kToolCallOpenB = "<tool_call>\n<function=";
 constexpr std::string_view kToolCallNext  = "\n<tool_call>\n<function=";
@@ -148,10 +153,12 @@ std::string to_json(const nlohmann::ordered_json& value) {
     return out;
 }
 
-// The media placeholder a message part contributes, in template order.
+// The media placeholder a message part contributes, in template order: its modality, and where the
+// pad token sits inside `render_content`'s own output. The offset is relative to that string, so the
+// caller translates it into the final text once it knows where the content lands.
 struct MediaUse {
     Modality modality;
-    std::size_t part_index = 0;
+    std::size_t pad_offset = 0;
 };
 
 // What one message's `render_content` produced, plus the surfaces the boundary records need.
@@ -163,14 +170,50 @@ struct MessageRender {
     bool unsupported          = false; // the template would raise: a media part in an instruction turn
 };
 
+// One piece of a message's rendered content: the bytes, and whether they came from the message or
+// from the template's own literals. The tokenizer reads that distinction -- a control token inside
+// input bytes is literal text -- so the template's media wrapper must not be classified as input, or
+// its pad is never recognized as a pad and the expansion rejects the prompt.
+struct ContentSegment {
+    std::string bytes;
+    bool input = false;
+};
+
+std::string join(const std::vector<ContentSegment>& segments) {
+    std::string out;
+    for (const ContentSegment& segment : segments) { out += segment.bytes; }
+    return out;
+}
+
 // A message's parts rendered to text. Mirrors `render_content`: text parts contribute their text,
 // media parts contribute the vision wrapper, and `add_vision_id` prefixes a running count.
-std::string render_content(const ChatMessage& message, bool is_instruction, bool add_vision_id,
-                           std::size_t& image_count, std::size_t& video_count) {
-    std::string out;
+std::vector<ContentSegment> render_content(const ChatMessage& message, bool is_instruction,
+                                           bool add_vision_id, std::size_t& image_count,
+                                           std::size_t& video_count,
+                                           std::vector<MediaUse>* uses = nullptr) {
+    std::vector<ContentSegment> out;
+    std::size_t length = 0;
+    const auto add_template = [&](std::string_view bytes) {
+        if (bytes.empty()) { return; }
+        if (!out.empty() && !out.back().input) {
+            out.back().bytes += bytes;
+        } else {
+            out.push_back({std::string(bytes), false});
+        }
+        length += bytes.size();
+    };
+    const auto add_input = [&](std::string_view bytes) {
+        if (bytes.empty()) { return; }
+        if (!out.empty() && out.back().input) {
+            out.back().bytes += bytes;
+        } else {
+            out.push_back({std::string(bytes), true});
+        }
+        length += bytes.size();
+    };
     for (const ChatPart& part : message.parts) {
         if (part.kind == ChatPartKind::Text) {
-            out += part.text;
+            add_input(part.text);
             continue;
         }
         const bool image = part.kind == ChatPartKind::Image;
@@ -181,12 +224,17 @@ std::string render_content(const ChatMessage& message, bool is_instruction, bool
         }
         if (image) {
             ++image_count;
-            if (add_vision_id) { out += "Picture " + std::to_string(image_count) + ": "; }
-            out += "<|vision_start|><|image_pad|><|vision_end|>";
+            if (add_vision_id) { add_template("Picture " + std::to_string(image_count) + ": "); }
         } else {
             ++video_count;
-            if (add_vision_id) { out += "Video " + std::to_string(video_count) + ": "; }
-            out += "<|vision_start|><|video_pad|><|vision_end|>";
+            if (add_vision_id) { add_template("Video " + std::to_string(video_count) + ": "); }
+        }
+        add_template("<|vision_start|>");
+        const std::size_t pad_offset = length;
+        add_template(image ? kImagePad : kVideoPad);
+        add_template("<|vision_end|>");
+        if (uses != nullptr) {
+            uses->push_back({image ? Modality::Image : Modality::Video, pad_offset});
         }
     }
     return out;
@@ -258,7 +306,7 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
     for (std::size_t i = messages.size(); i-- > 0;) {
         if (messages[i].role != ChatRole::User) { continue; }
         const std::string raw =
-            render_content(messages[i], false, false, count_images, count_videos);
+            join(render_content(messages[i], false, false, count_images, count_videos));
         if (!(raw.starts_with(kToolResponseStart) && raw.ends_with(kToolResponseEnd))) {
             last_query_index = i;
             break;
@@ -297,14 +345,14 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
         text += kToolsReminder;
         if (instruction(messages.front().role)) {
             const std::string content = trim_whitespace(
-                render_content(messages.front(), true, false, image_count, video_count));
+                join(render_content(messages.front(), true, false, image_count, video_count)));
             if (!content.empty()) { text += "\n\n"; append_input(content); }
         }
         text += kImEnd;
         text += "\n";
     } else if (instruction(messages.front().role)) {
         const std::string content =
-            trim_whitespace(render_content(messages.front(), true, false, image_count, video_count));
+            trim_whitespace(join(render_content(messages.front(), true, false, image_count, video_count)));
         if (!content.empty()) {
             text += kImStart;
             text += "system\n";
@@ -327,17 +375,66 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
         text += "\n";
     }
 
+    std::size_t media_index = 0;
     for (std::size_t i = 0; i < messages.size(); ++i) {
         const ChatMessage& message = messages[i];
         const bool first = i == 0;
         const bool last  = i + 1 == messages.size();
-        const std::string content = trim_whitespace(render_content(
-            message, instruction(message.role), options.add_vision_id, image_count, video_count));
+        std::vector<MediaUse> uses;
+        const std::vector<ContentSegment> segments = render_content(
+            message, instruction(message.role), options.add_vision_id, image_count, video_count,
+            &uses);
+        const std::string raw     = join(segments);
+        const std::string content = trim_whitespace(raw);
+        // `trim_whitespace` strips both ends, so a placeholder's offset inside `content` is its
+        // offset in `raw` less whatever the leading strip removed.
+        const std::size_t media_lead = content.empty() ? 0 : raw.find(content);
+        // The pad's span is recorded where the content lands, because the placeholder metadata the
+        // processor validates is absolute text offsets -- a native renderer that omits them fails
+        // every media request with "chat media count does not match rendered placeholders".
+        const auto record_media = [&](std::size_t content_start) {
+            for (const MediaUse& use : uses) {
+                const std::string_view pad =
+                    use.modality == Modality::Image ? kImagePad : kVideoPad;
+                const std::size_t begin = content_start + use.pad_offset - media_lead;
+                result.media_placeholders.push_back(MediaPlaceholderByteSpec{
+                    .bytes = {begin, begin + pad.size()},
+                    .modality = use.modality,
+                    .item_index = media_index++});
+            }
+        };
+        // Emit the content segment by segment: the message's own bytes are input, the template's
+        // media wrapper is not, and the tokenizer reads that difference. `trim_whitespace` strips
+        // both ends of the whole content, so the leading strip comes off the front and the trailing
+        // one by emitting only `content.size()` bytes.
+        const auto emit_content = [&]() {
+            const std::size_t content_start = text.size();
+            std::size_t skip                = media_lead;
+            std::size_t left                = content.size();
+            for (const ContentSegment& segment : segments) {
+                std::string_view bytes = segment.bytes;
+                if (skip > 0) {
+                    const std::size_t cut = std::min(skip, bytes.size());
+                    bytes.remove_prefix(cut);
+                    skip -= cut;
+                }
+                if (left == 0) { break; }
+                if (bytes.size() > left) { bytes = bytes.substr(0, left); }
+                if (bytes.empty()) { continue; }
+                if (segment.input) {
+                    append_input(bytes);
+                } else {
+                    text += bytes;
+                }
+                left -= bytes.size();
+            }
+            record_media(content_start);
+        };
         if (instruction(message.role)) {
             if (!first) {
                 text += kImStart;
                 text += "system\n";
-                append_input(content);
+                emit_content();
                 text += kImEnd;
                 text += "\n";
             }
@@ -345,7 +442,7 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
             text += kImStart;
             append_input("user");
             text += "\n";
-            append_input(content);
+            emit_content();
             text += kImEnd;
             text += "\n";
         } else if (message.role == ChatRole::Assistant) {
@@ -363,7 +460,7 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
                 if (!reasoning.empty()) { append_input(reasoning); }
                 text += kThinkClose;
             }
-            append_input(content);
+            emit_content();
             if (!message.tool_calls.empty()) {
                 for (std::size_t call_index = 0; call_index < message.tool_calls.size();
                      ++call_index) {
@@ -404,7 +501,7 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
                 text += "user";
             }
             text += kToolResponseOpen;
-            append_input(content);
+            emit_content();
             text += kToolResponseClose;
             if (last || messages[i + 1].role != ChatRole::Tool) {
                 text += kImEnd;

@@ -2364,6 +2364,69 @@ int test_reasoning_effort_aliases() {
     return failures;
 }
 
+// The registered template takes the native renderer, so media has to be covered through *that*
+// path. Two existing guards miss it: the differential loop's synthesized corpus has no media parts,
+// and the fixture-template media tests resolve `qwen3_6.jinja`, whose digest is unregistered and
+// therefore takes the Jinja path. A native renderer that never records `media_placeholders` fails
+// every image request with "chat media count does not match rendered placeholders".
+int test_registered_template_media() {
+    // Assert the renderer's own placeholder metadata first: the byte span must cover exactly the
+    // pad token, because the processor expands that span and then requires the tokens it produced to
+    // be nothing but pads.
+    const fi::CompiledChatTemplate compiled =
+        fi::CompiledChatTemplate::resolve(reasoning_effort_template_source());
+    fi::ChatMessage message = chat_message(ninfer::ChatRole::User, "look at this");
+    fi::MediaData media;
+    media.media_type  = "image/png";
+    media.source_name = "test";
+    media.bytes       = {0x89, 0x50, 0x4e, 0x47};
+    message.parts.push_back(fi::ChatPart::image(std::move(media)));
+    const fi::RenderedChat rendered = compiled.render({std::move(message)});
+    const std::string_view pad      = "<|image_pad|>";
+    int failures                    = 0;
+    failures += check(rendered.media_placeholders.size() == 1,
+                      "the registered template did not record one media placeholder");
+    if (rendered.media_placeholders.size() == 1) {
+        const fi::MediaPlaceholderByteSpec& placeholder = rendered.media_placeholders[0];
+        const bool covers_pad =
+            placeholder.bytes.end - placeholder.bytes.begin == pad.size() &&
+            rendered.text.compare(placeholder.bytes.begin, pad.size(), pad) == 0;
+        if (!covers_pad) {
+            std::cerr << "registered media placeholder [" << placeholder.bytes.begin << ","
+                      << placeholder.bytes.end << ") does not cover the pad token at "
+                      << rendered.text.find(pad) << " (modality "
+                      << static_cast<int>(placeholder.modality) << ", item "
+                      << placeholder.item_index << ")\n";
+        }
+        failures += check(covers_pad, "the media placeholder does not cover its pad token");
+        failures += check(placeholder.item_index == 0 &&
+                              placeholder.modality == fi::Modality::Image,
+                          "the media placeholder carries the wrong item index or modality");
+        // The wrapper the template writes is *template* bytes; only the message text is input. A
+        // wrapper classified as input is not recognized as control tokens when the prompt is
+        // tokenized, which is what the expansion then rejects.
+        const bool wrapper_is_template = std::none_of(
+            rendered.literal_spans.begin(), rendered.literal_spans.end(),
+            [&](const ninfer::text::ByteSpan& span) {
+                return span.begin <= placeholder.bytes.begin && placeholder.bytes.end <= span.end;
+            });
+        failures += check(wrapper_is_template,
+                          "the media wrapper is classified as input bytes rather than template bytes");
+    }
+    // Then the end-to-end path, which is where the expansion validates the tokens.
+    const auto frontend = make_frontend(resources(reasoning_effort_template_source()));
+    try {
+        const auto prepared = frontend.prepare(image_input());
+        const auto& data    = FrontendFactory::inspect(prepared);
+        failures += check(data.vision_items.size() == 1 && data.prepare.vision_tokens == 4,
+                          "the registered template did not expand an image through the native renderer");
+    } catch (const std::exception& error) {
+        std::cerr << "registered template media: " << error.what() << '\n';
+        failures += 1;
+    }
+    return failures;
+}
+
 int main() {
     const FrontendResources owned = resources();
     const Frontend frontend       = make_frontend(owned);
@@ -2390,6 +2453,7 @@ int main() {
     failures += test_text_and_image_prepare(frontend);
     failures += test_media_token_ids_come_from_tokenizer();
     failures += test_template_media_contract();
+    failures += test_registered_template_media();
     failures += test_image_resize_rejection_policy();
     failures += test_explicit_leading_instruction_cache_boundary();
     failures += test_media_admission_uses_aggregate_resources(frontend);
