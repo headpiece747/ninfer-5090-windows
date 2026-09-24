@@ -2,8 +2,16 @@
 
 ## What changed in 1.2.0
 
-Two retention defects, and the configuration that hid them. All four launchers change, so an upgrade
+Two retention defects, and the configuration that hid them. All six launchers change, so an upgrade
 behaves differently without any action on your part.
+
+- **Two Swift lanes join the release.** `start_swift_v3_dflash2_vision.bat` and
+  `start_swift_v3_mtp5_vision.bat` serve UkisAI's Swift finetune as a third artifact. Its ModelOpt
+  checkpoint keeps attention and GDN in FP8; importing that left 9 GiB of 8-bit weights and capped
+  both lanes below the native context. They are now encoded to NVFP4 from the finetune's BF16
+  source, with both W8 endpoints Q8, so no FP8 code word reaches the artifact. Perplexity on the
+  fixed corpus improves to **4.68429** from 4.84938 for the same recipe importing the FP8, and both
+  lanes reach the full 262,144-token context.
 
 - **A growing conversation stopped reusing its own prefix.** Once the State pools filled, publishing
   the newest checkpoint meant replacing a resident, and the capture could not be valued against doing
@@ -51,6 +59,8 @@ that earlier builds shipped.
 | `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | 220 tok/s | 58.3% |
 | `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **345 tok/s** | 63.7% |
 | `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 254 tok/s | 64.2% |
+| `start_swift_v3_dflash2_vision.bat` | Swift | DFlash2 (7) | yes | 262,144 | **331 tok/s** | 60.9% |
+| `start_swift_v3_mtp5_vision.bat` | Swift | MTP (5) | yes | 262,144 | 237 tok/s | 58.6% |
 
 Every number was measured on an RTX 5090 with the exact arguments the launcher passes, in one
 interleaved pass; every context ceiling is the highest value the engine accepts for that

@@ -84,6 +84,19 @@ PROFILES: list[dict[str, Any]] = [
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
          tok=253.5, acc="64.2%", runtime="10.4 GiB", free="2.6 GiB",
          note="MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here."),
+    dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT, device_state_slots=1,
+         label="Swift + DFlash2 + Vision", model_id="qwen3.8-27b-swift-v3-dflash2-vision",
+         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
+         tok=331.0, acc="60.9%", runtime="10.7 GiB", free="1.7 GiB",
+         note="Swift's fastest lane, and the one re-encoding helped most: acceptance is 60.9% "
+              "against 45.5% while the FP8 attention was imported, because the z-lab draft was "
+              "trained on the stock model's hidden states."),
+    dict(file="start_swift_v3_mtp5_vision.bat", port=8091, art=SWIFT, device_state_slots=1,
+         label="Swift + MTP5 + Vision", model_id="qwen3.8-27b-swift-v3-mtp5-vision",
+         spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
+         tok=236.7, acc="58.6%", runtime="10.4 GiB", free="3.1 GiB",
+         note="Depth 5 measured fastest of 2-5 on Swift, as on NVFP4-full, with 3.1 GiB free at "
+              "the full native context."),
 ]
 
 # Flags every profile ships, in the order the launcher renders them. A value of None marks a

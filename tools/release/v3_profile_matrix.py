@@ -94,15 +94,14 @@ CEILINGS = {
     ("nvfp4full", "mtp", True, True): 262144,
     ("nvfp4full", "dflash2", False, True): 262144,
     ("nvfp4full", "dflash2", True, True): 262144,
-    # swift (UkisAI's finetune, this port's ModelOpt conversion), measured 2026-09-23 on the
-    # published artifact. Its DFlash2 draft is the z-lab companion at q8_g32_fp16, not a 4-bit
-    # module, so it costs ~2.4 GiB resident against MTP's 0.8 and gives up three ladder steps
-    # where the shipped artifacts hold 262,144. The vision lane is one step below the text lane
-    # in both cases.
+    # swift (UkisAI's finetune, re-encoded by this port), measured 2026-09-24 on the re-encoded
+    # artifact. Re-encoding its FP8 attention and GDN to NVFP4 from the finetune's BF16 source took
+    # device weights from 18.90 GiB to 15.3, which is what puts every combination back at the full
+    # native context; the same lanes measured 240,000 and 180,224 while the FP8 codes were imported.
     ("swift", "mtp", False, True): 262144,
-    ("swift", "mtp", True, True): 240000,
-    ("swift", "dflash2", False, True): 180224,
-    ("swift", "dflash2", True, True): 180224,
+    ("swift", "mtp", True, True): 262144,
+    ("swift", "dflash2", False, True): 262144,
+    ("swift", "dflash2", True, True): 262144,
 }
 
 

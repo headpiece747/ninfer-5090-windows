@@ -24,19 +24,20 @@ engine rejects v2 artifacts outright, so a v1.0.x user must download a v3 artifa
    and leaves the failure on screen if they do not.
 
 The server then answers on `http://127.0.0.1:<port>/v1` under the model id in that launcher's
-header. `GET /health` answers once the model is loaded. The four launchers and their measured
+header. `GET /health` answers once the model is loaded. The six launchers and their measured
 figures are under [Profiles and launchers](#profiles-and-launchers); building from source is under
 [Windows](#windows).
 
-Two v3 artifacts ship with this port. The four launchers use these two, and `download_model.bat`
-offers exactly them:
+Three v3 artifacts ship with this port. The six launchers use these three, and `download_model.bat`
+offers the two that are published:
 
 | Model | Weights | Artifact | Download |
 |---|---|---|---|
 | Qwen3.8-27B | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | [QUASAR QAT](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer), 17.36 GiB, `8b86901a…` |
 | Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.v3.ninfer` | [NVFP4-full](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4full-NInfer), 18.07 GiB, `ac98cd39…` |
+| Qwen3.8-27B | `nvfp4swift` (Swift finetune) | `qwen3_8_27b_nvfp4swift.v3.ninfer` | 18.42 GiB, `6353a46f…`; its `download_model.py` pin lands with its publication |
 
-Both are Qwen3.8-27B. Their sizes and full SHA-256 digests are pinned in `download_model.py`, which
+All three are Qwen3.8-27B. The published sizes and full SHA-256 digests are pinned in `download_model.py`, which
 verifies every download against them; a republish upstream means updating that pin.
 
 Upstream publishes artifacts for other checkpoints, which this port neither ships nor measures. The
@@ -62,7 +63,7 @@ reuse, Host resume, eviction, shared prefixes, scheduling boundaries, and multim
 
 ## Performance
 
-Published measurements use an RTX 5090. The four launchers' figures are in
+Published measurements use an RTX 5090. The six launchers' figures are in
 [Profiles and launchers](#profiles-and-launchers), each at the exact argument set its launcher
 starts. The [performance index](docs/performance.md) and its
 [measurement rules](docs/performance/methodology.md) hold the engine's per-model run records, which
@@ -119,11 +120,11 @@ Two build notes specific to Windows:
 
 ### Profiles and launchers
 
-Four launchers ship for the RTX 5090, one per measured-optimal profile. Every number below was
+Six launchers ship for the RTX 5090, one per measured-optimal profile. Every number below was
 measured on this machine with the exact argument set the launcher uses, in one interleaved pass --
 absolute decode varies by up to ~9% between sessions on a card whose clocks are not pinned, so
-compare lanes to each other and expect your own absolute figures to differ. Both artifacts are
-vision-only here because Vision measured free on both at 262,144; the with/without comparison is
+compare lanes to each other and expect your own absolute figures to differ. All three artifacts are
+vision-only here because Vision measured free on all of them at 262,144; the with/without comparison is
 recorded in [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md). No degraded text-only variant ships, and every profile reaches the
 full native context.
 
@@ -133,6 +134,8 @@ full native context.
 | `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 220 tok/s | 58.3% |
 | `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **345 tok/s** | 63.7% |
 | `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 254 tok/s | 64.2% |
+| `start_swift_v3_dflash2_vision.bat` | Swift | DFlash2 (7) | yes | 262,144 | **331 tok/s** | 60.9% |
+| `start_swift_v3_mtp5_vision.bat` | Swift | MTP (5) | yes | 262,144 | 237 tok/s | 58.6% |
 
 Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
 runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after
