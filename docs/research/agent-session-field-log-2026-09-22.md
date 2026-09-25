@@ -158,6 +158,14 @@ the KV prefix is reused but no State is restored. The field log is what that tes
 production: the reuse happens, the checkpoint that would carry the continuation state does not
 survive to serve it.
 
+The failure is history rather than a live symptom, and the note above should be read that way. It was
+fixed the same day, in `2e229b3e` ("reuse a demoted turn closure instead of its owner's session
+endpoint"), after `1fa5b888` had recorded the attribution. Verified 2026-09-25 against this tree:
+`ninfer_qwen3_5_prefix_real_test` passes -- exit 0, `ok`, all fifteen cases including
+`exercise_host_restore` -- with the shipped `qwen3_8_27b_nvfp4qat.v3.ninfer`, with the published file
+this port replaces, and with the official `qwen3_8_27b_nvfp4.v3.ninfer`. So the case is this log's
+regression protection, and the log cannot date a defect that has since been fixed.
+
 This is ADR-0007's subject, and the reason it matters is that the dropped checkpoint is the one
 holding the speculative-decoding state: `private_turn_closure` is the path that restores MTP/DFlash
 state.
