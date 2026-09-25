@@ -388,6 +388,17 @@ Thirty-five rules, each earned by a failure rather than chosen:
   with load. Serialise the card: stop the server before a sweep, finish the suite before the
   measurement, and give any automated GPU work a concurrency lock rather than a timer that can fire
   mid-measurement, which is why `.github/workflows/gpu.yml` declares one and is dispatch-only.
+- **The release matrix kills every `ninfer-serve.exe` on the machine, including the lane a chat session
+  is using.** `v3_profile_matrix.py` stops every engine before each sweep, which is right for its own
+  measurement and fatal to anything else serving. On 2026-09-25 a sweep took down the desktop app's
+  local lane, and its next request failed as though the provider had broken. Check what is serving
+  before a sweep, and say so rather than discovering it afterwards.
+- **A rejected request's reason is in the engine's log; opencode does not report it.** The desktop app
+  surfaces a provider failure as `Provider request failed with HTTP 400` with a stack trace and no body,
+  while the engine answers with a specific JSON error -- `image_detail_not_supported`, `invalid_media`,
+  `modality_not_supported`, `image URL must use HTTP(S)`. The engine's own log carries that line, so a
+  lane started detached from a console has put it nowhere: start the lane with its output captured
+  before diagnosing one, or the only evidence is the one line that says nothing.
 - **Do not ration work against an assumed context limit.** A session is not short: it can run long,
   and compaction exists for when it does not fit. An agent that behaves as if it is about to run out
   takes smaller changes than the job needs, defers the next step it has already identified, cuts an
