@@ -1,0 +1,22 @@
+# Lint the Python tooling with the rules that name defects, not style.
+#
+# ruff's default set reports 245 findings on this tree, nearly all of them import order, typing
+# modernisation and comprehension style. Enabling that would mean rewriting forty tools in one commit,
+# which is churn rather than verification. These families are the ones that catch bugs:
+#
+#   F       pyflakes -- undefined names, unused imports and bindings
+#   E9      runtime-error constructions such as a bare `raise` outside a handler
+#   PLE     pylint errors
+#   PLW1510 a `subprocess.run` whose exit status nobody looks at -- the class that let
+#           build_windows.bat print "Build Complete!" while doing nothing at all
+#
+# Widen deliberately: run `ruff check tools tests --isolated` to see the full set, then add one family
+# and fix it in its own commit.
+
+# Not this project's source: the eval virtualenv, the build and scratch trees, vendored code.
+exclude = [".venv", "out", "build", "build-test", "build-asan", "third_party", "eval/.venv"]
+
+line-length = 100
+
+[lint]
+select = ["F", "E9", "PLE", "PLW1510"]

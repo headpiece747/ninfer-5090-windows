@@ -82,7 +82,7 @@ def configure(model, recipe, sources):
         capture_output=True,
         text=True,
         env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-    )
+    check=False)
     assert result.returncode == 0, result.stderr
     with Artifact(output) as artifact:
         assert set(artifact.directory.components) == {"text"}

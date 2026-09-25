@@ -13,7 +13,7 @@ from typing import Mapping
 
 from .model import Model, Parameter
 from .resources import load_resources
-from .sources.logical import LogicalSource, select_rows, transpose_source
+from .sources.logical import select_rows, transpose_source
 from .sources.safetensors import SafetensorsSource, tensor_source
 from .sources.compressed_tensors import matrix_source
 

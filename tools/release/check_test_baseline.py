@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Release gate: refuse a release whose test suite has regressed.
 
-The suite is green (124/124 since 2026-09-19), and a green run is not self-recording: it proves
+The suite is green against the recorded baseline, and a green run is not self-recording: it proves
 today's tree, not that nothing was skipped or silently disabled. This gate compares the suite's
 actual result against the recorded baseline in both directions:
 
@@ -37,7 +37,6 @@ import json
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -96,7 +95,7 @@ def run_ctest() -> str:
     result = subprocess.run(
         [ctest, "--test-dir", "build-test", "--output-on-failure",
          "--timeout", str(TEST_TIMEOUT_SECONDS)],
-        cwd=REPO, capture_output=True, text=True)
+        cwd=REPO, capture_output=True, text=True, check=False)
     # ctest exits non-zero when tests fail, which is expected here; the log is what matters.
     log = result.stdout + result.stderr
     LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -244,7 +243,8 @@ def main() -> int:
 
     if key and not reused:
         store_cache(key, log, subprocess.run(["git", "log", "-1", "--format=%h %cI"], cwd=REPO,
-                                             capture_output=True, text=True).stdout.strip())
+                                             capture_output=True, text=True,
+                                             check=False).stdout.strip())
     print("\n  GATE PASSED: no regression against the recorded baseline")
     return 0
 

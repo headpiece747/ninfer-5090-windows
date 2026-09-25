@@ -99,7 +99,7 @@ def main() -> int:
     print("  doc links  : running tools/release/check_doc_links.py")
     links = subprocess.run(
         [sys.executable, str(Path(__file__).resolve().parent / "check_doc_links.py")],
-        cwd=REPO)
+        cwd=REPO, check=False)
     if links.returncode != 0:
         print("  RELEASE REFUSED: a relative link in the documentation does not resolve.")
         return 1
@@ -110,7 +110,7 @@ def main() -> int:
         print("  test gate  : running tools/release/check_test_baseline.py")
         gate = subprocess.run(
             [sys.executable, str(Path(__file__).resolve().parent / "check_test_baseline.py")],
-            cwd=REPO)
+            cwd=REPO, check=False)
         if gate.returncode != 0:
             print("  RELEASE REFUSED: the suite regressed against the recorded baseline.")
             print("  Fix the regression, or pass --skip-test-gate to accept it deliberately.")
@@ -119,7 +119,7 @@ def main() -> int:
     print("  cache hold : running tools/release/check_cache_capacity.py")
     cache = subprocess.run(
         [sys.executable, str(Path(__file__).resolve().parent / "check_cache_capacity.py")],
-        cwd=REPO)
+        cwd=REPO, check=False)
     if cache.returncode != 0:
         print("  RELEASE REFUSED: the shipped cache bounds do not retain the working set the")
         print("  documentation claims. Sizing them is a measurement, not a packaging decision.")
@@ -177,7 +177,7 @@ def main() -> int:
     archive = RELEASES / f"ninfer-windows-{version}-rtx5090.zip"
     archive.unlink(missing_ok=True)
     result = subprocess.run(["tar", "-a", "-c", "-f", str(archive), "-C", str(stage), "."],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, check=False)
     if result.returncode != 0 or not archive.exists():
         print(f"  ARCHIVE FAILED: {result.stderr[:300]}")
         return 1
@@ -185,7 +185,7 @@ def main() -> int:
     print(f"  staged {len(names) + 1} files from {total / (1024 ** 2):.0f} MB of inputs")
     for name in names:
         print(f"    {name}")
-    print(f"    SHA256SUMS")
+    print("    SHA256SUMS")
     print(f"  archive : {archive}")
     print(f"  size    : {archive.stat().st_size / (1024 ** 2):.1f} MB")
     print(f"  sha256  : {sha256(archive)}")

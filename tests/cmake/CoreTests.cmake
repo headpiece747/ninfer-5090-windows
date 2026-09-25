@@ -16,13 +16,19 @@ foreach(mode flags IN ZIP_LISTS sync_modes sync_flags)
   set_tests_properties(ninfer_device_sync_${mode}_test PROPERTIES
     ENVIRONMENT "NINFER_CUDA_SYNC=${mode}" SKIP_RETURN_CODE 77)
 endforeach()
-foreach(mode IN ITEMS invalid empty)
-  add_test(NAME ninfer_device_sync_${mode}_test COMMAND ninfer_device_test --invalid-sync)
-endforeach()
+add_test(NAME ninfer_device_sync_invalid_test COMMAND ninfer_device_test --invalid-sync)
 set_tests_properties(ninfer_device_sync_invalid_test PROPERTIES
   ENVIRONMENT "NINFER_CUDA_SYNC=invalid")
-set_tests_properties(ninfer_device_sync_empty_test PROPERTIES
-  ENVIRONMENT "NINFER_CUDA_SYNC=")
+
+# The empty case must not go through ctest's own ENVIRONMENT. Measured 2026-09-25 on CMake 4.3.1:
+# decorating this test with ENVIRONMENT "NINFER_CUDA_SYNC=" makes the test itself pass and poisons
+# every test that follows it -- ninfer_decode_graph_test fails with "NINFER_CUDA_SYNC must be spin,
+# blocking, yield, or auto" immediately after it, and passes when the invalid-value test precedes it
+# or when it runs alone. Most of the suite binds a device, so 36 tests failed that way. Setting the
+# variable inside the command instead, through `cmake -E env`, produces the same set-but-empty value
+# the case is about without putting it into ctest's environment.
+add_test(NAME ninfer_device_sync_empty_test
+  COMMAND ${CMAKE_COMMAND} -E env "NINFER_CUDA_SYNC=" ninfer_device_test --invalid-sync)
 
 ninfer_add_test(ninfer_decode_graph_test SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_decode_graph.cpp"
   LIBRARIES ninfer_core)

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import struct
 
 import pytest
 
 from tools.artifact.reader import Artifact
-from tools.artifact.framing import HEADER, MAGIC, PART_MAGIC
+from tools.artifact.framing import HEADER, PART_MAGIC
 from tools.artifact.schema import (
     ArtifactError,
     ResourceSpec,

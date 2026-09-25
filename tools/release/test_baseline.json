@@ -1,6 +1,6 @@
 {
-  "recorded": "2026-09-21",
-  "suite_size": 124,
+  "recorded": "2026-09-25",
+  "suite_size": 130,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -20,5 +20,5 @@
     "ninfer_qwen3_5_loading_real_test": "operator tool, not a gate test: it takes --artifact as a command-line argument and returns 77 (SKIP_RETURN_CODE) when ctest supplies none, so no environment variable can make it run",
     "ninfer_qwen3_5_moe_real_test": "needs a 35B-A3B MoE checkpoint (tests/README.md names qwen3_6_35b_a3b.ninfer); this product ships three artifacts and all are 27B dense, so it is unattainable here by construction"
   },
-  "note": "Green since 2026-09-19. The former failure, test_candidate_search_prefers_deep_reuse_without_eviction, was caused by the optional materialization search's initial grant being pinned flat at 5 ms; a flat cap dominated whenever the incumbent was expensive, so the search verified too few targets and admission could fall back to one-step eviction or to the root incumbent and re-prefill the prompt (upstream issue #229). The grant now scales with the incumbent's cost up to a 250 ms ceiling, governed by the economic term and the boundary allowance (src/runtime/engine/context_cache/materialization_budget.h). required_tests lists the real-model tests this product must run and pass; every other real test is named under optional_tests with the reason it cannot be required, because a blanket rule would demand evidence this product cannot produce. Failures in any test, required or not, still fail the gate."
+  "note": "Green since 2026-09-19. The former failure, test_candidate_search_prefers_deep_reuse_without_eviction, was caused by the optional materialization search's initial grant being pinned flat at 5 ms; a flat cap dominated whenever the incumbent was expensive, so the search verified too few targets and admission could fall back to one-step eviction or to the root incumbent and re-prefill the prompt (upstream issue #229). The grant now scales with the incumbent's cost up to a 250 ms ceiling, governed by the economic term and the boundary allowance (src/runtime/engine/context_cache/materialization_budget.h). required_tests lists the real-model tests this product must run and pass; every other real test is named under optional_tests with the reason it cannot be required, because a blanket rule would demand evidence this product cannot produce. Failures in any test, required or not, still fail the gate. Size moved from 124 to 130 on 2026-09-25 with the upstream merge of bace20dc, which registered four sync-mode tests plus the invalid and empty startup cases; the empty case sets its variable through `cmake -E env` rather than ctest's ENVIRONMENT, because decorating a test with ENVIRONMENT \"NINFER_CUDA_SYNC=\" makes the test pass and poisons every test after it -- 36 failed that way before it was found."
 }

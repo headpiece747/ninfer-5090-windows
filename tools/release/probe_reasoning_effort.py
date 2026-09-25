@@ -31,7 +31,7 @@ EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"]
 PROMPT = "Reply with the single word OK."
 
 
-from engine import kill_servers, start_engine, stop_engine  # noqa: E402
+from engine import kill_servers, stop_engine  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:

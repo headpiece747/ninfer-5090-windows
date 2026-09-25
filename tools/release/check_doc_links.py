@@ -29,7 +29,6 @@ still holding one of those characters came from prose rather than from a link.
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]

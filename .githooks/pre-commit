@@ -1,0 +1,31 @@
+#!/bin/sh
+# Run the release gates that are fast enough for every commit.
+#
+# Three checks, all seconds: documentation links resolve, the profile tables match the profile module
+# and the generated launchers, and the converter tests pass. Each has caught a real drift in this
+# repository -- a README quoting a digest the pins had moved past, a suite size that had drifted from
+# the baseline, a recipe defect -- and before this hook existed, nothing ran them automatically.
+#
+# Deliberately not here: the C++ suite (minutes, and it needs the GPU), the baseline gate (it runs
+# ctest), and compute-sanitizer (much slower again). Those belong at a push or in CI, which is why
+# tools/scripts/test_v3.cmd and tools/scripts/test_v3_compute_sanitizer.cmd exist.
+#
+# Enable with: git config core.hooksPath .githooks
+# Skip once with: git commit --no-verify
+set -e
+PY="${NINFER_PYTHON:-C:/vllm-env/Scripts/python.exe}"
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+if [ ! -x "$PY" ]; then
+    echo "pre-commit: python not found at $PY (set NINFER_PYTHON to override)" >&2
+    exit 1
+fi
+
+echo "pre-commit: documentation links"
+"$PY" tools/release/check_doc_links.py >/dev/null
+echo "pre-commit: profile consistency"
+"$PY" tools/release/check_profile_consistency.py >/dev/null
+echo "pre-commit: converter tests"
+"$PY" -m pytest tests/convert -q
+echo "pre-commit: ok"

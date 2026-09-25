@@ -45,7 +45,7 @@ BODY = (
 )
 
 
-from engine import kill_servers, start_engine, stop_engine  # noqa: E402
+from engine import kill_servers, stop_engine  # noqa: E402
 
 
 def main() -> int:

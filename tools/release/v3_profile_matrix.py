@@ -136,7 +136,7 @@ PROBE_PROMPT = "Reply with the single word OK."
 
 def gpu_used_mib() -> int:
     out = subprocess.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader"],
-                         capture_output=True, text=True).stdout
+                         capture_output=True, text=True, check=False).stdout
     return int("".join(c for c in out if c.isdigit()) or 0)
 
 

@@ -26,7 +26,7 @@ from pathlib import Path
 
 def kill_servers() -> None:
     """Stop any running engine. One 32 GB card holds one artifact, so harnesses serialise."""
-    subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"], capture_output=True, text=True)
+    subprocess.run(["taskkill", "/F", "/IM", "ninfer-serve.exe"], capture_output=True, text=True, check=False)
 
 
 def wait_ready(port: int, proc: subprocess.Popen | None = None,

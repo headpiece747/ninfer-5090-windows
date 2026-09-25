@@ -1,0 +1,27 @@
+# Static analysis for the host-side C++ translation units.
+#
+# clang-tidy cannot follow nvcc's device compilation, so this is scoped to what it can parse: the host
+# translation units. It is deliberately narrow for a first pass -- the clang static analyzer plus
+# bugprone's real defect classes -- because a checks-everything config on a code base that has never
+# been linted produces a wall of findings that gets ignored, which is worse than a small set that gets
+# acted on. Widen one family per commit, the same way ruff.toml is written.
+#
+# Run it against a compile database: configure with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON, inside the
+# Visual Studio environment so the MSVC headers resolve, then
+#
+#     clang-tidy -p build src/core/device_host.cpp
+#
+# Not wired into a gate: the first run on any family needs a human deciding which findings are real.
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-branch-clone,
+  -bugprone-macro-parentheses,
+  performance-move-const-arg,
+  performance-unnecessary-copy-initialization
+
+WarningsAsErrors: ""
+HeaderFilterRegex: "^(src|include)/"
+FormatStyle: file

@@ -33,7 +33,7 @@ def main() -> int:
                 max_file_bytes=limit,
             ) as writer:
                 writer.write_object("matrix", data)
-            result = subprocess.run([executable, "--writer-fixture", str(path)])
+            result = subprocess.run([executable, "--writer-fixture", str(path)], check=False)
             if result.returncode:
                 return result.returncode
     return 0

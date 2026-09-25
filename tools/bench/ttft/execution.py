@@ -353,7 +353,6 @@ class RequestHandle:
             result = self._result
             thread_error = self._thread_error
             first = self.first_output_ns
-            terminal = self.completed_ns
         if thread_error is not None:
             return "worker_error"
         if result is None:

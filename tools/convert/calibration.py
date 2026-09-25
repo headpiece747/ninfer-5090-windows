@@ -95,8 +95,8 @@ def measure(
     offload_folder: str | Path | None = None,
     prefix: str | None = None,
     progress=None,
-) -> tuple[dict[str, float], dict[str, float]]:
-    """Return (amax per site, divisor per site) from one forward pass over the corpus.
+) -> tuple[dict[str, float], dict[str, float], int]:
+    """Return (amax per site, divisor per site, scored tokens) from one forward pass over the corpus.
 
     The weights do not fit in device memory, and how that is handled decides the numbers. Leaving it to
     `device_map="auto"` computes the layers it parks on the CPU *there*, where BF16 matmuls are emulated
@@ -105,7 +105,7 @@ def measure(
     forward, so every matmul runs where the engine will run it.
     """
     import torch
-    from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     documents = corpus_documents() if corpus is None else corpus
     tokenizer = AutoTokenizer.from_pretrained(str(base))

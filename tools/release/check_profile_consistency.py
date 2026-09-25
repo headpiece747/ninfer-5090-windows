@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from make_launchers_v3 import render  # noqa: E402
-from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, launcher_args, template_path  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, template_path  # noqa: E402
 from v3_profile_matrix import build_args  # noqa: E402
 from bench_opencode_settings import PROFILES as BENCH_PROFILES  # noqa: E402
 

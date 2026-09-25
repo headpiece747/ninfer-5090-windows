@@ -123,6 +123,26 @@ sufficient evidence, relevant checks pass or their limitations are clear, and no
 issue blocks use. Expand or repeat verification only for new changes, failures, or unresolved risks
 that could change the result. Supporting work is not an independent completion objective.
 
+### Tooling, and when to reach for it
+
+Reach for the tool that fits the question; each of these exists because a hand-rolled check missed
+something, and each is named here so it gets used rather than rediscovered.
+
+| situation | tool |
+|---|---|
+| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Doc links, profile consistency, converter tests: seconds, no network |
+| a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` |
+| anything that could be order- or state-dependent | the suite recipe passes `--schedule-random`; run it twice before believing a fixed order |
+| a device-side memory, race or synchronisation question | `tools/scripts/test_v3_compute_sanitizer.cmd` — memcheck on a small subset; `racecheck`/`initcheck`/`synccheck` and the wider method are in the `cuda-debugging` skill |
+| a host-side lifetime question | `tools/scripts/test_v3_asan.cmd` — ASan cannot instrument device code, which is why the two recipes are separate |
+| a kernel's performance | the `ncu-report` skill, records under `profiles/ncu/` and `profiles/nsys/` |
+| Python tooling, before committing it | `ruff check tools tests` (clean, so a new finding is yours); `mypy tools/release tools/convert` (adopted with 67 known errors — treat a new error as yours) |
+| a lingering suspicion of flakiness | `ctest --test-dir build-test --repeat until-fail:5` |
+| what upstream already decided, or whether a symptom is known | the upstream tracker: `gh issue list --repo Neroued/ninfer --search <term>` — this project's reference corpus |
+
+Not installed deliberately: CI. GitHub-hosted runners have no GPU, so the suite needs a self-hosted
+runner on this machine, and publishing a workflow needs a push.
+
 ## Reference navigation
 
 Read the authority relevant to the current decision; this is not a mandatory reading list.
@@ -259,7 +279,9 @@ Thirty-five rules, each earned by a failure rather than chosen:
 - **The build and the running product contend for the same files.** Linking `ninfer-serve.exe`
   failed with LNK1104 because a server started earlier still held it, and a test source was edited
   while `build-test` was reading it -- survived only because that phase had not yet begun. Stop the
-  server before rebuilding it, and do not edit a source while a build is compiling it.
+  server before rebuilding it, and do not edit a source while a build is compiling it. The same
+  applies to a script while it runs: cmd reads a batch file by byte offset, so an edit mid-run hands
+  it shifted text, and `test_v3.cmd` was edited while its own suite was running on 2026-09-25.
 - **Never edit a file from memory.** Five edits failed in one session because the anchor was
   reconstructed rather than read -- twice in the same file, and once after the same lesson had already
   been written down. Read the block, or anchor on a unique substring that omits the leading whitespace,
