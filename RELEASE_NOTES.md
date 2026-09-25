@@ -216,6 +216,14 @@ with it).
 - Every shipped profile reaches the full 262,144 context with Vision. Earlier builds capped the
   NVFP4 lane because that artifact carried 19.7 GiB of device weights; the builds this release
   ships carry 16.3-17.1 GiB on their MTP lanes and 17.2-18.0 GiB on their DFlash2 lanes.
+- **Upstream tracks an intermittent CUDA illegal-access failure under sustained MTP use**
+  ([Neroued/ninfer#208](https://github.com/Neroued/ninfer/issues/208), open). It was reported against
+  an upstream commit on 2026-09-07, appears after tens of minutes of sustained agentic decode rather
+  than on a single request, did not reproduce with `CUDA_LAUNCH_BLOCKING=1` or with MTP disabled, and a
+  comment reports a fix in a long-context fork. It is recorded here because this release ships
+  long-context MTP lanes, which is the configuration it concerns. It has not been observed on this
+  port: the eight launchers were verified end to end, the 262,144 ceiling probes ran every spec, and
+  the recorded AIME runs held MTP at draft 3 for about an hour each, on this engine revision.
 
 ## Release numbering
 
