@@ -381,6 +381,13 @@ Thirty-five rules, each earned by a failure rather than chosen:
   by up to ~9% between windows: measure A and then B and you have measured the window. Two findings
   died that way in one session, a 14% slot-count claim and a 9% artifact claim, and both were
   committed before the interleaved run disproved them. ADR-0003 records the detail.
+- **One GPU job at a time, and never a measurement beside one.** Three times in one session a job held
+  the card while another was meant to be measuring: a soak that ran through a gate, and two recipe runs
+  that could have interleaved with an A/B. A number taken while something else is on the card is not a
+  smaller number, it is a different one -- the rule above exists because this card's behaviour moves
+  with load. Serialise the card: stop the server before a sweep, finish the suite before the
+  measurement, and give any automated GPU work a concurrency lock rather than a timer that can fire
+  mid-measurement, which is why `.github/workflows/gpu.yml` declares one and is dispatch-only.
 - **Do not ration work against an assumed context limit.** A session is not short: it can run long,
   and compaction exists for when it does not fit. An agent that behaves as if it is about to run out
   takes smaller changes than the job needs, defers the next step it has already identified, cuts an
