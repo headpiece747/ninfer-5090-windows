@@ -172,9 +172,16 @@ reuse source is the session's own endpoint checkpoint (`request_plan.cpp`,
 resident, and selects `private turn closure` when the state has to come back from a demoted turn. This
 log's defect was that the endpoint was stale while a closure that should have been preferred was
 ignored -- not that the endpoint path was chosen. A live 115-request coding session on the shipped
-`nvfp4qat` lane (2026-09-25, `out/agent_session.log`) reused its own endpoint on 112 turns at
+`nvfp4qat` lane (2026-09-25, `out/agent_session_coding.log`) reused its own endpoint on 112 turns at
 99.4-100.0% cache hit with 155-853 ms TTFT and no host restore at all: that is the healthy case, and it
 did not reproduce this defect.
+
+A third path name is worth recognising for the same reason: `private_response_replay`. Driving three
+conversations round-robin on the same lane (2026-09-25, `out/agent_restore.log`) produced it on all nine
+reusing turns at 94.6-95.2% cache hit and 111-147 ms TTFT, again with no host restore. That experiment
+did not reach the demoted-turn path either -- one device state slot and sixteen host slots absorbed
+three short conversations without eviction -- so `private turn closure` remains covered by the engine
+test rather than by a live session here.
 
 This is ADR-0007's subject, and the reason it matters is that the dropped checkpoint is the one
 holding the speculative-decoding state: `private_turn_closure` is the path that restores MTP/DFlash
