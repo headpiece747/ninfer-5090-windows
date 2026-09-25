@@ -4,6 +4,7 @@ build-*/
 cmake-build-*/
 *.o
 *.obj
+*.pdb
 *.so
 *.a
 compile_commands.json

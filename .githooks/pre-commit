@@ -28,4 +28,6 @@ echo "pre-commit: profile consistency"
 "$PY" tools/release/check_profile_consistency.py >/dev/null
 echo "pre-commit: converter tests"
 "$PY" -m pytest tests/convert -q
+echo "pre-commit: ruff"
+"$PY" -m ruff check tools tests --quiet
 echo "pre-commit: ok"

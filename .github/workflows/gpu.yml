@@ -1,0 +1,54 @@
+# The suite that needs the card, on a self-hosted runner.
+#
+# A self-hosted runner is not a preference here, it is the only option: GitHub-hosted images have no
+# GPU and no CUDA toolkit, so the artifact build alone cannot run on them. This workflow therefore
+# expects a runner on the machine that owns the 5090, with the toolchain the recipes use already
+# staged: Visual Studio (vcvars64), the CUDA toolkit, ffmpeg\ beside the executable, the tooling
+# interpreter at C:\vllm-env, and the shipped artifacts under C:\AI\models.
+#
+# Register one with:
+#   mkdir actions-runner && cd actions-runner
+#   curl -O https://github.com/actions/runner/releases/latest/download/actions-runner-win-x64.zip
+#   tar -xf actions-runner-win-x64.zip
+#   ./config.cmd --url https://github.com/headpiece747/ninfer-5090-windows --token <token> \
+#                --labels gpu-5090 --name 5090-box
+#   ./run.cmd          # or ./svc.cmd install for a service
+name: gpu-suite
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly, when nobody is measuring. See the concurrency note before adding a push trigger.
+    - cron: "0 4 * * *"
+
+# One GPU job at a time, and never cancelled by a newer one. A suite run and a measurement cannot
+# share the card: this repository already had three collisions where one job would have poisoned the
+# other's numbers -- a soak that held the card while a gate ran, and an interleaved A/B that needs an
+# otherwise idle GPU to mean anything.
+concurrency:
+  group: gpu-5090
+  cancel-in-progress: false
+
+jobs:
+  suite:
+    runs-on: [self-hosted, windows, gpu-5090]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: the suite (configure, build, ctest with --schedule-random)
+        run: cmd /c tools\scripts\test_v3.cmd
+
+      # The artifact is outside the checkout: the three required real-model tests read
+      # C:\AI\models, which is why this runs here rather than anywhere else.
+      - name: baseline gate
+        env:
+          NINFER_TEST_ARTIFACT: C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer
+        run: |
+          C:\vllm-env\Scripts\python.exe -m pip install --quiet pyyaml
+          C:\vllm-env\Scripts\python.exe tools\release\check_test_baseline.py
+
+      # On demand only. A sanitized run is 10-20x slower, and the subset is chosen by hand when a
+      # specific kernel is under suspicion rather than run as routine coverage.
+      - name: compute-sanitizer (small device subset)
+        if: github.event_name == 'workflow_dispatch'
+        run: cmd /c tools\scripts\test_v3_compute_sanitizer.cmd
