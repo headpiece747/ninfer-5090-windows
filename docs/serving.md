@@ -71,6 +71,8 @@ selected for this process.
 `GET /health` returns HTTP 200 with `{"status":"ok"}` while the Engine can accept work. After an
 Engine-wide failure it returns HTTP 503 with `{"status":"unavailable"}`. Temporary queue
 saturation does not make the Engine unavailable. The endpoint remains unauthenticated.
+[`research/resource-underflow-issue-5.md`](research/resource-underflow-issue-5.md) records a
+production instance of that path, what reproduced it and what did not.
 
 Every OpenAI-compatible response carries a unique `x-request-id` header, including streaming and
 error responses. Anthropic endpoints use their separate `request-id` contract.
