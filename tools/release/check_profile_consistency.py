@@ -71,6 +71,14 @@ def main() -> int:
     check("matrix composes shipped flags through profiles.launcher_args",
           "launcher_args" in harness,
           "the harness must render the profile's own flag list, not rebuild one")
+    for name in ("v3_profile_matrix.py", "check_host_kv.py", "probe_reasoning_effort.py",
+                 "bench_opencode_settings.py"):
+        body = read(WT / "tools" / "release" / name)
+        check(f"{name} starts Serve with the lane's environment",
+              "launcher_environment(" in body,
+              "a server started without the table's environment measures a configuration nobody "
+              "ships: the profiles pin the CUDA wait schedule, and Popen would otherwise inherit "
+              "whatever the harness happened to have")
     check("matrix can measure a shipped profile by name", "mode_profile" in harness)
     check("the table's stated provenance names that mode",
           "`profile` mode of v3_profile_matrix.py" in read(WT / "tools" / "release" / "profiles.py"),

@@ -33,7 +33,7 @@ RECORDS = Path(r"C:\AI\bench\opencode_settings.jsonl")
 # the shipped one) and short keys for --models, and nothing else differs.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import kill_servers  # noqa: E402
-from profiles import PROFILES as SHIPPED, launcher_args  # noqa: E402
+from profiles import PROFILES as SHIPPED, launcher_args, launcher_environment  # noqa: E402
 
 # The harness binds its own ports, because a launcher may already hold the shipped one. Derived
 # from the table's length rather than kept as a literal list: a hand-kept list zipped against
@@ -288,7 +288,7 @@ def start(profile: dict, thinking_budget: int = 4096) -> tuple[subprocess.Popen,
         "--default-thinking-budget", str(thinking_budget)]
     handle = log.open("w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(args, cwd=CWD, stdin=subprocess.DEVNULL, stdout=handle,
-                            stderr=subprocess.STDOUT)
+                            stderr=subprocess.STDOUT, env=launcher_environment(profile))
     for _ in range(120):
         if proc.poll() is not None:
             break

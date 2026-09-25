@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from profiles import PROFILES, ordered_flags  # noqa: E402
+from profiles import PROFILES, launcher_env, ordered_flags  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 OUT = REPO
@@ -40,6 +40,13 @@ REM  four of five prompts re-prefilling in full on every call and no error. Rais
 REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
 REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
 REM  runtime are unchanged from the values above.
+REM
+REM  The CUDA wait schedule is pinned to blocking rather than left to the engine's default, which
+REM  is upstream's spin (NINFER_CUDA_SYNC, see docs/cli.md). Measured 2026-09-25 over six
+REM  interleaved Serve processes per condition: spin costs 0.18-0.31 of a core and buys no
+REM  measurable latency, TTFT 1.3-1.9 ms apart against 3.0-15.5 ms spreads, idle and with half
+REM  the machine's logical processors held busy by host work. The engine's default is untouched;
+REM  docs/research/prompt-preparation-cost.md carries the measurement and its limits.
 REM ============================================================================
 setlocal
 
@@ -54,6 +61,9 @@ REM explicitly stops the lane inheriting whichever template its artifact embeds 
 REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
 set "TEMPLATE=%~dp0chat_templates\\qwen3_8.jinja"
 if not exist "%TEMPLATE%" set "TEMPLATE={v3}\\tools\\chat_templates\\qwen3_8.jinja"
+REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it
+REM this way too, or what it measures is not what ships.
+{env}
 
 if not exist "%SERVE%" (
     echo [ERROR] Engine not found.
@@ -153,13 +163,19 @@ def render_flags(profile: dict) -> str:
     return "".join(f"\n  {line} ^" for line in lines[:-1]) + f"\n  {lines[-1]}"
 
 
+def render_env(profile: dict) -> str:
+    """The lane's environment as cmd `set` lines, sorted so regeneration stays byte-identical."""
+    return "\n".join(f'set "{name}={value}"'
+                     for name, value in sorted(launcher_env(profile).items()))
+
+
 def render(profile: dict) -> str:
     flags = render_flags(profile)
     return TEMPLATE.format(
         label=profile["label"], note=profile["note"], ctx=profile["ctx"],
         ctx_h=f"{profile['ctx']:,}", tok=profile["tok"], acc=profile["acc"],
         runtime=profile["runtime"], free=profile["free"], v3=V3, models=MODELS,
-        art=profile["art"], flags=flags, port=profile["port"],
+        art=profile["art"], flags=flags, port=profile["port"], env=render_env(profile),
     )
 
 

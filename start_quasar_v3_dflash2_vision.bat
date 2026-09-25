@@ -19,6 +19,13 @@ REM  four of five prompts re-prefilling in full on every call and no error. Rais
 REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
 REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
 REM  runtime are unchanged from the values above.
+REM
+REM  The CUDA wait schedule is pinned to blocking rather than left to the engine's default, which
+REM  is upstream's spin (NINFER_CUDA_SYNC, see docs/cli.md). Measured 2026-09-25 over six
+REM  interleaved Serve processes per condition: spin costs 0.18-0.31 of a core and buys no
+REM  measurable latency, TTFT 1.3-1.9 ms apart against 3.0-15.5 ms spreads, idle and with half
+REM  the machine's logical processors held busy by host work. The engine's default is untouched;
+REM  docs/research/prompt-preparation-cost.md carries the measurement and its limits.
 REM ============================================================================
 setlocal
 
@@ -33,6 +40,9 @@ REM explicitly stops the lane inheriting whichever template its artifact embeds 
 REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
 set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
 if not exist "%TEMPLATE%" set "TEMPLATE=C:\AI\ninfer-v3-windows\tools\chat_templates\qwen3_8.jinja"
+REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it
+REM this way too, or what it measures is not what ships.
+set "NINFER_CUDA_SYNC=blocking"
 
 if not exist "%SERVE%" (
     echo [ERROR] Engine not found.

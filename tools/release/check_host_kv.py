@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from profiles import PROFILES, launcher_args  # noqa: E402
+from profiles import PROFILES, launcher_args, launcher_environment  # noqa: E402
 
 CWD = r"C:\AI\ninfer-v3-windows"
 EXE = CWD + r"\build\apps\ninfer-serve.exe"
@@ -61,7 +61,8 @@ def main() -> int:
         "--host-state-slots", slots, "--host-kv-mib", host_kv]
     handle = log.open("w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(args, cwd=CWD, stdin=subprocess.DEVNULL, stdout=handle,
-                            stderr=subprocess.STDOUT)
+                            stderr=subprocess.STDOUT,
+                            env=launcher_environment(PROFILE))
     ready = False
     for _ in range(120):
         if proc.poll() is not None:

@@ -44,6 +44,7 @@ headroom to buy speed. Route, depth and this flag are measurements, never conven
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -332,6 +333,36 @@ def launcher_args(profile: dict[str, Any], port: int | None = None,
             if value is not None:
                 args.append(value)
     return args
+
+
+def launcher_env(profile: dict[str, Any] | None = None) -> dict[str, str]:
+    """The environment a profile's server must run under, exactly as the launcher sets it.
+
+    The same argument as `launcher_args`: a harness that starts Serve has to start it the way the lane
+    starts it, or its numbers describe a configuration nobody ships. A launcher renders these as `set`
+    lines; a harness must pass them to `Popen`.
+
+    This is where the lanes pin the CUDA wait schedule while the engine's own default stays upstream's
+    (`NINFER_CUDA_SYNC`, see docs/cli.md). Measured 2026-09-25 with six interleaved Serve processes per
+    condition: `spin` costs 0.18 to 0.31 of a core and buys no measurable latency -- TTFT 1.3 to 1.9 ms
+    apart against 3.0 to 15.5 ms spreads, both idle and with half the machine's logical processors held
+    busy by host work, which is the condition NVIDIA names under which a spin-wait should pay.
+    docs/research/prompt-preparation-cost.md carries the measurement and its limits.
+
+    The profile may be None, for a harness that composes its own command line without a table profile.
+    Today the environment is the same for every lane -- it is a property of the wait schedule on this
+    port, not of one profile's flags -- so the parameter is the seam if that ever has to change.
+    """
+    return {"NINFER_CUDA_SYNC": "blocking"}
+
+
+def launcher_environment(profile: dict[str, Any] | None = None) -> dict[str, str]:
+    """`launcher_env` merged over this process's environment, ready for `Popen(env=...)`.
+
+    A harness must call this rather than `launcher_env` directly: `Popen` replaces the environment
+    wholesale, so passing only the lane's own variables would drop PATH and the rest.
+    """
+    return {**os.environ, **launcher_env(profile)}
 
 
 def cli_args(profile: dict[str, Any]) -> list[str]:

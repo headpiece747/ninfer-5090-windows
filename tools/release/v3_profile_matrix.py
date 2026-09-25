@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import kill_servers, wait_ready  # noqa: E402
-from profiles import PROFILES, QUASAR, NVFP4FULL, SWIFT, NVIDIA, INVARIANT_FLAGS, by_file, launcher_args, template_path  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, SWIFT, NVIDIA, INVARIANT_FLAGS, by_file, launcher_args, launcher_environment, template_path  # noqa: E402
 
 EXE = Path(__file__).resolve().parents[2] / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
@@ -149,11 +149,13 @@ def wait_free(limit: int = 2000, timeout: int = 120) -> bool:
     return False
 
 
-def start(args: list[str], log: Path):
+def start(profile: dict | None, args: list[str], log: Path):
     log.parent.mkdir(parents=True, exist_ok=True)
     fh = log.open("w", encoding="utf-8", errors="replace")
+    # The lane's environment, so what this harness measures is what the launcher ships. The profiles
+    # pin the CUDA wait schedule; a server started without it would measure the engine's default.
     proc = subprocess.Popen(args, stdout=fh, stderr=subprocess.STDOUT,
-                            cwd=str(EXE.parent))
+                            cwd=str(EXE.parent), env=launcher_environment(profile))
     return proc, fh
 
 
@@ -414,7 +416,7 @@ def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = Fa
         args, CURRENT_MODEL_ID = profile_args(profile, jsonl, slots=slots)
         art, spec, draft = ART_BY_FILE[profile["art"]], profile["spec"], profile["draft"]
         vision, max_context = bool(profile["vision"]), profile["ctx"]
-    proc, fh = start(args, log)
+    proc, fh = start(profile, args, log)
     ready = wait_ready(PORT, proc)
     time.sleep(3)  # let the capacity/stats lines flush
     text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""

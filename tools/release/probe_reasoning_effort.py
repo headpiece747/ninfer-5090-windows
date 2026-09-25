@@ -20,7 +20,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from profiles import PROFILES, launcher_args  # noqa: E402
+from profiles import PROFILES, launcher_args, launcher_environment  # noqa: E402
 
 CWD = r"C:\AI\ninfer-v3-windows"
 EXE = CWD + r"\build\apps\ninfer-serve.exe"
@@ -60,17 +60,19 @@ def main() -> int:
         args = [EXE, str(options.artifact)] + launcher_args(profile, port=options.port,
                                                             model_id=options.model_id,
                                                             max_context=32768)
+        env = launcher_environment(profile)
         log_path = Path(r"C:\AI\bench\effort_probe_artifact.txt")
     else:
         # The profile's shipped flags. Context is overridden small because this probe only needs
         # one short reply, and the port and model id are this harness's own.
         args = [EXE, MODEL] + launcher_args(PROFILE, port=options.port,
                                             model_id=options.model_id, max_context=32768)
+        env = launcher_environment(PROFILE)
         log_path = Path(r"C:\AI\bench\effort_probe.txt")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(args, cwd=CWD, stdin=subprocess.DEVNULL, stdout=log,
-                            stderr=subprocess.STDOUT)
+                            stderr=subprocess.STDOUT, env=env)
     for _ in range(120):
         if proc.poll() is not None:
             break

@@ -345,8 +345,31 @@ same latency is the one where the thread is still on a processor when the device
 logical processors to one CUDA context that is what happens here. The condition under which spin could
 still pay is the one NVIDIA names on the other side -- host threads doing work in parallel with the
 CUDA thread, which is this port at concurrency above one, with media preprocessing, or during a large
-template render. None of those was varied. The shipped lanes run at concurrency one, so this covers
-their configuration, and a loaded variant would be what covers the rest.
+template render. None of those was varied in the first pass, so that condition was then run: the same
+six interleaved samples with 16 of the machine's 32 logical processors held busy by spinning host
+processes, so the waiting thread had to share.
+
+```
+spin      ttft 862.9, 861.7, 864.7 ms   spread 3.0   window 226.1, 226.9, 226.3 ms   cores 0.444
+blocking  ttft 864.2, 864.1, 864.7 ms   spread 0.6   window 227.6, 227.1, 228.5 ms   cores 0.266
+```
+
+TTFT differs by 1.3 ms against a 3.0 ms spread and the decode window by 1.3 ms against 1.4 ms: still
+inside, so host contention does not expose the latency either. The contention was real twice over --
+the load measured 16.78 cores, and both schedules slowed against the unloaded run, TTFT 840 to 862 ms
+and the window 222 to 226 ms, which is what a competing workload does.
+
+The first attempt at that variant is a method note in its own right. It reported the load at
+`0.0 cores`, and the cause was not a dead load but a broken measurement: the tooling interpreter on
+this machine is a launcher that re-executes the real interpreter as a child, so the spinning process
+was not the pid that had been started, and reading only that pid counted nothing. A load that had
+quietly failed to spin would have read exactly the same way, which is why the load's own CPU is now
+measured through its children and reported beside the result.
+
+The effect is therefore bounded rather than proven absent: under about 3 ms on an 863 ms TTFT, or
+0.35%, idle and loaded alike, against a cost of 0.18 to 0.31 of a core depending on the lane. For the
+concurrency-one lanes this port ships, that is a trade the measurement settles in favour of
+`blocking`.
 
 ### The answer: a debug-heap configuration left on one executable
 
