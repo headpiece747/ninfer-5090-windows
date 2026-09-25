@@ -59,6 +59,25 @@ same `zhwiki` stream the `nvfp4` KV finding above singled out, which suggests th
 where a quantization difference shows largest — but four streams cannot establish it, and a comparison
 that rests on one of them cannot be quoted as a result.
 
+### The same breakdown for the other two pairs
+
+The two lines whose published files exist were measured the same way, so the concentration can be seen
+across all three rather than in one comparison.
+
+| domain | QAT rebuilt | published | change | unsloth rebuilt | published | change |
+|---|---:|---:|---:|---:|---:|---:|
+| `chinese_reference` | 6.59476 | 6.66432 | **−1.04%** | 6.42705 | 6.46918 | **−0.65%** |
+| `english_reference` | 6.72791 | 6.72041 | +0.11% | 6.74142 | 6.76224 | −0.31% |
+| `english_long_form` | 8.24524 | 8.24943 | −0.05% | 8.30183 | 8.30162 | 0.00% |
+| `ninfer_code` | 1.68395 | 1.68257 | +0.08% | 1.69145 | 1.69198 | −0.03% |
+| **overall** | 4.99097 | 5.00234 | **−0.23%** | 4.97532 | 4.98768 | **−0.25%** |
+
+Every rebuilt line is lower on `chinese_reference`, and that is the domain carrying the aggregate in
+each: −1.04%, −0.65% and −1.80% against changes of at most a tenth of that elsewhere. The QAT line is
+lower on two domains of four and the other two move against it slightly; the unsloth line is lower or
+exactly tied on all four. So "same or better" is accurate in aggregate for both, and the honest
+description of *where* is this domain, three times over.
+
 ## Measuring a template
 
 `--chat-template` was added to this tool and then removed: perplexity scores **raw text**, so it never

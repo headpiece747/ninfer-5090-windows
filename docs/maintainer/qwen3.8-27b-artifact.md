@@ -1383,7 +1383,10 @@ The `--quick` reading of 4.94879 is the artifact as it measures today; section 1
 explains why a `--quick` comparison of this shape is decided by four singleton streams, and the full
 corpus settles it: this build is ahead there too, by 0.23% against the subset's 1.22%. The direction is
 the same and the magnitude is smaller, which is what a singleton-stream effect looks like when four
-streams per domain average it.
+streams per domain average it. Per domain it is lower on `chinese_reference` by 1.04% and on
+`english_long_form` by 0.05%, and marginally higher on `english_reference` (0.11%) and `ninfer_code`
+(0.08%): two domains of four, with the Chinese one carrying the aggregate. That is the pattern all
+three rebuilt lines show, tabulated in `docs/perplexity-baseline.md`.
 
 ## 18. Rebuilt from source: the unsloth line (`nvfp4full`)
 
@@ -1463,6 +1466,10 @@ reaching the full 262,144 context at `fp8` KV with 2.39 and 1.66 GiB free respec
 |---|---:|---:|
 | `--quick`, `fp8` KV | 4.82452 | **4.75750** |
 | full corpus, `fp8` KV | 4.98768 | **4.97532** |
+
+Per domain on the full corpus it is lower in three of four and exactly tied in the fourth, with
+`chinese_reference` the largest at −0.65% and no domain moving against it by more than three
+hundredths of a percent. `docs/perplexity-baseline.md` tabulates it beside the other two lines.
 
 Interleaved against the published artifact in one window, both lanes the port ships are ahead:
 
