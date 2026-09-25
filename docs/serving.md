@@ -862,6 +862,14 @@ they do not infer request behavior from process-global counter deltas.
 `requested_reasoning_effort` and `preserve_thinking` record the explicit options, or `null` when
 unspecified. `enable_thinking` records whether the response starts in thinking mode.
 
+Validate a captured log against this table with
+`python3 tools/release/check_request_logs.py --logs "<glob>"`. It requires one `server_start` naming a
+`.ninfer` artifact, parseable lines, and `request_done` events that carry a finish reason, positive
+completion tokens and -- when the argv selected a speculative backend -- drafts actually issued and
+accepted, so a lane that silently ran without its draft is caught by reading rather than by noticing.
+A log that started the engine without sending a request is counted separately, because `ceiling` probes
+do exactly that and a refused ladder step logs no `server_start` at all.
+
 `request_done.result.tool_call_parse` records whether a complete marker was seen, the structured
 call count, empty non-string arguments omitted during normalization, schema-mismatched arguments
 preserved for consumer validation, and a stable text-fallback reason. Fallback reasons are `none`,
