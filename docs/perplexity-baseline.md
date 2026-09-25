@@ -13,6 +13,7 @@ any published figure. Removing `--quick` gives the full corpus.
 | `qwen3_8_27b_nvfp4.v3.ninfer` (official stock) | bf16 | **4.89838** | full corpus, 4.20k tok/s, 2026-09-22 |
 | `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT, as published) | fp8 | **4.89741** | `--quick`, recorded 2026-09-22 |
 | `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT, as published) | fp8 | **4.94879** | `--quick`, 2026-09-24; re-measured, and it does not reproduce the figure above |
+| `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT, as published) | fp8 | **5.00234** | full corpus, 2026-09-24 |
 | `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR, rebuilt from source) | fp8 | **4.88817** | `--quick`, 2026-09-24 |
 | `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR, rebuilt from source) | fp8 | **4.99097** | full corpus, 2026-09-24 |
 | `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT) | fp8 | **5.88829** | custom corpus, 177,400 tokens |

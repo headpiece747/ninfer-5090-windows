@@ -1356,12 +1356,14 @@ request correctly.
 | protocol | published fork build | this build |
 |---|---:|---:|
 | `--quick`, `fp8` KV | 4.94879 | **4.88817** |
-| full corpus, `fp8` KV | *pending* | **4.99097** |
+| full corpus, `fp8` KV | 5.00234 | **4.99097** |
 
 The `--quick` reading of 4.94879 is the artifact as it measures today; section 15's table records
-4.89741 for it, which does not reproduce. The `--quick` section of `docs/perplexity-baseline.md` explains why a
-`--quick` comparison of this shape is decided by four singleton streams, and the full-corpus pair is
-measured to settle it rather than quoted from the quick figure.
+4.89741 for it, which does not reproduce. The `--quick` section of `docs/perplexity-baseline.md`
+explains why a `--quick` comparison of this shape is decided by four singleton streams, and the full
+corpus settles it: this build is ahead there too, by 0.23% against the subset's 1.22%. The direction is
+the same and the magnitude is smaller, which is what a singleton-stream effect looks like when four
+streams per domain average it.
 
 ## 18. Rebuilt from source: the unsloth line (`nvfp4full`)
 
