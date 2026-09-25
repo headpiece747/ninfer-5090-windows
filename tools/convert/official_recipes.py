@@ -317,7 +317,7 @@ def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
     base = sources["base"]
     bf16 = sources["swift_bf16"]
     prefix = "model.language_model." if "text_config" in base.config else "model."
-    # Both shipped artifacts bind q8_g32_fp16 to both W8 endpoints, and the base source owns them;
+    # Both published artifacts bind q8_g32_fp16 to both W8 endpoints, and the base source owns them;
     # taking them from the BF16 source also avoids re-encoding the head from its NVFP4 codes.
     _assign(recipe, "text/token_embedding", Q8,
             source=model.source("text/token_embedding", bf16))

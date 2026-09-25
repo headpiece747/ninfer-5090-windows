@@ -109,8 +109,10 @@ rounding into the NVFP4 result.
   shared-divisor equality checks and the row transforms (attention q/gate per-head interleaving).
 - Locally encoded payloads are verified against the **documented encoder profile** *and* an
   **independent decode oracle**, per [op-development.md](op-development.md).
-- Both shipped artifacts ship a `verify_*` entry point that revalidates the complete ordered
-  directory, both W8 endpoints against base rows, and the input divisors.
+- The lines the fork published ship a `verify_*` entry point for this (`verify_nvfp4qat`,
+  `verify_nvfp4full`), which revalidates the complete ordered directory, both W8 endpoints against
+  base rows, and the input divisors. This port's builds are checked the same way by hashing every
+  binding against the predecessor they replace, and sections 17 to 19 record the results.
 
 ### A file hash is not the artifact's identity
 

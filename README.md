@@ -287,7 +287,7 @@ The engine provides the following capabilities, with optional components enabled
 - OpenAI Responses Core, OpenAI Chat Completions, and Anthropic Messages, including streaming,
   tools, local response state, token counting, and usage accounting.
 
-Both shipped artifacts carry the DFlash2 companion weights and support
+Every shipped artifact carries the DFlash2 companion weights and supports
 `--spec dflash2 --draft-tokens 7` on the same Text/Vision Engine path, with draft counts 1..15 and
 either full or optimized proposal heads.
 
@@ -333,12 +333,15 @@ This port's own modifications, and the third-party software it carries, are attr
 changes this fork owns, and the bundled libraries. Apache-2.0 section 4 asks that the notice travel
 with the distribution, so the release archive ships it beside this file.
 
-Both shipped artifacts are published under the `cometkim` Hugging Face account. Both derive from
-[Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) and carry the DFlash2 companion from
-[z-lab/Qwen3.8-27B-DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2). The QUASAR QAT image
-additionally uses
+Four lines ship, all derived from [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) and all
+carrying the DFlash2 companion from [z-lab/Qwen3.8-27B-DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2).
+The QUASAR QAT image uses
 [QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4](https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4)
-for its quantisation-aware-trained weights; the NVFP4-full image additionally uses the fixed mixed
-FP8/NVFP4 weights from [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4).
-These source repositories are distributed under Apache-2.0. Vendored dependencies retain their own
-license files under `third_party/`.
+for its quantisation-aware-trained weights; the NVFP4-full image uses the mixed FP8/NVFP4 weights from
+[unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4); the NVIDIA image uses
+[nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4); and Swift is UkisAI's
+finetune, whose sources and whose non-Apache licence `NOTICE` records. The two predecessor files are
+published under the `cometkim` Hugging Face account and are what `download_model.py` still pins, as the
+artifact table above says; this port's builds of all four lines are not published yet. Source
+repositories other than Swift's are distributed under Apache-2.0, as `NOTICE` records. Vendored
+dependencies retain their own license files under `third_party/`.
