@@ -269,6 +269,19 @@ longer request, so TTFT is not covered here. And it is a *cores-burned* figure, 
 `spin` makes the server slower: the two configurations serve at the same rate, and the difference is
 what the idle waiting thread does with the processor while it waits.
 
+Nor is this enough to override the default, which is why the finding is recorded rather than acted
+on. Upstream's `bace20dc` is typed `perf(core)` -- a *performance* change -- and carries no body, so
+the axis it improved is not stated, and the port is not entitled to assume it was throughput. A
+spin-wait's usual advantage is wake-up latency: the thread is already running when the device
+signals rather than being woken. Neither axis measured here is that one. Cores burned is a cost
+axis, and the decode rate would only reflect a wake latency that sat on the critical path -- it does
+not sit on it, which is why the two rates match.
+
+So the lanes keep the engine's default, and no launcher sets `NINFER_CUDA_SYNC`. If the 0.31 core is
+ever judged worth reclaiming, the measurement that decides it is time-to-first-token and per-token
+latency under both schedules, at a real prompt length; no harness in this port reports either today,
+and the decode rate alone cannot speak for them.
+
 ### The answer: a debug-heap configuration left on one executable
 
 `ninfer-serve.exe` carried an Image File Execution Options entry, and no other binary on the machine
