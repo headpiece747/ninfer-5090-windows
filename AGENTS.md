@@ -192,6 +192,16 @@ Thirty-five rules, each earned by a failure rather than chosen:
   That happened five times in one session and the fix was always to write a file first. The failure
   is silent in both directions: the command can *succeed* while writing an empty file, so check the
   output's size, not just its exit code.
+- **A provider entry is not visible until the opencode service restarts.** The desktop app is V2
+  (2.0.16) and takes its model list from the background service (port 49374 on this machine), which
+  reads `~/.config/opencode/opencode.json` once at startup: the NVIDIA lanes added at 22:36 on 2026-09-24
+  were missing from the app because that service had started at 17:29 the same day. Prove an entry is
+  registered with the desktop's own bundled CLI
+  (`%APPDATA%\ai.opencode.desktop\cli\<version>\opencode-cli.exe models`), not by looking at the app.
+  The key is `provider` (singular) and V2 honours it for V1 config compatibility -- the 1.18.4 CLI on
+  PATH and the bundled 2.0.16 one list the same 47 models. Restart with the bundled binary, since the
+  `opencode` on PATH is 1.18.4 and may manage a different service, and expect in-flight sessions to be
+  interrupted.
 - **Reference this tree relatively, or a path that exists will read as missing.** Absolute paths into
   the workspace stopped resolving mid-session: `cd C:\AI\infer-v3-windows` answered "Cannot find
   path", `Test-Path` and `[System.IO.Directory]::Exists` returned false for directories `Get-Item`
