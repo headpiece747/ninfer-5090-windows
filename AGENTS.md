@@ -202,6 +202,15 @@ Thirty-five rules, each earned by a failure rather than chosen:
   misreading of the first as a missing file. When a workspace path is reported missing, re-test it
   relatively before acting on the report, and write scripts that use relative paths or derive them
   from `__file__`.
+- **A transient file lock can mark a measurement failed while its data is intact.** The published
+  QUASAR's AIME 2025 job recorded `failed` with 0 of 30 completed, and its log carried
+  `[WinError 5] Access is denied: '...\aime25\progress.json.tmp' -> '...\aime25\progress.json'` -- a
+  rename that could not complete, which aborted the job at 15 samples. The samples it had run were all
+  on disk, and reading `backends/<suite>/reviews/<model>/<suite>_default.jsonl` gave the score the
+  wrapper never wrote, validated against a job whose known result was 27/30 and 29/30. So: read the
+  score out of the backend's own review file when a job reports failure, and read nothing inside a run
+  directory while it is being written -- the same fault produced "the file is being used by another
+  process" for `aime_quasar.log` twice in one session.
 - **Do not guard with string presence over prose.** A check for a token that also appears in a
   comment, a docstring or a filename misfires. That happened four times. Assert the specific call
   site instead.
