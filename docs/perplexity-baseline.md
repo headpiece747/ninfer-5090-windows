@@ -2,14 +2,18 @@
 
 The protocol, so a number is comparable: `ninfer-perplexity.exe <artifact> --corpus
 eval/corpora/perplexity-1m/manifest.json --kv-dtype <dtype>`. That is upstream's fixed corpus
-(`ninfer-ppl-1m-v1`: 1,044,876 scored tokens, 496 windows, 4096/2048 context and stride). Measured
-2026-09-22 on this machine, which is a different box and clock from any published figure.
+(`ninfer-ppl-1m-v1`: 1,044,876 scored tokens, 496 windows, 4096/2048 context and stride). Every row
+carries the date it was taken; all of them are this machine, which is a different box and clock from
+any published figure. Removing `--quick` gives the full corpus.
 
 | artifact | KV | PPL | notes |
 |---|---|---|---|
-| `qwen3_8_27b_nvfp4.v3.ninfer` (official stock) | fp8 | **4.90295** | full corpus, 4.21k tok/s |
-| `qwen3_8_27b_nvfp4.v3.ninfer` (official stock) | bf16 | **4.89838** | full corpus, 4.20k tok/s |
-| `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT) | fp8 | **4.89741** | `--quick` (4 streams, 261,223 tokens) |
+| `qwen3_8_27b_nvfp4.v3.ninfer` (official stock) | fp8 | **4.90295** | full corpus, 4.21k tok/s, recorded 2026-09-22 |
+| `qwen3_8_27b_nvfp4.v3.ninfer` (official stock) | fp8 | **4.90169** | full corpus, 2026-09-24; re-measured |
+| `qwen3_8_27b_nvfp4.v3.ninfer` (official stock) | bf16 | **4.89838** | full corpus, 4.20k tok/s, 2026-09-22 |
+| `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT, as published) | fp8 | **4.89741** | `--quick`, recorded 2026-09-22 |
+| `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT, as published) | fp8 | **4.94879** | `--quick`, 2026-09-24; re-measured, and it does not reproduce the figure above |
+| `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR, rebuilt from source) | fp8 | **4.88817** | `--quick`, 2026-09-24 |
 | `qwen3_8_27b_nvfp4qat.v3.ninfer` (QUASAR QAT) | fp8 | **5.88829** | custom corpus, 177,400 tokens |
 | `qwen3_8_27b_nvfp4full.v3.ninfer` (NVFP4-full) | fp8 | **5.92007** | custom corpus, same text |
 | `qwen3_8_27b_nvfp4swift.v3.ninfer` (Swift, re-encoded) | fp8 | **4.68429** | `--quick`, 2026-09-24; the same recipe importing the checkpoint's FP8 scored **4.84938** |
@@ -19,11 +23,39 @@ eval/corpora/perplexity-1m/manifest.json --kv-dtype <dtype>`. That is upstream's
 | Swift, re-encoded with NVFP4-full's bf16 exceptions | fp8 | **4.93254** | full corpus |
 | Swift, re-encoded, endpoints as FP8 | fp8 | **4.85155** | `--quick`; isolates the endpoints, which are Q8 in the rows above |
 | Swift, re-encoded, endpoints as FP8 | fp8 | **4.96342** | full corpus |
+| `qwen3_8_27b_nvfp4full.v3.ninfer` (NVFP4-full, as published) | fp8 | **4.82452** | `--quick`, 2026-09-24 |
+| `qwen3_8_27b_nvfp4full.v3.ninfer` (NVFP4-full, as published) | fp8 | **4.98768** | full corpus, 2026-09-24 |
+| `qwen3_8_27b_nvfp4full.v3.ninfer` (unsloth, rebuilt from source) | fp8 | **4.75750** | `--quick`, 2026-09-24 |
+| `qwen3_8_27b_nvfp4full.v3.ninfer` (unsloth, rebuilt from source) | fp8 | **4.97532** | full corpus, 2026-09-24 |
+| `qwen3_8_27b_nvfp4nvidia.v3.ninfer` (NVIDIA, built from source) | fp8 | **4.71979** | `--quick`, 2026-09-24 |
+| `qwen3_8_27b_nvfp4nvidia.v3.ninfer` (NVIDIA, built from source) | fp8 | **4.90168** | full corpus, 2026-09-24; the official stock measures 4.90169 on the same protocol |
 
 The custom corpus is this repo's `docs/` and `tests/` markdown, concatenated in sorted order
 (177,400 tokens). On it the two shipped artifacts sit 0.5% apart with QUASAR marginally better, which
 is the like-for-like check: same text, same protocol, two artifacts. The full-corpus rows are not
-comparable with the `--quick` row, since the corpus subset differs.
+comparable with the `--quick` row, since the corpus subset differs. Give every row the date it was
+taken: the QUASAR figure and the official stock's full-corpus figure both failed to reproduce when
+re-measured, which is a claim about the revision, not about the arithmetic.
+
+## A `--quick` comparison is decided by four streams
+
+`--quick` scores one stream per domain, 261,223 tokens; `full` scores four per domain, 1,044,876.
+Comparing the rebuilt NVIDIA artifact against the official stock, `--quick` reads **−1.78%** and the
+full corpus reads **−0.00%**, and the domain breakdown says why:
+
+| domain | official stock | NVIDIA build | change |
+|---|---:|---:|---:|
+| `chinese_reference` | 6.40455 | 6.28941 | **−1.80%** |
+| `english_reference` | 6.55706 | 6.49852 | −0.89% |
+| `english_long_form` | 8.17251 | 8.29735 | +1.53% |
+| `ninfer_code` | 1.67007 | 1.69030 | +1.21% |
+
+It wins two domains and loses two and they cancel, so "the same on average" is the honest description
+and "1.78% better" is not. The `--quick` figure is carried by its `zhwiki-00` stream, which moves
+**−8.85%** where the full corpus's four Chinese streams move −1.80% together. That singleton is the
+same `zhwiki` stream the `nvfp4` KV finding above singled out, which suggests the Chinese domain is
+where a quantization difference shows largest — but four streams cannot establish it, and a comparison
+that rests on one of them cannot be quoted as a result.
 
 ## Measuring a template
 
