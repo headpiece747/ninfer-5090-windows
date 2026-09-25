@@ -260,13 +260,27 @@ this instrument is sharp enough to say that builds differ on this domain and not
 the difference. The sign test is the robust statistic, and it agrees with the fixed corpus for the QAT
 and NVIDIA lines. It disagrees for the unsloth line, which is what its binary AIME pair is for.
 
+One confound was checked before any binary score was read. The rebuilt artifact and the published file
+carry different chat templates -- 10,871 bytes at `resource/text/chat_template.jinja` against 9,712 at
+`frontend/chat_template.jinja` -- and a task-level run compares template and weights together. The
+difference is two hunks: a comment, and a block that maps client reasoning-effort aliases (`high`,
+`max`, `ultracode`, `extreme` onto `xhigh`; `minimal` onto `low`) to the three levels the template
+renders, which this port added because the stock template raised an exception on Claude Code's default
+`high`. This campaign sends `enable_thinking: true` and no `reasoning_effort`, so `default('xhigh')`
+applies on both sides and the block is never reached: the prompts are identical and the comparison is
+about the artifacts rather than their frontends. The Swift pair above needed no such check, because
+both of its sides are this port's own builds and carry the same template.
+
 The QAT line's binary pair, at the documented 122,880-token budget and the fp8 KV flags a launcher
 uses, is **27 / 30** (AIME 2025) and **29 / 30** (AIME 2026) — run directory
 `20260925T030045Z-3e88e8bd`, config fingerprint `3e88e8bd`, the same fingerprint as the Swift campaign
-above and therefore the same protocol. The reference points on it are the port's own
-`qwen3_8_27b_nvfp4` artifact at 29 / 30 and 29 / 30 and the re-encoded Swift build at 28 / 30 and
-28 / 30. The published file this line replaces is being measured on the same protocol, because 27 / 30
-on one suite is a number that needs its counterpart before it means anything.
+above and therefore the same protocol. The reference points are of two kinds: the re-encoded Swift
+build's 28 / 30 and 28 / 30 sit on that same fingerprint, so they are the same protocol exactly, while
+the port's own `qwen3_8_27b_nvfp4` artifact's 29 / 30 and 29 / 30 come from the formal run recorded at
+the top of this file, whose run directories no longer exist -- its prose protocol matches, but its
+fingerprint cannot be checked, which makes it a reference point rather than a control. The published
+file this line replaces is being measured on the campaign config now, and so is that official artifact,
+because 27 / 30 on one suite is a number that needs its counterpart before it means anything.
 
 Prepare and inspect Needle-in-a-Haystack without issuing model requests:
 
