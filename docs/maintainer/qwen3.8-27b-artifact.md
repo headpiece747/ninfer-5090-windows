@@ -1490,9 +1490,11 @@ from the BF16 base.
 | `z-lab/Qwen3.8-27B-DFlash2` | `50307d4c4cde6860d4eee73e2547cd786fe8e8a4` | the DFlash2 companion |
 
 The checkpoint is ModelOpt at producer `0.47.0.dev80+g913f5e224`; the model card states v0.48.0, and the
-checkpoint's own field is the one an artifact should be reproduced from. Its 401 `input_scale` values
-come from a Local-Hessian calibration over 2048 samples, and this line needs no corpus of its own
-because of them: the divisor probes which form applies, `1 / input_scale` where the site is already
+checkpoint's own field is the one an artifact should be reproduced from. The card agrees with what this
+recipe measured and does rather than only what it says: it records mixed NVFP4/FP8 with NVFP4 on the MLP
+layers *and* the language model head, FP8 on self-attention and linear-attention, and a 2,048-sample
+Local-Hessian calibration -- which is the source of the 401 `input_scale` values that make a corpus
+unnecessary here. The divisor probes which form applies, `1 / input_scale` where the site is already
 NVFP4 and `6 / input_scale` where it is FP8.
 
 ### 19.3 Production and verification

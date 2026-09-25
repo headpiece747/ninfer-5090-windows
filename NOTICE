@@ -47,9 +47,11 @@ The artifacts this release builds are derived from checkpoints published by:
 
 - UkisAI (https://huggingface.co/ukisai/Swift-Qwen3.8-27B-NVFP4 and
   https://huggingface.co/ukisai/Swift-Qwen3.8-27b)
-  The Swift fine-tune's quantized and BF16 exports. Swift Open License v1.0, which is not Apache-2.0:
-  the original model card states its terms, including the revenue threshold above which commercial
-  use needs a separate licence.
+  The Swift fine-tune's quantized and BF16 exports. UkisAI's contribution, the fine-tuned weights, is
+  licensed under the Swift Open License v1.0 rather than Apache-2.0: the model card makes personal,
+  research, educational, evaluation and commercial use free below US$1,000,000 of annual recurring
+  revenue and requires a separate Swift Enterprise License above it. That card also records that
+  nothing in that licence limits rights in Qwen3.8-27B itself under Apache-2.0.
 
 - z-lab (https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2)
   The DFlash2 draft every artifact here carries, at the revision pinned in its artifact section.
