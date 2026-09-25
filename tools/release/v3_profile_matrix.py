@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import kill_servers, wait_ready  # noqa: E402
-from profiles import PROFILES, QUASAR, NVFP4FULL, SWIFT, INVARIANT_FLAGS, by_file, launcher_args, template_path  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, SWIFT, NVIDIA, INVARIANT_FLAGS, by_file, launcher_args, template_path  # noqa: E402
 
 EXE = Path(__file__).resolve().parents[2] / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
@@ -64,6 +64,11 @@ ARTS = {
     # published from the source's own FP8 import -- sits above the envelope and reached 240,000 (MTP)
     # and 180,224 (DFlash2) at fp8 KV. See docs/maintainer/artifact-conventions.md section 1.
     "swift": SWIFT,
+    # Built from NVIDIA's ModelOpt NVFP4 checkpoint: its NVFP4 MLP is imported and its FP8 attention
+    # and linear-attention are re-encoded from the BF16 base, with the divisors derived from that
+    # checkpoint's own per-site `input_scale`. The line it replaces is `ninfer` above, which carries
+    # 146 FP8 tensors and caps below the full context.
+    "nvidia": NVIDIA,
 }
 LADDER = [262144, 240000, 212992, 180224, 163840, 131072]
 MTP_DEPTHS = [2, 3, 4, 5]

@@ -62,6 +62,7 @@ def template_path() -> str:
 QUASAR = "qwen3_8_27b_nvfp4qat.v3.ninfer"
 NVFP4FULL = "qwen3_8_27b_nvfp4full.v3.ninfer"
 SWIFT = "qwen3_8_27b_nvfp4swift.v3.ninfer"
+NVIDIA = "qwen3_8_27b_nvfp4nvidia.v3.ninfer"
 
 PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,

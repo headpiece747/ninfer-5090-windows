@@ -24,6 +24,41 @@ This product contains modifications developed by headpiece747 to support:
 - Automated Windows dependency management and FFmpeg integration
 
 ========================================================================
+Model sources:
+========================================================================
+The artifacts this release builds are derived from checkpoints published by:
+
+- Qwen (https://huggingface.co/Qwen/Qwen3.8-27B)
+  The base weights every line here is built from, and the tokens, template and tokenizer every
+  artifact carries. Apache License 2.0.
+
+- unsloth (https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4)
+  The compressed-tensors NVFP4/FP8 checkpoint whose MLP codes the `nvfp4full` line imports and whose
+  FP8 attention and linear-attention it re-encodes. Apache License 2.0.
+
+- QUASAR-QAT (https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4)
+  The quantization-aware-trained checkpoint the `nvfp4qat` line imports unchanged. Apache License 2.0.
+  The method is described in QUASAR: Lowering the Loss Floor of Quantization-Aware Training with
+  Loss-Aware Reconstruction, arXiv 2608.13966.
+
+- NVIDIA (https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4)
+  The ModelOpt checkpoint whose NVFP4 MLP codes and per-site activation scales the `nvidia` line uses,
+  the scales being the product of NVIDIA's own Local-Hessian calibration. Apache License 2.0.
+
+- UkisAI (https://huggingface.co/ukisai/Swift-Qwen3.8-27B-NVFP4 and
+  https://huggingface.co/ukisai/Swift-Qwen3.8-27b)
+  The Swift fine-tune's quantized and BF16 exports. Swift Open License v1.0, which is not Apache-2.0:
+  the original model card states its terms, including the revenue threshold above which commercial
+  use needs a separate licence.
+
+- z-lab (https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2)
+  The DFlash2 draft every artifact here carries, at the revision pinned in its artifact section.
+
+The activation-divisor calibration in tools/convert/calibration.py uses the method and the committed
+corpus of cometkim's `calibrate_nvfp4full.py`, so this port's measured divisors are directly comparable
+with the profile that tool produced.
+
+========================================================================
 Third-Party Software and Attributions:
 ========================================================================
 

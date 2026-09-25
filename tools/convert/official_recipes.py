@@ -266,6 +266,21 @@ _GDN_MODULES = {
     "value": "linear_attn.in_proj_qkv", "z": "linear_attn.in_proj_z",
     "output": "linear_attn.out_proj",
 }
+# Parameter role -> module path in a ModelOpt checkpoint, for the sites a recipe re-encodes. The fused
+# parents share one activation, so `attention/{query,gate}` and the three GDN input projections each map
+# to a single module and take one divisor between them.
+_SITE_MODULES = {
+    ("attention", "query"): "self_attn.q_proj",
+    ("attention", "gate"): "self_attn.q_proj",
+    ("attention", "key"): "self_attn.k_proj",
+    ("attention", "value"): "self_attn.v_proj",
+    ("attention", "output"): "self_attn.o_proj",
+    ("gdn", "query"): "linear_attn.in_proj_qkv",
+    ("gdn", "key"): "linear_attn.in_proj_qkv",
+    ("gdn", "value"): "linear_attn.in_proj_qkv",
+    ("gdn", "z"): "linear_attn.in_proj_z",
+    ("gdn", "output"): "linear_attn.out_proj",
+}
 
 
 def _activation_divisor(store, prefix: str, module: str) -> float:
@@ -290,12 +305,14 @@ def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
 
     Attention and GDN are encoded to NVFP4 from the finetune's BF16 source, and both W8 endpoints
     are Q8 from that source, which is what the two shipped artifacts bind. The MLP stays imported
-    from ModelOpt's NVFP4 codes, which is lossless. Device weights therefore sit inside the
-    envelope that reaches the full native context.
+    from ModelOpt's NVFP4 codes, which is lossless. Its draft projections take the NVFP4 rule the other
+    three lines use, which measured 3.2 points better than upstream's Q8 on the port's own bench.
+    Device weights therefore sit inside the envelope that reaches the full native context.
     """
     if "num_experts" in model.config:
         raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
     _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
     base = sources["base"]
     bf16 = sources["swift_bf16"]
     prefix = "model.language_model." if "text_config" in base.config else "model."
@@ -476,6 +493,67 @@ def qwen3_8_27b_nvfp4_unsloth(model, recipe, sources):
     add_proposal(recipe, source=model.source("text/output_head", sources["base"]))
 
 
+def qwen3_8_27b_nvfp4_nvidia(model, recipe, sources):
+    """The ModelOpt-sourced line: its NVFP4 MLP imported, its FP8 attention re-encoded.
+
+    Measured from the checkpoint: MLP on all 64 layers and `lm_head` are NVFP4 (193 sites with a
+    `weight_scale_2`), while attention and linear-attention are FP8 (208 sites), each carrying an
+    `input_scale` from NVIDIA's own Local-Hessian calibration over 2048 samples.
+
+    That calibration is reusable here without a corpus because the divisor probes which form applies:
+    an already-NVFP4 site records `amax / (6 * 448)` and yields `1 / input_scale`, an FP8 site records
+    `amax / 448` and yields `6 / input_scale`. The sites re-encoded here are the ones whose input is the
+    hidden state, which is the class that transferred exactly when checked against the published
+    profile's divisors (53.4925 at layer 0's GDN input, identical in three artifacts).
+
+    `lm_head` is NVFP4 in the source but is re-encoded to Q8 from the BF16 base, as the shipped
+    artifacts bind. `gdn/a_projection` and `gdn/b_projection` are BF16: at (96, 5120) the NVFP4 layout
+    cannot hold them.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
+    base = sources["base"]
+    quantized = sources["quantized"]
+    prefix = "model.language_model." if "text_config" in quantized.config else "model."
+    _assign(recipe, "text/token_embedding", Q8)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding":
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8)
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            recipe.assign(name, source=model.source(name, base))
+            continue
+        if "/mlp/" in name:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, quantized, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+            continue
+        block, role = name.split("/")[3], name.rsplit("/", 1)[1]
+        module = _SITE_MODULES.get((block, role))
+        if module is None:
+            raise ValueError(f"{name}: no NVFP4 site is registered for this projection")
+        divisor = _activation_divisor(quantized, f"{prefix}layers.{name.split('/')[2]}.", module)
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            activation_policy="AllowA4",
+        )
+        for input_name in parameter.inputs:
+            recipe.use(name, input_name, auxiliaries={"activation_input_divisor": divisor})
+    add_proposal(recipe, source=model.source("text/output_head", base))
+
+
 RECIPES = {
     "qwen3_6_27b": qwen3_6_27b,
     "qwen3_6_27b_nvfp4": qwen3_6_27b_nvfp4,
@@ -483,6 +561,7 @@ RECIPES = {
     "qwen3_8_27b_nvfp4": qwen3_8_27b_nvfp4,
     "qwen3_8_27b_nvfp4_qat": qwen3_8_27b_nvfp4_qat,
     "qwen3_8_27b_nvfp4_swift": qwen3_8_27b_nvfp4_swift,
+    "qwen3_8_27b_nvfp4_nvidia": qwen3_8_27b_nvfp4_nvidia,
     "qwen3_8_27b_nvfp4_unsloth": qwen3_8_27b_nvfp4_unsloth,
     "qwen3_6_35b_a3b": qwen3_6_35b_a3b,
 }
