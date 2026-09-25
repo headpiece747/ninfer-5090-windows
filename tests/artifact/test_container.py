@@ -18,7 +18,7 @@ from tools.artifact.writer import ArtifactWriter, layout_directory
 
 
 def _small(path: Path) -> dict:
-    specs = [
+    specs: list[TensorSpec | ResourceSpec] = [
         TensorSpec("w", (2, 2), "bf16", "contiguous_le_v1"),
         TensorSpec("scale", (), "fp32", "contiguous_le_v1"),
         ResourceSpec("template", 5),

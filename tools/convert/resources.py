@@ -70,7 +70,7 @@ def load_resources(
     overrides: Mapping[str, str | Path] | None = None,
 ) -> tuple[dict[str, dict[str, str]], dict[str, bytes], int, tuple[int, ...]]:
     overrides = {} if overrides is None else dict(overrides)
-    roles = {"text": TEXT_RESOURCES}
+    roles: dict[str, tuple[str, ...]] = {"text": TEXT_RESOURCES}
     if vision_config is not None:
         roles["vision"] = VISION_RESOURCES
     allowed = {role for names in roles.values() for role in names}
@@ -94,7 +94,7 @@ def load_resources(
                 if not isinstance(value, dict):
                     raise ValueError(f"{path}: resource must contain a JSON object")
                 parsed[role] = value
-                if component == "vision":
+                if component == "vision" and vision_config is not None:
                     for field, config_field in (
                         ("patch_size", "patch_size"),
                         ("temporal_patch_size", "temporal_patch_size"),

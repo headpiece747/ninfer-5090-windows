@@ -87,13 +87,13 @@ def main() -> int:
               "a republished artifact changes the pin; the README's table has to move with it")
 
     print("\n=== doc tables quote the table ===")
-    for doc in (WT / "README.md", WT / "RELEASE_NOTES.md"):
-        text = read(doc)
+    for doc_path in (WT / "README.md", WT / "RELEASE_NOTES.md"):
+        text = read(doc_path)
         for profile in PROFILES:
-            check(f"{doc.name} quotes {profile['file']} at {round(profile['tok'])} tok/s",
+            check(f"{doc_path.name} quotes {profile['file']} at {round(profile['tok'])} tok/s",
                   f"{round(profile['tok'])} tok/s" in text,
                   "a doc table is a transcription site: it must match profiles.PROFILES")
-            check(f"{doc.name} quotes {profile['file']}'s acceptance {profile['acc']}",
+            check(f"{doc_path.name} quotes {profile['file']}'s acceptance {profile['acc']}",
                   f"| {profile['acc']} |" in text)
 
     print("\n=== opencode providers ===")

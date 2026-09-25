@@ -143,8 +143,8 @@ def main() -> int:
 
     if failures:
         print(f"\n  SOAK FAILED: {len(failures)} failure(s)")
-        for status, body, context in failures[:5]:
-            print(f"    status={status} {context}\n      {body[:300]}")
+        for status, payload, context in failures[:5]:
+            print(f"    status={status} {context}\n      {payload[:300]}")
         return 1
     print("\n  SOAK HEALTHY: no failed request")
     return 0

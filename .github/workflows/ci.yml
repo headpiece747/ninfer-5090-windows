@@ -3,7 +3,7 @@
 # It runs the same script a commit runs (.githooks/pre-commit) rather than restating its commands, so
 # there is one definition of what the fast gates are and CI cannot drift from the hook. The hook's
 # commands are: documentation links resolve, the profile tables match the module and the generated
-# launchers, the converter tests pass, and ruff is clean.
+# launchers, the converter tests pass, ruff is clean, and mypy is clean.
 #
 # windows-latest because the tooling is Windows-first: the recipes are .cmd, the profile matrix looks
 # for engines at build\apps, and check_profile_consistency finds the opencode provider entries under
@@ -28,10 +28,12 @@ jobs:
 
       # The converter tests import torch and safetensors to read checkpoints; the CPU wheel is
       # enough and keeps the job small. Torch is on its own index, so it installs separately.
+      # mypy is here rather than in the gate step because the hook now runs it: if it were installed
+      # later, the hook would fail on a missing module before reaching it.
       - name: install tooling
         run: |
           python -m pip install --quiet --upgrade pip
-          python -m pip install --quiet pytest pyyaml numpy safetensors ruff
+          python -m pip install --quiet pytest pyyaml numpy safetensors ruff mypy
           python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
 
       # bash is available on the Windows runner through Git, and the hook is a POSIX script.
@@ -39,13 +41,3 @@ jobs:
         env:
           NINFER_PYTHON: python
         run: bash .githooks/pre-commit
-
-      # Reported, not enforced: mypy carries a backlog of known type errors, and the rule in AGENTS.md
-      # is that a NEW error is yours. Until the backlog reaches zero this tells the reviewer what
-      # changed without blocking a merge on work that has not been done yet. No count is written here
-      # on purpose -- run it and read the number rather than trusting a figure that drifts.
-      - name: mypy (informational)
-        continue-on-error: true
-        run: |
-          python -m pip install --quiet mypy
-          python -m mypy tools/release tools/convert

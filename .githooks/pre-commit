@@ -30,4 +30,6 @@ echo "pre-commit: converter tests"
 "$PY" -m pytest tests/convert -q
 echo "pre-commit: ruff"
 "$PY" -m ruff check tools tests --quiet
+echo "pre-commit: mypy"
+"$PY" -m mypy tools/release tools/convert tests
 echo "pre-commit: ok"

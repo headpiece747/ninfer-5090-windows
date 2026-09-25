@@ -6,7 +6,7 @@ from collections import Counter
 import json
 from pathlib import Path
 import time
-from typing import Callable
+from typing import Any, Callable
 
 import torch
 
@@ -58,7 +58,7 @@ def convert(
         + [job.spec for job in prepared.weights]
         + [spec for spec, _ in prepared.auxiliaries]
     )
-    report = {
+    report: dict[str, Any] = {
         "components": model.components,
         "name": name,
         "output": str(path),
@@ -112,13 +112,20 @@ def convert(
         for spec, data in prepared.auxiliaries:
             writer.write_object(spec.id, data)
         report["artifact_id"] = writer.artifact_id.hex()
-        report["files"] = [
-            {
-                "path": str(path if i == 0 else path.parent / file.path),
-                "payload_bytes": file.payload_bytes,
-            }
-            for i, file in enumerate(writer.directory.files)
-        ]
+        # Entry 0 is the artifact itself and lives at `path`; every later entry is a part beside it,
+        # and a part without a name is a writer bug rather than a path of None.
+        published: list[dict[str, Any]] = []
+        for index, entry in enumerate(writer.directory.files):
+            if index == 0:
+                published.append({"path": str(path), "payload_bytes": entry.payload_bytes})
+                continue
+            if entry.path is None:
+                raise ValueError("a published part has no file name")
+            published.append({
+                "path": str(path.parent / entry.path),
+                "payload_bytes": entry.payload_bytes,
+            })
+        report["files"] = published
         report["payload_bytes"] = writer.directory.payload_bytes
     report["seconds"] = time.perf_counter() - start
     temporary = Path(str(report_path) + ".tmp")
