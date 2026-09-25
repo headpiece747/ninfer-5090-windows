@@ -277,10 +277,54 @@ signals rather than being woken. Neither axis measured here is that one. Cores b
 axis, and the decode rate would only reflect a wake latency that sat on the critical path -- it does
 not sit on it, which is why the two rates match.
 
-So the lanes keep the engine's default, and no launcher sets `NINFER_CUDA_SYNC`. If the 0.31 core is
-ever judged worth reclaiming, the measurement that decides it is time-to-first-token and per-token
-latency under both schedules, at a real prompt length; no harness in this port reports either today,
-and the decode rate alone cannot speak for them.
+So the lanes keep the engine's default, and no launcher sets `NINFER_CUDA_SYNC`.
+
+### What would settle the schedule, and what it costs
+
+The claim under test is a latency claim, and NVIDIA's own description of the flags is the primary
+source for it. `cudaSetDeviceFlags` documents `cudaDeviceScheduleSpin` as: *"Instruct CUDA to actively
+spin when waiting for results from the device. This can decrease latency when waiting for the device,
+but may lower the performance of CPU threads if they are performing work in parallel with the CUDA
+thread."* `cudaDeviceScheduleBlockingSync` is described only as blocking the CPU thread on a
+synchronization primitive, and `cudaDeviceScheduleYield` as the reverse trade -- *"can increase latency
+... but can increase the performance of CPU threads"*. Upstream's `perf(core)` therefore names a real
+axis, the port has measured its price (0.31 of a core), and what is open is the size of what that price
+buys.
+
+That question has a standard shape, and this port is closer to answering it than an earlier draft of
+this note claimed -- it said no harness here reports either metric, and that was wrong. **TTFT is
+already measured**, by the black-box Serve TTFT benchmark in `tools/bench/ttft/`, and its contract
+matches the published one: `t1` is the first *non-empty* model delta, and headers, role chunks,
+`response.created`, `usage` and finish events are excluded -- the same rule NVIDIA documents for
+GenAI-Perf and LLMPerf, both of which discard initial responses that carry no token. It already reports
+min, median, max and median absolute deviation per case and role, and its summarizer compares one
+campaign against another as `subject - baseline` with per-role pairing, which is exactly the
+interleaved comparison this question needs.
+
+Three things are missing, and none of them is a new benchmark:
+
+1. **The campaign controller does not run on this platform.** `run_serve_ttft_campaign.py` stages the
+   artifact under `/dev/shm/ninfer-artifacts` and refuses to start without that capacity, which is a
+   Linux construct. The black-box runner it drives touches no Linux-only construct, and is documented
+   as usable against a separately started Serve -- which this port already has launchers for, on the
+   real artifact. The staging exists to cut per-sample process startup and cannot change a measured
+   TTFT, because `t0` is inside the request. So the shortest correct route is the low-level runner
+   against a launcher's server, with staging ported later only if startup time becomes the bottleneck.
+2. **Per-token latency is not computed.** The report's metrics are TTFT and acceptance; the runner
+   consumes every later delta to keep the artifact small. The standard metrics are TTFT, TPOT =
+   `(end - t1) / (output tokens - 1)`, and ITL, the gap between consecutive deltas. TPOT is the one to
+   add first: it is the robust one, and it needs nothing that is not already recorded, because the
+   terminal timestamp and the output token count are both in the raw JSON. ITL needs per-delta
+   timestamps kept, and carries a trap vLLM's own benchmark documents -- a delta may bundle several
+   tokens, so per-*delta* latency is not per-*token* latency and the token count can be inflated.
+3. **The schedule must vary per launch.** `NINFER_CUDA_SYNC` is read at `DeviceContext` construction
+   and comes from the environment, so any harness that starts Serve inherits it; the comparison is then
+   two campaigns per schedule, alternated, which is what this card's unpinned clocks require.
+
+The decision rule is the one already used here: interleave, compare medians against the reported
+median absolute deviation, and treat a difference inside that band as absent rather than small. `spin`
+ahead of `blocking` by more than the spread means the 0.31 core is the price of latency and the default
+stands; indistinguishable means the core is free to reclaim. Neither can be read off the decode rate.
 
 ### The answer: a debug-heap configuration left on one executable
 
