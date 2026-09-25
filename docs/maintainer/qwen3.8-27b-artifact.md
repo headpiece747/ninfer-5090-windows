@@ -1368,6 +1368,13 @@ corpus settles it: this build is ahead there too, by 0.23% against the subset's 
 the same and the magnitude is smaller, which is what a singleton-stream effect looks like when four
 streams per domain average it.
 
+At the task level the AIME pair, at the documented 122,880-token budget with the fp8 KV flags a
+launcher uses, scores **27 / 30** and **29 / 30** (run `20260925T030045Z-3e88e8bd`, config fingerprint
+`3e88e8bd`). The reference points on that protocol are the port's own `qwen3_8_27b_nvfp4` artifact at
+29 / 30 and 29 / 30, and the re-encoded Swift build at 28 / 30 and 28 / 30. `eval/README.md` records
+the protocol and the paired per-problem scores; the published file's own pair is the measurement that
+anchors the 27.
+
 ## 18. Rebuilt from source: the unsloth line (`nvfp4full`)
 
 Section 14 describes the `nvfp4full` artifact as the fork built it from

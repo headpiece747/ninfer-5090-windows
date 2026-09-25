@@ -237,6 +237,37 @@ p = 0.14) because the per-problem differences are heavy-tailed. So this instrume
 two builds differ on this domain — which the binary score could not — while the direction depends on
 whether problems or tokens are weighted. It is a sensitivity measurement, not an accuracy one.
 
+## The rebuilt lines against the files they replace
+
+The same paired instrument was pointed at the three lines this port rebuilt, with both sides of each
+pair. The token counts were checked before the scores were read, because a pair that tokenizes
+differently is answering a different question: every artifact reports 60 streams, 11,303 input tokens,
+11,243 scored tokens and 60 windows, so these are answers about the same tokens.
+
+| pair | rebuilt | the file it replaces | problems where the rebuilt build scores lower |
+|---|---:|---:|---:|
+| QAT (`nvfp4qat`) | **7.12919** | 8.37007 | **56 of 60** |
+| unsloth (`nvfp4full`) | 8.98841 | **7.81090** | 13 of 60 |
+| NVIDIA (`nvfp4nvidia`) | **9.04684** | 10.87520 | **56 of 60** |
+
+The NVIDIA row's counterpart is `qwen3_8_27b_nvfp4.v3.ninfer`, the artifact published as
+`neroued/Qwen3.8-27B-nvfp4-NInfer`, which its line replaces; the other two rows compare against the
+published file of their own line.
+
+Read the magnitudes as the sensitivity reading the paragraph above describes, not as accuracy. The QAT
+pair differs by 0.23% on the fixed corpus and 15% here, so a few rare-token tails decide the aggregate:
+this instrument is sharp enough to say that builds differ on this domain and not sharp enough to size
+the difference. The sign test is the robust statistic, and it agrees with the fixed corpus for the QAT
+and NVIDIA lines. It disagrees for the unsloth line, which is what its binary AIME pair is for.
+
+The QAT line's binary pair, at the documented 122,880-token budget and the fp8 KV flags a launcher
+uses, is **27 / 30** (AIME 2025) and **29 / 30** (AIME 2026) — run directory
+`20260925T030045Z-3e88e8bd`, config fingerprint `3e88e8bd`, the same fingerprint as the Swift campaign
+above and therefore the same protocol. The reference points on it are the port's own
+`qwen3_8_27b_nvfp4` artifact at 29 / 30 and 29 / 30 and the re-encoded Swift build at 28 / 30 and
+28 / 30. The published file this line replaces is being measured on the same protocol, because 27 / 30
+on one suite is a number that needs its counterpart before it means anything.
+
 Prepare and inspect Needle-in-a-Haystack without issuing model requests:
 
 ```bash
