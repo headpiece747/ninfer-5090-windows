@@ -1279,7 +1279,10 @@ from. Section 1 of the artifact conventions carries that argument.
 
 The DFlash2 acceptance is the re-encode's largest measured win: the z-lab draft was trained against
 the stock model's hidden states, and a text stack whose attention is NVFP4 like the stock artifacts'
-moves those states closer to it. AIME 2025 and AIME 2026 at the documented 122,880-token budget score
+moves those states closer to it. Upstream records the general form of that dependence: issue #298
+section 3 converts a finetune far from stock and measures DFlash2 accepting 3.3-5.1% of drafts while
+the MTP head still accepts 67-85%, concluding that the draft is model-specific. Swift sits between the
+two cases, which is why its DFlash2 lane ships at a measured 60.9% rather than being assumed. AIME 2025 and AIME 2026 at the documented 122,880-token budget score
 28 / 30 each, against the FP8-importing build's 29 / 30 each; at 60 samples the difference is not
 significant, and `eval/README.md` records it with its protocol.
 
@@ -1547,3 +1550,11 @@ Its lanes, measured on the artifact this release ships:
 
 `ceiling` mode measured all four spec/vision combinations at the full 262,144, so this line reaches a
 context the official stock cannot.
+
+Upstream reached the same conclusion about this checkpoint independently. Issue #214, closed
+2026-09-15, switched NInfer's own Qwen3.8-27B NVFP4 base to `nvidia/Qwen3.8-27B-NVFP4` on exactly this
+ground -- it is smaller and better calibrated for NVFP4 -- and the interleaved benchmark that closed it
+compares an `unsloth` build against an `nvidia hybrid` one, naming the hybrid the shape this recipe
+builds: NVFP4 imported where the source has it, the rest re-encoded. That benchmark also puts prefill
+and decode within 0.8% of each other, which is what this line's identical full-corpus perplexity
+independently shows from the other direction.
