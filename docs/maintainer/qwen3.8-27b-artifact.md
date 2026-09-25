@@ -1353,7 +1353,7 @@ The engine loads it at 16.1 GiB of device weights, reaches the full 262,144 cont
 | protocol | published fork build | this build |
 |---|---:|---:|
 | `--quick`, `fp8` KV | 4.94879 | **4.88817** |
-| full corpus, `fp8` KV | *pending* | *pending* |
+| full corpus, `fp8` KV | *pending* | **4.99097** |
 
 The `--quick` reading of 4.94879 is the artifact as it measures today; section 15's table records
 4.89741 for it, which does not reproduce. The `--quick` section of `docs/perplexity-baseline.md` explains why a

@@ -28,17 +28,22 @@ header. `GET /health` answers once the model is loaded. The six launchers and th
 figures are under [Profiles and launchers](#profiles-and-launchers); building from source is under
 [Windows](#windows).
 
-Three v3 artifacts ship with this port. The six launchers use these three, and `download_model.bat`
+Four v3 artifacts ship with this port. The eight launchers use these four, and `download_model.bat`
 offers the two that are published:
 
 | Model | Weights | Artifact | Download |
 |---|---|---|---|
 | Qwen3.8-27B | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | [QUASAR QAT](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer), 17.36 GiB, `8b86901a…` |
 | Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.v3.ninfer` | [NVFP4-full](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4full-NInfer), 18.07 GiB, `ac98cd39…` |
-| Qwen3.8-27B | `nvfp4swift` (Swift finetune) | `qwen3_8_27b_nvfp4swift.v3.ninfer` | 18.42 GiB, `6353a46f…`; its `download_model.py` pin lands with its publication |
+| Qwen3.8-27B | `nvfp4swift` (Swift finetune) | `qwen3_8_27b_nvfp4swift.v3.ninfer` | 17.65 GiB, `2411574b…`; its `download_model.py` pin lands with its publication |
+| Qwen3.8-27B | `nvfp4nvidia` (NVIDIA ModelOpt) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | 17.65 GiB, `76131f79…`; its `download_model.py` pin lands with its publication |
 
-All three are Qwen3.8-27B. The published sizes and full SHA-256 digests are pinned in `download_model.py`, which
-verifies every download against them; a republish upstream means updating that pin.
+All four are Qwen3.8-27B. The first two rows are the published files this port has always fetched, and
+their digests are the ones pinned in `download_model.py`, which verifies every download against them;
+a republish upstream means updating that pin. This port also builds its own copy of each line from the
+same sources, which is what the launchers here run: those differ from the two published files in the
+ways their sections in the [artifact reference](docs/maintainer/qwen3.8-27b-artifact.md) record, and
+the rows' figures describe the published files until these pins are republished.
 
 Upstream publishes artifacts for other checkpoints, which this port neither ships nor measures. The
 engine requires a v3 container, and a copy fetched before the republish must be
