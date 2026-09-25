@@ -58,6 +58,25 @@ cmake --build build --parallel --target ninfer_sampling_test
 ctest --test-dir build -R ninfer_sampling_test --output-on-failure
 ```
 
+### Windows port recipes
+
+This port ships three recipes rather than expecting the commands above to be reconstructed:
+
+- `tools/scripts/test_v3.cmd` — configure, build and run the whole suite in `build-test`, and stage
+  the FFmpeg runtime DLLs beside the test executables (four tests exit `0xC0000135` without that
+  copy). It passes `--schedule-random`, because an order-dependent test hid behind a fixed order
+  once: a test that decorates itself with an empty environment variable poisoned every test after it.
+- `tools/scripts/test_v3_asan.cmd` — the host-only subset under MSVC AddressSanitizer. ASan cannot
+  instrument device code, which is why the device side is a separate recipe and not a flag here.
+- `tools/scripts/test_v3_compute_sanitizer.cmd` — memcheck over five sub-second device tests, the
+  device-side complement to the ASan recipe.
+
+`tools/release/check_test_baseline.py` compares a run against the recorded baseline in
+`tools/release/test_baseline.json`, which is the authority for how many tests the suite has and which
+failures are expected by construction. Set `NINFER_TEST_ARTIFACT` before running it: without it the
+three required real-model tests skip, and the gate then fails on missing coverage rather than on a
+regression.
+
 Enable uniform floating-point error records when establishing or reviewing an Op criterion:
 
 ```bash

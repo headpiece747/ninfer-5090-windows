@@ -131,7 +131,7 @@ something, and each is named here so it gets used rather than rediscovered.
 | situation | tool |
 |---|---|
 | every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Doc links, profile consistency, converter tests: seconds, no network |
-| a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` |
+| a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` — **with `NINFER_TEST_ARTIFACT` set**: without it the three required real-model tests skip and the gate fails on missing coverage rather than on a regression, which is how it was misread once |
 | anything that could be order- or state-dependent | the suite recipe passes `--schedule-random`; run it twice before believing a fixed order |
 | a device-side memory, race or synchronisation question | `tools/scripts/test_v3_compute_sanitizer.cmd` — memcheck on a small subset; `racecheck`/`initcheck`/`synccheck` and the wider method are in the `cuda-debugging` skill |
 | a host-side lifetime question | `tools/scripts/test_v3_asan.cmd` — ASan cannot instrument device code, which is why the two recipes are separate |
