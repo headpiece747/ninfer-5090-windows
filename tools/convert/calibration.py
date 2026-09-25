@@ -1,4 +1,4 @@
-﻿"""Activation-divisor calibration for locally encoded NVFP4 sites.
+"""Activation-divisor calibration for locally encoded NVFP4 sites.
 
 An NVFP4 site that permits A4 activations needs a positive activation divisor, and it is not derivable
 from the weights: it is a separate model-role value (docs/maintainer/tensor-formats.md, section 3.3).
@@ -18,6 +18,7 @@ which is enough because the corpus is about ten thousand characters.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 from pathlib import Path
 from typing import Mapping
@@ -91,19 +92,48 @@ def measure(
     corpus: list[str] | None = None,
     device_map: str = "auto",
     max_memory: Mapping[int | str, str] | None = None,
+    offload_folder: str | Path | None = None,
     prefix: str | None = None,
     progress=None,
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """Return (amax per site, divisor per site) from one forward pass over the corpus."""
+    """Return (amax per site, divisor per site) from one forward pass over the corpus.
+
+    The weights do not fit in device memory, and how that is handled decides the numbers. Leaving it to
+    `device_map="auto"` computes the layers it parks on the CPU *there*, where BF16 matmuls are emulated
+    rather than native; the fork streamed each layer onto the GPU explicitly for exactly that reason.
+    Here the excess goes to disk and accelerate moves each module to the execution device for its
+    forward, so every matmul runs where the engine will run it.
+    """
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
     documents = corpus_documents() if corpus is None else corpus
     tokenizer = AutoTokenizer.from_pretrained(str(base))
-    kwargs = {"dtype": torch.bfloat16, "device_map": device_map, "low_cpu_mem_usage": True}
-    if max_memory is not None:
-        kwargs["max_memory"] = dict(max_memory)
-    model = AutoModelForCausalLM.from_pretrained(str(base), **kwargs)
+    if offload_folder is None:
+        kwargs = {"dtype": torch.bfloat16, "device_map": device_map, "low_cpu_mem_usage": True}
+        if max_memory is not None:
+            kwargs["max_memory"] = dict(max_memory)
+        model = AutoModelForCausalLM.from_pretrained(str(base), **kwargs)
+    else:
+        # The documented disk-offload path. Accelerate places what fits on the GPU, writes the excess to
+        # the folder, and moves each module to the execution device for its forward -- which is the
+        # GPU-side arithmetic the fork achieved with its own per-layer loader. `force_hooks` is NOT
+        # passed: it is for multi-device maps and from_pretrained forwards it to the model, which fails.
+        # The CPU budget is deliberately tiny so nothing is placed there and computed in emulated BF16.
+        folder = Path(offload_folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        kwargs = {
+            "dtype": torch.bfloat16,
+            "device_map": device_map,
+            "low_cpu_mem_usage": True,
+            "offload_folder": str(folder),
+        }
+        if max_memory is not None:
+            kwargs["max_memory"] = dict(max_memory)
+        model = AutoModelForCausalLM.from_pretrained(str(base), **kwargs)
+        if progress is not None:
+            placement = collections.Counter(str(device) for device in getattr(model, "hf_device_map", {}).values())
+            progress(f"module placement: {dict(placement)}")
     model.eval()
 
     sites = site_map(model, prefix)
@@ -151,7 +181,11 @@ def main(argv=None) -> int:
     parser.add_argument("--out", required=True, help="calibration JSON to write")
     parser.add_argument("--device-map", default="auto")
     parser.add_argument("--gpu-memory", default="22GiB")
-    parser.add_argument("--cpu-memory", default="38GiB")
+    parser.add_argument("--cpu-memory", default="2GiB",
+                        help="small by design: the excess goes to --offload-folder, so every layer "
+                             "computes on the GPU rather than in emulated CPU BF16")
+    parser.add_argument("--offload-folder", default=None,
+                        help="disk offload folder; set it to force GPU-side arithmetic")
     parser.add_argument("--prefix", default=None, help="override the detected module prefix")
     args = parser.parse_args(argv)
 
@@ -159,6 +193,7 @@ def main(argv=None) -> int:
         args.model,
         device_map=args.device_map,
         max_memory={0: args.gpu_memory, "cpu": args.cpu_memory},
+        offload_folder=args.offload_folder,
         prefix=args.prefix,
         progress=print,
     )

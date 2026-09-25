@@ -471,7 +471,9 @@ def qwen3_8_27b_nvfp4_unsloth(model, recipe, sources):
         )
         for input_name in parameter.inputs:
             recipe.use(name, input_name, auxiliaries={"activation_input_divisor": divisor})
-    add_proposal(recipe, source=model.source("text/output_head", quantized))
+    # The proposal indexes the head's rows, so it must be derived from the same head the artifact
+    # binds -- which is the default source, `--model`, not the quantized one.
+    add_proposal(recipe, source=model.source("text/output_head", sources["base"]))
 
 
 RECIPES = {
