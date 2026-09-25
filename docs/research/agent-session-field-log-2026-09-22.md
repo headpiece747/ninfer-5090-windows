@@ -166,6 +166,16 @@ endpoint"), after `1fa5b888` had recorded the attribution. Verified 2026-09-25 a
 this port replaces, and with the official `qwen3_8_27b_nvfp4.v3.ninfer`. So the case is this log's
 regression protection, and the log cannot date a defect that has since been fixed.
 
+One reading to avoid: `private endpoint` is not by itself the symptom. The engine selects it when the
+reuse source is the session's own endpoint checkpoint (`request_plan.cpp`,
+`CheckpointKind::SessionEndpoint`), which is the normal path for a conversation whose state is still
+resident, and selects `private turn closure` when the state has to come back from a demoted turn. This
+log's defect was that the endpoint was stale while a closure that should have been preferred was
+ignored -- not that the endpoint path was chosen. A live 115-request coding session on the shipped
+`nvfp4qat` lane (2026-09-25, `out/agent_session.log`) reused its own endpoint on 112 turns at
+99.4-100.0% cache hit with 155-853 ms TTFT and no host restore at all: that is the healthy case, and it
+did not reproduce this defect.
+
 This is ADR-0007's subject, and the reason it matters is that the dropped checkpoint is the one
 holding the speculative-decoding state: `private_turn_closure` is the path that restores MTP/DFlash
 state.
