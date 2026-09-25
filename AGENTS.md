@@ -136,6 +136,7 @@ something, and each is named here so it gets used rather than rediscovered.
 | a device-side memory, race or synchronisation question | `tools/scripts/test_v3_compute_sanitizer.cmd` — memcheck on a small subset; `racecheck`/`initcheck`/`synccheck` and the wider method are in the `cuda-debugging` skill |
 | a host-side lifetime question | `tools/scripts/test_v3_asan.cmd` — ASan cannot instrument device code, which is why the two recipes are separate |
 | a kernel's performance | the `ncu-report` skill, records under `profiles/ncu/` and `profiles/nsys/` |
+| a host-side C++ question | `clang-tidy -p build src/text/jinja.cpp` — `.clang-tidy` sets a narrow check set and `build/compile_commands.json` already exists; run it from the Visual Studio environment so the MSVC headers resolve |
 | Python tooling, before committing it | `ruff check tools tests` (clean, so a new finding is yours); `mypy tools/release tools/convert` (adopted with 67 known errors — treat a new error as yours) |
 | a lingering suspicion of flakiness | `ctest --test-dir build-test --repeat until-fail:5` |
 | what upstream already decided, or whether a symptom is known | the upstream tracker: `gh issue list --repo Neroued/ninfer --search <term>` — this project's reference corpus |

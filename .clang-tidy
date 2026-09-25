@@ -25,3 +25,9 @@ Checks: >
 WarningsAsErrors: ""
 HeaderFilterRegex: "^(src|include)/"
 FormatStyle: file
+
+# MSVC passes flags clang does not know (`/Zc:preprocessor`), which clang reports as an unused
+# command-line argument on every file. Measured on src/text/jinja.cpp, 2026-09-25: with this the
+# run is silent and exits 0.
+ExtraArgs:
+  - -Wno-unused-command-line-argument
