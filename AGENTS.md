@@ -192,6 +192,16 @@ Thirty-five rules, each earned by a failure rather than chosen:
   That happened five times in one session and the fix was always to write a file first. The failure
   is silent in both directions: the command can *succeed* while writing an empty file, so check the
   output's size, not just its exit code.
+- **Reference this tree relatively, or a path that exists will read as missing.** Absolute paths into
+  the workspace stopped resolving mid-session: `cd C:\AI\infer-v3-windows` answered "Cannot find
+  path", `Test-Path` and `[System.IO.Directory]::Exists` returned false for directories `Get-Item`
+  resolved and `Get-ChildItem` enumerated, `Start-Process -FilePath <absolute workspace path>` said
+  "cannot find the file", and a `.cmd` whose first line was `cd /d C:\AI\infer-v3-windows` died there
+  -- while relative lookups through the process cwd, and absolute paths outside the tree
+  (`C:\AI\models`, `C:\vllm-env`), kept working throughout. It cost two harness attempts and a
+  misreading of the first as a missing file. When a workspace path is reported missing, re-test it
+  relatively before acting on the report, and write scripts that use relative paths or derive them
+  from `__file__`.
 - **Do not guard with string presence over prose.** A check for a token that also appears in a
   comment, a docstring or a filename misfires. That happened four times. Assert the specific call
   site instead.
