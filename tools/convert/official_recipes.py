@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from .methods import cast_direct, fp8_row_maxabs, grouped_absmax, import_encoded
 from .proposal import add_proposal
 from .quantization.nvfp4 import nvfp4_maxabs
@@ -266,17 +269,20 @@ _GDN_MODULES = {
 
 
 def _activation_divisor(store, prefix: str, module: str) -> float:
-    """The NVFP4 activation divisor, recovered from the checkpoint's own multiplier.
+    """The NVFP4 activation divisor, recovered from a checkpoint's own multiplier.
 
-    ModelOpt exports an FP8 site's `input_scale` as `amax / 448`, and the NVFP4 global scale is
-    `amax / (6 * 448)`, so the divisor this port binds is `2688 / amax = 6 / input_scale`. Reusing
-    the producer's own calibration is both cheaper and more faithful than re-measuring it over a
-    different corpus.
+    ModelOpt records the multiplier differently by site format, and the difference is a factor of six:
+    a site it already stores as NVFP4 records `input_scale = amax / (6 * 448)`, so the divisor is
+    `1 / input_scale`; an FP8 site records `amax / 448`, so it is `6 / input_scale`. Which one applies
+    is a property of the *source* site, so it is probed rather than assumed -- applying the FP8 form to
+    NVFP4 sites scales the divisor six times too large and clips the A4 activations.
     """
     name = f"{prefix}{module}.input_scale"
     if not store.has(name):
         raise ValueError(f"{name}: no activation scale to derive the divisor from")
-    return 6.0 / float(store.read_flat(name).reshape(1))
+    scale = float(store.read_flat(name).reshape(1))
+    already_nvfp4 = store.has(f"{prefix}{module}.weight_scale_2")
+    return (1.0 if already_nvfp4 else 6.0) / scale
 
 
 def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
@@ -336,6 +342,138 @@ def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
     add_proposal(recipe, source=model.source("text/output_head", bf16))
 
 
+# nvfp4full keeps these nine parents BF16 rather than encoding them, and the same pattern *lost* on
+# Swift's ModelOpt source (docs/maintainer/artifact-conventions.md, section 1). Measured on this source
+# it wins: with them encoded, line A scores 4.85576/4.99604 against nvfp4full's 4.82452/4.98768, and
+# hashing every binding against that artifact shows the whole difference sits on these 27 projections.
+# Which is the rule's point -- a pattern is measured per checkpoint, not transplanted.
+_BF16_EXCEPTION_ATTENTION_LAYERS = (3, 7, 11, 15, 19, 23)
+_BF16_EXCEPTION_ATTENTION_OUTPUT_LAYERS = (3, 7)
+_BF16_EXCEPTION_GDN_OUTPUT_LAYERS = (4,)
+
+
+def _is_bf16_exception(layer: int, block: str, role: str) -> bool:
+    if block == "attention":
+        if role in ("query", "gate", "key", "value"):
+            return layer in _BF16_EXCEPTION_ATTENTION_LAYERS
+        if role == "output":
+            return layer in _BF16_EXCEPTION_ATTENTION_OUTPUT_LAYERS
+    elif block == "gdn" and role == "output":
+        return layer in _BF16_EXCEPTION_GDN_OUTPUT_LAYERS
+    return False
+
+
+# Artifact site name for each re-encoded parameter role, matching the naming the fork's calibration
+# recorded, so this port's divisors are comparable with the published profile's site by site.
+_CALIBRATION_SITES = {
+    "attention": {
+        "query": "attention/input_projection", "gate": "attention/input_projection",
+        "key": "attention/input_projection", "value": "attention/input_projection",
+        "output": "attention/output_projection",
+    },
+    "gdn": {
+        "query": "gdn/input_projection", "key": "gdn/input_projection",
+        "value": "gdn/input_projection", "z": "gdn/input_projection",
+        "output": "gdn/output_projection",
+    },
+    "mlp": {
+        "gate": "mlp/gate_up_projection", "up": "mlp/gate_up_projection",
+        "down": "mlp/down_projection",
+    },
+}
+_CALIBRATION_PATH = Path(__file__).with_name("qwen3_8_27b_nvfp4_calibration.json")
+
+
+def load_calibration(path=None) -> dict:
+    """Measured activation divisors, keyed by site name.
+
+    Regenerate with `python3 -m tools.convert.calibration --model <BF16 checkpoint> --out <path>`; the
+    method and corpus are the fork's, and the module's docstring records what validates them.
+    """
+    payload = json.loads(Path(_CALIBRATION_PATH if path is None else path).read_text(encoding="utf-8"))
+    return {name: site["input_scale_divisor"] for name, site in payload["sites"].items()}
+
+
+def _calibrated_divisor(calibration: dict, name: str) -> float:
+    """The measured divisor for a logical parameter, from its artifact site name."""
+    parts = name.split("/")
+    if len(parts) < 4:
+        raise ValueError(f"{name}: not a layer parameter")
+    block, role = parts[3], parts[-1]
+    sites = _CALIBRATION_SITES.get(block)
+    if sites is None or role not in sites:
+        raise ValueError(f"{name}: no calibration site is registered for this projection")
+    site = f"text/layers/{parts[2]}/{sites[role]}"
+    try:
+        return float(calibration[site])
+    except KeyError as error:
+        raise ValueError(f"{site}: the calibration carries no divisor for this site") from error
+
+
+def qwen3_8_27b_nvfp4_unsloth(model, recipe, sources):
+    """The unsloth-sourced line: its NVFP4 MLP codes imported, everything FP8 re-encoded.
+
+    Measured from the checkpoint: unsloth quantizes the MLP of layers 0-55 as NVFP4 (168 matrices)
+    and leaves attention, linear-attention including `in_proj_a`/`in_proj_b` and MLP 56-63 as
+    row-scaled FP8 (233 matrices, with no activation scale to derive a divisor from).
+
+    The fork's own profile for this source quantized the FP8 side to NVFP4 and kept nine BF16
+    exception parents from the Qwen3.6-27B pattern. On Swift that pattern measured *worse* than
+    encoding everything -- 4.7701/4.93254 against 4.68429/4.92432 -- so it is not carried here.
+    `gdn/a_projection` and `gdn/b_projection` stay BF16: at (96, 5120) the NVFP4 layout cannot hold
+    them, which is why the shipped profiles leave them direct.
+
+    Divisors come from `tools/convert/qwen3_8_27b_nvfp4_calibration.json` -- measured on this exact
+    BF16 checkpoint with the fork's method and corpus by `tools.convert.calibration`. A divisor is
+    `2688 / max|activation|`, and a maximum does not transfer between weight realizations: borrowing
+    another quantization's stored scales measured 2.2% / 0.45% worse on the fixed corpus, and the
+    sites whose input is a derived intermediate (MLP down) are the ones that move most.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
+    quantized = sources["quantized"]
+    calibration = load_calibration()
+    _assign(recipe, "text/token_embedding", Q8)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding":
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8)
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            recipe.assign(name, source=model.source(name, quantized))
+            continue
+        layer = int(name.split("/")[2]) if name.startswith("text/layers/") else -1
+        if _is_bf16_exception(layer, name.split("/")[3], name.rsplit("/", 1)[1]):
+            # BF16 from the base checkpoint: this source keeps these FP8, so the direct values come
+            # from `--model`, and the site takes no activation divisor because it runs at A16.
+            _assign(recipe, name, "bf16")
+            continue
+        if "/mlp/" in name and layer < 56:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, quantized, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+            continue
+        divisor = _calibrated_divisor(calibration, name)
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            activation_policy="AllowA4",
+        )
+        for input_name in parameter.inputs:
+            recipe.use(name, input_name, auxiliaries={"activation_input_divisor": divisor})
+    add_proposal(recipe, source=model.source("text/output_head", quantized))
+
+
 RECIPES = {
     "qwen3_6_27b": qwen3_6_27b,
     "qwen3_6_27b_nvfp4": qwen3_6_27b_nvfp4,
@@ -343,5 +481,6 @@ RECIPES = {
     "qwen3_8_27b_nvfp4": qwen3_8_27b_nvfp4,
     "qwen3_8_27b_nvfp4_qat": qwen3_8_27b_nvfp4_qat,
     "qwen3_8_27b_nvfp4_swift": qwen3_8_27b_nvfp4_swift,
+    "qwen3_8_27b_nvfp4_unsloth": qwen3_8_27b_nvfp4_unsloth,
     "qwen3_6_35b_a3b": qwen3_6_35b_a3b,
 }

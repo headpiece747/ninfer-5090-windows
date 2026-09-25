@@ -1,0 +1,1031 @@
+{
+  "corpus_documents": 10,
+  "corpus_tokens": 3625,
+  "full_range": 2688.0,
+  "sites": {
+    "text/layers/0/gdn/input_projection": {
+      "amax": 50.25,
+      "input_scale_divisor": 53.492537313432834
+    },
+    "text/layers/0/gdn/output_projection": {
+      "amax": 2.5,
+      "input_scale_divisor": 1075.2
+    },
+    "text/layers/0/mlp/down_projection": {
+      "amax": 5.125,
+      "input_scale_divisor": 524.4878048780488
+    },
+    "text/layers/0/mlp/gate_up_projection": {
+      "amax": 2.1875,
+      "input_scale_divisor": 1228.8
+    },
+    "text/layers/1/gdn/input_projection": {
+      "amax": 23.375,
+      "input_scale_divisor": 114.99465240641712
+    },
+    "text/layers/1/gdn/output_projection": {
+      "amax": 4.78125,
+      "input_scale_divisor": 562.1960784313726
+    },
+    "text/layers/1/mlp/down_projection": {
+      "amax": 3.03125,
+      "input_scale_divisor": 886.7628865979382
+    },
+    "text/layers/1/mlp/gate_up_projection": {
+      "amax": 2.859375,
+      "input_scale_divisor": 940.0655737704918
+    },
+    "text/layers/10/gdn/input_projection": {
+      "amax": 31.25,
+      "input_scale_divisor": 86.016
+    },
+    "text/layers/10/gdn/output_projection": {
+      "amax": 15.625,
+      "input_scale_divisor": 172.032
+    },
+    "text/layers/10/mlp/down_projection": {
+      "amax": 13.375,
+      "input_scale_divisor": 200.97196261682242
+    },
+    "text/layers/10/mlp/gate_up_projection": {
+      "amax": 9.125,
+      "input_scale_divisor": 294.5753424657534
+    },
+    "text/layers/11/attention/input_projection": {
+      "amax": 72.5,
+      "input_scale_divisor": 37.07586206896552
+    },
+    "text/layers/11/attention/output_projection": {
+      "amax": 2.609375,
+      "input_scale_divisor": 1030.131736526946
+    },
+    "text/layers/11/mlp/down_projection": {
+      "amax": 7.34375,
+      "input_scale_divisor": 366.02553191489363
+    },
+    "text/layers/11/mlp/gate_up_projection": {
+      "amax": 9.125,
+      "input_scale_divisor": 294.5753424657534
+    },
+    "text/layers/12/gdn/input_projection": {
+      "amax": 37.5,
+      "input_scale_divisor": 71.68
+    },
+    "text/layers/12/gdn/output_projection": {
+      "amax": 5.34375,
+      "input_scale_divisor": 503.0175438596491
+    },
+    "text/layers/12/mlp/down_projection": {
+      "amax": 7.75,
+      "input_scale_divisor": 346.83870967741933
+    },
+    "text/layers/12/mlp/gate_up_projection": {
+      "amax": 9.625,
+      "input_scale_divisor": 279.27272727272725
+    },
+    "text/layers/13/gdn/input_projection": {
+      "amax": 38.25,
+      "input_scale_divisor": 70.27450980392157
+    },
+    "text/layers/13/gdn/output_projection": {
+      "amax": 6.34375,
+      "input_scale_divisor": 423.7241379310345
+    },
+    "text/layers/13/mlp/down_projection": {
+      "amax": 6.65625,
+      "input_scale_divisor": 403.83098591549293
+    },
+    "text/layers/13/mlp/gate_up_projection": {
+      "amax": 10.125,
+      "input_scale_divisor": 265.48148148148147
+    },
+    "text/layers/14/gdn/input_projection": {
+      "amax": 40.75,
+      "input_scale_divisor": 65.96319018404908
+    },
+    "text/layers/14/gdn/output_projection": {
+      "amax": 5.625,
+      "input_scale_divisor": 477.8666666666667
+    },
+    "text/layers/14/mlp/down_projection": {
+      "amax": 8.0625,
+      "input_scale_divisor": 333.3953488372093
+    },
+    "text/layers/14/mlp/gate_up_projection": {
+      "amax": 10.5625,
+      "input_scale_divisor": 254.4852071005917
+    },
+    "text/layers/15/attention/input_projection": {
+      "amax": 60.5,
+      "input_scale_divisor": 44.429752066115704
+    },
+    "text/layers/15/attention/output_projection": {
+      "amax": 4.5625,
+      "input_scale_divisor": 589.1506849315068
+    },
+    "text/layers/15/mlp/down_projection": {
+      "amax": 6.8125,
+      "input_scale_divisor": 394.56880733944956
+    },
+    "text/layers/15/mlp/gate_up_projection": {
+      "amax": 13.4375,
+      "input_scale_divisor": 200.03720930232558
+    },
+    "text/layers/16/gdn/input_projection": {
+      "amax": 38.25,
+      "input_scale_divisor": 70.27450980392157
+    },
+    "text/layers/16/gdn/output_projection": {
+      "amax": 9.5625,
+      "input_scale_divisor": 281.0980392156863
+    },
+    "text/layers/16/mlp/down_projection": {
+      "amax": 8.625,
+      "input_scale_divisor": 311.6521739130435
+    },
+    "text/layers/16/mlp/gate_up_projection": {
+      "amax": 14.0,
+      "input_scale_divisor": 192.0
+    },
+    "text/layers/17/gdn/input_projection": {
+      "amax": 39.75,
+      "input_scale_divisor": 67.62264150943396
+    },
+    "text/layers/17/gdn/output_projection": {
+      "amax": 6.0625,
+      "input_scale_divisor": 443.3814432989691
+    },
+    "text/layers/17/mlp/down_projection": {
+      "amax": 15.4375,
+      "input_scale_divisor": 174.12145748987854
+    },
+    "text/layers/17/mlp/gate_up_projection": {
+      "amax": 14.125,
+      "input_scale_divisor": 190.30088495575222
+    },
+    "text/layers/18/gdn/input_projection": {
+      "amax": 40.0,
+      "input_scale_divisor": 67.2
+    },
+    "text/layers/18/gdn/output_projection": {
+      "amax": 28.625,
+      "input_scale_divisor": 93.90393013100437
+    },
+    "text/layers/18/mlp/down_projection": {
+      "amax": 17.75,
+      "input_scale_divisor": 151.43661971830986
+    },
+    "text/layers/18/mlp/gate_up_projection": {
+      "amax": 19.625,
+      "input_scale_divisor": 136.96815286624204
+    },
+    "text/layers/19/attention/input_projection": {
+      "amax": 51.0,
+      "input_scale_divisor": 52.705882352941174
+    },
+    "text/layers/19/attention/output_projection": {
+      "amax": 6.0,
+      "input_scale_divisor": 448.0
+    },
+    "text/layers/19/mlp/down_projection": {
+      "amax": 25.0,
+      "input_scale_divisor": 107.52
+    },
+    "text/layers/19/mlp/gate_up_projection": {
+      "amax": 21.125,
+      "input_scale_divisor": 127.24260355029585
+    },
+    "text/layers/2/gdn/input_projection": {
+      "amax": 25.625,
+      "input_scale_divisor": 104.89756097560975
+    },
+    "text/layers/2/gdn/output_projection": {
+      "amax": 2.71875,
+      "input_scale_divisor": 988.6896551724138
+    },
+    "text/layers/2/mlp/down_projection": {
+      "amax": 12.3125,
+      "input_scale_divisor": 218.31472081218274
+    },
+    "text/layers/2/mlp/gate_up_projection": {
+      "amax": 3.234375,
+      "input_scale_divisor": 831.072463768116
+    },
+    "text/layers/20/gdn/input_projection": {
+      "amax": 52.0,
+      "input_scale_divisor": 51.69230769230769
+    },
+    "text/layers/20/gdn/output_projection": {
+      "amax": 19.875,
+      "input_scale_divisor": 135.24528301886792
+    },
+    "text/layers/20/mlp/down_projection": {
+      "amax": 38.25,
+      "input_scale_divisor": 70.27450980392157
+    },
+    "text/layers/20/mlp/gate_up_projection": {
+      "amax": 15.6875,
+      "input_scale_divisor": 171.34661354581672
+    },
+    "text/layers/21/gdn/input_projection": {
+      "amax": 53.0,
+      "input_scale_divisor": 50.716981132075475
+    },
+    "text/layers/21/gdn/output_projection": {
+      "amax": 85.0,
+      "input_scale_divisor": 31.623529411764707
+    },
+    "text/layers/21/mlp/down_projection": {
+      "amax": 24.625,
+      "input_scale_divisor": 109.15736040609137
+    },
+    "text/layers/21/mlp/gate_up_projection": {
+      "amax": 22.75,
+      "input_scale_divisor": 118.15384615384616
+    },
+    "text/layers/22/gdn/input_projection": {
+      "amax": 54.0,
+      "input_scale_divisor": 49.77777777777778
+    },
+    "text/layers/22/gdn/output_projection": {
+      "amax": 21.875,
+      "input_scale_divisor": 122.88
+    },
+    "text/layers/22/mlp/down_projection": {
+      "amax": 33.75,
+      "input_scale_divisor": 79.64444444444445
+    },
+    "text/layers/22/mlp/gate_up_projection": {
+      "amax": 23.25,
+      "input_scale_divisor": 115.61290322580645
+    },
+    "text/layers/23/attention/input_projection": {
+      "amax": 62.5,
+      "input_scale_divisor": 43.008
+    },
+    "text/layers/23/attention/output_projection": {
+      "amax": 8.8125,
+      "input_scale_divisor": 305.02127659574467
+    },
+    "text/layers/23/mlp/down_projection": {
+      "amax": 32.25,
+      "input_scale_divisor": 83.34883720930233
+    },
+    "text/layers/23/mlp/gate_up_projection": {
+      "amax": 24.25,
+      "input_scale_divisor": 110.84536082474227
+    },
+    "text/layers/24/gdn/input_projection": {
+      "amax": 69.5,
+      "input_scale_divisor": 38.67625899280576
+    },
+    "text/layers/24/gdn/output_projection": {
+      "amax": 15.6875,
+      "input_scale_divisor": 171.34661354581672
+    },
+    "text/layers/24/mlp/down_projection": {
+      "amax": 55.5,
+      "input_scale_divisor": 48.432432432432435
+    },
+    "text/layers/24/mlp/gate_up_projection": {
+      "amax": 25.375,
+      "input_scale_divisor": 105.93103448275862
+    },
+    "text/layers/25/gdn/input_projection": {
+      "amax": 72.5,
+      "input_scale_divisor": 37.07586206896552
+    },
+    "text/layers/25/gdn/output_projection": {
+      "amax": 21.25,
+      "input_scale_divisor": 126.49411764705883
+    },
+    "text/layers/25/mlp/down_projection": {
+      "amax": 29.0,
+      "input_scale_divisor": 92.6896551724138
+    },
+    "text/layers/25/mlp/gate_up_projection": {
+      "amax": 27.75,
+      "input_scale_divisor": 96.86486486486487
+    },
+    "text/layers/26/gdn/input_projection": {
+      "amax": 76.0,
+      "input_scale_divisor": 35.36842105263158
+    },
+    "text/layers/26/gdn/output_projection": {
+      "amax": 8.6875,
+      "input_scale_divisor": 309.41007194244605
+    },
+    "text/layers/26/mlp/down_projection": {
+      "amax": 13.6875,
+      "input_scale_divisor": 196.3835616438356
+    },
+    "text/layers/26/mlp/gate_up_projection": {
+      "amax": 33.25,
+      "input_scale_divisor": 80.84210526315789
+    },
+    "text/layers/27/attention/input_projection": {
+      "amax": 82.5,
+      "input_scale_divisor": 32.58181818181818
+    },
+    "text/layers/27/attention/output_projection": {
+      "amax": 6.09375,
+      "input_scale_divisor": 441.10769230769233
+    },
+    "text/layers/27/mlp/down_projection": {
+      "amax": 16.125,
+      "input_scale_divisor": 166.69767441860466
+    },
+    "text/layers/27/mlp/gate_up_projection": {
+      "amax": 28.875,
+      "input_scale_divisor": 93.0909090909091
+    },
+    "text/layers/28/gdn/input_projection": {
+      "amax": 72.5,
+      "input_scale_divisor": 37.07586206896552
+    },
+    "text/layers/28/gdn/output_projection": {
+      "amax": 11.6875,
+      "input_scale_divisor": 229.98930481283423
+    },
+    "text/layers/28/mlp/down_projection": {
+      "amax": 21.875,
+      "input_scale_divisor": 122.88
+    },
+    "text/layers/28/mlp/gate_up_projection": {
+      "amax": 28.75,
+      "input_scale_divisor": 93.49565217391304
+    },
+    "text/layers/29/gdn/input_projection": {
+      "amax": 69.5,
+      "input_scale_divisor": 38.67625899280576
+    },
+    "text/layers/29/gdn/output_projection": {
+      "amax": 14.6875,
+      "input_scale_divisor": 183.01276595744682
+    },
+    "text/layers/29/mlp/down_projection": {
+      "amax": 15.125,
+      "input_scale_divisor": 177.71900826446281
+    },
+    "text/layers/29/mlp/gate_up_projection": {
+      "amax": 29.25,
+      "input_scale_divisor": 91.8974358974359
+    },
+    "text/layers/3/attention/input_projection": {
+      "amax": 92.0,
+      "input_scale_divisor": 29.217391304347824
+    },
+    "text/layers/3/attention/output_projection": {
+      "amax": 2.90625,
+      "input_scale_divisor": 924.9032258064516
+    },
+    "text/layers/3/mlp/down_projection": {
+      "amax": 10.5625,
+      "input_scale_divisor": 254.4852071005917
+    },
+    "text/layers/3/mlp/gate_up_projection": {
+      "amax": 4.15625,
+      "input_scale_divisor": 646.7368421052631
+    },
+    "text/layers/30/gdn/input_projection": {
+      "amax": 79.5,
+      "input_scale_divisor": 33.81132075471698
+    },
+    "text/layers/30/gdn/output_projection": {
+      "amax": 7.28125,
+      "input_scale_divisor": 369.16738197424894
+    },
+    "text/layers/30/mlp/down_projection": {
+      "amax": 14.0,
+      "input_scale_divisor": 192.0
+    },
+    "text/layers/30/mlp/gate_up_projection": {
+      "amax": 34.75,
+      "input_scale_divisor": 77.35251798561151
+    },
+    "text/layers/31/attention/input_projection": {
+      "amax": 89.0,
+      "input_scale_divisor": 30.202247191011235
+    },
+    "text/layers/31/attention/output_projection": {
+      "amax": 4.6875,
+      "input_scale_divisor": 573.44
+    },
+    "text/layers/31/mlp/down_projection": {
+      "amax": 12.6875,
+      "input_scale_divisor": 211.86206896551724
+    },
+    "text/layers/31/mlp/gate_up_projection": {
+      "amax": 31.0,
+      "input_scale_divisor": 86.70967741935483
+    },
+    "text/layers/32/gdn/input_projection": {
+      "amax": 77.0,
+      "input_scale_divisor": 34.90909090909091
+    },
+    "text/layers/32/gdn/output_projection": {
+      "amax": 10.0625,
+      "input_scale_divisor": 267.1304347826087
+    },
+    "text/layers/32/mlp/down_projection": {
+      "amax": 12.0625,
+      "input_scale_divisor": 222.83937823834196
+    },
+    "text/layers/32/mlp/gate_up_projection": {
+      "amax": 30.875,
+      "input_scale_divisor": 87.06072874493927
+    },
+    "text/layers/33/gdn/input_projection": {
+      "amax": 67.5,
+      "input_scale_divisor": 39.82222222222222
+    },
+    "text/layers/33/gdn/output_projection": {
+      "amax": 10.0625,
+      "input_scale_divisor": 267.1304347826087
+    },
+    "text/layers/33/mlp/down_projection": {
+      "amax": 17.375,
+      "input_scale_divisor": 154.70503597122303
+    },
+    "text/layers/33/mlp/gate_up_projection": {
+      "amax": 32.25,
+      "input_scale_divisor": 83.34883720930233
+    },
+    "text/layers/34/gdn/input_projection": {
+      "amax": 72.5,
+      "input_scale_divisor": 37.07586206896552
+    },
+    "text/layers/34/gdn/output_projection": {
+      "amax": 16.25,
+      "input_scale_divisor": 165.41538461538462
+    },
+    "text/layers/34/mlp/down_projection": {
+      "amax": 23.75,
+      "input_scale_divisor": 113.17894736842105
+    },
+    "text/layers/34/mlp/gate_up_projection": {
+      "amax": 43.25,
+      "input_scale_divisor": 62.15028901734104
+    },
+    "text/layers/35/attention/input_projection": {
+      "amax": 79.0,
+      "input_scale_divisor": 34.0253164556962
+    },
+    "text/layers/35/attention/output_projection": {
+      "amax": 7.46875,
+      "input_scale_divisor": 359.89958158995813
+    },
+    "text/layers/35/mlp/down_projection": {
+      "amax": 27.5,
+      "input_scale_divisor": 97.74545454545455
+    },
+    "text/layers/35/mlp/gate_up_projection": {
+      "amax": 41.25,
+      "input_scale_divisor": 65.16363636363636
+    },
+    "text/layers/36/gdn/input_projection": {
+      "amax": 80.0,
+      "input_scale_divisor": 33.6
+    },
+    "text/layers/36/gdn/output_projection": {
+      "amax": 17.75,
+      "input_scale_divisor": 151.43661971830986
+    },
+    "text/layers/36/mlp/down_projection": {
+      "amax": 23.625,
+      "input_scale_divisor": 113.77777777777777
+    },
+    "text/layers/36/mlp/gate_up_projection": {
+      "amax": 32.75,
+      "input_scale_divisor": 82.07633587786259
+    },
+    "text/layers/37/gdn/input_projection": {
+      "amax": 72.0,
+      "input_scale_divisor": 37.333333333333336
+    },
+    "text/layers/37/gdn/output_projection": {
+      "amax": 19.875,
+      "input_scale_divisor": 135.24528301886792
+    },
+    "text/layers/37/mlp/down_projection": {
+      "amax": 32.25,
+      "input_scale_divisor": 83.34883720930233
+    },
+    "text/layers/37/mlp/gate_up_projection": {
+      "amax": 29.375,
+      "input_scale_divisor": 91.50638297872341
+    },
+    "text/layers/38/gdn/input_projection": {
+      "amax": 59.0,
+      "input_scale_divisor": 45.559322033898304
+    },
+    "text/layers/38/gdn/output_projection": {
+      "amax": 23.625,
+      "input_scale_divisor": 113.77777777777777
+    },
+    "text/layers/38/mlp/down_projection": {
+      "amax": 35.5,
+      "input_scale_divisor": 75.71830985915493
+    },
+    "text/layers/38/mlp/gate_up_projection": {
+      "amax": 35.5,
+      "input_scale_divisor": 75.71830985915493
+    },
+    "text/layers/39/attention/input_projection": {
+      "amax": 77.5,
+      "input_scale_divisor": 34.68387096774194
+    },
+    "text/layers/39/attention/output_projection": {
+      "amax": 6.71875,
+      "input_scale_divisor": 400.07441860465116
+    },
+    "text/layers/39/mlp/down_projection": {
+      "amax": 26.625,
+      "input_scale_divisor": 100.95774647887323
+    },
+    "text/layers/39/mlp/gate_up_projection": {
+      "amax": 37.75,
+      "input_scale_divisor": 71.20529801324503
+    },
+    "text/layers/4/gdn/input_projection": {
+      "amax": 21.125,
+      "input_scale_divisor": 127.24260355029585
+    },
+    "text/layers/4/gdn/output_projection": {
+      "amax": 7.34375,
+      "input_scale_divisor": 366.02553191489363
+    },
+    "text/layers/4/mlp/down_projection": {
+      "amax": 7.0625,
+      "input_scale_divisor": 380.60176991150445
+    },
+    "text/layers/4/mlp/gate_up_projection": {
+      "amax": 4.34375,
+      "input_scale_divisor": 618.8201438848921
+    },
+    "text/layers/40/gdn/input_projection": {
+      "amax": 73.5,
+      "input_scale_divisor": 36.57142857142857
+    },
+    "text/layers/40/gdn/output_projection": {
+      "amax": 23.25,
+      "input_scale_divisor": 115.61290322580645
+    },
+    "text/layers/40/mlp/down_projection": {
+      "amax": 70.0,
+      "input_scale_divisor": 38.4
+    },
+    "text/layers/40/mlp/gate_up_projection": {
+      "amax": 40.0,
+      "input_scale_divisor": 67.2
+    },
+    "text/layers/41/gdn/input_projection": {
+      "amax": 70.0,
+      "input_scale_divisor": 38.4
+    },
+    "text/layers/41/gdn/output_projection": {
+      "amax": 14.0,
+      "input_scale_divisor": 192.0
+    },
+    "text/layers/41/mlp/down_projection": {
+      "amax": 57.0,
+      "input_scale_divisor": 47.1578947368421
+    },
+    "text/layers/41/mlp/gate_up_projection": {
+      "amax": 37.25,
+      "input_scale_divisor": 72.16107382550335
+    },
+    "text/layers/42/gdn/input_projection": {
+      "amax": 76.5,
+      "input_scale_divisor": 35.13725490196079
+    },
+    "text/layers/42/gdn/output_projection": {
+      "amax": 45.25,
+      "input_scale_divisor": 59.40331491712707
+    },
+    "text/layers/42/mlp/down_projection": {
+      "amax": 75.0,
+      "input_scale_divisor": 35.84
+    },
+    "text/layers/42/mlp/gate_up_projection": {
+      "amax": 55.5,
+      "input_scale_divisor": 48.432432432432435
+    },
+    "text/layers/43/attention/input_projection": {
+      "amax": 104.0,
+      "input_scale_divisor": 25.846153846153847
+    },
+    "text/layers/43/attention/output_projection": {
+      "amax": 6.9375,
+      "input_scale_divisor": 387.4594594594595
+    },
+    "text/layers/43/mlp/down_projection": {
+      "amax": 21.5,
+      "input_scale_divisor": 125.02325581395348
+    },
+    "text/layers/43/mlp/gate_up_projection": {
+      "amax": 38.75,
+      "input_scale_divisor": 69.36774193548388
+    },
+    "text/layers/44/gdn/input_projection": {
+      "amax": 68.5,
+      "input_scale_divisor": 39.24087591240876
+    },
+    "text/layers/44/gdn/output_projection": {
+      "amax": 13.5625,
+      "input_scale_divisor": 198.19354838709677
+    },
+    "text/layers/44/mlp/down_projection": {
+      "amax": 21.625,
+      "input_scale_divisor": 124.30057803468208
+    },
+    "text/layers/44/mlp/gate_up_projection": {
+      "amax": 37.0,
+      "input_scale_divisor": 72.64864864864865
+    },
+    "text/layers/45/gdn/input_projection": {
+      "amax": 64.5,
+      "input_scale_divisor": 41.674418604651166
+    },
+    "text/layers/45/gdn/output_projection": {
+      "amax": 24.375,
+      "input_scale_divisor": 110.27692307692308
+    },
+    "text/layers/45/mlp/down_projection": {
+      "amax": 22.5,
+      "input_scale_divisor": 119.46666666666667
+    },
+    "text/layers/45/mlp/gate_up_projection": {
+      "amax": 35.0,
+      "input_scale_divisor": 76.8
+    },
+    "text/layers/46/gdn/input_projection": {
+      "amax": 72.0,
+      "input_scale_divisor": 37.333333333333336
+    },
+    "text/layers/46/gdn/output_projection": {
+      "amax": 32.25,
+      "input_scale_divisor": 83.34883720930233
+    },
+    "text/layers/46/mlp/down_projection": {
+      "amax": 22.375,
+      "input_scale_divisor": 120.1340782122905
+    },
+    "text/layers/46/mlp/gate_up_projection": {
+      "amax": 41.25,
+      "input_scale_divisor": 65.16363636363636
+    },
+    "text/layers/47/attention/input_projection": {
+      "amax": 95.0,
+      "input_scale_divisor": 28.294736842105262
+    },
+    "text/layers/47/attention/output_projection": {
+      "amax": 7.71875,
+      "input_scale_divisor": 348.2429149797571
+    },
+    "text/layers/47/mlp/down_projection": {
+      "amax": 23.375,
+      "input_scale_divisor": 114.99465240641712
+    },
+    "text/layers/47/mlp/gate_up_projection": {
+      "amax": 49.5,
+      "input_scale_divisor": 54.303030303030305
+    },
+    "text/layers/48/gdn/input_projection": {
+      "amax": 70.0,
+      "input_scale_divisor": 38.4
+    },
+    "text/layers/48/gdn/output_projection": {
+      "amax": 20.75,
+      "input_scale_divisor": 129.5421686746988
+    },
+    "text/layers/48/mlp/down_projection": {
+      "amax": 44.25,
+      "input_scale_divisor": 60.74576271186441
+    },
+    "text/layers/48/mlp/gate_up_projection": {
+      "amax": 42.0,
+      "input_scale_divisor": 64.0
+    },
+    "text/layers/49/gdn/input_projection": {
+      "amax": 65.5,
+      "input_scale_divisor": 41.038167938931295
+    },
+    "text/layers/49/gdn/output_projection": {
+      "amax": 44.25,
+      "input_scale_divisor": 60.74576271186441
+    },
+    "text/layers/49/mlp/down_projection": {
+      "amax": 42.0,
+      "input_scale_divisor": 64.0
+    },
+    "text/layers/49/mlp/gate_up_projection": {
+      "amax": 40.5,
+      "input_scale_divisor": 66.37037037037037
+    },
+    "text/layers/5/gdn/input_projection": {
+      "amax": 27.5,
+      "input_scale_divisor": 97.74545454545455
+    },
+    "text/layers/5/gdn/output_projection": {
+      "amax": 7.28125,
+      "input_scale_divisor": 369.16738197424894
+    },
+    "text/layers/5/mlp/down_projection": {
+      "amax": 12.5,
+      "input_scale_divisor": 215.04
+    },
+    "text/layers/5/mlp/gate_up_projection": {
+      "amax": 5.84375,
+      "input_scale_divisor": 459.97860962566847
+    },
+    "text/layers/50/gdn/input_projection": {
+      "amax": 63.0,
+      "input_scale_divisor": 42.666666666666664
+    },
+    "text/layers/50/gdn/output_projection": {
+      "amax": 37.25,
+      "input_scale_divisor": 72.16107382550335
+    },
+    "text/layers/50/mlp/down_projection": {
+      "amax": 43.5,
+      "input_scale_divisor": 61.793103448275865
+    },
+    "text/layers/50/mlp/gate_up_projection": {
+      "amax": 52.0,
+      "input_scale_divisor": 51.69230769230769
+    },
+    "text/layers/51/attention/input_projection": {
+      "amax": 68.0,
+      "input_scale_divisor": 39.529411764705884
+    },
+    "text/layers/51/attention/output_projection": {
+      "amax": 19.25,
+      "input_scale_divisor": 139.63636363636363
+    },
+    "text/layers/51/mlp/down_projection": {
+      "amax": 70.5,
+      "input_scale_divisor": 38.12765957446808
+    },
+    "text/layers/51/mlp/gate_up_projection": {
+      "amax": 41.25,
+      "input_scale_divisor": 65.16363636363636
+    },
+    "text/layers/52/gdn/input_projection": {
+      "amax": 54.75,
+      "input_scale_divisor": 49.0958904109589
+    },
+    "text/layers/52/gdn/output_projection": {
+      "amax": 61.0,
+      "input_scale_divisor": 44.0655737704918
+    },
+    "text/layers/52/mlp/down_projection": {
+      "amax": 85.5,
+      "input_scale_divisor": 31.43859649122807
+    },
+    "text/layers/52/mlp/gate_up_projection": {
+      "amax": 38.0,
+      "input_scale_divisor": 70.73684210526316
+    },
+    "text/layers/53/gdn/input_projection": {
+      "amax": 48.25,
+      "input_scale_divisor": 55.70984455958549
+    },
+    "text/layers/53/gdn/output_projection": {
+      "amax": 74.5,
+      "input_scale_divisor": 36.080536912751676
+    },
+    "text/layers/53/mlp/down_projection": {
+      "amax": 92.0,
+      "input_scale_divisor": 29.217391304347824
+    },
+    "text/layers/53/mlp/gate_up_projection": {
+      "amax": 32.75,
+      "input_scale_divisor": 82.07633587786259
+    },
+    "text/layers/54/gdn/input_projection": {
+      "amax": 38.75,
+      "input_scale_divisor": 69.36774193548388
+    },
+    "text/layers/54/gdn/output_projection": {
+      "amax": 49.25,
+      "input_scale_divisor": 54.578680203045685
+    },
+    "text/layers/54/mlp/down_projection": {
+      "amax": 330.0,
+      "input_scale_divisor": 8.145454545454545
+    },
+    "text/layers/54/mlp/gate_up_projection": {
+      "amax": 38.75,
+      "input_scale_divisor": 69.36774193548388
+    },
+    "text/layers/55/attention/input_projection": {
+      "amax": 56.0,
+      "input_scale_divisor": 48.0
+    },
+    "text/layers/55/attention/output_projection": {
+      "amax": 26.5,
+      "input_scale_divisor": 101.43396226415095
+    },
+    "text/layers/55/mlp/down_projection": {
+      "amax": 133.0,
+      "input_scale_divisor": 20.210526315789473
+    },
+    "text/layers/55/mlp/gate_up_projection": {
+      "amax": 31.0,
+      "input_scale_divisor": 86.70967741935483
+    },
+    "text/layers/56/gdn/input_projection": {
+      "amax": 40.5,
+      "input_scale_divisor": 66.37037037037037
+    },
+    "text/layers/56/gdn/output_projection": {
+      "amax": 72.0,
+      "input_scale_divisor": 37.333333333333336
+    },
+    "text/layers/56/mlp/down_projection": {
+      "amax": 80.0,
+      "input_scale_divisor": 33.6
+    },
+    "text/layers/56/mlp/gate_up_projection": {
+      "amax": 35.25,
+      "input_scale_divisor": 76.25531914893617
+    },
+    "text/layers/57/gdn/input_projection": {
+      "amax": 43.25,
+      "input_scale_divisor": 62.15028901734104
+    },
+    "text/layers/57/gdn/output_projection": {
+      "amax": 89.0,
+      "input_scale_divisor": 30.202247191011235
+    },
+    "text/layers/57/mlp/down_projection": {
+      "amax": 117.0,
+      "input_scale_divisor": 22.974358974358974
+    },
+    "text/layers/57/mlp/gate_up_projection": {
+      "amax": 38.25,
+      "input_scale_divisor": 70.27450980392157
+    },
+    "text/layers/58/gdn/input_projection": {
+      "amax": 41.0,
+      "input_scale_divisor": 65.5609756097561
+    },
+    "text/layers/58/gdn/output_projection": {
+      "amax": 92.0,
+      "input_scale_divisor": 29.217391304347824
+    },
+    "text/layers/58/mlp/down_projection": {
+      "amax": 336.0,
+      "input_scale_divisor": 8.0
+    },
+    "text/layers/58/mlp/gate_up_projection": {
+      "amax": 42.0,
+      "input_scale_divisor": 64.0
+    },
+    "text/layers/59/attention/input_projection": {
+      "amax": 63.5,
+      "input_scale_divisor": 42.330708661417326
+    },
+    "text/layers/59/attention/output_projection": {
+      "amax": 68.5,
+      "input_scale_divisor": 39.24087591240876
+    },
+    "text/layers/59/mlp/down_projection": {
+      "amax": 370.0,
+      "input_scale_divisor": 7.264864864864865
+    },
+    "text/layers/59/mlp/gate_up_projection": {
+      "amax": 44.25,
+      "input_scale_divisor": 60.74576271186441
+    },
+    "text/layers/6/gdn/input_projection": {
+      "amax": 40.5,
+      "input_scale_divisor": 66.37037037037037
+    },
+    "text/layers/6/gdn/output_projection": {
+      "amax": 5.65625,
+      "input_scale_divisor": 475.22651933701655
+    },
+    "text/layers/6/mlp/down_projection": {
+      "amax": 10.3125,
+      "input_scale_divisor": 260.6545454545454
+    },
+    "text/layers/6/mlp/gate_up_projection": {
+      "amax": 8.625,
+      "input_scale_divisor": 311.6521739130435
+    },
+    "text/layers/60/gdn/input_projection": {
+      "amax": 44.75,
+      "input_scale_divisor": 60.06703910614525
+    },
+    "text/layers/60/gdn/output_projection": {
+      "amax": 135.0,
+      "input_scale_divisor": 19.91111111111111
+    },
+    "text/layers/60/mlp/down_projection": {
+      "amax": 137.0,
+      "input_scale_divisor": 19.62043795620438
+    },
+    "text/layers/60/mlp/gate_up_projection": {
+      "amax": 39.25,
+      "input_scale_divisor": 68.48407643312102
+    },
+    "text/layers/61/gdn/input_projection": {
+      "amax": 36.0,
+      "input_scale_divisor": 74.66666666666667
+    },
+    "text/layers/61/gdn/output_projection": {
+      "amax": 103.5,
+      "input_scale_divisor": 25.971014492753625
+    },
+    "text/layers/61/mlp/down_projection": {
+      "amax": 123.0,
+      "input_scale_divisor": 21.853658536585368
+    },
+    "text/layers/61/mlp/gate_up_projection": {
+      "amax": 45.0,
+      "input_scale_divisor": 59.733333333333334
+    },
+    "text/layers/62/gdn/input_projection": {
+      "amax": 52.75,
+      "input_scale_divisor": 50.95734597156398
+    },
+    "text/layers/62/gdn/output_projection": {
+      "amax": 139.0,
+      "input_scale_divisor": 19.33812949640288
+    },
+    "text/layers/62/mlp/down_projection": {
+      "amax": 264.0,
+      "input_scale_divisor": 10.181818181818182
+    },
+    "text/layers/62/mlp/gate_up_projection": {
+      "amax": 51.0,
+      "input_scale_divisor": 52.705882352941174
+    },
+    "text/layers/63/attention/input_projection": {
+      "amax": 51.5,
+      "input_scale_divisor": 52.19417475728155
+    },
+    "text/layers/63/attention/output_projection": {
+      "amax": 80.0,
+      "input_scale_divisor": 33.6
+    },
+    "text/layers/63/mlp/down_projection": {
+      "amax": 404.0,
+      "input_scale_divisor": 6.653465346534653
+    },
+    "text/layers/63/mlp/gate_up_projection": {
+      "amax": 54.5,
+      "input_scale_divisor": 49.321100917431195
+    },
+    "text/layers/7/attention/input_projection": {
+      "amax": 83.5,
+      "input_scale_divisor": 32.191616766467064
+    },
+    "text/layers/7/attention/output_projection": {
+      "amax": 4.40625,
+      "input_scale_divisor": 610.0425531914893
+    },
+    "text/layers/7/mlp/down_projection": {
+      "amax": 18.5,
+      "input_scale_divisor": 145.2972972972973
+    },
+    "text/layers/7/mlp/gate_up_projection": {
+      "amax": 7.1875,
+      "input_scale_divisor": 373.9826086956522
+    },
+    "text/layers/8/gdn/input_projection": {
+      "amax": 29.875,
+      "input_scale_divisor": 89.97489539748953
+    },
+    "text/layers/8/gdn/output_projection": {
+      "amax": 7.375,
+      "input_scale_divisor": 364.47457627118644
+    },
+    "text/layers/8/mlp/down_projection": {
+      "amax": 15.0625,
+      "input_scale_divisor": 178.4564315352697
+    },
+    "text/layers/8/mlp/gate_up_projection": {
+      "amax": 6.5625,
+      "input_scale_divisor": 409.6
+    },
+    "text/layers/9/gdn/input_projection": {
+      "amax": 31.25,
+      "input_scale_divisor": 86.016
+    },
+    "text/layers/9/gdn/output_projection": {
+      "amax": 4.875,
+      "input_scale_divisor": 551.3846153846154
+    },
+    "text/layers/9/mlp/down_projection": {
+      "amax": 22.0,
+      "input_scale_divisor": 122.18181818181819
+    },
+    "text/layers/9/mlp/gate_up_projection": {
+      "amax": 7.15625,
+      "input_scale_divisor": 375.6157205240175
+    }
+  }
+}

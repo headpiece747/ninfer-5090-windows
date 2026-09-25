@@ -58,7 +58,15 @@ The built-in recipes are ordinary Python functions in
 | `qwen3_6_27b_nvfp4` | Imported NVFP4, selected BF16 projections, Q8 vocabulary weights | `quantized` |
 | `qwen3_8_27b_nvfp4` | Imported NVFP4/FP8, FP8 embedding generated from BF16 | `quantized` |
 | `qwen3_8_27b_nvfp4_qat` | Imported NVFP4 for every text linear; Q8 embedding and head | `bf16` |
+| `qwen3_8_27b_nvfp4_unsloth` | Imported NVFP4 MLP 0-55; attention, GDN, MLP 56-63 and both W8 endpoints encoded locally from the BF16 base, with the nine Qwen3.6 exception parents kept BF16 | `quantized` |
 | `qwen3_8_27b_nvfp4_swift` | Imported ModelOpt NVFP4 MLP; attention, GDN and both W8 endpoints re-encoded from the BF16 source | `swift_bf16` |
+
+The unsloth recipe takes no divisor source. An NVFP4 site that permits A4 activations needs a positive
+activation divisor, a compressed-tensors checkpoint does not carry one, and a maximum does not transfer
+between weight realizations -- borrowing another quantization's stored scales measured 2.2% / 0.45%
+worse on the fixed corpus. It reads `qwen3_8_27b_nvfp4_calibration.json` instead, measured on this
+checkpoint by `tools.convert.calibration`, whose output reproduces the published profile's divisors
+(median ratio 1.0000 where the two have the same provenance).
 
 The QAT recipe's `bf16` source supplies only `gdn/a_projection` and `gdn/b_projection`. Its own
 checkpoint quantizes them, but at (96, 5120) the `block_scale_k16_m128x4_v1` layout cannot hold them --
