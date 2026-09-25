@@ -202,6 +202,26 @@ Thirty-five rules, each earned by a failure rather than chosen:
   PATH and the bundled 2.0.16 one list the same 47 models. Restart with the bundled binary, since the
   `opencode` on PATH is 1.18.4 and may manage a different service, and expect in-flight sessions to be
   interrupted.
+- **A batch that fails at parse time fails before any of its logic, so "nothing ran" and "the step it
+  needed was skipped" look identical.** `build_windows.bat` printed its header and stopped: an `echo`
+  inside an `if ( ... )` block carried unescaped parentheses -- "binaries (LGPL shared)" -- so cmd
+  ended the block at that `)`, and the leftover `...` became "... was unexpected at this time". Escape
+  them as `^(` and `^)`. Three more cmd rules from the same session: `copy` does not expand wildcards
+  inside quotes, so staging files needs `xcopy`; a `.cmd` written with bare-LF endings loses its `goto`
+  labels ("cannot find the batch label"); and `timeout` needs a console stdin, so it fails under a
+  redirected or detached run -- use a retry loop instead. Run a batch you write before trusting it;
+  reading it reveals none of these.
+- **A superseded build left in `out/` under a shipped artifact's filename is a measurement waiting to
+  go wrong.** The reverted Swift draft build was still there as
+  `qwen3_8_27b_nvfp4swift.v3.ninfer` -- a different artifact from the shipped file of that name, and
+  the one that lost its acceptance comparison. Anything resolving artifacts from `out/` would have
+  measured it. Keep one file per name in `C:\AI\models`, and delete a superseded build rather than
+  leaving it where a filename finds it.
+- **The engine accepts only a `.ninfer` extension, so a preserved copy needs a hardlink to be
+  measurable.** A `.fetched` file is refused at startup -- "NInfer accepts only .ninfer artifacts" --
+  and `ninfer-perplexity` applies the same check. `cmd /c mklink /H out\qat_fetched.ninfer
+  <artifact>.fetched` makes it measurable without copying 19 GB, and the run then reports the
+  artifact as `out/qat_fetched.ninfer`, which is why the published-file reports carry that name.
 - **Reference this tree relatively, or a path that exists will read as missing.** Absolute paths into
   the workspace stopped resolving mid-session: `cd C:\AI\infer-v3-windows` answered "Cannot find
   path", `Test-Path` and `[System.IO.Directory]::Exists` returned false for directories `Get-Item`
