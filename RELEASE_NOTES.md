@@ -26,9 +26,10 @@ are new.
   checkpoint's per-site scales. Perplexity is **4.90168** against the official stock's 4.90169 on the
   full corpus — the same, not better — while the file is **20% smaller** (18.95 GB against 23.72 GB),
   contains no FP8 tensor where the official has 146. It reaches the full 262,144 at the `fp8` KV the
-  launchers use, where the copy of the official artifact measured here stops at 240,000 on MTP and
-  131,072-163,840 on DFlash2; the published official does reach 262,144 at `int8` KV, so the reach is a
-  property of the build and the KV dtype together rather than a wall.
+  launchers use, where the copy of the official artifact measured here stops at 240,000 on MTP and lower
+  still on DFlash2; the published official does reach 262,144 at `int8` KV, so the reach is a property of
+  the build and the KV dtype together rather than a wall. The artifact reference carries the exact
+  ceilings.
 - **The draft's projections are encoded as NVFP4 on three lines**, where upstream's recipe gives them
   Q8. Measured on the port's own bench: 58.0% against 54.8% acceptance on the QUASAR lane, and 68.8%
   against 49.4% on the unsloth line's DFlash2 lane, which is also 19% faster. It touches no text weight,
@@ -225,7 +226,8 @@ with it).
   comment reports a fix in a long-context fork. It is recorded here because this release ships
   long-context MTP lanes, which is the configuration it concerns. It has not been observed on this
   port: the eight launchers were verified end to end, the 262,144 ceiling probes ran every spec, and
-  the recorded AIME runs held MTP at draft 3 for about an hour each, on this engine revision.
+  the lane sweeps held MTP and DFlash2 at the full context across all four artifacts, on this engine
+  revision.
 
 ## Release numbering
 

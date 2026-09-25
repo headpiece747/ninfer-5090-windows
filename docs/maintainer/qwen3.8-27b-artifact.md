@@ -1290,9 +1290,7 @@ the stock model's hidden states, and a text stack whose attention is NVFP4 like 
 moves those states closer to it. Upstream records the general form of that dependence: issue #298
 section 3 converts a finetune far from stock and measures DFlash2 accepting 3.3-5.1% of drafts while
 the MTP head still accepts 67-85%, concluding that the draft is model-specific. Swift sits between the
-two cases, which is why its DFlash2 lane ships at a measured 60.9% rather than being assumed. AIME 2025 and AIME 2026 at the documented 122,880-token budget score
-28 / 30 each, against the FP8-importing build's 29 / 30 each; at 60 samples the difference is not
-significant, and `eval/README.md` records it with its protocol.
+two cases, which is why its DFlash2 lane ships at a measured 60.9% rather than being assumed.
 
 ## 17. Rebuilt from source: the QAT line (`nvfp4qat`)
 
@@ -1358,6 +1356,17 @@ is what re-encoded that second group: the same comparison on the build before it
 draft bindings, which is consistent with the acceptance the rule measured on this line (58.0% against
 54.8%).
 
+Weights are not the whole artifact, and on this line the frontends differ too. The two builds carry
+different chat templates: this one 10,871 bytes at `resource/text/chat_template.jinja`, the published
+one 9,712 at `frontend/chat_template.jinja`, and the port's own official artifact a third at 9,897 under
+that same `frontend` id. The difference between the first two is two hunks -- a comment, and a block
+this port added that maps client reasoning-effort aliases (`high`, `max`, `ultracode`, `extreme` onto
+`xhigh`; `minimal` onto `low`) to the three levels the template renders, because the stock template
+raised an exception on Claude Code's default `high`. A request that passes no `reasoning_effort`
+renders identically either way, so the added block costs nothing when it is not asked for, while a
+request that passes `high` fails on the published file and succeeds here. The consequence to keep in
+mind is that any comparison of the two by conversation compares the frontends as well as the weights.
+
 The engine loads it at 16.3 GiB of device weights on the MTP lane and 17.2 GiB on the DFlash2 lane,
 reaches the full 262,144 context at `fp8` KV with 2.99 and 2.36 GiB free respectively, and answers a
 request correctly.
@@ -1375,13 +1384,6 @@ explains why a `--quick` comparison of this shape is decided by four singleton s
 corpus settles it: this build is ahead there too, by 0.23% against the subset's 1.22%. The direction is
 the same and the magnitude is smaller, which is what a singleton-stream effect looks like when four
 streams per domain average it.
-
-At the task level the AIME pair, at the documented 122,880-token budget with the fp8 KV flags a
-launcher uses, scores **27 / 30** and **29 / 30** (run `20260925T030045Z-3e88e8bd`, config fingerprint
-`3e88e8bd`). The reference points on that protocol are the port's own `qwen3_8_27b_nvfp4` artifact at
-29 / 30 and 29 / 30, and the re-encoded Swift build at 28 / 30 and 28 / 30. `eval/README.md` records
-the protocol and the paired per-problem scores; the published file's own pair is the measurement that
-anchors the 27.
 
 ## 18. Rebuilt from source: the unsloth line (`nvfp4full`)
 
