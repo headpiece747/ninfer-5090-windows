@@ -240,6 +240,35 @@ The fix is worth having on its own account: it is upstream's own description of 
 through prefill and decode on a host with more cores than contexts, which is every run on this
 machine.
 
+The schedule has since become configurable and its default moved back. `bace20dc` added
+`NINFER_CUDA_SYNC` (see [CUDA synchronization](../cli.md#cuda-synchronization)) and defaulted it to
+`spin` -- the schedule `4c0fe48a` had just moved away from -- so the reasoning above is worth
+re-measuring rather than inheriting. This port did, on 2026-09-25, on the QUASAR DFlash2 lane.
+
+The first harness read the server's own `host <n>%` field and the decode rate across an interleaved
+spin/blocking/spin/blocking sweep, and could not see the flag at all: decode 328.9 against 330.1
+tok/s, and the host field moving *towards* blocking (2.5% against 3.8%), which is backwards from what
+the flag does. The explanation is that a thread waiting on the device spin-waits inside the CUDA
+call, so no phase the server times includes it: that metric cannot observe the thing being varied.
+
+Measuring the process from outside does observe it. Sampling `ninfer-serve.exe`'s own CPU seconds
+across each run of the same interleaved sweep, and dividing by the wall time over which it was
+sampled:
+
+```
+spin      cores burned 0.54, 0.56   mean 0.550   decode 328.5, 332.2 tok/s
+blocking  cores burned 0.26, 0.23   mean 0.242   decode 330.8, 321.9 tok/s
+```
+
+So the schedule holds roughly a third of a core more under `spin`, in both interleaved pairs, with no
+difference in decode throughput. That is upstream's own description of the cost, reproduced on this
+machine, and it is the case their fix named: 32 logical processors to one CUDA context.
+
+Two limits on that number, because it is about to be cited. It is decode only -- the sweep runs no
+longer request, so TTFT is not covered here. And it is a *cores-burned* figure, not a claim that
+`spin` makes the server slower: the two configurations serve at the same rate, and the difference is
+what the idle waiting thread does with the processor while it waits.
+
 ### The answer: a debug-heap configuration left on one executable
 
 `ninfer-serve.exe` carried an Image File Execution Options entry, and no other binary on the machine
