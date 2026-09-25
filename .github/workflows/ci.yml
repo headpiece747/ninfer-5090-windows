@@ -40,9 +40,10 @@ jobs:
           NINFER_PYTHON: python
         run: bash .githooks/pre-commit
 
-      # Reported, not enforced: mypy has 67 known errors recorded in AGENTS.md, and the rule there is
-      # that a NEW error is yours. Until the count is zero this tells the reviewer what changed
-      # without blocking a merge on work that has not been done yet.
+      # Reported, not enforced: mypy carries a backlog of known type errors, and the rule in AGENTS.md
+      # is that a NEW error is yours. Until the backlog reaches zero this tells the reviewer what
+      # changed without blocking a merge on work that has not been done yet. No count is written here
+      # on purpose -- run it and read the number rather than trusting a figure that drifts.
       - name: mypy (informational)
         continue-on-error: true
         run: |

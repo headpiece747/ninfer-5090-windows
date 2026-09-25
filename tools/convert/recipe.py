@@ -6,7 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
 from math import prod
-from typing import Sequence
+from typing import Any, Sequence
 
 from tools.artifact.layouts import encoded_size
 from tools.artifact.formats import DirectFormat, Fp8RowFormat, Nvfp4Format, get_format
@@ -87,8 +87,8 @@ class Recipe:
     def __init__(self, model: Model):
         self.model = model
         self.selections: dict[str, list[Selection]] = {}
-        self.policies = {}
-        self.auxiliary_overrides = {}
+        self.policies: dict[tuple[str, str], str] = {}
+        self.auxiliary_overrides: dict[tuple[str, ...], AuxiliaryValue] = {}
         self.aliases: dict[str, str] = {}
         self.separate_parameters: set[str] = set()
         self.explicit_groups: list[tuple[tuple[str, ...], tuple[int, ...] | None]] = []
@@ -191,7 +191,7 @@ class Recipe:
                         continue
                     if previous.begin < low:
                         updated.append(replace(previous, end=low))
-                    changes = {"begin": low, "end": high}
+                    changes: dict[str, Any] = {"begin": low, "end": high}
                     for key, value in (
                         ("format", format),
                         ("layout", layout),
@@ -264,10 +264,12 @@ class Recipe:
         self.selections[parameter] = list(self.selections[target])
 
     def prepare(self, *, device="cuda", rows_per_chunk=512) -> PreparedRecipe:
-        weights = []
-        fragments = {name: [] for name in self.selections}
+        weights: list[WeightJob] = []
+        fragments: dict[str, list[tuple[int, str, int, int]]] = {
+            name: [] for name in self.selections
+        }
         auxiliary_values = dict(self.auxiliary_overrides)
-        used = set()
+        used: set[str] = set()
 
         def compatible(items):
             first = items[0][1]
@@ -415,7 +417,7 @@ class Recipe:
                     emit([(name, choice)])
 
         specs = {weight.spec.id: weight.spec for weight in weights}
-        bindings = {}
+        bindings: dict[str, Any] = {}
         for name, parts in fragments.items():
             if name in self.aliases:
                 continue
@@ -448,8 +450,8 @@ class Recipe:
                 target = self.aliases[target]
             bindings[name] = deepcopy(bindings[target])
 
-        uses = []
-        auxiliary_outputs = []
+        uses: list[dict[str, Any]] = []
+        auxiliary_outputs: list[tuple[TensorSpec, Any]] = []
         for (name, input_name), policy in self.policies.items():
             # Explicitly shared weights retain independent Use and calibration records.
             key = (name, input_name, "activation_input_divisor")
@@ -463,7 +465,7 @@ class Recipe:
                 and key not in auxiliary_values
             ):
                 raise ValueError(f"{name}: provide its independent activation divisor")
-            use = {"parameter": name, "input": input_name, "activation_policy": policy}
+            use: dict[str, Any] = {"parameter": name, "input": input_name, "activation_policy": policy}
             referenced = {}
             for (parameter, source_input, role), value in auxiliary_values.items():
                 if (parameter, source_input) != (name, input_name):

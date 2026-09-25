@@ -9,7 +9,7 @@ from __future__ import annotations
 from math import isfinite, isqrt
 from pathlib import Path
 import struct
-from typing import Mapping
+from typing import Any, Mapping
 
 from .model import Model, Parameter
 from .resources import load_resources
@@ -53,7 +53,7 @@ def _fixed(config, key, value, label):
 
 
 def _rope_source(raw: dict, label: str) -> dict:
-    rope = {}
+    rope: dict[str, Any] = {}
     for field in ("rope_scaling", "rope_parameters"):
         value = raw.get(field)
         if value is None:
@@ -84,7 +84,7 @@ def text_config(source: dict, *, mtp: bool) -> dict:
     _fixed(raw, "hidden_act", "silu", "text")
     _fixed(raw, "attention_bias", False, "text")
     _fixed(raw, "attn_output_gate", True, "text")
-    result = {
+    result: dict[str, Any] = {
         "architectures": ["Qwen3_5MoeForCausalLM" if moe else "Qwen3_5ForCausalLM"],
         "model_type": "qwen3_5_moe_text" if moe else "qwen3_5_text",
     }
@@ -195,7 +195,7 @@ def vision_config(source: dict, text: dict) -> dict:
     _fixed(raw, "hidden_act", "gelu_pytorch_tanh", "vision")
     _fixed(raw, "deepstack_visual_indexes", [], "vision")
     _fixed(raw, "out_hidden_size", text["hidden_size"], "vision")
-    result = {
+    result: dict[str, Any] = {
         "model_type": (
             "qwen3_5_moe_vision" if "num_experts" in text else "qwen3_5_vision"
         )
@@ -231,7 +231,7 @@ def draft_config(raw: dict, target: dict, backend: str) -> dict:
         ("num_target_layers", target["num_hidden_layers"]),
     ):
         _fixed(raw, key, value, backend)
-    result = {"architectures": [architecture], "model_type": "qwen3"}
+    result: dict[str, Any] = {"architectures": [architecture], "model_type": "qwen3"}
     for key in (
         "intermediate_size",
         "num_attention_heads",
@@ -922,7 +922,7 @@ def build_model(
         raise ValueError("select text and supported optional components")
     companions = {} if companions is None else companions
     config = text_config(base.config, mtp="mtp" in selected)
-    records = {"text": {"config": config}}
+    records: dict[str, Any] = {"text": {"config": config}}
     if "vision" in selected:
         records["vision"] = {
             "config": vision_config(base.config, config),
