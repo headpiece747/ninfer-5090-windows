@@ -25,8 +25,10 @@ are new.
   NVFP4 MLP imported on all 64 layers, its FP8 attention encoded from the BF16 base using the
   checkpoint's per-site scales. Perplexity is **4.90168** against the official stock's 4.90169 on the
   full corpus — the same, not better — while the file is **20% smaller** (18.95 GB against 23.72 GB),
-  contains no FP8 tensor where the official has 146, and reaches the full context where the official
-  caps below it.
+  contains no FP8 tensor where the official has 146. It reaches the full 262,144 at the `fp8` KV the
+  launchers use, where the copy of the official artifact measured here stops at 240,000 on MTP and
+  131,072-163,840 on DFlash2; the published official does reach 262,144 at `int8` KV, so the reach is a
+  property of the build and the KV dtype together rather than a wall.
 - **The draft's projections are encoded as NVFP4 on three lines**, where upstream's recipe gives them
   Q8. Measured on the port's own bench: 58.0% against 54.8% acceptance on the QUASAR lane, and 68.8%
   against 49.4% on the unsloth line's DFlash2 lane, which is also 19% faster. It touches no text weight,

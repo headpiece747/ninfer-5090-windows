@@ -1223,6 +1223,14 @@ assumed. The BF16 export is ungated, so the re-encode needs no credentials. Mode
 site's activation amax in `input_scale`, and the divisor bound for an FP8 site being re-encoded is
 `d_x = 6 / input_scale`, derived in Section 1 of the artifact conventions.
 
+For reproducibility, one thing about those pins is worth stating: both repositories were re-uploaded
+on 2026-09-24, after this port's download, as a squashed commit that replaced the pinned revision in
+`main`. Comparing the two revisions through the Hub's tree API shows every weight shard, config,
+tokenizer and index file carrying an identical size *and* an identical object id; the only changed
+files are `.gitattributes` and `README.md`, and a demo video was added. So this artifact is built from
+the weights that are current rather than from a superseded quantization, and the pins still name the
+revision to reproduce it from.
+
 The FP8-importing build this artifact replaces is published at
 `CaptainArni/Swift-Qwen3.8-27B-NInfer` (22,783,241,220 bytes, sha256 `5412a0e7...`). This port's own
 build of that recipe carries the same weights and differs from the published file only in the chat
@@ -1527,7 +1535,9 @@ MTP lane and 17.2 GiB on the DFlash2 lane.
 ### 19.4 Measured results (RTX 5090)
 
 Against the port's local copy of the official artifact (`9f35ba74...`, 23,719,760,043 bytes — note this
-is not byte-identical to the published file, whose pin is 23,719,715,844):
+is not byte-identical to the published file, whose pin is 23,719,715,844 with sha256 `74d2c571...`, and
+whose lane figures are therefore quoted from the copy that was measured rather than from the
+repository):
 
 | protocol | official stock | this build |
 |---|---:|---:|
@@ -1546,8 +1556,11 @@ indistinguishable was checked by domain rather than accepted, and it is a cancel
 | `english_long_form` | 8.17251 | 8.29735 | +1.53% |
 | `ninfer_code` | 1.67007 | 1.69030 | +1.21% |
 
-So this build is the same on average and 20% smaller, without FP8, reaching the full context where the
-official stock caps below it. It is not 1.78% better: that figure belongs to the `--quick` protocol,
+So this build is the same on average and 20% smaller, without FP8, and it reaches the full 262,144 at
+the `fp8` KV the launchers use, where the copy of the official artifact measured here stops at 240,000
+on MTP and 131,072-163,840 on DFlash2. The published official does reach 262,144 at `int8` KV, which
+upstream reports in issue #298, so the reach is a property of the build and the KV dtype together
+rather than a wall. This build is not 1.78% better: that figure belongs to the `--quick` protocol,
 whose four singleton streams let one of them decide the number.
 
 Its lanes, measured on the artifact this release ships:
