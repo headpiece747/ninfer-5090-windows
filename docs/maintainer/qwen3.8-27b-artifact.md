@@ -1337,16 +1337,19 @@ python3 -m tools.convert \
   --out models/qwen3_8_27b_nvfp4qat.v3.ninfer
 ```
 
-Hashing every binding against the published artifact leaves **1358 of 1513 identical**, including every
-imported code word: attention 112/112, MLP 192/192, the GDN `query_key_value_z` and output codes
-432/432, MTP 16/16, Vision 441/441 and the text globals 131/131. So the source repository moving from
-`d8e6fbfa` to `15d2e47b` did not change the weights. The remaining 155 are `gdn/a_projection` and
+Hashing every binding against the published artifact leaves **1394 of 1513 identical**, including every
+imported code word: attention 112/112, MLP 192/192, the GDN codes 432/432, MTP 16/16, `proposal` 2/2,
+Vision 441/441 and the text globals 131/131. So the source repository moving from `d8e6fbfa` to
+`15d2e47b` did not change the weights. The 119 that differ are two groups: `gdn/a_projection` and
 `gdn/b_projection` (96, which the fork decoded from the source's quantized control words where this
-build takes them pristine from the base) and the draft's 59. That comparison was taken before the
-draft rule of section 16 was applied, so the draft count has since changed; the text figures have not.
+build takes them pristine from the base) and the DFlash2 draft (23). The NVFP4 draft rule of section 16
+is what re-encoded that second group: the same comparison on the build before it counted 59 differing
+draft bindings, which is consistent with the acceptance the rule measured on this line (58.0% against
+54.8%).
 
-The engine loads it at 16.1 GiB of device weights, reaches the full 262,144 context at `fp8` KV with
-4.35 GiB free, and answers a request correctly.
+The engine loads it at 16.3 GiB of device weights on the MTP lane and 17.2 GiB on the DFlash2 lane,
+reaches the full 262,144 context at `fp8` KV with 2.99 and 2.36 GiB free respectively, and answers a
+request correctly.
 
 ### 17.4 Measured results (RTX 5090)
 
@@ -1420,14 +1423,17 @@ python3 -m tools.convert \
   --out models/qwen3_8_27b_nvfp4full.v3.ninfer
 ```
 
-Hashing every binding against the published profile leaves **1489 of 1513 identical**; the 24 that
-differ are the DFlash2 draft (23, encoded by the rule of section 16) and `proposal/head` (1). The nine
+Hashing every binding against the published profile leaves **1490 of 1513 identical**, and every one of
+the 23 that differ is a DFlash2 draft binding. `proposal/head` is byte-identical, which is the binding
+the defect fixed in `d5165a9f` was about: the proposal was derived from the quantized source while the
+head came from the base one. The nine
 BF16 exception parents are byte-identical to it, so keeping them was not a deviation from that
 artifact — but it *is* a measured choice: encoding them instead scored 4.85576/4.99604 against
 4.75750/4.97532, and the same pattern loses on Swift's ModelOpt source (section 1 of the artifact
 conventions), which is the rule's point about measuring per checkpoint.
 
-The engine loads it at 16.3 GiB of device weights and reaches the full 262,144 context at `fp8` KV.
+The engine loads it at 17.1 GiB of device weights on the MTP lane and 17.9 GiB on the DFlash2 lane,
+reaching the full 262,144 context at `fp8` KV with 2.39 and 1.66 GiB free respectively.
 
 ### 18.4 Measured results (RTX 5090)
 
@@ -1501,7 +1507,8 @@ python3 -m tools.convert \
 The sites this line re-encodes are the hidden-state-fed class that transferred exactly when checked
 against the published profiles' divisors — 53.4925 at layer 0's GDN input is identical in three
 artifacts — which is why a producer's stored scales are usable for them and were not for the
-derived-intermediate sites on the unsloth line.
+derived-intermediate sites on the unsloth line. The engine loads it at 16.3 GiB of device weights on the
+MTP lane and 17.2 GiB on the DFlash2 lane.
 
 ### 19.4 Measured results (RTX 5090)
 
@@ -1529,4 +1536,12 @@ So this build is the same on average and 20% smaller, without FP8, reaching the 
 official stock caps below it. It is not 1.78% better: that figure belongs to the `--quick` protocol,
 whose four singleton streams let one of them decide the number.
 
-Its context ceiling and lane measurements are *pending*, being taken as this section is written.
+Its lanes, measured on the artifact this release ships:
+
+| lane | decode | acceptance | runtime / free |
+|---|---:|---:|---|
+| DFlash2 d7 | 322.4 tok/s | 59.2% | 10.7 GiB / 2.45 GiB |
+| MTP d5 | 228.3 tok/s | 56.4% | 10.4 GiB / 2.99 GiB |
+
+`ceiling` mode measured all four spec/vision combinations at the full 262,144, so this line reaches a
+context the official stock cannot.

@@ -3,10 +3,10 @@ REM ============================================================================
 REM  QUASAR QAT + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 343.4 tok/s   draft acceptance 62.5%
-REM      runtime 10.7 GiB   free VRAM 2.7 GiB
+REM      context 262,144   decode 311.1 tok/s   draft acceptance 58.0%
+REM      runtime 10.7 GiB   free VRAM 2.36 GiB
 REM
-REM  Fastest QUASAR lane at full context, at one state slot.
+REM  Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-24 on the artifact this port builds, which is what the launcher runs; the recorded 343.4/62.5% was taken 2026-09-17 and does not reproduce, the published file this line replaces measuring 45.7% on that lane.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable

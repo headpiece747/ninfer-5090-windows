@@ -68,36 +68,58 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=343.4, acc="62.5%", runtime="10.7 GiB", free="2.7 GiB",
-         note="Fastest QUASAR lane at full context, at one state slot."),
+         tok=311.1, acc="58.0%", runtime="10.7 GiB", free="2.36 GiB",
+         note="Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-24 on "
+              "the artifact this port builds, which is what the launcher runs; the recorded "
+              "343.4/62.5% was taken 2026-09-17 and does not reproduce, the published file this "
+              "line replaces measuring 45.7% on that lane."),
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=219.5, acc="58.3%", runtime="10.4 GiB", free="3.3 GiB",
-         note="Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR."),
+         tok=221.5, acc="66.9%", runtime="10.4 GiB", free="2.99 GiB",
+         note="Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR, "
+              "re-measured 2026-09-24 on this port's build."),
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=344.6, acc="63.7%", runtime="10.7 GiB", free="2.0 GiB",
-         note="Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot."),
+         tok=340.4, acc="68.8%", runtime="10.7 GiB", free="1.66 GiB",
+         note="Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot. "
+              "Re-measured 2026-09-24 on this port's own build of the line; the recorded 344.6/63.7% "
+              "was taken 2026-09-17 on the published file, which measures 49.4% on that lane."),
     dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
-         tok=253.5, acc="64.2%", runtime="10.4 GiB", free="2.6 GiB",
-         note="MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here."),
+         tok=233.7, acc="61.7%", runtime="10.4 GiB", free="2.39 GiB",
+         note="MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here, re-measured "
+              "2026-09-24 on this port's build."),
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT, device_state_slots=1,
          label="Swift + DFlash2 + Vision", model_id="qwen3.8-27b-swift-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=331.0, acc="60.9%", runtime="10.7 GiB", free="1.7 GiB",
+         tok=321.2, acc="60.9%", runtime="10.7 GiB", free="1.63 GiB",
          note="Swift's fastest lane, and the one re-encoding helped most: acceptance is 60.9% "
               "against 45.5% while the FP8 attention was imported, because the z-lab draft was "
-              "trained on the stock model's hidden states."),
+              "trained on the stock model's hidden states. Encoding that draft NVFP4 as the other "
+              "lines do measured worse here (57.7%), so it stays Q8. Re-measured 2026-09-24, "
+              "reproducing the 60.9% exactly."),
     dict(file="start_swift_v3_mtp5_vision.bat", port=8091, art=SWIFT, device_state_slots=1,
          label="Swift + MTP5 + Vision", model_id="qwen3.8-27b-swift-v3-mtp5-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
-         tok=236.7, acc="58.6%", runtime="10.4 GiB", free="3.1 GiB",
-         note="Depth 5 measured fastest of 2-5 on Swift, as on NVFP4-full, with 3.1 GiB free at "
-              "the full native context."),
+         tok=231.3, acc="58.6%", runtime="10.4 GiB", free="3.16 GiB",
+         note="Depth 5 measured fastest of 2-5 on Swift, as on NVFP4-full, with 3.16 GiB free at "
+              "the full native context. Re-measured 2026-09-24; acceptance reproduced exactly."),
+    dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
+         label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
+         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
+         tok=322.4, acc="59.2%", runtime="10.7 GiB", free="2.45 GiB",
+         note="NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP "
+              "imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same "
+              "full-corpus perplexity as the official stock at 20% smaller, with no FP8 tensor where "
+              "that has 146, and this lane reaches the full context where it caps below."),
+    dict(file="start_nvidia_v3_mtp5_vision.bat", port=8093, art=NVIDIA, device_state_slots=1,
+         label="NVIDIA ModelOpt + MTP5 + Vision", model_id="qwen3.8-27b-nvidia-v3-mtp5-vision",
+         spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
+         tok=228.3, acc="56.4%", runtime="10.4 GiB", free="2.99 GiB",
+         note="Depth 5 measured fastest of 2-5 here as on the other NVIDIA-sourced lines."),
 ]
 
 # Flags every profile ships, in the order the launcher renders them. A value of None marks a

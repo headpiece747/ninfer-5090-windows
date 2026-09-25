@@ -24,7 +24,7 @@ engine rejects v2 artifacts outright, so a v1.0.x user must download a v3 artifa
    and leaves the failure on screen if they do not.
 
 The server then answers on `http://127.0.0.1:<port>/v1` under the model id in that launcher's
-header. `GET /health` answers once the model is loaded. The six launchers and their measured
+header. `GET /health` answers once the model is loaded. The eight launchers and their measured
 figures are under [Profiles and launchers](#profiles-and-launchers); building from source is under
 [Windows](#windows).
 
@@ -42,8 +42,9 @@ All four are Qwen3.8-27B. The first two rows are the published files this port h
 their digests are the ones pinned in `download_model.py`, which verifies every download against them;
 a republish upstream means updating that pin. This port also builds its own copy of each line from the
 same sources, which is what the launchers here run: those differ from the two published files in the
-ways their sections in the [artifact reference](docs/maintainer/qwen3.8-27b-artifact.md) record, and
-the rows' figures describe the published files until these pins are republished.
+ways their sections in the [artifact reference](docs/maintainer/qwen3.8-27b-artifact.md) record, so the
+sizes and digests above describe the published files while the measured lane figures under
+[Profiles and launchers](#profiles-and-launchers) describe this port's own builds.
 
 Upstream publishes artifacts for other checkpoints, which this port neither ships nor measures. The
 engine requires a v3 container, and a copy fetched before the republish must be
@@ -68,7 +69,7 @@ reuse, Host resume, eviction, shared prefixes, scheduling boundaries, and multim
 
 ## Performance
 
-Published measurements use an RTX 5090. The six launchers' figures are in
+Published measurements use an RTX 5090. The eight launchers' figures are in
 [Profiles and launchers](#profiles-and-launchers), each at the exact argument set its launcher
 starts. The [performance index](docs/performance.md) and its
 [measurement rules](docs/performance/methodology.md) hold the engine's per-model run records, which
@@ -77,7 +78,7 @@ cover checkpoints this port does not ship.
 ## Startup notes
 
 GPU residency is fixed at process startup. `--spec` selects speculative decoding residency, and
-`--vision` independently selects Vision residency. On both shipped artifacts the DFlash2 route
+`--vision` independently selects Vision residency. On all four shipped artifacts the DFlash2 route
 accelerates generated-text decode after multimodal prefill, not Vision encode itself.
 
 ## Windows
@@ -125,29 +126,35 @@ Two build notes specific to Windows:
 
 ### Profiles and launchers
 
-Six launchers ship for the RTX 5090, one per measured-optimal profile. Every number below was
-measured on this machine with the exact argument set the launcher uses, in one interleaved pass --
-absolute decode varies by up to ~9% between sessions on a card whose clocks are not pinned, so
-compare lanes to each other and expect your own absolute figures to differ. All three artifacts are
-vision-only here because Vision measured free on all of them at 262,144; the with/without comparison is
-recorded in [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md). No degraded text-only variant ships, and every profile reaches the
-full native context.
+Eight launchers ship for the RTX 5090, one per measured-optimal profile. Every number below was
+measured on this machine with the exact argument set the launcher uses, and re-measured 2026-09-24 on
+the artifacts this release ships. Absolute decode varies by up to ~9% between sessions on a card whose
+clocks are not pinned, so compare lanes to each other and expect your own absolute figures to differ;
+acceptance is stable across sessions, which is why it is the column to trust in a comparison. All four
+artifacts are vision-only here because Vision measured free on every one of them at 262,144; the
+with/without comparison is recorded in
+[ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md). No degraded text-only variant ships,
+and every profile reaches the full native context.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **343 tok/s** | 62.5% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 220 tok/s | 58.3% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **345 tok/s** | 63.7% |
-| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 254 tok/s | 64.2% |
-| `start_swift_v3_dflash2_vision.bat` | Swift | DFlash2 (7) | yes | 262,144 | **331 tok/s** | 60.9% |
-| `start_swift_v3_mtp5_vision.bat` | Swift | MTP (5) | yes | 262,144 | 237 tok/s | 58.6% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **311 tok/s** | 58.0% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 222 tok/s | 66.9% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **340 tok/s** | 68.8% |
+| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 234 tok/s | 61.7% |
+| `start_swift_v3_dflash2_vision.bat` | Swift | DFlash2 (7) | yes | 262,144 | **321 tok/s** | 60.9% |
+| `start_swift_v3_mtp5_vision.bat` | Swift | MTP (5) | yes | 262,144 | 231 tok/s | 58.6% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (7) | yes | 262,144 | **322 tok/s** | 59.2% |
+| `start_nvidia_v3_mtp5_vision.bat` | NVIDIA | MTP (5) | yes | 262,144 | 228 tok/s | 56.4% |
 
 Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
-runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after
-weights, and it reports the byte counts when it refuses. That ceiling is a property of the artifact's weight size:
-QUASAR carries 16.1 GiB and NVFP4-full 17.0 GiB of device weights, both of which leave room
-for the full KV pool. Our earlier NVFP4 image carried 19.7 GiB and could not, which is why it
-was replaced.
+runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after weights, and
+it reports the byte counts when it refuses. That ceiling is a property of the artifact's weight size,
+measured per lane with each launcher's own flags: these four builds carry 16.3-17.1 GiB of device
+weights on their MTP lanes and 17.2-18.0 GiB on their DFlash2 lanes, and every one of them still fits
+the full KV pool. The FP8-importing Swift build this release replaced carried 18.90 GiB on its MTP lane
+and stopped at 240,000, and the retired NVFP4 image carried 19.7 GiB and could not reach the full
+native context at all, which is why it was replaced.
 
 `--lm-head-draft` is set per profile because its value is not uniform; the measured gains behind
 each choice are recorded in [ADR-0005](docs/adr/0005-per-profile-flags-are-measured.md):
@@ -158,9 +165,9 @@ each choice are recorded in [ADR-0005](docs/adr/0005-per-profile-flags-are-measu
   turn off if a profile ever refuses to start.
 
 MTP depth is chosen per artifact from measurement rather than convention: depth 4 is fastest on
-QUASAR, depth 5 on NVFP4. Acceptance rate does not predict throughput, because tokens committed
-per round matters more than the proportion accepted, so depth is selected on measured decode
-rate.
+QUASAR, depth 5 on the other three. Acceptance rate does not predict throughput, because tokens
+committed per round matters more than the proportion accepted, so depth is selected on measured
+decode rate.
 
 ### Two behaviours to know before relying on them
 
@@ -172,7 +179,7 @@ rate.
   or kernel paths" — the batched verify kernel is not the single-token decode path, so a
   near-tie can flip and the continuation diverges. Speculation measured 3-4x faster; the lane
   table above carries each launcher's own measured decode figure.
-- **Vision is free on both shipped artifacts.** The with/without comparison at 262,144 is recorded
+- **Vision is free on every shipped artifact.** The with/without comparison at 262,144 is recorded
   in [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md), so every profile here carries Vision. The retired NVFP4 image did cost 16,384-27,008 tokens of context, which is
   part of why it was replaced. The Vision runtime still has its own input envelope of 32,768
   merged tokens (131,072 raw patches) per request.

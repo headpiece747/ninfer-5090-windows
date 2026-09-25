@@ -129,24 +129,34 @@ verification and the payload digest as the artifact's identity.
 The engine refuses a profile whose minimum runtime reservation plus its 1 GiB automatic headroom
 does not fit in what remains after weights, and it reports the byte counts when it refuses.
 
-| device weights | reach at `fp8` KV, vision on | vision off |
-|---|---:|---:|
-| 16.1 GiB (QUASAR) | 262,144 | 262,144 |
-| 17.0 GiB (NVFP4-full) | 262,144 | 262,144 |
-| 18.90 GiB (Swift, FP8 imported) | 240,000 | 262,144 |
-| 19.7 GiB (the port's earlier image) | below the full context | below the full context |
-| 20.50 GiB (Swift, FP8 imported, DFlash2) | 180,224 | 180,224 |
-| 15.3 GiB (Swift re-encoded) | 262,144 | 262,144 |
+| build (launcher flags, `fp8` KV) | device weights | reach, vision on | reach, vision off |
+|---|---:|---:|---:|
+| QUASAR, MTP lane | 16.3 GiB | 262,144 | 262,144 |
+| QUASAR, DFlash2 lane | 17.2 GiB | 262,144 | 262,144 |
+| NVFP4-full, MTP lane | 17.1 GiB | 262,144 | 262,144 |
+| NVFP4-full, DFlash2 lane | 17.9 GiB | 262,144 | 262,144 |
+| Swift re-encoded, MTP lane | 16.3 GiB | 262,144 | 262,144 |
+| Swift re-encoded, DFlash2 lane | 18.0 GiB | 262,144 | 262,144 |
+| NVIDIA, MTP lane | 16.3 GiB | 262,144 | 262,144 |
+| NVIDIA, DFlash2 lane | 17.2 GiB | 262,144 | 262,144 |
+| Swift, FP8 imported, MTP lane | 18.90 GiB | 240,000 | 262,144 |
+| Swift, FP8 imported, DFlash2 lane | 20.50 GiB | 180,224 | 180,224 |
+| the port's earlier NVFP4 image | 19.7 GiB | below the full context | below the full context |
 
-Vision is a column because it decides a row: the FP8-imported Swift build serves the full context
+The first eight rows are the four shipped builds, measured 2026-09-24 on the artifacts this release
+ships, one row per lane because the draft is what sets the footprint. The three below them are builds
+that were replaced, kept as the boundary evidence.
+
+Vision is a column because it decides a row: the FP8-imported Swift MTP build serves the full context
 with vision off and stops at 240,000 with it on. Both Swift lanes ship vision on, so 240,000 is their
 ceiling for that build. Measured by `ceiling` mode, which renders the launcher's own configuration —
 `--device-state-slots 1`, `--prefill-chunk 8192` and the context-cache set included, which together
 reserve about 1.4 GiB more than the bare flags and are what put that build over the line.
 
-So the envelope for the full native context at `fp8` KV **with vision on** sits between 17.0 GiB
-(in) and 18.90 GiB (out) of device weights — an empirical boundary from five builds, not a formula.
-Vision off moves it above 18.90 GiB, which is why the column above exists. A conversion that lands above it has
+So the envelope for the full native context at `fp8` KV **with vision on** sits between 17.1 GiB (in)
+and 18.90 GiB (out) on an MTP lane, and between 18.0 GiB (in) and 20.50 GiB (out) on the heavier
+DFlash2 lane — an empirical boundary, not a formula. Vision off moves it above 18.90 GiB, which is why
+the column above exists. A conversion that lands above it has
 three options: re-encode FP8 text to NVFP4 (section 1), ship a documented lower ceiling, or raise
 the ceiling with `--kv-dtype nvfp4` and pay the quality cost in section 5.
 

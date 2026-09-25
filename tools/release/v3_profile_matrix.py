@@ -106,6 +106,14 @@ CEILINGS = {
     ("swift", "mtp", True, True): 262144,
     ("swift", "dflash2", False, True): 262144,
     ("swift", "dflash2", True, True): 262144,
+    # nvidia (NVIDIA's ModelOpt checkpoint, built by this port), measured 2026-09-24 with `ceiling`
+    # mode, which renders the launcher's own flags. Every combination reaches the full native context:
+    # importing the MLP and re-encoding the rest from the BF16 base keeps device weights well inside
+    # the envelope, and 262,144 is what the artifact it replaces cannot reach at all.
+    ("nvidia", "mtp", False, True): 262144,
+    ("nvidia", "mtp", True, True): 262144,
+    ("nvidia", "dflash2", False, True): 262144,
+    ("nvidia", "dflash2", True, True): 262144,
 }
 
 

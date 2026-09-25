@@ -3,10 +3,10 @@ REM ============================================================================
 REM  QUASAR QAT + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 219.5 tok/s   draft acceptance 58.3%
-REM      runtime 10.4 GiB   free VRAM 3.3 GiB
+REM      context 262,144   decode 221.5 tok/s   draft acceptance 66.9%
+REM      runtime 10.4 GiB   free VRAM 2.99 GiB
 REM
-REM  Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR.
+REM  Lower-VRAM QUASAR profile. MTP depth 4 measured fastest of 2-5 on QUASAR, re-measured 2026-09-24 on this port's build.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable

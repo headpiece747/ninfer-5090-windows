@@ -3,10 +3,10 @@ REM ============================================================================
 REM  NVFP4-full + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 344.6 tok/s   draft acceptance 63.7%
-REM      runtime 10.7 GiB   free VRAM 2.0 GiB
+REM      context 262,144   decode 340.4 tok/s   draft acceptance 68.8%
+REM      runtime 10.7 GiB   free VRAM 1.66 GiB
 REM
-REM  Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot.
+REM  Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot. Re-measured 2026-09-24 on this port's own build of the line; the recorded 344.6/63.7% was taken 2026-09-17 on the published file, which measures 49.4% on that lane.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable

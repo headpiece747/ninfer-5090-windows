@@ -8,7 +8,7 @@ are new.
 
 - **The QUASAR line is rebuilt from its QAT source.** Every text linear is imported from
   `QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4` with its own activation scale, so nothing is re-encoded and no
-  corpus is needed. Hashing every binding against the artifact it replaces leaves 1358 of 1513
+  corpus is needed. Hashing every binding against the artifact it replaces leaves 1394 of 1513
   byte-identical, so the source repository moving between revisions did not change the weights. The 96
   that differ are `gdn/a_projection` and `gdn/b_projection`, which this build takes pristine from the
   base where the fork decoded them from the source's quantized control words — and at (96, 5120) the
@@ -118,28 +118,35 @@ that earlier builds shipped.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **343 tok/s** | 62.5% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | 220 tok/s | 58.3% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **345 tok/s** | 63.7% |
-| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 254 tok/s | 64.2% |
-| `start_swift_v3_dflash2_vision.bat` | Swift | DFlash2 (7) | yes | 262,144 | **331 tok/s** | 60.9% |
-| `start_swift_v3_mtp5_vision.bat` | Swift | MTP (5) | yes | 262,144 | 237 tok/s | 58.6% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **311 tok/s** | 58.0% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | 222 tok/s | 66.9% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **340 tok/s** | 68.8% |
+| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 234 tok/s | 61.7% |
+| `start_swift_v3_dflash2_vision.bat` | Swift | DFlash2 (7) | yes | 262,144 | **321 tok/s** | 60.9% |
+| `start_swift_v3_mtp5_vision.bat` | Swift | MTP (5) | yes | 262,144 | 231 tok/s | 58.6% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (7) | yes | 262,144 | **322 tok/s** | 59.2% |
+| `start_nvidia_v3_mtp5_vision.bat` | NVIDIA | MTP (5) | yes | 262,144 | 228 tok/s | 56.4% |
 
-Every number was measured on an RTX 5090 with the exact arguments the launcher passes, in one
-interleaved pass; every context ceiling is the highest value the engine accepts for that
-configuration -- the next step up is refused, not degraded. Decode varies by up to ~9% between
-sessions on a card whose clocks are not pinned, so compare lanes to each other and expect your own
-absolute figures to differ.
+Every number was measured on an RTX 5090 with the exact arguments the launcher passes, and re-measured
+2026-09-24 on the artifacts this release ships; every context ceiling is the highest value the engine
+accepts for that configuration -- the next step up is refused, not degraded. Decode varies by up to ~9%
+between sessions on a card whose clocks are not pinned, so compare lanes to each other and expect your
+own absolute figures to differ; acceptance is stable across sessions, so it is the column to trust in a
+comparison.
 
-**QUASAR is the recommended profile**: our own artifact, at the full 262,144 context, with a DFlash2
-lane that measures within noise of the other artifact's (343.4 against 344.6 tok/s, measured
-interleaved). ADR-0004 records why the second lane rides a third-party repository with no in-house
-fallback. Vision is free on both (the with/without comparison is in
-[ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md)).
+**All four lines are built here now**, so the choice is a measured trade-off rather than one of
+provenance. The QUASAR line is the only one whose text weights are a quantization-aware-trained
+checkpoint imported unchanged; the other three re-encode their FP8 attention from the BF16 base and
+score lower full-corpus perplexity (4.98, 4.92 and 4.90 against QUASAR's 4.99), with the NVFP4-full
+line also carrying the fastest DFlash2 lane (340 tok/s against QUASAR's 311). Compare artifacts only on
+the full corpus: a `--quick` figure is decided by four streams and is not comparable, as
+`docs/perplexity-baseline.md` explains. ADR-0004 records why each DFlash2 lane rides a third-party draft
+with no in-house fallback, and Vision is free on every shipped artifact (the with/without comparison is
+in [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md)).
 
 ## Getting a model
 
-`download_model.bat` fetches the recommended QUASAR QAT artifact and verifies its SHA-256.
+`download_model.bat` fetches the QUASAR QAT artifact by default and verifies its SHA-256.
 The QUASAR profile comes from `cometkim/Qwen3.8-27B-nvfp4qat-NInfer` and the NVFP4-full
 profiles from `cometkim/Qwen3.8-27B-nvfp4full-NInfer`; both repositories ship a v3 container, so
 either downloads and runs directly. Both are SHA-256 verified by `download_model.bat`, which
@@ -206,9 +213,9 @@ with it).
 
 ## Known limitations
 
-- All four profiles reach the full 262,144 context with Vision. Earlier builds capped the
-  NVFP4 lane because that artifact carried 19.7 GiB of device weights; the one shipped now
-  carries 17.0 GiB.
+- Every shipped profile reaches the full 262,144 context with Vision. Earlier builds capped the
+  NVFP4 lane because that artifact carried 19.7 GiB of device weights; the builds this release
+  ships carry 16.3-17.1 GiB on their MTP lanes and 17.2-18.0 GiB on their DFlash2 lanes.
 
 ## Release numbering
 
