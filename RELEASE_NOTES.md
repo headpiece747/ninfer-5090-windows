@@ -27,10 +27,13 @@ are new.
   full corpus — the same, not better — while the file is **20% smaller** (18.95 GB against 23.72 GB),
   contains no FP8 tensor where the official has 146, and reaches the full context where the official
   caps below it.
-- **The draft's projections are encoded as NVFP4**, where upstream's recipe gives them Q8. Measured on
-  the port's own bench: 58.0% against 54.8% acceptance on the QUASAR lane, and 68.8% against 49.4% on
-  the unsloth line's DFlash2 lane, which is also 19% faster. The change touches no text weight, which
-  the MTP digests confirm is bit-identical.
+- **The draft's projections are encoded as NVFP4 on three lines**, where upstream's recipe gives them
+  Q8. Measured on the port's own bench: 58.0% against 54.8% acceptance on the QUASAR lane, and 68.8%
+  against 49.4% on the unsloth line's DFlash2 lane, which is also 19% faster. It touches no text weight,
+  which the MTP digests confirm is bit-identical. **It is not applied to Swift, where it lost**: 57.7%
+  against 60.9% on that artifact's DFlash2 lane. The z-lab draft was trained against the stock model's
+  hidden states and this finetune's are not the stock ones, so which encoding matches them is a property
+  of the target and is measured per artifact rather than carried across.
 - **Two lane figures had drifted, and one artifact could not be measured at all.** Sweeping the
   *unchanged* artifacts, the acceptance figures recorded on 2026-09-17 no longer reproduce: one
   artifact's DFlash2 lane reads 45.7% against a recorded 62.5%, and its MTP d4 lane 62.4% against
@@ -51,7 +54,7 @@ are new.
 |---|---|---|---|
 | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | 17.65 GiB | `814db0db…` |
 | `nvfp4full` (unsloth) | `qwen3_8_27b_nvfp4full.v3.ninfer` | 18.36 GiB | `f8dc6470…` |
-| `nvfp4swift` (Swift) | `qwen3_8_27b_nvfp4swift.v3.ninfer` | 17.65 GiB | `2411574b…` |
+| `nvfp4swift` (Swift) | `qwen3_8_27b_nvfp4swift.v3.ninfer` | 18.42 GiB | `6353a46f…` |
 | `nvfp4nvidia` (NVIDIA) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | 17.65 GiB | `76131f79…` |
 
 `download_model.py` still pins the two artifacts previously fetched from `cometkim`, which are not the

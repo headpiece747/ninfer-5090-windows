@@ -305,14 +305,15 @@ def qwen3_8_27b_nvfp4_swift(model, recipe, sources):
 
     Attention and GDN are encoded to NVFP4 from the finetune's BF16 source, and both W8 endpoints
     are Q8 from that source, which is what the two shipped artifacts bind. The MLP stays imported
-    from ModelOpt's NVFP4 codes, which is lossless. Its draft projections take the NVFP4 rule the other
-    three lines use, which measured 3.2 points better than upstream's Q8 on the port's own bench.
-    Device weights therefore sit inside the envelope that reaches the full native context.
+    from ModelOpt's NVFP4 codes, which is lossless. Its draft stays Q8: the NVFP4 rule the other three
+    lines use was tried here and *lost* 3.2 acceptance points on the DFlash2 lane (57.7% against 60.9%),
+    which is the rule's point -- a draft encoding is measured per target, and this target's hidden states
+    are not the stock ones. Device weights therefore sit inside the envelope that reaches the full
+    native context.
     """
     if "num_experts" in model.config:
         raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
     _optional(model, recipe)
-    _nvfp4_draft(recipe, model, sources)
     base = sources["base"]
     bf16 = sources["swift_bf16"]
     prefix = "model.language_model." if "text_config" in base.config else "model."

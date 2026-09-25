@@ -35,7 +35,7 @@ offers the two that are published:
 |---|---|---|---|
 | Qwen3.8-27B | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | [QUASAR QAT](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer), 17.36 GiB, `8b86901a…` |
 | Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.v3.ninfer` | [NVFP4-full](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4full-NInfer), 18.07 GiB, `ac98cd39…` |
-| Qwen3.8-27B | `nvfp4swift` (Swift finetune) | `qwen3_8_27b_nvfp4swift.v3.ninfer` | 17.65 GiB, `2411574b…`; its `download_model.py` pin lands with its publication |
+| Qwen3.8-27B | `nvfp4swift` (Swift finetune) | `qwen3_8_27b_nvfp4swift.v3.ninfer` | 18.42 GiB, `6353a46f…`; its `download_model.py` pin lands with its publication |
 | Qwen3.8-27B | `nvfp4nvidia` (NVIDIA ModelOpt) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | 17.65 GiB, `76131f79…`; its `download_model.py` pin lands with its publication |
 
 All four are Qwen3.8-27B. The first two rows are the published files this port has always fetched, and
