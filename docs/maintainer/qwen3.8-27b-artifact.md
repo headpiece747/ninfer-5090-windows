@@ -1359,3 +1359,174 @@ The `--quick` reading of 4.94879 is the artifact as it measures today; section 1
 4.89741 for it, which does not reproduce. The `--quick` section of `docs/perplexity-baseline.md` explains why a
 `--quick` comparison of this shape is decided by four singleton streams, and the full-corpus pair is
 measured to settle it rather than quoted from the quick figure.
+
+## 18. Rebuilt from source: the unsloth line (`nvfp4full`)
+
+Section 14 describes the `nvfp4full` artifact as the fork built it from
+`unsloth/Qwen3.8-27B-NVFP4`. This port builds the same line from the same source with the recipe
+`qwen3_8_27b_nvfp4_unsloth`, keeping the filename and component set.
+
+### 18.1 Identity and contents
+
+```text
+filename   = qwen3_8_27b_nvfp4full.v3.ninfer
+name       = qwen3.8-27b
+recipe     = qwen3_8_27b_nvfp4_unsloth
+converter  = ninfer-v3 (tools.convert)
+components = text, vision, mtp, dflash2
+bytes      = 19,715,597,060
+sha256     = f8dc64701daca3eb7d28c9ee74b0d6a9af93cb5d4e4ec6b43d513849e8224201
+```
+
+1513 bindings over 1573 objects, 844 `uses`, 278 NVFP4 parents and 485 bound activation divisors. Its
+MLP 0-55 is imported from the source's NVFP4 codes; attention, linear-attention and MLP 56-63 are
+encoded to NVFP4 from the BF16 base; both W8 endpoints are Q8; the draft takes the NVFP4 rule of
+section 16. Nine parents stay BF16, the Qwen3.6-27B pattern §14 records.
+
+### 18.2 Sources and provenance
+
+| source | revision | supplies |
+|---|---|---|
+| `unsloth/Qwen3.8-27B-NVFP4` | `f0b7c9e722f5565102fff8481c99e4d86ae099c7` | the 112 NVFP4 MLP parents of layers 0-55 and their divisors |
+| `Qwen/Qwen3.8-27B` | `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` | everything encoded locally, the endpoints, and all unquantized tensors |
+| `z-lab/Qwen3.8-27B-DFlash2` | `50307d4c4cde6860d4eee73e2547cd786fe8e8a4` | the DFlash2 companion |
+
+This source carries no activation scale for its 233 FP8 matrices — verified exhaustively: every
+`input_global_scale` in it belongs to one of the 56 NVFP4 MLP layers. A divisor is therefore measured
+by `tools/convert/calibration.py` and committed as `qwen3_8_27b_nvfp4_calibration.json`. Borrowing
+another quantization's stored scales instead measured 2.2% / 0.45% worse, because an activation maximum
+does not transfer between weight realizations.
+
+The calibration uses the fork's method and its committed corpus, and its output was checked against the
+247 divisor values the published profile carries: on the sites the fork calibrated, **median ratio
+1.0000 and 99% within ±25%**, with layers 56, 58 and 59 exactly equal. The spread reaches 0.5943 to
+1.4912, so this is the fork's method applied to this checkpoint rather than a reproduction of its
+numbers, and the artifact is measured as what it is. Three candidate causes of that spread were tested
+and eliminated: the container's object naming (a build naming every object after its parameters scores
+identically), the compute device (a GPU-side calibration returns identical values to a CPU-side one),
+and the tokenization (3,625 tokens either way).
+
+### 18.3 Production and verification
+
+```bash
+python3 -m tools.convert \
+  --model /path/to/Qwen3.8-27B \
+  --recipe qwen3_8_27b_nvfp4_unsloth \
+  --source quantized=/path/to/Qwen3.8-27B-NVFP4 \
+  --source dflash2=/path/to/Qwen3.8-27B-DFlash2 \
+  --components text,vision,mtp,dflash2 \
+  --resource chat_template.jinja=tools/chat_templates/qwen3_8.jinja \
+  --name qwen3.8-27b --device cuda \
+  --out models/qwen3_8_27b_nvfp4full.v3.ninfer
+```
+
+Hashing every binding against the published profile leaves **1489 of 1513 identical**; the 24 that
+differ are the DFlash2 draft (23, encoded by the rule of section 16) and `proposal/head` (1). The nine
+BF16 exception parents are byte-identical to it, so keeping them was not a deviation from that
+artifact — but it *is* a measured choice: encoding them instead scored 4.85576/4.99604 against
+4.75750/4.97532, and the same pattern loses on Swift's ModelOpt source (section 1 of the artifact
+conventions), which is the rule's point about measuring per checkpoint.
+
+The engine loads it at 16.3 GiB of device weights and reaches the full 262,144 context at `fp8` KV.
+
+### 18.4 Measured results (RTX 5090)
+
+| protocol | published profile | this build |
+|---|---:|---:|
+| `--quick`, `fp8` KV | 4.82452 | **4.75750** |
+| full corpus, `fp8` KV | 4.98768 | **4.97532** |
+
+Interleaved against the published artifact in one window, both lanes the port ships are ahead:
+
+| lane | published | this build |
+|---|---:|---:|
+| DFlash2 d7 acceptance | 49.4% | **68.8%** |
+| DFlash2 d7 decode | 286–290 tok/s | **340 tok/s** |
+| MTP d5 acceptance | 57.6% | **61.7%** |
+
+Acceptance reproduces to a tenth of a point across windows, which is why it carries the comparison;
+throughput does not, so those rows are from one interleaved window.
+
+## 19. New artifact: the NVIDIA line (`nvfp4nvidia`)
+
+This artifact has no published predecessor here. It is built from `nvidia/Qwen3.8-27B-NVFP4`, NVIDIA's
+own ModelOpt quantization of the base model, which is a third realization of the same text stack
+alongside unsloth's and QUASAR's. It gets its own filename and its own pair of lanes.
+
+### 19.1 Identity and contents
+
+```text
+filename   = qwen3_8_27b_nvfp4nvidia.v3.ninfer
+name       = qwen3.8-27b
+recipe     = qwen3_8_27b_nvfp4_nvidia
+converter  = ninfer-v3 (tools.convert)
+components = text, vision, mtp, dflash2
+bytes      = 18,946,877,188
+sha256     = 76131f792241ff0a232abe1fb1234f6b403638940976ecebaf45b94b94d7e58e
+```
+
+1513 bindings over 1600 objects, 1082 weight jobs of which 128 are imports (64 layers × 2 fused MLP
+parents) and 159 are local encodings, with zero FP8 tensors. Its NVFP4 MLP covers all 64 layers, where
+the official stock stops at 55; attention, linear-attention and both W8 endpoints are encoded locally
+from the BF16 base.
+
+### 19.2 Sources and provenance
+
+| source | revision | supplies |
+|---|---|---|
+| `nvidia/Qwen3.8-27B-NVFP4` | `482ca0f3832238542f8f5295dde86b5f22711d80` | the MLP NVFP4 codes and the per-site activation scales |
+| `Qwen/Qwen3.8-27B` | `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` | everything encoded locally, the endpoints, Vision, MTP, resources |
+| `z-lab/Qwen3.8-27B-DFlash2` | `50307d4c4cde6860d4eee73e2547cd786fe8e8a4` | the DFlash2 companion |
+
+The checkpoint is ModelOpt at producer `0.47.0.dev80+g913f5e224`; the model card states v0.48.0, and the
+checkpoint's own field is the one an artifact should be reproduced from. Its 401 `input_scale` values
+come from a Local-Hessian calibration over 2048 samples, and this line needs no corpus of its own
+because of them: the divisor probes which form applies, `1 / input_scale` where the site is already
+NVFP4 and `6 / input_scale` where it is FP8.
+
+### 19.3 Production and verification
+
+```bash
+python3 -m tools.convert \
+  --model /path/to/Qwen3.8-27B \
+  --recipe qwen3_8_27b_nvfp4_nvidia \
+  --source quantized=/path/to/Qwen3.8-27B-NVFP4 \
+  --source dflash2=/path/to/Qwen3.8-27B-DFlash2 \
+  --components text,vision,mtp,dflash2 \
+  --resource chat_template.jinja=tools/chat_templates/qwen3_8.jinja \
+  --name qwen3.8-27b --device cuda \
+  --out models/qwen3_8_27b_nvfp4nvidia.v3.ninfer
+```
+
+The sites this line re-encodes are the hidden-state-fed class that transferred exactly when checked
+against the published profiles' divisors — 53.4925 at layer 0's GDN input is identical in three
+artifacts — which is why a producer's stored scales are usable for them and were not for the
+derived-intermediate sites on the unsloth line.
+
+### 19.4 Measured results (RTX 5090)
+
+Against the port's local copy of the official artifact (`9f35ba74...`, 23,719,760,043 bytes — note this
+is not byte-identical to the published file, whose pin is 23,719,715,844):
+
+| protocol | official stock | this build |
+|---|---:|---:|
+| `--quick`, `fp8` KV | 4.80557 | **4.71979** |
+| full corpus, `fp8` KV | 4.90169 | **4.90168** |
+| file | 23.72 GB | **18.95 GB** |
+| FP8 tensors | 146 | **0** |
+
+Both protocols were measured twice and reproduce exactly. The full-corpus figures being
+indistinguishable was checked by domain rather than accepted, and it is a cancellation:
+
+| domain | official stock | this build | change |
+|---|---:|---:|---:|
+| `chinese_reference` | 6.40455 | 6.28941 | −1.80% |
+| `english_reference` | 6.55706 | 6.49852 | −0.89% |
+| `english_long_form` | 8.17251 | 8.29735 | +1.53% |
+| `ninfer_code` | 1.67007 | 1.69030 | +1.21% |
+
+So this build is the same on average and 20% smaller, without FP8, reaching the full context where the
+official stock caps below it. It is not 1.78% better: that figure belongs to the `--quick` protocol,
+whose four singleton streams let one of them decide the number.
+
+Its context ceiling and lane measurements are *pending*, being taken as this section is written.
