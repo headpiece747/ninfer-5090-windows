@@ -17,7 +17,9 @@ recognising our own patches when upstream edits the same shared logic.
 
 ## The formerly failing test, and the fix
 
-The suite is 122/122. `ninfer_resource_manager_test`'s
+The suite is green against the recorded baseline, which is the authority for how many tests there
+are and which failures are expected by construction: `tools/release/test_baseline.json`.
+`ninfer_resource_manager_test`'s
 `test_candidate_search_prefers_deep_reuse_without_eviction` used to fail and was recorded in
 `tools/release/test_baseline.json`; that record is now empty.
 

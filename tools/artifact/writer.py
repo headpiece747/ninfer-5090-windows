@@ -16,7 +16,6 @@ from . import file_io
 from .file_io import IO_CHUNK_BYTES, Writeback
 from .schema import (
     ArtifactError,
-    ArtifactObject,
     Directory,
     ObjectSpec,
     encode_directory,
