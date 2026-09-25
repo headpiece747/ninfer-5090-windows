@@ -2,3 +2,14 @@
 # default whitespace checks.
 /third_party/spdlog/include/** -whitespace
 /third_party/spdlog/src/** -whitespace
+
+# The Serve TTFT benchmark freezes its corpus and verifies it by sha256, so those bytes have to
+# survive a checkout unchanged. core.autocrlf=true rewrites them to CRLF on Windows, which changes
+# the digest without changing the content: 57 text fixtures under bench/fixtures/ttft and
+# examples/cli/messages were CRLF in the worktree and LF in the manifest, and the runner refused the
+# corpus on this port for that reason alone. Pin the text ones; the 56 PNGs are binary by git's own
+# detection and the rule below does not name them.
+bench/fixtures/ttft/**/*.json text eol=lf
+bench/fixtures/ttft/**/*.txt text eol=lf
+bench/fixtures/ttft/**/*.md text eol=lf
+examples/cli/messages/**/*.json text eol=lf

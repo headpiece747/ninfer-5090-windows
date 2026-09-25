@@ -301,30 +301,52 @@ min, median, max and median absolute deviation per case and role, and its summar
 campaign against another as `subject - baseline` with per-role pairing, which is exactly the
 interleaved comparison this question needs.
 
-Three things are missing, and none of them is a new benchmark:
+### What it took, and what it measured
 
-1. **The campaign controller does not run on this platform.** `run_serve_ttft_campaign.py` stages the
+Three things stood in the way, and none of them was a new benchmark:
+
+1. **The frozen corpus would not verify on this checkout.** This was the real blocker, and it stopped
+   the *runner*, not just the campaign: 57 text fixtures under `bench/fixtures/ttft` and
+   `examples/cli/messages` were CRLF in the worktree while every digest in the manifest was taken over
+   LF, because `core.autocrlf=true` rewrites them at checkout. The runner refused the corpus before
+   sending a request. Fixed in `.gitattributes` by pinning those paths to LF; the 56 PNGs are binary by
+   git's own detection and the rules do not name them. `build_fixtures.py --check` is the authority
+   that confirmed it, and now reports `TTFT fixtures OK`.
+2. **The campaign controller does not run on this platform.** `run_serve_ttft_campaign.py` stages the
    artifact under `/dev/shm/ninfer-artifacts` and refuses to start without that capacity, which is a
-   Linux construct. The black-box runner it drives touches no Linux-only construct, and is documented
-   as usable against a separately started Serve -- which this port already has launchers for, on the
-   real artifact. The staging exists to cut per-sample process startup and cannot change a measured
-   TTFT, because `t0` is inside the request. So the shortest correct route is the low-level runner
-   against a launcher's server, with staging ported later only if startup time becomes the bottleneck.
-2. **Per-token latency is not computed.** The report's metrics are TTFT and acceptance; the runner
-   consumes every later delta to keep the artifact small. The standard metrics are TTFT, TPOT =
-   `(end - t1) / (output tokens - 1)`, and ITL, the gap between consecutive deltas. TPOT is the one to
-   add first: it is the robust one, and it needs nothing that is not already recorded, because the
-   terminal timestamp and the output token count are both in the raw JSON. ITL needs per-delta
-   timestamps kept, and carries a trap vLLM's own benchmark documents -- a delta may bundle several
-   tokens, so per-*delta* latency is not per-*token* latency and the token count can be inflated.
+   Linux construct. The black-box runner it drives carries no Linux-only construct and is documented
+   as usable against a separately started Serve, which this port has launchers for, on the real
+   artifact. Staging exists to cut per-sample process startup and cannot change a measured TTFT,
+   because `t0` is inside the request.
 3. **The schedule must vary per launch.** `NINFER_CUDA_SYNC` is read at `DeviceContext` construction
-   and comes from the environment, so any harness that starts Serve inherits it; the comparison is then
-   two campaigns per schedule, alternated, which is what this card's unpinned clocks require.
+   and comes from the environment, so a harness that starts Serve inherits it, and each sample needs
+   its own process. Six were run, interleaved spin/blocking three times each, on `cold-long-8k` at the
+   `text-cold-8k` profile, sampling the server's own CPU across the measured window.
 
-The decision rule is the one already used here: interleave, compare medians against the reported
-median absolute deviation, and treat a difference inside that band as absent rather than small. `spin`
-ahead of `blocking` by more than the spread means the 0.31 core is the price of latency and the default
-stands; indistinguishable means the core is free to reclaim. Neither can be read off the decode rate.
+Per-token latency needed no work at all, which corrects an earlier draft of this section. Its mean *is*
+the decode rate's inverse, and a spin-wait shifts every round by the same constant -- which a
+throughput mean sees, and which the interleaved decode A/B above already bounded at 0.4%. The decode
+window `completed - first_output` in a TTFT record is that same quantity for one run, so with a fixed
+case it compares schedules directly without counting tokens.
+
+```
+spin      ttft 838.3, 840.7, 842.5 ms   spread 4.2   window 224.1, 222.0, 221.1 ms   cores 0.494
+blocking  ttft 842.6, 841.2, 856.8 ms   spread 15.5  window 221.8, 222.3, 222.4 ms   cores 0.335
+```
+
+TTFT differs by 1.9 ms against a spread of 15.5 ms, and the decode window by 0.3 ms against 2.9 ms:
+both inside the band, so on this configuration the schedule buys no measurable latency. The CPU price
+is reproducible in every pair, and on this profile it is 0.16 of a core rather than the 0.31 measured
+on the QUASAR DFlash2 lane -- a lane with speculative decoding does more host work per token.
+
+That is consistent with the vendor's own condition rather than in tension with it. NVIDIA describes
+spin as decreasing latency *when waiting*; the case where a spinning thread and a yielding one see the
+same latency is the one where the thread is still on a processor when the device finishes, and with 32
+logical processors to one CUDA context that is what happens here. The condition under which spin could
+still pay is the one NVIDIA names on the other side -- host threads doing work in parallel with the
+CUDA thread, which is this port at concurrency above one, with media preprocessing, or during a large
+template render. None of those was varied. The shipped lanes run at concurrency one, so this covers
+their configuration, and a loaded variant would be what covers the rest.
 
 ### The answer: a debug-heap configuration left on one executable
 
