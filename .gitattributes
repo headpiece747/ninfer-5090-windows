@@ -13,3 +13,11 @@ bench/fixtures/ttft/**/*.json text eol=lf
 bench/fixtures/ttft/**/*.txt text eol=lf
 bench/fixtures/ttft/**/*.md text eol=lf
 examples/cli/messages/**/*.json text eol=lf
+
+# The generated launchers are compared byte-for-byte against the table's own render, and
+# check_profile_consistency expects CRLF because the generator writes with newline="\r\n". Leaving the
+# checkout to decide meant a CRLF worktree on Windows and an LF one anywhere else, so the gate failed on
+# the first launcher on every CI run while passing on every local one. Pin them to CRLF so the shipped
+# bytes are the same bytes everywhere.
+start_*.bat text eol=crlf
+tools/scripts/*.cmd text eol=crlf
