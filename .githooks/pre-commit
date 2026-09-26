@@ -17,10 +17,18 @@ PY="${NINFER_PYTHON:-C:/vllm-env/Scripts/python.exe}"
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-if [ ! -x "$PY" ]; then
+# The interpreter may be a command on PATH or a path to a file, and the two need different tests:
+# `-x` asks whether a *file* is executable, so it rejects "python" and accepted only the local
+# path -- which is why every CI run failed on this line while every local commit passed.
+if command -v "$PY" >/dev/null 2>&1; then
+    :
+elif [ -x "$PY" ]; then
+    :
+else
     echo "pre-commit: python not found at $PY (set NINFER_PYTHON to override)" >&2
     exit 1
 fi
+echo "pre-commit: interpreter $PY"
 
 echo "pre-commit: documentation links"
 "$PY" tools/release/check_doc_links.py >/dev/null
