@@ -30,16 +30,19 @@ REM ============================================================================
 setlocal
 
 REM Resolve beside this launcher first, so the released archive is portable wherever it is
-REM extracted, then fall back to the source tree so the same file works while developing.
+REM extracted. The source-tree copy is the same shape one directory down: build/apps and
+REM tools/chat_templates both sit beside the launcher in the repository, so the fallback is relative
+REM too. An absolute path here bakes one machine's checkout into a file that ships, and it is what
+REM made the generated launchers unverifiable anywhere else.
 set "SERVE=%~dp0ninfer-serve.exe"
-if not exist "%SERVE%" set "SERVE=C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe"
+if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
 set "MODEL=%~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer"
 if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
 REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
 REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
 set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
-if not exist "%TEMPLATE%" set "TEMPLATE=C:\AI\ninfer-v3-windows\tools\chat_templates\qwen3_8.jinja"
+if not exist "%TEMPLATE%" set "TEMPLATE=%~dp0tools\chat_templates\qwen3_8.jinja"
 REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it
 REM this way too, or what it measures is not what ships.
 set "NINFER_CUDA_SYNC=blocking"
@@ -47,13 +50,13 @@ set "NINFER_CUDA_SYNC=blocking"
 if not exist "%SERVE%" (
     echo [ERROR] Engine not found.
     echo         Expected ninfer-serve.exe beside this launcher,
-    echo         or a source build at C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe
+    echo         or a source build at build\apps\ninfer-serve.exe in the repository
     pause
     exit /b 1
 )
 if not exist "%MODEL%" (
     echo [ERROR] Artifact not found.
-    echo         Expected %~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer
+    echo         Expected models\qwen3_8_27b_nvfp4full.v3.ninfer beside this launcher,
     echo         or C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer
     echo         Run download_model.bat to fetch it.
     pause

@@ -16,7 +16,6 @@ from profiles import PROFILES, launcher_env, ordered_flags  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 OUT = REPO
-V3 = str(REPO)
 MODELS = r"C:\AI\models"
 
 TEMPLATE = """@echo off
@@ -51,16 +50,19 @@ REM ============================================================================
 setlocal
 
 REM Resolve beside this launcher first, so the released archive is portable wherever it is
-REM extracted, then fall back to the source tree so the same file works while developing.
+REM extracted. The source-tree copy is the same shape one directory down: build/apps and
+REM tools/chat_templates both sit beside the launcher in the repository, so the fallback is relative
+REM too. An absolute path here bakes one machine's checkout into a file that ships, and it is what
+REM made the generated launchers unverifiable anywhere else.
 set "SERVE=%~dp0ninfer-serve.exe"
-if not exist "%SERVE%" set "SERVE={v3}\\build\\apps\\ninfer-serve.exe"
+if not exist "%SERVE%" set "SERVE=%~dp0build\\apps\\ninfer-serve.exe"
 set "MODEL=%~dp0models\\{art}"
 if not exist "%MODEL%" set "MODEL={models}\\{art}"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
 REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
 REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
 set "TEMPLATE=%~dp0chat_templates\\qwen3_8.jinja"
-if not exist "%TEMPLATE%" set "TEMPLATE={v3}\\tools\\chat_templates\\qwen3_8.jinja"
+if not exist "%TEMPLATE%" set "TEMPLATE=%~dp0tools\\chat_templates\\qwen3_8.jinja"
 REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it
 REM this way too, or what it measures is not what ships.
 {env}
@@ -68,13 +70,13 @@ REM this way too, or what it measures is not what ships.
 if not exist "%SERVE%" (
     echo [ERROR] Engine not found.
     echo         Expected ninfer-serve.exe beside this launcher,
-    echo         or a source build at {v3}\\build\\apps\\ninfer-serve.exe
+    echo         or a source build at build\\apps\\ninfer-serve.exe in the repository
     pause
     exit /b 1
 )
 if not exist "%MODEL%" (
     echo [ERROR] Artifact not found.
-    echo         Expected %~dp0models\\{art}
+    echo         Expected models\\{art} beside this launcher,
     echo         or {models}\\{art}
     echo         Run download_model.bat to fetch it.
     pause
@@ -181,7 +183,7 @@ def render(profile: dict) -> str:
     text = TEMPLATE.format(
         label=profile["label"], note=profile["note"], ctx=profile["ctx"],
         ctx_h=f"{profile['ctx']:,}", tok=profile["tok"], acc=profile["acc"],
-        runtime=profile["runtime"], free=profile["free"], v3=V3, models=MODELS,
+        runtime=profile["runtime"], free=profile["free"], models=MODELS,
         art=profile["art"], flags=flags, port=profile["port"], env=render_env(profile),
     )
     return text.replace("\n", "\r\n")
