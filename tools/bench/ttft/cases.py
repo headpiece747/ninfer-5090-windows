@@ -1313,6 +1313,53 @@ def _definition(
     )
 
 
+def _reporter_concurrency3(context: CaseContext, corpus: Corpus) -> None:
+    """Three concurrent conversations that grow, at the reporter's configuration from issue 5.
+
+    The reported failure is a resource underflow: state released that was not held. That needs state to
+    be published and dropped, which needs several lanes active at once and a cache serving a shared
+    prefix while the tail grows. Four earlier attempts at this reproduction were void for named reasons --
+    one lane where the reporter says the fault never appears, then unique prompts so nothing was cached,
+    then prompts that tripped an 8,192-token default ceiling before reaching any pressure. Each was
+    caught by a fidelity check rather than by the result, which is why this one is built from the
+    harness's own parts.
+
+    The opening of each lane differs so the lanes do not collapse into one shared prefix; the body is
+    stable so the cache serves it; the tail grows so the conversation keeps moving forward.
+    """
+    lanes: list[tuple[str, list[dict[str, Any]]]] = []
+    for label in "abc":
+        history = list(corpus.state_messages(label))
+        history[0] = dict(history[0])
+        history[0]["content"] = (
+            str(history[0]["content"]) + " Continue from this material for the rest of the session.")
+        lanes.append((label, history))
+
+    # Each round sends the lane's conversation twice: the first grows it, the second resends the
+    # identical history. A cache serves a repeated prefix, so a case that only ever extends its history
+    # never exercises reuse -- which is why an earlier version of this reported `cache 0.0%` through a
+    # complete, constructed run and meant nothing by it.
+    #
+    # 60 rounds at this corpus size takes each lane well past 8,000 tokens, the ceiling a default
+    # `--max-context` would impose, so growth is demonstrated rather than assumed.
+    for turn in range(60):
+        requests = []
+        for label, history in lanes:
+            if turn:
+                history.append({"role": "assistant",
+                                "content": f"Acknowledged turn {turn} for lane {label}."})
+            history.append({"role": "user",
+                            "content": f"Turn {turn}: add one short line of detail, no lists."})
+            # The same history twice, so the second request is served from what the first published.
+            requests.append((f"{label}-turn{turn}", chat_request(context.model, history, 32)))
+            requests.append((f"{label}-repeat{turn}", chat_request(context.model, list(history), 32)))
+        handles = context.barrier(requests)
+        context.wait_all(handles)
+        _require_successes(context, handles)
+        for index, (_label, history) in enumerate(lanes):
+            history.append(_assistant(handles[index * 2]))
+
+
 _DEFINITIONS = (
     _definition(
         "shared-state-working-set-shift", "openai_chat", "cache-state-working-set", "resource",
@@ -1343,6 +1390,18 @@ _DEFINITIONS = (
     _definition("session-alternating", "openai_responses", "cache-pressure-device", "session", ("long-8k-16",), "Alternating named sessions.", _session_alternating),
     _definition("session-alternating-64k-host-swap", "openai_responses", "cache-swap-64k-host", "resource", ("long-64k-32", "long-64k-independent-32"), "Two near-capacity sessions alternate through Host KV.", _session_alternating_64k_host_swap),
     _definition("session-rotation-55k-host", "openai_responses", "cache-rotation-55k-host", "resource", tuple(f"rotation-55k-{index}" for index in range(6)), "Six early-divergent 55K Responses roots, one warm branch, then three sequential round-robin branch rounds under Device/Host KV pressure.", _session_rotation_55k_host),
+    _definition(
+        "reporter-concurrency3-growth",
+        "openai_chat",
+        "cache-reporter-concurrency3-scaled",
+        "resource",
+        ("state-2k-a", "state-2k-b", "state-2k-c"),
+        "Three concurrent conversations that grow past 8K under the reporter's configuration from the "
+        "port's issue 5: three lanes, host state and KV enabled, at the pending settings their client "
+        "uses. The reported resource underflow releases state that was not held, which needs state to be "
+        "published and dropped while several lanes are active.",
+        _reporter_concurrency3,
+    ),
     _definition(
         "session-rotation-55k-two-cohort-stream",
         "openai_responses",

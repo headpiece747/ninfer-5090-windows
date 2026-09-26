@@ -159,6 +159,75 @@ PROFILE_ARGS: dict[str, tuple[str, ...]] = {
         "--max-shared-prefixes", 0,
         "--max-long-anchors-per-continuation", 0,
     ),
+    # The reporter's production configuration from the port's issue 5, kept verbatim because that is the
+    # only configuration in which the reported failure has been seen: three lanes, host state and KV
+    # enabled, and the pending settings their client uses. `--max-context` and `--kv-capacity` are set
+    # explicitly here because their command line omits them and the engine then defaults to 8,192 -- a
+    # reproduction that takes that default rejects prompts at 8k and never reaches the pressure state,
+    # which is how one attempt was voided.
+    #
+    # Their literals do not fit this machine: the engine refused startup with
+    # "requires 20316679168 bytes, but only 15289286656 bytes are available", because host KV alone is
+    # 24 GiB beside 16 GiB of weights on a 48 GB box. Every quantity is therefore scaled by the same
+    # ratio rather than tuned one at a time, so what the case exercises -- three concurrent lanes,
+    # state parked to host and restored, sessions far longer than any default ceiling -- is unchanged.
+    # 40% of their values: kv-capacity 294912 -> 117964, host KV 24576 MiB -> 9830 MiB,
+    # max-context 262144 -> 104857, which still leaves every session room to grow past 8,000 tokens.
+    "cache-reporter-concurrency3-scaled": _args(
+        "--max-context", 104857,
+        "--kv-capacity", 117964,
+        "--prefill-chunk", 1024,
+        "--max-concurrency", 3,
+        "--max-pending-requests", 32,
+        "--pending-timeout-ms", 3600000,
+        "--device-state-slots", 2,
+        "--host-state-slots", 16,
+        "--host-kv-mib", 9830,
+        "--max-private-continuations", 8,
+        "--max-shared-prefixes", 7,
+        "--max-long-anchors-per-continuation", 2,
+        "--preserve-thinking",
+    ),
+    "cache-reporter-concurrency3": _args(
+        "--max-context", 262144,
+        "--kv-capacity", 294912,
+        "--prefill-chunk", 1024,
+        "--max-concurrency", 3,
+        "--max-pending-requests", 32,
+        "--pending-timeout-ms", 3600000,
+        "--device-state-slots", 2,
+        "--host-state-slots", 16,
+        "--host-kv-mib", 24576,
+        "--max-private-continuations", 8,
+        "--max-shared-prefixes", 7,
+        "--max-long-anchors-per-continuation", 4,
+        "--preserve-thinking",
+    ),
+    # The reporter's line exactly, minus host/port/api-key and the paths that differ per machine. Two
+    # earlier attempts missed flags rather than values: `--spec dflash2`, `--vision`, `--lm-head-draft`,
+    # `--chat-template` and `--max-long-anchors-per-continuation 4` were all absent, and their own table
+    # shows `--spec mtp --draft-tokens 5` failing differently from dflash2, so the speculative backend is
+    # not incidental. Everything here is their verbatim ordering and value except the uniform scaling at
+    # the end, which exists only because their literals need 20.3 GB of runtime against the 15.3 GB this
+    # 48 GB machine provides.
+    "cache-reporter-concurrency3-verbatim": _args(
+        "--chat-template", "chat_templates/qwen3_8.jinja",
+        "--vision", "--spec", "dflash2", "--draft-tokens", 7, "--lm-head-draft",
+        "--max-context", 262144,
+        "--kv-capacity", 294912,
+        "--kv-dtype", "fp8",
+        "--prefill-chunk", 1024,
+        "--host-state-slots", 16,
+        "--host-kv-mib", 24576,
+        "--max-shared-prefixes", 7,
+        "--max-private-continuations", 8,
+        "--max-long-anchors-per-continuation", 4,
+        "--preserve-thinking",
+        "--max-concurrency", 3,
+        "--max-pending-requests", 32,
+        "--pending-timeout-ms", 3600000,
+        "--model-id", "qwen3.8-27b",
+    ),
     "cache-pressure-catalog": _args(
         "--max-context", 8192,
         "--kv-capacity", 16384,

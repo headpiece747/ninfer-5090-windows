@@ -47,6 +47,17 @@ set_tests_properties(
   ninfer_qwen3_5_prefix_real_test
   PROPERTIES SKIP_RETURN_CODE 77)
 
+# A reproduction attempt for the port's issue 5, in its own binary so the case above is untouched. It
+# builds the race the reporter's incident analysis names -- a cache-hitting continuation submitted
+# while another lane is still generating -- rather than cache pressure, which their own data rules out.
+ninfer_add_test(ninfer_qwen3_5_issue5_race_test
+  SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_engine_issue5_race.cpp"
+  LIBRARIES ninfer_engine)
+
+set_tests_properties(
+  ninfer_qwen3_5_issue5_race_test
+  PROPERTIES SKIP_RETURN_CODE 77)
+
 ninfer_add_test(ninfer_qwen3_5_score_real_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_engine_score_real.cpp"
   LIBRARIES ninfer_engine)

@@ -9,6 +9,12 @@ incidents in 24 h, against the v1.1.0 release, with the two `cometkim` v3 artifa
 This note records what the port did about it and what it measured, so the answer does not have to be
 re-derived.
 
+> **Superseded in part.** This note's soak results are a null experiment, not evidence: they were taken
+> at `--max-concurrency 1`, a configuration the reporter states the fault never appears in. See
+> [issue5-deferred-findings.md](issue5-deferred-findings.md) for the corrected position, the ten
+> conditions since falsified, and what is deferred. What remains valid here is the guard's description
+> and the timeline.
+
 ## What the guard is
 
 `src/models/qwen3_5/program/context_work.cpp:222` throws when a resource release exceeds what is held,
