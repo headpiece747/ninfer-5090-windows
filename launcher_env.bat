@@ -9,7 +9,16 @@ set "MODEL=%~dp0models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 if exist "%MODEL%" goto :model_resolved
 set "MODEL=C:\ai\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 :model_resolved
-set "QUASAR_ARGS=--chat-template C:\AI\ninfer-v3-windows\tools\chat_templates\qwen3_8.jinja --vision --spec mtp --draft-tokens 4 --lm-head-draft --max-context 262144 --kv-capacity auto --kv-dtype fp8 --prefill-chunk 8192"
+REM The lane's template, resolved the same way and for the same reason. It has to be a variable rather
+REM than a literal path because QUASAR_ARGS is compared byte-for-byte between machines, and an absolute
+REM path here would bake one checkout into a file that ships. The launchers resolve the identical
+REM variable beside themselves, so the CLI harness and the server read the same template.
+if defined TEMPLATE goto :template_resolved
+set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
+if exist "%TEMPLATE%" goto :template_resolved
+set "TEMPLATE=%~dp0tools\chat_templates\qwen3_8.jinja"
+:template_resolved
+set "QUASAR_ARGS=--chat-template %TEMPLATE% --vision --spec mtp --draft-tokens 4 --lm-head-draft --max-context 262144 --kv-capacity auto --kv-dtype fp8 --prefill-chunk 8192"
 
 :: Select Python 3.11 explicitly per AGENTS.md. Each candidate is checked in its own labelled
 :: branch: a one-line `if <cond> for /f ...` corrupts cmd's label scan ("cannot find the batch

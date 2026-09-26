@@ -375,11 +375,17 @@ def cli_args(profile: dict[str, Any]) -> list[str]:
 
     The flags kept here are the ones both interfaces share, plus the proposal head, which the
     CLI does accept and the earlier hand-written value omitted.
+
+    The template is written as a cmd variable rather than an absolute path, unlike every other
+    consumer of `template_path()`. The difference is the consumer: this list is rendered into
+    `launcher_env.bat`, a file that ships and is compared as text, so an absolute path would bake one
+    machine's checkout into it and make the comparison fail on any other. The launchers resolve the
+    same variable beside themselves, which is the shipped convention.
     """
     out: list[str] = []
-    # The lane's template, resolved the way launcher_args resolves it, so a CLI harness renders with
-    # the same file the launcher ships rather than whichever template its artifact embeds.
-    out.extend(["--chat-template", template_path()])
+    # The lane's template, resolved beside the launcher so the CLI harness renders with the same file
+    # the launcher ships, wherever the archive was extracted or the repository lives.
+    out.extend(["--chat-template", "%TEMPLATE%"])
     if profile["vision"]:
         out.append("--vision")
     if profile["spec"] != "none":

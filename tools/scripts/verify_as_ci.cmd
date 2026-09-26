@@ -1,40 +1,27 @@
 @echo off
-REM Run the commit hook under the conditions CI uses, so "will this pass on the runner?" is one command
-REM instead of a push and a wait.
+REM Run the gate from a checkout at a DIFFERENT path, which is the one condition CI has that this
+REM machine never reproduces.
 REM
-REM Why this exists. The launcher comparison failed in CI for six consecutive pushes while passing here,
-REM and every diagnosis was formed from the local machine rather than the runner's conditions. The
-REM difference was never read; it was guessed. This script reproduces the conditions instead:
+REM Why: paths derived from the module's own location -- `str(REPO)`, `template_path()` -- produce this
+REM repository's directory when the gate runs here and the runner's directory when it runs there. A
+REM reproduction that runs in the same checkout cannot see that difference, which is why the first
+REM version of this script passed while CI kept failing.
 REM
-REM   * Python 3.11, the version ci.yml pins -- not whatever is first on PATH;
-REM   * the exact package set ci.yml installs, and nothing else;
-REM   * NINFER_PYTHON as a bare command name, which is how the runner invokes the hook and what broke
-REM     the first five runs;
-REM   * a scratch virtual environment, so none of this touches the machine's tooling environment.
+REM So the tree is copied to a scratch directory whose name shares no prefix with this one, and the
+REM failing gate runs there. A gate that depends on where the repository lives fails here too.
 REM
-REM It is slower than a local commit -- one environment build, about a minute -- which is the point:
-REM the value is that it fails for the runner's reasons rather than this machine's.
-REM
-REM Usage:  tools\scripts\verify_as_ci.cmd
-setlocal
+REM Usage:  tools\scripts\verify_as_ci.cmd [--remote-root]
+setlocal enabledelayedexpansion
 
 set "REPO=%~dp0..\.."
-cd /d "%REPO%" 2>nul
-if errorlevel 1 (
-    REM A relative fallback: an absolute workspace path does not resolve in every environment here.
-    for %%I in ("%~dp0..\..") do set "REPO=%%~fI"
-    cd /d "%REPO%"
-)
+for %%I in ("%REPO%") do set "REPO=%%~fI"
+cd /d "%REPO%" || exit /b 1
 
-REM The interpreter ci.yml pins. uv is what this machine already uses to hold several versions; if it is
-REM absent the script says so rather than silently testing a different Python.
 set "PY311=%USERPROFILE%\AppData\Roaming\uv\python\cpython-3.11-windows-x86_64-none\python.exe"
 if not exist "%PY311%" (
     echo [ERROR] Python 3.11 not found at %PY311%
-    echo         ci.yml pins 3.11; testing another version would answer a different question.
     exit /b 1
 )
-
 set "VENV=%TEMP%\ninfer-ci-verify"
 if not exist "%VENV%\Scripts\python.exe" (
     echo === building a scratch environment (once; reused after) ===
@@ -44,26 +31,44 @@ if not exist "%VENV%\Scripts\python.exe" (
     "%VENV%\Scripts\python.exe" -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu || exit /b 1
 )
 
-echo === the hook, as the runner runs it ===
-echo     interpreter: "%VENV%\Scripts\python.exe"
-"%VENV%\Scripts\python.exe" -V
-REM NINFER_PYTHON is the venv's interpreter, because the runner's hook sees a command name rather than a
-REM path and the check on that name is one of the things this script exists to exercise.
-set "NINFER_PYTHON=%VENV%\Scripts\python.exe"
-REM Git ships bash and is how the runner has it on PATH. This machine does not put it there, so it is
-REM located explicitly rather than assumed -- the hook is a POSIX script and needs a real bash.
 set "BASH=bash"
 where bash >nul 2>&1 || set "BASH=%ProgramFiles%\Git\usr\bin\sh.exe"
-if not exist "%BASH%" if "%BASH%"=="bash" (
-    echo [ERROR] no bash found; the hook is a POSIX script and cannot run without one
+
+echo === 1. the hook in this checkout ===
+set "NINFER_PYTHON=%VENV%\Scripts\python.exe"
+"%BASH%" .githooks/pre-commit
+set "LOCAL_STATUS=%ERRORLEVEL%"
+echo     local hook exit: %LOCAL_STATUS%
+echo.
+
+REM The remote-path run. Only the files the gate reads are copied: the repository carries multi-gigabyte
+REM build trees and artifacts, and copying all of it exhausts memory long before it tests anything.
+set "REMOTE=%TEMP%\runner-path-check\ninfer-5090-windows"
+if exist "%TEMP%\runner-path-check" rmdir /s /q "%TEMP%\runner-path-check"
+mkdir "%REMOTE%\tools\release" || exit /b 1
+mkdir "%REMOTE%\tools\chat_templates" || exit /b 1
+mkdir "%REMOTE%\tools\scripts" || exit /b 1
+copy /y "tools\release\*.py" "%REMOTE%\tools\release\" >nul || exit /b 1
+copy /y "tools\chat_templates\*" "%REMOTE%\tools\chat_templates\" >nul || exit /b 1
+copy /y "tests\convert\*.py" "%REMOTE%\" >nul 2>&1
+copy /y "launcher_env.bat" "%REMOTE%\" >nul || exit /b 1
+copy /y "*.bat" "%REMOTE%\" >nul || exit /b 1
+echo === 2. the same gate from a checkout at a different path ===
+echo     %REMOTE%
+pushd "%REMOTE%"
+"%VENV%\Scripts\python.exe" tools\release\check_profile_consistency.py
+set "REMOTE_STATUS=%ERRORLEVEL%"
+popd
+echo     remote-path gate exit: %REMOTE_STATUS%
+echo.
+
+if not "%LOCAL_STATUS%"=="0" (
+    echo [FAIL] the hook fails in this checkout
     exit /b 1
 )
-"%BASH%" .githooks/pre-commit
-set "STATUS=%ERRORLEVEL%"
-echo.
-if "%STATUS%"=="0" (
-    echo [PASS] the hook passes under CI's conditions
-) else (
-    echo [FAIL] the hook fails under CI's conditions -- this is what the runner will report
+if not "%REMOTE_STATUS%"=="0" (
+    echo [FAIL] the gate depends on where the repository lives -- this is what CI reports
+    exit /b 1
 )
-exit /b %STATUS%
+echo [PASS] the hook passes here and from a different path
+exit /b 0
