@@ -44,7 +44,7 @@ jobs:
         run: |
           git ls-files --eol start_quasar_v3_dflash2_vision.bat
           git config --get core.autocrlf
-          python -c "import sys,pathlib; sys.path.insert(0,'tools/release'); import make_launchers_v3 as m, profiles; t=m.render(profiles.PROFILES[0]); b=t.encode(); d=pathlib.Path(profiles.PROFILES[0]['file']).read_bytes(); print('render', len(b), 'crlf', t.count(chr(13)+chr(10)), 'disk', len(d), 'crlf', d.count(b'\r\n')); print('equal', d == b)"
+          python -c "import sys,pathlib,difflib; sys.path.insert(0,'tools/release'); import make_launchers_v3 as m, profiles; p=profiles.PROFILES[0]; t=m.render(p).replace(chr(13)+chr(10),chr(10)); d=pathlib.Path(p['file']).read_bytes().decode('utf-8').replace(chr(13)+chr(10),chr(10)); print('render', len(t), 'disk', len(d)); [print('DIFF |'+l[:150]) for l in list(difflib.unified_diff(d.splitlines(), t.splitlines(), 'disk','render', lineterm=''))[:30]]"
 
       - uses: actions/setup-python@v5
         with:
