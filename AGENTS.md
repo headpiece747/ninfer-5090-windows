@@ -365,6 +365,22 @@ Thirty-five rules, each earned by a failure rather than chosen:
   seen from the other side. Keep one *checkout* as well: three clones of this same origin and a
   redundant upstream clone had accumulated under `C:\AI`, each holding refs the working checkout
   already had. The remote is already configured, so a second clone buys nothing.
+- **Three remotes exist, and only one is upstream.** `upstream` is `Neroued/ninfer`, the project this
+  port follows: it is what AGENTS means by upstream, and what `gh issue list --repo Neroued/ninfer`
+  queries. `origin` is `headpiece747/ninfer-5090-windows`, this port's own published repository, which is
+  where `dev` goes. `cometkim/ninfer` is a third-party fork that supplied the NVFP4 artifacts; it is not
+  upstream, and fetching it answers no question about being current. On 2026-09-25 a "current with
+  upstream" claim was checked against `cometkim` and reported as if it were the real thing.
+
+  Ask the question of the right remote, and ask it of each branch by name, because "nothing returned" is
+  how both mistakes happened: a local ref that is not fetched, or a branch name that does not exist on
+  that remote, produces an empty answer that reads exactly like "we are current".
+
+  ```bash
+  git fetch upstream --quiet
+  git log --oneline HEAD..upstream/dev | wc -l     # behind, both branches, on the real upstream
+  git log --oneline HEAD..upstream/master | wc -l
+  ```
 - **Integrate upstream by merging into `dev`.** Never park local commits on a tracking branch: that
   is how `cometkim-qat` became 25 commits ahead and 41 behind, living in another worktree.
 - **Publish every version you build, in order, or do not build it.** A gap in the release list reads
