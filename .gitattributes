@@ -14,10 +14,14 @@ bench/fixtures/ttft/**/*.txt text eol=lf
 bench/fixtures/ttft/**/*.md text eol=lf
 examples/cli/messages/**/*.json text eol=lf
 
-# The generated launchers are compared byte-for-byte against the table's own render, and
-# check_profile_consistency expects CRLF because the generator writes with newline="\r\n". Leaving the
-# checkout to decide meant a CRLF worktree on Windows and an LF one anywhere else, so the gate failed on
-# the first launcher on every CI run while passing on every local one. Pin them to CRLF so the shipped
-# bytes are the same bytes everywhere.
-start_*.bat text eol=crlf
-tools/scripts/*.cmd text eol=crlf
+# Windows batch and cmd files are CRLF by definition, and two separate gates depend on their exact
+# bytes: check_profile_consistency compares each generated launcher against the table's render, and it
+# parses the QUASAR_ARGS line out of the hand-written launcher_env.bat. Both passed on a Windows
+# worktree and failed on CI, because nothing pinned the checkout: every one of these files was `i/lf`
+# in the index and `w/crlf` here, so the bytes the gates read differed by line ending and nothing else.
+#
+# Pinning all of them, not just the two patterns that happened to fail first. The lesson from three
+# separate line-ending faults today is that a byte-level comparison must not leave the checkout to
+# decide, and naming files one at a time is how one gets missed.
+*.bat text eol=crlf
+*.cmd text eol=crlf
