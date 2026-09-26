@@ -20,7 +20,19 @@ jobs:
   fast-gates:
     runs-on: windows-latest
     steps:
+      # core.autocrlf is true on these runners, and it wins over .gitattributes for the *commit* path:
+      # git normalizes to LF and re-expands on checkout, so the checked-out launcher differs from the
+      # bytes the table renders in-process -- 157 lines both sides, 63 bytes apart. The gates compare
+      # generated files byte-for-byte, so the checkout is asked to reproduce the repository's own bytes
+      # rather than this runner's convention. This is the fix actions/checkout#135 points at.
       - uses: actions/checkout@v4
+        with:
+          # No conversion on this checkout: the repository's stored bytes are what the gates compare.
+          # `git config` rather than the action, because core.autocrlf also governs the merge and
+          # status paths the diagnostic step reports on.
+          config: |
+            core.autocrlf=false
+            core.eol=lf
 
       # The launcher comparison failed here by 63 bytes on all eight files while passing locally, and
       # three diagnoses on this side were wrong: the render is byte-identical to the checkout under both
