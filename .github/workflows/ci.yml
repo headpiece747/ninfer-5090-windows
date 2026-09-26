@@ -22,6 +22,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The launcher comparison failed here by 63 bytes on all eight files while passing locally, and
+      # three diagnoses on this side were wrong: the render is byte-identical to the checkout under both
+      # 3.12 and 3.11 with this worktree's bytes. So the remaining variable is what this runner checks
+      # out and what its git does with line endings. These lines print the runner's own view -- attribute,
+      # config, checked-out size and the render's size and CRLF count -- so the next failure identifies
+      # itself instead of being guessed at. Remove once the comparison is understood.
+      - name: diagnostics (temporary)
+        run: |
+          git ls-files --eol start_quasar_v3_dflash2_vision.bat
+          git config --get core.autocrlf
+          python -c "import sys,pathlib; sys.path.insert(0,'tools/release'); import make_launchers_v3 as m, profiles; t=m.render(profiles.PROFILES[0]); b=t.encode(); d=pathlib.Path(profiles.PROFILES[0]['file']).read_bytes(); print('render', len(b), 'crlf', t.count(chr(13)+chr(10)), 'disk', len(d), 'crlf', d.count(b'\r\n')); print('equal', d == b)"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
