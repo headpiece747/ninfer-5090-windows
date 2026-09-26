@@ -170,19 +170,28 @@ def render_env(profile: dict) -> str:
 
 
 def render(profile: dict) -> str:
+    """The launcher's exact text, CRLF included.
+
+    A .bat is a CRLF file, and the shipped bytes are compared byte-for-byte against this function's
+    output by check_profile_consistency. Converting at write time instead of here made the comparison
+    depend on the platform: the render carried LF and each side converted differently, so the gate
+    passed on this machine and failed on the runner by one byte per line.
+    """
     flags = render_flags(profile)
-    return TEMPLATE.format(
+    text = TEMPLATE.format(
         label=profile["label"], note=profile["note"], ctx=profile["ctx"],
         ctx_h=f"{profile['ctx']:,}", tok=profile["tok"], acc=profile["acc"],
         runtime=profile["runtime"], free=profile["free"], v3=V3, models=MODELS,
         art=profile["art"], flags=flags, port=profile["port"], env=render_env(profile),
     )
+    return text.replace("\n", "\r\n")
 
 
 def main() -> int:
     for profile in PROFILES:
         path = OUT / profile["file"]
-        path.write_text(render(profile), encoding="utf-8", newline="\r\n")
+        # newline="" so the text is written exactly as rendered, CRLF and all.
+        path.write_text(render(profile), encoding="utf-8", newline="")
         print(f"  wrote {profile['file']}")
     return 0
 

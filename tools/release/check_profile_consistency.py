@@ -55,11 +55,13 @@ def main() -> int:
         # One comparison replaces the per-fact substring checks. The launcher is a generated
         # file, so byte-identity against the table's own render is strictly stronger than
         # looking for each fact in its text, and it is the only check that fails when the
-        # template or the flag order changes rather than a value. The generator writes with
-        # newline="\r\n" (make_launchers_v3.py:132), so a rendered \n is \r\n on disk;
-        # comparing through read_text() would translate that away and report a correct file
-        # as drifted.
-        expected = render(profile).replace("\n", "\r\n").encode("utf-8")
+        # template or the flag order changes rather than a value.
+        #
+        # render() now emits CRLF itself and the generator writes it unchanged, so this is a straight
+        # byte comparison. Converting here instead made the verdict depend on the platform -- the two
+        # sides converted LF differently and the gate passed on one machine and failed on the other by
+        # one byte per line.
+        expected = render(profile).encode("utf-8")
         shipped = path.read_bytes()
         check(f"{profile['file']} is byte-identical to the table's render",
               shipped == expected,
