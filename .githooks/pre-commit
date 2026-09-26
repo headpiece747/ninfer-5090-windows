@@ -30,10 +30,24 @@ else
 fi
 echo "pre-commit: interpreter $PY"
 
-echo "pre-commit: documentation links"
-"$PY" tools/release/check_doc_links.py >/dev/null
-echo "pre-commit: profile consistency"
-"$PY" tools/release/check_profile_consistency.py >/dev/null
+# A gate is run through this so a failure shows its reason. The two gates that print a report are
+# quiet when they agree, which is what keeps a commit clean, but their output used to be discarded
+# outright -- so a gate that *crashed* rather than disagreed produced one silent line and no
+# explanation, and five CI runs failed that way with nothing to read.
+gate() {
+    label="$1"
+    shift
+    echo "pre-commit: $label"
+    output="$("$@" 2>&1)" || {
+        status=$?
+        echo "pre-commit: $label failed" >&2
+        printf '%s\n' "$output" | tail -40 >&2
+        exit "$status"
+    }
+}
+
+gate "documentation links" "$PY" tools/release/check_doc_links.py
+gate "profile consistency" "$PY" tools/release/check_profile_consistency.py
 echo "pre-commit: converter tests"
 "$PY" -m pytest tests/convert -q
 echo "pre-commit: ruff"
