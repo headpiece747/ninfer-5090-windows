@@ -4,6 +4,10 @@
 #include "core/arena.h"
 #include "core/gdn_replay_records.h"
 #include "core/host_kv_arena.h"
+// For CausalTopk, the scoring reduction's result type. It lives in the public header because
+// Engine::score_topk returns it, and is included here explicitly rather than relied on
+// transitively: this header names the type in a return position, so it needs the definition.
+#include "ninfer/types.h"
 #include "ninfer/ops/gdn_replay.h"
 #include "ninfer/ops/sampling.h"
 #include "core/decode_graph.h"
@@ -470,6 +474,8 @@ public:
                                                const runtime::ResolvedExecutionOptions& options);
     [[nodiscard]] std::vector<float> causal_score(PreparedPromptData&& prompt,
                                                   std::uint32_t first_target);
+    [[nodiscard]] CausalTopk causal_score_topk(PreparedPromptData&& prompt,
+                                               std::uint32_t first_target, std::int32_t k);
     [[nodiscard]] std::optional<AdmissionCandidate> inspect_admission(
         const PreparedPromptData& prompt, const RequestBasePlan& base, runtime::LaneId destination,
         const ContinuationHandle* source, const SharedPrefixHandle* shared_source,
@@ -627,6 +633,13 @@ public:
 
     std::optional<PinnedHostBuffer> round_host;
     std::optional<PinnedHostBuffer> score_logprobs_host;
+    // Landing buffer for the top-k reduction, sized for a full tile at the Op's documented maximum
+    // K: kCausalScoreTile * kTopkLogprobsMaxK * (sizeof(TokenId) + sizeof(float)) = 2 MiB. Planned
+    // for the maximum rather than for the k a caller happens to ask for, because k is a runtime
+    // choice here and threading it through sequence planning would add a parameter to every
+    // scoring entry point to save 2 MiB on an offline evaluator. The public contract still
+    // validates k against the same maximum the Op does.
+    std::optional<PinnedHostBuffer> score_topk_host;
     TokenId* host_tokens = nullptr;
     std::optional<PinnedHostBuffer> ordinary_host;
     qwen3_5::OrdinaryDecodeIngress* ordinary_host_ingress = nullptr;

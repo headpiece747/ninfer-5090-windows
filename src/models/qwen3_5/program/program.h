@@ -850,6 +850,14 @@ public:
                                                const runtime::ResolvedExecutionOptions& options);
     [[nodiscard]] std::vector<float> causal_score(PreparedPrompt&& prompt,
                                                   std::uint32_t first_target);
+    // The same scoring windows reduced to the k largest entries per position instead of the target
+    // token's single log-probability. This is the substrate for the per-domain KL instrument
+    // (tools/release/per_domain_kl.py): perplexity reduces a [vocab, columns] tile to one number
+    // and so cannot see a distribution that moved, which is the failure mode a GDN forget-gate
+    // defect produces -- it makes long-context perplexity better than BF16 while the model is
+    // quietly broken. k must be in [1, ops::kTopkLogprobsMaxK].
+    [[nodiscard]] CausalTopk causal_score_topk(PreparedPrompt&& prompt, std::uint32_t first_target,
+                                               std::int32_t k);
     [[nodiscard]] std::optional<AdmissionCandidate> inspect_admission(
         const PreparedPrompt& prompt, const RequestBasePlan& base, runtime::LaneId destination,
         const ContinuationHandle* source, const SharedPrefixHandle* shared_source,

@@ -255,6 +255,11 @@ std::vector<float> Program::causal_score(PreparedPrompt&& prompt, std::uint32_t 
     return impl_->causal_score(PreparedPromptAccess::take(std::move(prompt)), first_target);
 }
 
+CausalTopk Program::causal_score_topk(PreparedPrompt&& prompt, std::uint32_t first_target,
+                                       std::int32_t k) {
+    return impl_->causal_score_topk(PreparedPromptAccess::take(std::move(prompt)), first_target, k);
+}
+
 std::optional<AdmissionCandidate> Program::inspect_admission(
     const PreparedPrompt& prompt, const RequestBasePlan& base, runtime::LaneId destination,
     const ContinuationHandle* source, const SharedPrefixHandle* shared_source,

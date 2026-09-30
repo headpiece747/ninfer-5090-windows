@@ -81,6 +81,15 @@ public:
     [[nodiscard]] std::vector<float> score_tokens(std::vector<TokenId> tokens,
                                                   std::uint32_t first_target);
 
+    // The same scoring windows reduced to the k largest entries per position instead of the target
+    // token's single log-probability: `indices` and `logprobs` are each positions*k, position-major,
+    // each position's k in descending log-probability. This is the substrate for the per-domain KL
+    // instrument in tools/release/per_domain_kl.py -- perplexity reduces a [vocab, columns] tile to
+    // one number per position and so cannot see a distribution that moved. k must be in
+    // [1, ops::kTopkLogprobsMaxK].
+    [[nodiscard]] CausalTopk score_topk(std::vector<TokenId> tokens, std::uint32_t first_target,
+                                        std::int32_t k);
+
     [[nodiscard]] std::uint32_t count_tokens(PromptInput input,
                                              const PreparationControl& control = {}) const;
     [[nodiscard]] ModelSamplingDefaults sampling_defaults() const;

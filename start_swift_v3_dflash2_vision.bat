@@ -1,12 +1,12 @@
 @echo off
 REM ============================================================================
-REM  Swift + DFlash2 + Vision
+REM  Swift 1.5 + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 370.9 tok/s   draft acceptance 67.3%
-REM      runtime 10.3 GiB   free VRAM 2.09 GiB
+REM      context 262,144   decode 349.4 tok/s   draft acceptance 63.0%
+REM      runtime 11.6 GiB   free VRAM 1.51 GiB
 REM
-REM  Swift's fastest lane, and the one re-encoding helped most: acceptance is 60.9% against 45.5% while the FP8 attention was imported, because the z-lab draft was trained on the stock model's hidden states. Encoding that draft NVFP4 as the other lines do measured worse here (57.7%), so it stays Q8. Re-measured 2026-09-24, reproducing the 60.9% exactly.
+REM  Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured 2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured against every window 1-15 on the code domain and re-measured on four others: 13 is 33% faster on code and slower on chinese, prose and dialogue, so the width that maximises the worst domain is the one already shipped. This image encodes the DFlash2 draft to NVFP4 where Swift 1.0's left it at Q8, which is 0.77 GiB smaller and is exactly the margin that puts the native 262,144 back in reach -- the Q8 build of this same checkpoint is REFUSED at 262,144 with Vision. The encoding is measured per target and it reverses here: on Swift 1.0 the same change lost 3.2 acceptance points, so it was measured rather than assumed.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -44,8 +44,8 @@ REM too. An absolute path here bakes one machine's checkout into a file that shi
 REM made the generated launchers unverifiable anywhere else.
 set "SERVE=%~dp0ninfer-serve.exe"
 if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
-set "MODEL=%~dp0models\qwen3_8_27b_nvfp4swift.v3.ninfer"
-if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4swift.v3.ninfer"
+set "MODEL=%~dp0models\qwen3_8_27b_nvfp4swift15.v3.ninfer"
+if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4swift15.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
 REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
 REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
@@ -64,8 +64,8 @@ if not exist "%SERVE%" (
 )
 if not exist "%MODEL%" (
     echo [ERROR] Artifact not found.
-    echo         Expected models\qwen3_8_27b_nvfp4swift.v3.ninfer beside this launcher,
-    echo         or C:\AI\models\qwen3_8_27b_nvfp4swift.v3.ninfer
+    echo         Expected models\qwen3_8_27b_nvfp4swift15.v3.ninfer beside this launcher,
+    echo         or C:\AI\models\qwen3_8_27b_nvfp4swift15.v3.ninfer
     echo         Run download_model.bat to fetch it.
     pause
     exit /b 1
@@ -147,7 +147,7 @@ if not errorlevel 1 (
   --lm-head-draft ^
   --host 127.0.0.1 ^
   --port 8090 ^
-  --model-id qwen3.8-27b-swift-v3-dflash2-vision ^
+  --model-id qwen3.8-27b-swift15-v3-dflash2-vision ^
   --max-context 262144 ^
   --device-state-slots 1 ^
   --kv-capacity auto ^

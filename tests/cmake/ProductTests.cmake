@@ -19,6 +19,19 @@ ninfer_add_test(ninfer_perplexity_evaluation_test
           ${PROJECT_SOURCE_DIR}/apps/perplexity/evaluation.cpp
   LIBRARIES ninfer_core)
 
+# The top-k scoring record the per-domain KL instrument reads. Its own test rather than the
+# evaluator's, because what it has to agree with is tools/release/per_domain_kl.py: the token digest
+# has to equal hashlib's, and the byte layout has to be the reader's. A mismatch there is not a wrong
+# number, it is a refusal -- the reader rejects the two records as incomparable -- so the instrument
+# fails closed and this is the only place that failure would be caught.
+ninfer_add_test(ninfer_topk_record_test
+  SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_topk_record.cpp"
+          ${PROJECT_SOURCE_DIR}/apps/perplexity/topk_record.cpp
+  LIBRARIES ninfer_core)
+
+target_include_directories(ninfer_topk_record_test PRIVATE
+  ${PROJECT_SOURCE_DIR}/apps/perplexity)
+
 target_include_directories(ninfer_perplexity_evaluation_test PRIVATE
   ${PROJECT_SOURCE_DIR}/apps/perplexity)
 

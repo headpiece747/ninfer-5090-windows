@@ -3,10 +3,10 @@ REM ============================================================================
 REM  NVFP4-full + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 304.6 tok/s   draft acceptance 53.8%
-REM      runtime 10.3 GiB   free VRAM 2.16 GiB
+REM      context 240,000   decode 230.3 tok/s   draft acceptance 37.1%
+REM      runtime 10.9 GiB   free VRAM 1.47 GiB
 REM
-REM  Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot. Re-measured 2026-09-24 on this port's own build of the line; the recorded 344.6/63.7% was taken 2026-09-17 on the published file, which measures 49.4% on that lane.
+REM  Context lowered from 262,144 on 2026-09-30, and this is a fix rather than a demotion: the lane was REFUSED at startup and could not start at all. It served 262,144 on 2026-09-28 at 10.3 GiB runtime; runtime is now 10.9 GiB at 240,000 and 11.5 GiB at 262,144, which is the same growth that cost the two Swift lanes their native context. QUASAR and NVIDIA still serve 262,144 on this build, on 1.51 and 1.37 GiB free, so the margin between serving and being refused is under a gigabyte. Three interleaved rounds, 1.3% spread. The 262,144 figure of 304.6 tok/s / 53.8% was recorded 2026-09-28 and does not reproduce; the ceiling probe is the authority for what serves.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -148,7 +148,7 @@ if not errorlevel 1 (
   --host 127.0.0.1 ^
   --port 8088 ^
   --model-id qwen3.8-27b-nvfp4-v3-dflash2-vision ^
-  --max-context 262144 ^
+  --max-context 240000 ^
   --device-state-slots 1 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^

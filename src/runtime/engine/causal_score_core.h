@@ -78,6 +78,28 @@ public:
         return result.get();
     }
 
+    [[nodiscard]] CausalTopk score_topk(PreparedPrompt prompt, std::uint32_t first_target,
+                                        std::int32_t k) {
+        // The same single-slot discipline as score(): one synchronous public call owns the job
+        // until its result is delivered, because this core has no queue to absorb a second caller.
+        std::scoped_lock call_lock(call_mutex_);
+        auto job          = std::make_unique<Job>();
+        job->prompt       = std::move(prompt);
+        job->first_target = first_target;
+        job->topk         = k;
+        std::future<CausalTopk> result = job->topk_promise.get_future();
+        {
+            std::lock_guard queue_lock(queue_mutex_);
+            if (stopping_) { throw std::runtime_error("causal scoring engine is stopping"); }
+            if (job_ != nullptr) {
+                throw std::logic_error("causal scoring core already has an in-flight job");
+            }
+            job_ = std::move(job);
+        }
+        queue_cv_.notify_one();
+        return result.get();
+    }
+
     [[nodiscard]] MemorySummary memory_summary() const {
         std::scoped_lock lock(execution_mutex_);
         MemorySummary out = instance_.program->memory_summary();
@@ -103,7 +125,12 @@ private:
     struct Job {
         PreparedPrompt prompt;
         std::uint32_t first_target = 0;
+        // 0 selects the scalar route; anything else is the top-k route. Both promises are declared
+        // and exactly one is fulfilled, which the worker's single set_value/set_exception makes
+        // unambiguous; a std::variant would say the same thing with more machinery.
+        std::int32_t topk                    = 0;
         std::promise<std::vector<float>> promise;
+        std::promise<CausalTopk> topk_promise;
     };
 
     void worker_loop() noexcept {
@@ -119,16 +146,30 @@ private:
                 job = std::move(job_);
             }
             try {
-                std::vector<float> result;
-                {
-                    std::scoped_lock lock(execution_mutex_);
-                    result =
-                        instance_.program->causal_score(std::move(job->prompt), job->first_target);
+                if (job->topk > 0) {
+                    CausalTopk result;
+                    {
+                        std::scoped_lock lock(execution_mutex_);
+                        result = instance_.program->causal_score_topk(
+                            std::move(job->prompt), job->first_target, job->topk);
+                    }
+                    job->topk_promise.set_value(std::move(result));
+                } else {
+                    std::vector<float> result;
+                    {
+                        std::scoped_lock lock(execution_mutex_);
+                        result = instance_.program->causal_score(std::move(job->prompt),
+                                                                 job->first_target);
+                    }
+                    job->promise.set_value(std::move(result));
                 }
-                job->promise.set_value(std::move(result));
             } catch (...) {
                 try {
-                    job->promise.set_exception(std::current_exception());
+                    if (job->topk > 0) {
+                        job->topk_promise.set_exception(std::current_exception());
+                    } else {
+                        job->promise.set_exception(std::current_exception());
+                    }
                 } catch (...) {}
             }
         }

@@ -1,12 +1,12 @@
 @echo off
 REM ============================================================================
-REM  Swift + MTP4 + Vision
+REM  Swift 1.5 + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 242.0 tok/s   draft acceptance 66.8%
-REM      runtime 9.96 GiB   free VRAM 3.43 GiB
+REM      context 262,144   decode 215.7 tok/s   draft acceptance 58.7%
+REM      runtime 11.3 GiB   free VRAM 2.36 GiB
 REM
-REM  Depth 4 measured fastest of 2-5 on Swift, reversing the depth-5 choice the 2026-09-17 records supported; d4 242.0 against d5 235.9, a 2.6% gap that the contamination could reorder. Re-measured 2026-09-28 with the transient excluded, interleaved two rounds.
+REM  Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped at 5 by kMaximumMtpDraftTokens, so docs/active-work.md item 8's proposed window of 10 cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, dialogue and repetition, so depth 4 stands. This lane is unaffected by the draft encoding above, which the measurement confirms: the Q8 and NVFP4 builds read 215.7 and 216.0 tok/s on the same configuration.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -44,8 +44,8 @@ REM too. An absolute path here bakes one machine's checkout into a file that shi
 REM made the generated launchers unverifiable anywhere else.
 set "SERVE=%~dp0ninfer-serve.exe"
 if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
-set "MODEL=%~dp0models\qwen3_8_27b_nvfp4swift.v3.ninfer"
-if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4swift.v3.ninfer"
+set "MODEL=%~dp0models\qwen3_8_27b_nvfp4swift15.v3.ninfer"
+if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4swift15.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
 REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
 REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
@@ -64,8 +64,8 @@ if not exist "%SERVE%" (
 )
 if not exist "%MODEL%" (
     echo [ERROR] Artifact not found.
-    echo         Expected models\qwen3_8_27b_nvfp4swift.v3.ninfer beside this launcher,
-    echo         or C:\AI\models\qwen3_8_27b_nvfp4swift.v3.ninfer
+    echo         Expected models\qwen3_8_27b_nvfp4swift15.v3.ninfer beside this launcher,
+    echo         or C:\AI\models\qwen3_8_27b_nvfp4swift15.v3.ninfer
     echo         Run download_model.bat to fetch it.
     pause
     exit /b 1
@@ -147,7 +147,7 @@ if not errorlevel 1 (
   --lm-head-draft ^
   --host 127.0.0.1 ^
   --port 8091 ^
-  --model-id qwen3.8-27b-swift-v3-mtp4-vision ^
+  --model-id qwen3.8-27b-swift15-v3-mtp4-vision ^
   --max-context 262144 ^
   --device-state-slots 1 ^
   --kv-capacity auto ^

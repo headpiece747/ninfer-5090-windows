@@ -15,6 +15,7 @@
 #include "ninfer/ops/context_kv_materialize.h"
 #include "ninfer/ops/dynamic_grouped_conv.h"
 #include "ninfer/ops/linear_topk.h"
+#include "ninfer/ops/topk_logprobs.h"
 #include "ninfer/ops/gdn_gating_proj.h"
 #include "ninfer/ops/gdn_input_proj.h"
 #include "ninfer/ops/linear_add.h"
@@ -453,6 +454,17 @@ WorkspacePlan build_workspace_plan(const SequencePlanImpl& plan) {
                static_cast<std::int32_t>(kCausalScoreTile));
         matrix(causal_score, DType::I32, 1, static_cast<std::int32_t>(kCausalScoreTile));
         matrix(causal_score, DType::FP32, 1, static_cast<std::int32_t>(kCausalScoreTile));
+        // The top-k route's two outputs, [tile, kTopkLogprobsMaxK] with the scored positions as the
+        // slower axis, which is the layout ops::topk_logprobs takes. Planned at the Op's documented
+        // maximum K rather than at a caller's k, because k is a runtime choice on the scoring path
+        // and threading it through sequence planning would touch every scoring entry point to save
+        // 2 MiB on an offline evaluator. Nothing is allocated for a generation Program: both of
+        // these sit inside the `plan.causal_scoring` branch, so the serving workspace is unchanged
+        // by their presence.
+        matrix(causal_score, DType::I32, static_cast<std::int32_t>(kCausalScoreTile),
+               ops::kTopkLogprobsMaxK);
+        matrix(causal_score, DType::FP32, static_cast<std::int32_t>(kCausalScoreTile),
+               ops::kTopkLogprobsMaxK);
         linear_scratch(causal_score, parameters.text.output_head, 1, kCausalScoreTile);
         out.causal_score = finish(causal_score);
     }

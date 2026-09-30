@@ -76,7 +76,22 @@ def template_path() -> str:
 # published by cometkim. "ninfer" alone is ambiguous and should not be used. See CONTEXT.md.
 QUASAR = "qwen3_8_27b_nvfp4qat.v3.ninfer"
 NVFP4FULL = "qwen3_8_27b_nvfp4full.v3.ninfer"
-SWIFT = "qwen3_8_27b_nvfp4swift.v3.ninfer"
+# UkisAI's Swift 1.5 finetune, re-encoded by this port. It carries both Swift lanes.
+#
+# Swift 1.0's image is gone from this table rather than renamed: `SWIFT` was withdrawn in the same
+# wave that moved the lanes, because a constant naming a retired artifact is reachable surface that
+# reads as current. Its file is kept under models/_superseded/ and the matrix harness still addresses
+# it there, since every Swift 1.5 figure in docs/research/swift15-lane-measurement.md is quoted
+# against it as a same-day control.
+#
+# Two things distinguish this build from Swift 1.0's and both are measured rather than inherited.
+# Its ModelOpt export is structurally identical -- 401 sites, the same 193 NVFP4 MLP and 208 FP8
+# attention/GDN names, only the producer string moved from 0.47.0rc0 to 0.47.0rc1.dev90 -- so
+# qwen3_8_27b_nvfp4_swift needed no change. And its DFlash2 draft is encoded to NVFP4, which Swift
+# 1.0's left at Q8 because on Swift 1.0 that change lost 3.2 acceptance points; on Swift 1.5 it wins
+# on three domains of five and, more decisively, is 0.77 GiB smaller, which is exactly the margin
+# that puts the native 262,144 back within reach on the DFlash2 + Vision lane.
+SWIFT15 = "qwen3_8_27b_nvfp4swift15.v3.ninfer"
 NVIDIA = "qwen3_8_27b_nvfp4nvidia.v3.ninfer"
 
 PROFILES: list[dict[str, Any]] = [
@@ -99,11 +114,16 @@ PROFILES: list[dict[str, Any]] = [
               "rounds: d5 250.4 against d4 231.4."),
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
-         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=304.6, acc="53.8%", runtime="10.3 GiB", free="2.16 GiB",
-         note="Second artifact, same reach as QUASAR: 262,144 with Vision, at one state slot. "
-              "Re-measured 2026-09-24 on this port's own build of the line; the recorded 344.6/63.7% "
-              "was taken 2026-09-17 on the published file, which measures 49.4% on that lane."),
+         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=240000,
+         tok=230.3, acc="37.1%", runtime="10.9 GiB", free="1.47 GiB",
+         note="Context lowered from 262,144 on 2026-09-30, and this is a fix rather than a demotion: "
+              "the lane was REFUSED at startup and could not start at all. It served 262,144 on "
+              "2026-09-28 at 10.3 GiB runtime; runtime is now 10.9 GiB at 240,000 and 11.5 GiB at "
+              "262,144, which is the same growth that cost the two Swift lanes their native context. "
+              "QUASAR and NVIDIA still serve 262,144 on this build, on 1.51 and 1.37 GiB free, so "
+              "the margin between serving and being refused is under a gigabyte. Three interleaved "
+              "rounds, 1.3% spread. The 262,144 figure of 304.6 tok/s / 53.8% was recorded 2026-09-28 "
+              "and does not reproduce; the ceiling probe is the authority for what serves."),
     dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
@@ -112,22 +132,30 @@ PROFILES: list[dict[str, Any]] = [
               "depth the 2026-09-28 re-measurement confirmed unchanged. Note that its d4 is the worst "
               "depth on any lane (172.8 against d5's 234.1) while accepting least, so depth is not "
               "monotone in either direction and cannot be carried between artifacts."),
-    dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT, device_state_slots=1,
-         label="Swift + DFlash2 + Vision", model_id="qwen3.8-27b-swift-v3-dflash2-vision",
+    dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
+         label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=370.9, acc="67.3%", runtime="10.3 GiB", free="2.09 GiB",
-         note="Swift's fastest lane, and the one re-encoding helped most: acceptance is 60.9% "
-              "against 45.5% while the FP8 attention was imported, because the z-lab draft was "
-              "trained on the stock model's hidden states. Encoding that draft NVFP4 as the other "
-              "lines do measured worse here (57.7%), so it stays Q8. Re-measured 2026-09-24, "
-              "reproducing the 60.9% exactly."),
-    dict(file="start_swift_v3_mtp4_vision.bat", port=8091, art=SWIFT, device_state_slots=1,
-         label="Swift + MTP4 + Vision", model_id="qwen3.8-27b-swift-v3-mtp4-vision",
+         tok=349.4, acc="63.0%", runtime="11.6 GiB", free="1.51 GiB",
+         note="Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured "
+              "2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured "
+              "against every window 1-15 on the code domain and re-measured on four others: 13 is "
+              "33% faster on code and slower on chinese, prose and dialogue, so the width that "
+              "maximises the worst domain is the one already shipped. This image encodes the DFlash2 "
+              "draft to NVFP4 where Swift 1.0's left it at Q8, which is 0.77 GiB smaller and is "
+              "exactly the margin that puts the native 262,144 back in reach -- the Q8 build of this "
+              "same checkpoint is REFUSED at 262,144 with Vision. The encoding is measured per "
+              "target and it reverses here: on Swift 1.0 the same change lost 3.2 acceptance points, "
+              "so it was measured rather than assumed."),
+    dict(file="start_swift_v3_mtp4_vision.bat", port=8091, art=SWIFT15, device_state_slots=1,
+         label="Swift 1.5 + MTP4 + Vision", model_id="qwen3.8-27b-swift15-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=242.0, acc="66.8%", runtime="9.96 GiB", free="3.43 GiB",
-         note="Depth 4 measured fastest of 2-5 on Swift, reversing the depth-5 choice the 2026-09-17 "
-              "records supported; d4 242.0 against d5 235.9, a 2.6% gap that the contamination could "
-              "reorder. Re-measured 2026-09-28 with the transient excluded, interleaved two rounds."),
+         tok=215.7, acc="58.7%", runtime="11.3 GiB", free="2.36 GiB",
+         note="Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped "
+              "at 5 by kMaximumMtpDraftTokens, so docs/active-work.md item 8's proposed window of 10 "
+              "cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, "
+              "dialogue and repetition, so depth 4 stands. This lane is unaffected by the draft "
+              "encoding above, which the measurement confirms: the Q8 and NVFP4 builds read 215.7 "
+              "and 216.0 tok/s on the same configuration."),
     dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,

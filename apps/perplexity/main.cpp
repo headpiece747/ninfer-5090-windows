@@ -1,5 +1,6 @@
 #include "corpus.h"
 #include "evaluation.h"
+#include "topk_record.h"
 
 #include "ninfer/engine.h"
 #include "product/logging/logging.h"
@@ -49,6 +50,15 @@ struct Options {
     // question: how far apart two candidate tokens are at one position, which needs the per-token
     // value and cannot be recovered from the aggregate.
     std::optional<std::filesystem::path> per_token_logprobs;
+    // Write this artifact's top-k causal-scoring record instead of a perplexity report. The two are
+    // different reductions of the same windows and neither can be derived from the other -- the
+    // target token's log-probability is not recoverable from a top-k sample unless the target
+    // happens to be inside it -- so a run does one or the other, and the corpus is scored twice when
+    // both are wanted. What the record buys is the per-domain KL against a reference image
+    // (tools/release/per_domain_kl.py), which is the instrument perplexity cannot provide: it
+    // reduces a [vocab, columns] tile to one number and so cannot see a distribution that moved.
+    std::optional<std::filesystem::path> topk_record;
+    std::int32_t topk_k = 60;
     std::uint32_t context               = 4096;
     std::uint32_t stride                = 2048;
     int device                          = 0;
@@ -62,8 +72,11 @@ std::string usage_text() {
            "(--corpus <manifest.json> [--quick] | --text <utf8-file>)\n"
            "       [--context N] [--stride N] [--device N]\n"
            "       [--kv-dtype bf16|int8|fp8|nvfp4|k8v4] [--output <directory>]\n"
-           "       [--per-token-logprobs <csv>] "
-           "[--log-level trace|debug|info|warning|error|critical|off]\n";
+           "       [--per-token-logprobs <csv>] [--topk-record <file> [--topk-k N]]"
+           " [--log-level trace|debug|info|warning|error|critical|off]\n"
+           "  --topk-record writes a top-k scoring record instead of a perplexity report. Two runs\n"
+           "  over the same corpus, one per artifact, are compared by\n"
+           "  tools/release/per_domain_kl.py; k defaults to 60.\n";
 }
 
 [[noreturn]] void usage_error(std::string_view message) {
@@ -126,6 +139,10 @@ Options parse_options(int argc, char** argv) {
             out.output = std::filesystem::path(value("--output"));
         } else if (option == "--per-token-logprobs") {
             out.per_token_logprobs = std::filesystem::path(value("--per-token-logprobs"));
+        } else if (option == "--topk-record") {
+            out.topk_record = std::filesystem::path(value("--topk-record"));
+        } else if (option == "--topk-k") {
+            out.topk_k = parse_integer<std::int32_t>(value("--topk-k"), "topk-k");
         } else if (option == "--log-level") {
             out.log_level = ninfer::product::parse_log_level(value("--log-level"));
         } else {
@@ -138,6 +155,16 @@ Options parse_options(int argc, char** argv) {
     if (out.quick && !out.corpus) { usage_error("--quick requires --corpus"); }
     if (out.context < 2 || out.stride == 0 || out.stride >= out.context) {
         usage_error("context/stride must satisfy context>=2 and 1<=stride<context");
+    }
+    if (out.topk_record && (out.topk_k < 1 || out.topk_k > 256)) {
+        // 256 is ops::kTopkLogprobsMaxK, the Op's own documented maximum and the size its per-CTA
+        // shared-memory scratch is compiled for. Rejecting it here means the failure names the flag
+        // rather than arriving as a std::invalid_argument from inside a scoring tile.
+        usage_error("--topk-k must be in [1,256]");
+    }
+    if (out.topk_record && out.per_token_logprobs) {
+        usage_error("--topk-record and --per-token-logprobs are two different reductions of the "
+                    "same windows; run one per invocation");
     }
     return out;
 }
@@ -263,6 +290,68 @@ int run(const Options& options, const std::shared_ptr<spdlog::logger>& logger,
                  ninfer::product::format_pretty_count(total_scored_tokens),
                  ninfer::product::format_pretty_count(total_windows),
                  ninfer::product::format_pretty_duration(preflight_seconds));
+
+    if (options.topk_record) {
+        // The top-k route replaces the perplexity aggregate rather than joining it: the two are
+        // different reductions of the same windows and a run that produced both would be scoring
+        // the corpus twice to report one number the other run already has.
+        const Clock::time_point started = Clock::now();
+        ninfer::perplexity::TopkRecordWriter writer(
+            *options.topk_record, options.topk_k, corpus.corpus_id, options.context, options.stride,
+            kv_name(options.kv), load.prefill_signature);
+        for (std::size_t stream_index = 0; stream_index < streams.size(); ++stream_index) {
+            const EvaluationStream& stream = streams[stream_index];
+            std::ostringstream status;
+            status << "  top-k [" << stream_index + 1 << '/' << streams.size() << "] "
+                   << ninfer::product::format_pretty_text(stream.source.id) << " | "
+                   << ninfer::product::format_pretty_count(stream.tokens.size()) << " tokens";
+            if (progress->enabled()) {
+                progress->update(status.str());
+            } else {
+                logger->debug("{}", status.str());
+            }
+            // The digest is over the stream's own token sequence, which is what lets the reader
+            // refuse a comparison against an image that tokenized the same text differently. Two
+            // images of one source checkpoint agree here; two different finetunes do not.
+            writer.begin_stream(stream.source.id, stream.source.domain,
+                                ninfer::perplexity::token_digest(stream.tokens));
+            // Positions are 0-based ordinals within the stream. The window plan numbers targets as
+            // token indices, and the first scored token is index 1 because token 0 has no
+            // distribution to predict, so `target_begin - 1` is the ordinal -- which is why the
+            // writer is handed a counter rather than the index. The cross-check against the plan is
+            // kept because a mismatch here would silently compare two different contexts.
+            std::size_t next_ordinal = 0;
+            for (const WindowPlan& window : stream.windows) {
+                const std::vector<ninfer::TokenId> input(
+                    stream.tokens.begin() + static_cast<std::ptrdiff_t>(window.input_begin),
+                    stream.tokens.begin() + static_cast<std::ptrdiff_t>(window.input_end));
+                const ninfer::CausalTopk tile =
+                    engine.score_topk(input, window.first_target, options.topk_k);
+                const std::size_t expected = window.target_end - window.target_begin;
+                if (tile.positions() != expected) {
+                    throw std::runtime_error("top-k scoring returned " +
+                                             std::to_string(tile.positions()) +
+                                             " positions for " + std::to_string(expected) +
+                                             " targets on " + stream.source.id);
+                }
+                if (window.target_begin != next_ordinal + 1) {
+                    throw std::runtime_error(
+                        "window plan is not contiguous at " + std::to_string(window.target_begin) +
+                        " on " + stream.source.id + "; expected target index " +
+                        std::to_string(next_ordinal + 1));
+                }
+                writer.append(tile, next_ordinal);
+                next_ordinal += expected;
+            }
+            writer.end_stream();
+        }
+        progress->clear();
+        logger->info("top-k record | {} | k {} | {} positions | {}",
+                     ninfer::product::format_pretty_count(streams.size()), options.topk_k,
+                     ninfer::product::format_pretty_count(writer.positions()),
+                     ninfer::product::format_pretty_duration(seconds_since(started)));
+        return 0;
+    }
 
     const std::filesystem::path output_directory = prepare_output_directory(options, load, corpus);
     const Clock::time_point scoring_started      = Clock::now();

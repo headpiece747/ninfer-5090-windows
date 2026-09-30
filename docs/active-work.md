@@ -137,11 +137,29 @@ and not k8v4 at all. It is withdrawn. The test stands only as our own measuremen
 **Done when:** perplexity and decode acceptance are compared across bf16 / fp8 / k8v4 on one shipping
 lane, interleaved.
 
-### 8. MTP draft window 5 to 10
-**Why:** our MTP lanes use 4 and 5. A NInfer fork raised MTP to 10 on the claim that longer proposals
-emit more per round, and **published no tok/s gain for it.**
-**Done when:** windows 4/5/8/10 are compared on one MTP lane, interleaved, with tok/s and acceptance
-reported together.
+### 8. MTP draft window 5 to 10 — **NOT RUNNABLE ON THIS TREE, closed 2026-09-30**
+The engine refuses to start above 5. `startup.cpp:785` raises "MTP draft window must be in [1,5]"
+against `kMaximumMtpDraftTokens = 5` (`program/internal.h:11`), so windows 8 and 10 cannot be
+requested at all — the item's comparison is not a measurement this tree can make. **Raising that cap
+is the only way to run the item**, and nothing here argues for it.
+
+What *is* measurable was measured the same day on both Swift lanes: depths 1-5, interleaved, two
+rounds, on five domains (`docs/research/swift15-lane-measurement.md`). Depth 4 is fastest on prose,
+dialogue and repetition and depth 5 fastest on code; depth 4 is the choice that maximises the worst
+domain, which is what both lanes already ship. Depth 5 is **not** uniformly worse — it is 54 % faster
+than Swift 1.0's depth 5 on code, because Swift 1.0's MTP head degrades sharply past depth 4 while
+Swift 1.5's holds. Any future raise of the cap should start from that, not from a tok/s table.
+
+### 8b. DFlash2 draft window, all 1-15, on five domains — **DONE 2026-09-30**
+Every window each backend accepts, swept interleaved with rotation so no configuration keeps a
+position, reported with acceptance, tokens per round and the per-position acceptance profile.
+`speculative_accepted_per_position` was already in the request log and nothing reported it; the
+`widths` mode now does, which is how the shape of the loss at wide settings became visible.
+
+The finding that matters is that **the code domain alone reverses the width decision**, which is
+what this harness's own `DOMAINS` comment predicted: d13 is 33 % faster than the shipped d7 on code
+and slower on chinese, prose and dialogue. d7 wins three domains of five. Full table and the
+per-position profiles are in `docs/research/swift15-lane-measurement.md`.
 
 ### 9. ngram: the verify-tree integration
 **Why:** `PromptLookup` is ported and tested (`c0da270e`); the integration is not built. It needs
@@ -464,6 +482,8 @@ Each of these was investigated and settled. They look like open work and are not
 | **The NVFP4 block scale should be searched, not taken from the block max** | Measured on the weights that are actually re-encoded, and it loses: 4.925917 against 4.915181 paired in one window, while weight reconstruction error fell 40-66 %. It cannot be said about `NVFP4MSECalibrator` at all: that calibrator's 193 sites are the MLP and `lm_head`, which this recipe imports unencoded, while the re-encoded attention sites are FP8 `MaxCalibrator` in the source. See item 2 and `docs/perplexity-baseline.md`. Lower weight error is not better output quality. |
 | **Lower quantization error implies better perplexity** | The same measurement, stated as the general form. A searched scale that clips a block's largest value reduces squared error on that block and costs output quality, because the large value is carrying signal. Qualify a converter change on perplexity, never on reconstruction error. |
 | **The E2M1 block scale should be 4, not 6** | Measured 2026-09-29 on the unsloth lane, both arms freshly converted, the control reproducing the shipped `nvfp4full` artifact to every per-domain digit. Overall 4.998419 → 5.016626, **+0.36 % worse**, so NVIDIA's 6 stands and the encoder is unchanged. The per-domain spread is the durable part: `english_reference` −2.82 % against `chinese_reference` +3.56 %, opposite signs that largely cancel. `ninfer_code` moved least at +0.27 %. See [nvfp4-block-scale-4-vs-6.md](research/nvfp4-block-scale-4-vs-6.md). Distinct from the scale-*search* row above: that one varied the divisor per block, this one varied the format's own maximum. |
+| **A DFlash2 lane that is refused at startup is a defect, not a slow lane** | Found and fixed 2026-09-30. `profile` mode measured `start_swift_v3_dflash2_vision` and `start_ninfer_v3_dflash2_vision` **REFUSED** through their own launchers, at the 262,144 both tables carried. Runtime grew from 10.6/10.7 GiB on 2026-09-24 to 11.5/11.6 GiB on 2026-09-30 and those two lanes had under a GiB of margin; QUASAR and NVIDIA still serve 262,144 on 1.51 and 1.37 GiB free. The ceiling is re-probed per lane and `check_profile_consistency.py` carries the table, so the next growth is caught by the same probe rather than by a user. The Swift lane was restored to the native context by a smaller artifact; NVFP4-full's is at 240,000. See `docs/research/swift15-lane-measurement.md`. |
+| **A draft encoding measured on one target transfers to the next** | Refuted twice in opposite directions, which is the useful form. On Swift 1.0, encoding the DFlash2 draft to NVFP4 **lost** 3.2 acceptance points and the recipe kept it at Q8. On Swift 1.5 the same encoding **gains** 13.7 points on code, loses 4.6 on chinese, and is 0.77 GiB smaller — and that size is what puts the native 262,144 back within reach on the DFlash2 + Vision lane. `official_recipes.py`'s rule stands and is now demonstrated in both directions. |
 | **The calibration corpus should be coding-first** | Declined on 2026-09-29 as policy: this port always calibrates with the original creator's corpus. Enforced by `tools/release/check_calibration_corpus.py` in the pre-commit hook, which pins the corpus bytes and checks that all three `full_range` carriers agree. The supporting facts are in [artifact-conventions.md](maintainer/artifact-conventions.md), and note the asymmetry that was not a reason to do it anyway: the corpus reaches only the sites needing a measured divisor, because an already-NVFP4 site derives its divisor from the checkpoint's own stored `input_scale`. |
 
 ## Also worth doing, small

@@ -268,6 +268,40 @@ std::vector<float> Engine::score_tokens(std::vector<TokenId> tokens, std::uint32
     return result;
 }
 
+CausalTopk Engine::score_topk(std::vector<TokenId> tokens, std::uint32_t first_target,
+                               std::int32_t k) {
+    nvtx::ScopedRange score_range(nvtx::Name::Score, nvtx::Category::Scoring,
+                                  static_cast<std::uint64_t>(tokens.size()));
+    if (impl_ == nullptr) { throw std::logic_error("Engine is moved from"); }
+    if (impl_->options.purpose != EnginePurpose::CausalScoring) {
+        throw std::logic_error("score_topk requires a CausalScoring Engine");
+    }
+    if (tokens.size() < 2 || tokens.size() > impl_->options.max_context) {
+        throw std::invalid_argument("score_topk token count must be in [2,max_context]");
+    }
+    if (first_target == 0 || first_target >= tokens.size()) {
+        throw std::invalid_argument("score_topk first_target must be in [1,token_count-1]");
+    }
+    if (k < 1) { throw std::invalid_argument("score_topk k must be positive"); }
+    PreparedPrompt prompt      = prepare_tokens(std::move(tokens), false);
+    const std::size_t expected = (prompt.summary().prompt_tokens - first_target) *
+                                 static_cast<std::size_t>(k);
+    CausalTopk result          = std::visit(
+        [&](auto& core) -> CausalTopk {
+            using CoreState = std::remove_cvref_t<decltype(core)>;
+            if constexpr (std::is_same_v<CoreState, std::unique_ptr<Impl::ScoringCore>>) {
+                return core->score_topk(std::move(prompt.impl_->value), first_target, k);
+            } else {
+                throw std::logic_error("Engine scoring core is unavailable");
+            }
+        },
+        impl_->core);
+    if (result.k != k || result.indices.size() != expected || result.logprobs.size() != expected) {
+        throw std::logic_error("target Program returned an invalid causal top-k count");
+    }
+    return result;
+}
+
 std::uint32_t Engine::count_tokens(PromptInput input, const PreparationControl& control) const {
     if (impl_ == nullptr) { throw std::logic_error("Engine is moved from"); }
     return impl_->active->frontend.count_tokens(std::move(input), control);

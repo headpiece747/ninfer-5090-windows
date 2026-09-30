@@ -39,10 +39,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import kill_servers, wait_ready  # noqa: E402
-from profiles import PROFILES, QUASAR, NVFP4FULL, SWIFT, NVIDIA, INVARIANT_FLAGS, by_file, launcher_args, launcher_environment, template_path  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, SWIFT15, NVIDIA, INVARIANT_FLAGS, by_file, launcher_args, launcher_environment, template_path  # noqa: E402
 
 EXE = Path(__file__).resolve().parents[2] / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
+ROOT_OUT = Path(__file__).resolve().parents[2] / "out"
 OUT = Path(r"C:\AI\bench")
 PORT = 8095
 BASE = f"http://127.0.0.1:{PORT}"
@@ -58,27 +59,57 @@ ARTS = {
     # cometkim's fuller-NVFP4 profile: 18.07 GiB, NVFP4 DFlash2 module, upstream-shaped
     # draft bindings (no fused query_key_value), 17.03 GiB device weights with DFlash2.
     "nvfp4full": NVFP4FULL,
-    # UkisAI's Swift finetune, re-encoded by this port: the attention and GDN projections its source
-    # keeps in FP8 are encoded to NVFP4 from the finetune's BF16 export, and both W8 endpoints are Q8,
-    # so the artifact is all-NVFP4 and reaches the full context. The build it replaces -- the one
-    # published from the source's own FP8 import -- sits above the envelope and reached 240,000 (MTP)
-    # and 180,224 (DFlash2) at fp8 KV. See docs/maintainer/artifact-conventions.md section 1.
-    "swift": SWIFT,
+    # Swift 1.0's image is retired from the shipping table and is addressed below from
+    # _superseded, where it is kept because every Swift 1.5 figure is quoted against it.
     # Built from NVIDIA's ModelOpt NVFP4 checkpoint: its NVFP4 MLP is imported and its FP8 attention
     # and linear-attention are re-encoded from the BF16 base, with the divisors derived from that
     # checkpoint's own per-site `input_scale`. The line it replaces is `ninfer` above, which carries
     # 146 FP8 tensors and caps below the full context.
     "nvidia": NVIDIA,
+    # Swift 1.5, the same recipe and the same three sources as "swift" above with the finetune's
+    # revision advanced. Its ModelOpt export is structurally identical to Swift 1.0's -- 401 sites,
+    # the same 193 NVFP4 MLP and 208 FP8 attention/GDN names, only the producer version string moved
+    # -- so the recipe is unchanged and the build differs only in which weights it read.
+    "swift15": SWIFT15,
 }
+# The Q8-draft build of the same Swift 1.5 checkpoint, kept addressable because it is the control
+# every NVFP4-draft figure is quoted against: it is the only variable between them, since the recipe
+# differs solely in how the dflash2 component is encoded. It lives in _superseded rather than beside
+# the shipping image, because a superseded build under a live filename is a measurement waiting to go
+# wrong -- a harness resolving "the Swift artifact" by name would silently pick the wrong one.
+SUPERSEDED = Path(r"C:\AI\models\_superseded")
+ARTS["swift15q8"] = str(SUPERSEDED / "qwen3_8_27b_nvfp4swift15_q8draft.v3.ninfer")
+ARTS["swift"] = str(SUPERSEDED / "qwen3_8_27b_nvfp4swift.v3.ninfer")
 LADDER = [262144, 240000, 212992, 180224, 163840, 131072]
 MTP_DEPTHS = [2, 3, 4, 5]
 
-# Measured 2026-09-17. Key is (artifact, spec, vision, lm_head_draft).
+# Every draft window each backend will accept, from the startup validation rather than from this
+# file's own convenience: startup.cpp raises "MTP draft window must be in [1,5]" against
+# kMaximumMtpDraftTokens = 5, and "masked draft window must be in [1,15]" for DFlash/DFlash2. An
+# earlier revision of docs/active-work.md item 8 proposed raising the MTP window to 10 on the
+# strength of a fork that did it; this engine refuses to start at 6, so that item's sweep cannot be
+# run on this tree at all and the MTP axis is 1..5.
+WIDTH_LIMITS = {"mtp": 5, "dflash2": 15, "none": 0}
+
+# Re-measured 2026-09-30, same binary, same card, one session, and the DFlash2 rows moved.
 #
-# --lm-head-draft is NOT uniformly good: measured, it is worth +9% (DFlash2) and +18%
-# (MTP d4) on QUASAR, but on nvfp4 it costs ~14% throughput, 11pp acceptance and a full
-# ladder step of context (163,840 -> 180,224 on DFlash2). So the ceilings below differ
-# per artifact AND per flag, and both must be probed with the flag the launcher ships.
+# The 2026-09-17/24 numbers below said every DFlash2 combination reached the native 262,144. On
+# 2026-09-30 two of them do not: `swift` and `nvfp4full` are REFUSED at 262,144 with Vision and
+# serve 240,000 instead, on this tree's own launcher flag set. The cause is not the artifacts --
+# device weights are 18.0 GiB on the Swift build and the refusal is "minimum Engine runtime
+# reservation" -- it is that runtime grew from 10.6/10.7 GiB on 2026-09-24 to 11.5/11.6 GiB on
+# 2026-09-30, and the DFlash2+Vision lanes had under a GiB of margin left. `quasar` and `nvidia`
+# still serve 262,144 on 1.51 and 1.37 GiB free, which is the whole margin between serving and being
+# refused.
+#
+# The consequence is not confined to this file: tools/release/profiles.py carried ctx=262144 for
+# `start_swift_v3_dflash2_vision` and `start_ninfer_v3_dflash2_vision`, and `profile` mode measured
+# the first of them REFUSED through the real launcher. A ceiling table is only as good as the day it
+# was taken, which is the rule docs/active-work.md item 1 already records for the merge.
+#
+# Only the rows measured on 2026-09-30 are updated. The MTP rows for quasar, nvfp4full and nvidia
+# were not re-probed and still carry the 2026-09-17 values; they are marked rather than silently
+# presented as current.
 CEILINGS = {
     ("quasar", "mtp", False, True): 262144,
     ("quasar", "mtp", True, True): 262144,
@@ -91,30 +122,51 @@ CEILINGS = {
     # nvfp4 with the flag off: higher, because the optimized head is not resident.
     ("ninfer", "mtp", False, False): 240000,
     ("ninfer", "mtp", True, False): 212992,
-    # nvfp4full (cometkim's fuller-NVFP4 profile), measured 2026-09-17: reachable at the
-    # native 262,144 in every combination, where our nvfp4 image tops out at 240,000 for
-    # MTP and 163,840/131,072 for DFlash2 with and without Vision.
+    # nvfp4full (cometkim's fuller-NVFP4 profile), measured 2026-09-30: the MTP rows still carry
+    # 2026-09-17, the DFlash2 rows were re-probed. Vision + DFlash2 is refused at 262,144.
     ("nvfp4full", "mtp", False, True): 262144,
     ("nvfp4full", "mtp", True, True): 262144,
     ("nvfp4full", "dflash2", False, True): 262144,
-    ("nvfp4full", "dflash2", True, True): 262144,
-    # swift (UkisAI's finetune, re-encoded by this port), measured 2026-09-24 on the re-encoded
-    # artifact. Re-encoding its FP8 attention and GDN to NVFP4 from the finetune's BF16 source took
-    # device weights from 18.90 GiB to 15.3, which is what puts every combination back at the full
-    # native context; the same lanes measured 240,000 and 180,224 while the FP8 codes were imported.
+    ("nvfp4full", "dflash2", True, True): 240000,
+    # swift (UkisAI's 1.0 finetune, re-encoded by this port), re-measured 2026-09-30. The three
+    # 262,144 rows hold; Vision + DFlash2 is refused at 262,144 and serves 240,000, where the
+    # 2026-09-24 probe recorded 262,144 at 10.7 GiB. That is a runtime change, not a source change:
+    # the same probe on the same artifact today reads 11.5 GiB.
     ("swift", "mtp", False, True): 262144,
     ("swift", "mtp", True, True): 262144,
     ("swift", "dflash2", False, True): 262144,
-    ("swift", "dflash2", True, True): 262144,
-    # nvidia (NVIDIA's ModelOpt checkpoint, built by this port), measured 2026-09-24 with `ceiling`
-    # mode, which renders the launcher's own flags. Every combination reaches the full native context:
-    # importing the MLP and re-encoding the rest from the BF16 base keeps device weights well inside
-    # the envelope, and 262,144 is what the artifact it replaces cannot reach at all.
+    ("swift", "dflash2", True, True): 240000,
+    # swift15: Swift 1.5 with the DFlash2 draft encoded to NVFP4, measured 2026-09-30. All four
+    # combinations reach the native 262,144, on 1.51 GiB free with Vision and DFlash2 -- which is
+    # where the Q8-draft build of the same checkpoint is REFUSED at 262,144 and serves 240,000
+    # instead. 0.77 GiB of device weight is exactly that margin: 17.65 GiB against 18.42.
+    ("swift15", "mtp", False, True): 262144,
+    ("swift15", "mtp", True, True): 262144,
+    ("swift15", "dflash2", False, True): 262144,
+    ("swift15", "dflash2", True, True): 262144,
+    # swift15q8: the same Swift 1.5 checkpoint with its DFlash2 draft left at Q8, measured
+    # 2026-09-30. It is the control the NVFP4-draft figures are quoted against, and the only
+    # difference between the two is that component's encoding -- the MTP head is untouched, which is
+    # why the MTP rows read 262,144 here and 262,144 on the shipping image.
+    ("swift15q8", "mtp", False, True): 262144,
+    ("swift15q8", "mtp", True, True): 262144,
+    ("swift15q8", "dflash2", False, True): 262144,
+    ("swift15q8", "dflash2", True, True): 240000,
+    # nvidia (NVIDIA's ModelOpt checkpoint, built by this port), re-measured 2026-09-30: all four
+    # combinations still reach the native 262,144, on 1.71 GiB free text-only and 1.37 with Vision.
     ("nvidia", "mtp", False, True): 262144,
     ("nvidia", "mtp", True, True): 262144,
     ("nvidia", "dflash2", False, True): 262144,
     ("nvidia", "dflash2", True, True): 262144,
 }
+
+
+# Key is (artifact, spec, vision, lm_head_draft).
+#
+# --lm-head-draft is NOT uniformly good: measured, it is worth +9% (DFlash2) and +18%
+# (MTP d4) on QUASAR, but on nvfp4 it costs ~14% throughput, 11pp acceptance and a full
+# ladder step of context (163,840 -> 180,224 on DFlash2). So the ceilings below differ
+# per artifact AND per flag, and both must be probed with the flag the launcher ships.
 
 
 def ceiling_of(art: str, spec: str, vision: bool, lm_head: bool) -> int:
@@ -417,6 +469,7 @@ def parse_spec_jsonl(path: Path, skip: int = 0) -> dict:
         return {}
     acc = dra = rnd = fallback = gens = seen = 0
     backend = window = ""
+    per_position: list[int] = []
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         if not line.strip():
             continue
@@ -437,6 +490,15 @@ def parse_spec_jsonl(path: Path, skip: int = 0) -> dict:
         backend = sp.get("backend", backend)
         window = sp.get("draft_window", window)
         gens += 1
+        # Per-position acceptance, summed. Issue 119 measured this on the NVFP4 MTP lane and found
+        # the loss concentrated in the deeper positions (84/72/58 against groupwise's 93/85/75), so
+        # the aggregate alone hides where a wider window stops paying. The engine already records
+        # it per request; summing keeps the aggregate rate and the profile consistent with each
+        # other rather than reporting two different runs.
+        for i, count in enumerate(sp.get("accepted_per_position") or []):
+            while len(per_position) <= i:
+                per_position.append(0)
+            per_position[i] += int(count)
     if not gens:
         return {}
     return {
@@ -447,6 +509,7 @@ def parse_spec_jsonl(path: Path, skip: int = 0) -> dict:
         "spec_drafted": dra,
         "spec_fallback_steps": fallback,
         "accept_rate": round(acc / dra, 4) if dra else 0.0,
+        "accept_per_position": per_position,
         "gen_records": gens,
     }
 
@@ -653,6 +716,114 @@ def mode_sweep(art: str, vision: bool, lm_head: bool = True) -> None:
     show(run_profile(art, "dflash2", 7, vision, dctx, measure=True, lm_head=lm_head))
 
 
+def per_position_profile(recs: list[dict]) -> str:
+    """Accepted-drafted rate at each draft position, as a compact string.
+
+    Each position's denominator is the number of drafts actually offered at that position, which
+    is why this cannot be recovered by dividing the position's accepts by the window: a round that
+    rejects early never offers position 7. Summing accepts and drafts per position across the
+    rounds gives the rate for the positions that were reached, and the two disagree in exactly the
+    way that matters -- a wide window's late positions are reached rarely and accepted rarely.
+    """
+    accepted: list[int] = []
+    drafted: list[int] = []
+    for rec in recs:
+        counts = rec.get("accept_per_position")
+        if not counts:
+            continue
+        # This record's own accepts, before any cross-record accumulation: the denominator for
+        # position i is position i-1 *of the same round*, so reading it back out of the running
+        # total would charge later records for earlier ones' rounds.
+        own = [int(c) for c in counts]
+        while len(accepted) < len(own):
+            accepted.append(0)
+            drafted.append(0)
+        for i, count in enumerate(own):
+            accepted[i] += count
+            # Position 0 is offered on every round; position i is offered on every round that got
+            # past position i-1, so a round that rejects early never offers the later positions.
+            drafted[i] += own[i - 1] if i else max(1, rec.get("spec_rounds", 1))
+    out = []
+    for i, acc in enumerate(accepted):
+        if drafted[i] <= 0:
+            out.append("-")
+        else:
+            out.append(f"{acc / drafted[i] * 100:.0f}")
+    return "/".join(out)
+
+
+def mode_widths(art: str, drafts_by_spec: dict[str, list[int]], vision: bool,
+                rounds: int, domain: str, lm_head: bool = True) -> None:
+    """Every draft window each backend accepts, interleaved and rotated.
+
+    Grouping the widths and reading them in order measures this card's clock drift, not the width:
+    ADR-0003 records two findings that died that way -- a 14% slot-count claim and a 9% artifact
+    claim, both committed before an interleaved run disproved them. So round r visits the
+    configurations starting at offset r * n / rounds, which gives every configuration a different
+    position in every round, and a configuration's rounds are compared against each other rather
+    than against its neighbours.
+
+    The non-speculative lane is in the same rotation on purpose. A width is only interesting
+    against what it is speeding up, and a no-spec run started inside the same window is the only
+    control that cannot have been taken while the card was in a different state.
+    """
+    configs: list[tuple[str, int]] = [("none", 0)]
+    for spec, drafts in drafts_by_spec.items():
+        limit = WIDTH_LIMITS[spec]
+        for draft in drafts:
+            if not 1 <= draft <= limit:
+                raise SystemExit(f"{spec} draft window {draft} is outside the [1,{limit}] the "
+                                 f"startup validation accepts")
+            configs.append((spec, draft))
+
+    collected: dict[tuple[str, int], list[dict]] = {}
+    n = len(configs)
+    for r in range(rounds):
+        offset = (r * n) // rounds
+        order = configs[offset:] + configs[:offset]
+        print(f"\n=== widths round {r + 1}/{rounds} for {art} / vision={vision} / domain={domain}"
+              f" / lm_head={lm_head} (rotation offset {offset})")
+        for spec, draft in order:
+            label = "none (control)" if spec == "none" else f"{spec} d{draft}"
+            ctx = ceiling_of(art, spec, vision, lm_head) if spec != "none" else 262144
+            rec = run_profile(art, spec, draft, vision, ctx, measure=True, lm_head=lm_head,
+                              domain=domain)
+            collected.setdefault((spec, draft), []).append(rec)
+            show(rec)
+            print(f"          ^ {label}")
+
+    print(f"\n=== width summary: {art} / vision={vision} / domain={domain} / {rounds} rounds")
+    print(f"  {'config':<16} {'tok/s':>18} {'spread':>7} {'accept':>8} {'tok/round':>10} {'rounds':>8}")
+    ranked: list[tuple[float, str]] = []
+    for (spec, draft), recs in collected.items():
+        rates = [r["decode_avg"] for r in recs if r.get("ready") and "decode_avg" in r]
+        if not rates:
+            print(f"  {spec + ' d' + str(draft):<16} {'no measurement':>18}")
+            continue
+        acc = [r["accept_rate"] for r in recs if "accept_rate" in r]
+        tpr = [r["spec_accepted"] / r["spec_rounds"] for r in recs
+               if r.get("spec_rounds") and r.get("spec_accepted")]
+        rnd = [r["spec_rounds"] for r in recs if r.get("spec_rounds")]
+        avg = sum(rates) / len(rates)
+        spread = (max(rates) - min(rates)) / avg * 100.0 if len(rates) > 1 and avg else 0.0
+        label = "none (control)" if spec == "none" else f"{spec} d{draft}"
+        print(f"  {label:<16} {avg:>18.1f} {spread:>6.1f}% "
+              f"{(sum(acc) / len(acc) * 100 if acc else float('nan')):>7.1f}% "
+              f"{(sum(tpr) / len(tpr) if tpr else float('nan')):>10.2f} "
+              f"{(sum(rnd) // len(rnd) if rnd else 0):>8}")
+        profile = per_position_profile(recs)
+        if profile:
+            print(f"  {'':<16} accept per draft position: {profile}")
+        ranked.append((avg, label))
+    ranked.sort(reverse=True)
+    if ranked:
+        best_rate, best = ranked[0]
+        control = next((r for r, l in ranked if l == "none (control)"), None)
+        print(f"\n  TOKEN SPEED CEILING: {best} at {best_rate:.1f} tok/s"
+              + (f"  ({best_rate / control:.2f}x the non-speculative control's {control:.1f})"
+                 if control and control > 0 else ""))
+
+
 def mode_correct(art: str, vision: bool) -> None:
     """Record the greedy digest and decode rate of every speculative configuration.
 
@@ -711,14 +882,20 @@ def mode_profile(name: str, slots: str | None = None,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["ceiling", "sweep", "verify", "correct", "profile"])
+    ap.add_argument("mode", choices=["ceiling", "widths", "sweep", "verify", "correct", "profile"])
     ap.add_argument("--art", dest="arts", action="append",
                     choices=sorted(ARTS), help="repeatable; default both")
     ap.add_argument("--spec", dest="specs", action="append",
                     choices=["mtp", "dflash2"], help="ceiling mode; default both")
     ap.add_argument("--vision", action="store_true", help="sweep/verify: vision profile")
     ap.add_argument("--no-vision", action="store_true", help="sweep/verify: text profile")
-    ap.add_argument("--draft", type=int, default=None)
+    ap.add_argument("--draft", action="append", default=None,
+                    help="widths mode: draft windows for the selected backends. Either a bare list "
+                         "('7,9,13') applied to every selected backend, or one scoped to a backend "
+                         "('dflash2=7,9,13'), repeatable. Repeatable flags append, so two bare "
+                         "--draft values are a union rather than one per backend -- which is how an "
+                         "earlier revision of this tool handed MTP the DFlash2 widths and was "
+                         "refused by the width check below, which is the check earning its place.")
     ap.add_argument("--max-context", type=int, default=262144)
     ap.add_argument("--no-lm-head", action="store_true",
                     help="verify mode: omit --lm-head-draft")
@@ -733,7 +910,25 @@ def main() -> int:
                     help="profile mode: the workload to measure on, repeatable, default the one "
                          "domain the table was measured on. Recorded in every result, because a "
                          "decode figure without its workload is not interpretable -- see DOMAINS.")
+    ap.add_argument("--rounds", type=int, default=2,
+                    help="widths mode: interleaved passes over every configuration, each rotated "
+                         "so no configuration keeps a position. One round cannot show a width's "
+                         "own spread, and this card's first-half drift reaches 5.8-7.6%%.")
+    ap.add_argument("--all-widths", action="store_true",
+                    help="widths mode: sweep every window each selected backend accepts")
     args = ap.parse_args()
+
+    # Parsed once here rather than inside the widths branch, because verify mode reads a width from
+    # the same option. `--draft` appends, so a bare value and a scoped one both accumulate into these.
+    bare: list[int] = []
+    scoped: dict[str, list[int]] = {}
+    for entry in args.draft or []:
+        if "=" in entry:
+            spec_name, _, raw = entry.partition("=")
+            scoped.setdefault(spec_name.strip(), []).extend(
+                int(part) for part in raw.split(",") if part.strip())
+        else:
+            bare.extend(int(part) for part in entry.split(",") if part.strip())
 
     if not EXE.exists():
         print(f"missing engine: {EXE}")
@@ -742,6 +937,28 @@ def main() -> int:
     if args.mode == "ceiling":
         mode_ceiling(args.arts or sorted(ARTS), args.specs or ["mtp", "dflash2"],
                      [False, True], lm_head=not args.no_lm_head)
+    elif args.mode == "widths":
+        specs = args.specs or ["dflash2", "mtp"]
+        unknown = sorted(set(scoped) - set(WIDTH_LIMITS))
+        if unknown:
+            raise SystemExit(f"unknown backend(s) in --draft: {', '.join(unknown)}; "
+                             f"choose from {', '.join(sorted(WIDTH_LIMITS))}")
+        drafts: dict[str, list[int]] = {}
+        for spec in specs:
+            if spec in scoped:
+                drafts[spec] = scoped[spec]
+            elif bare:
+                drafts[spec] = list(bare)
+            elif args.all_widths:
+                drafts[spec] = list(range(1, WIDTH_LIMITS[spec] + 1))
+            else:
+                drafts[spec] = MTP_DEPTHS if spec == "mtp" else [7]
+        visions = [True] if args.vision else [False] if args.no_vision else [True]
+        for art in (args.arts or sorted(ARTS)):
+            for vision in visions:
+                mode_widths(art, drafts, vision, args.rounds,
+                            (args.domains or [DEFAULT_DOMAIN])[0],
+                            lm_head=not args.no_lm_head)
     elif args.mode == "sweep":
         visions = [True] if args.vision else [False] if args.no_vision else [False, True]
         for art in (args.arts or sorted(ARTS)):
@@ -759,7 +976,7 @@ def main() -> int:
     else:
         spec = (args.specs or ["mtp"])[0]
         mode_verify((args.arts or ["quasar"])[0], spec,
-                    args.draft if args.draft is not None else (5 if spec == "mtp" else 7),
+                    (scoped.get(spec, bare) or [5 if spec == "mtp" else 7])[0],
                     args.vision, args.max_context, lm_head=not args.no_lm_head,
                     kv_dtype=args.kv_dtype)
 

@@ -33,6 +33,31 @@ inline constexpr std::size_t kDefaultMediaLiveBytes      = 2ULL << 30;
 inline constexpr std::uint32_t kDefaultHostStateSlots    = 8;
 inline constexpr std::size_t kDefaultHostKvCapacityBytes = 8ULL << 30;
 
+// One causal-scoring pass's top-k sample of the output distribution, flattened position-major.
+//
+// `indices` and `logprobs` are each positions*k, and position p's k entries occupy
+// [p*k, (p+1)*k) in descending log-probability, so a consumer appends a position by writing k
+// consecutive pairs. Flattened rather than a vector of vectors because the consumer is an offline
+// record writer walking a million-token corpus, and a per-position heap allocation per scored token
+// would cost more than the reduction it is recording.
+//
+// The reduction is the `topk_logprobs` Op's: for each scored column it returns the k largest
+// logits' row indices and their log-probabilities under that column's own log-partition over the
+// public token count, with ties broken by ascending row index. This is the substrate for per-domain
+// KL against a reference distribution (tools/release/per_domain_kl.py). Perplexity reduces the same
+// [vocab, columns] tile to the target token's single log-probability and so cannot see a
+// distribution that moved -- the failure mode a GatedDeltaNet forget-gate defect produces, where
+// long-context perplexity improves on BF16 while the model is quietly broken.
+struct CausalTopk {
+    std::vector<TokenId> indices;
+    std::vector<float> logprobs;
+    std::int32_t k = 0;
+
+    [[nodiscard]] std::size_t positions() const noexcept {
+        return k > 0 ? indices.size() / static_cast<std::size_t>(k) : 0;
+    }
+};
+
 enum class KvCacheStorage : std::uint8_t {
     BFloat16,
     Int8Group64,

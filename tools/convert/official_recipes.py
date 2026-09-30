@@ -494,6 +494,267 @@ def qwen3_8_27b_nvfp4_unsloth(model, recipe, sources):
     add_proposal(recipe, source=model.source("text/output_head", sources["base"]))
 
 
+def qwen3_8_27b_nvfp4_unsloth_noex(model, recipe, sources):
+    """NVFP4-full variant: all text projections encoded to NVFP4, no BF16 exceptions.
+
+    Identical to qwen3_8_27b_nvfp4_unsloth except the 27 BF16 exception projections are
+    encoded to NVFP4 instead. This measures whether the transplanted Qwen3.6-27B exception
+    pattern is optimal for this checkpoint, or whether full NVFP4 (as the NVIDIA artifact
+    uses) is better. The NVIDIA artifact achieves 61.5% acceptance against nvfp4full's
+    53.8% on DFlash2; this experiment isolates whether the BF16 exceptions are the cause.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
+    quantized = sources["quantized"]
+    calibration = load_calibration()
+    _assign(recipe, "text/token_embedding", Q8)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding":
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8)
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            recipe.assign(name, source=model.source(name, quantized))
+            continue
+        layer = int(name.split("/")[2]) if name.startswith("text/layers/") else -1
+        if "/mlp/" in name and layer < 56:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, quantized, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+            continue
+        divisor = _calibrated_divisor(calibration, name)
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            activation_policy="AllowA4",
+        )
+        for input_name in parameter.inputs:
+            recipe.use(name, input_name, auxiliaries={"activation_input_divisor": divisor})
+    add_proposal(recipe, source=model.source("text/output_head", sources["base"]))
+
+
+def qwen3_8_27b_nvfp4_unsloth_nvdiv(model, recipe, sources):
+    """NVFP4-full variant: unsloth MLP with NVIDIA's Local-Hessian divisors.
+
+    Identical to qwen3_8_27b_nvfp4_unsloth except the activation divisors come from
+    NVIDIA's ModelOpt checkpoint instead of the fork's calibration corpus. This
+    isolates the divisor source as the variable: the NVIDIA artifact achieves 61.5%
+    acceptance against nvfp4full's 53.8% on DFlash2, and the BF16 exceptions
+    experiment showed the exceptions are not the cause. The remaining gap is either
+    the divisor source or the MLP provenance; this recipe tests the former.
+
+    The NVIDIA divisors are derived from that checkpoint's own per-site input_scale,
+    which records amax / (6 * 448) for NVFP4 sites and amax / 448 for FP8 sites. The
+    sites re-encoded here are the ones whose input is the hidden state, which is the
+    class that transferred exactly when checked against the published profile's
+    divisors (53.4925 at layer 0's GDN input, identical in three artifacts).
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
+    quantized = sources["quantized"]
+    nvidia = sources["nvidia"]
+    calibration = load_calibration()
+    prefix = "model.language_model." if "text_config" in nvidia.config else "model."
+    _assign(recipe, "text/token_embedding", Q8)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding":
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8)
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            recipe.assign(name, source=model.source(name, quantized))
+            continue
+        layer = int(name.split("/")[2]) if name.startswith("text/layers/") else -1
+        if "/mlp/" in name and layer < 56:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, quantized, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+            continue
+        if "/mlp/" in name:
+            # Layers 56-63: re-encode from BF16. NVIDIA's checkpoint stores no input_scale
+            # for its NVFP4 MLP sites, so fall back to the fork's calibration divisor.
+            if name.endswith(("/mlp/gate", "/mlp/up")):
+                module = "mlp.gate_up_projection"
+            elif name.endswith("/mlp/down"):
+                module = "mlp.down_projection"
+            else:
+                raise ValueError(f"{name}: no NVFP4 site is registered for this projection")
+            try:
+                divisor = _activation_divisor(nvidia, f"{prefix}layers.{name.split('/')[2]}.", module)
+            except ValueError:
+                divisor = _calibrated_divisor(calibration, name)
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=nvfp4_maxabs,
+                activation_policy="AllowA4",
+            )
+            for input_name in parameter.inputs:
+                recipe.use(name, input_name, auxiliaries={"activation_input_divisor": divisor})
+            continue
+        block, role = name.split("/")[3], name.rsplit("/", 1)[1]
+        module = _SITE_MODULES.get((block, role))
+        if module is None:
+            raise ValueError(f"{name}: no NVFP4 site is registered for this projection")
+        divisor = _activation_divisor(nvidia, f"{prefix}layers.{name.split('/')[2]}.", module)
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            activation_policy="AllowA4",
+        )
+        for input_name in parameter.inputs:
+            recipe.use(name, input_name, auxiliaries={"activation_input_divisor": divisor})
+    add_proposal(recipe, source=model.source("text/output_head", sources["base"]))
+
+
+def qwen3_8_27b_nvfp4_swift15_exc(model, recipe, sources):
+    """Swift 1.5 with nvfp4full's 27 BF16 exception projections kept unencoded.
+
+    Identical to `qwen3_8_27b_nvfp4_swift` except the attention and GDN projections those three
+    layer sets name stay BF16, so the artifact is the base recipe plus exactly that difference and
+    nothing else. The pattern is transplanted deliberately as a *hypothesis*, not as a rule: on
+    Swift 1.0 the same 27 projections measured 4.932534 against the base recipe's 4.936397 on the
+    full corpus, 0.078 % better, while the same pattern is what the unsloth source's own recipe
+    encodes rather than preserves. Which is the rule this file already states -- a pattern is
+    measured per checkpoint, not carried -- so it is measured here again on the new finetune
+    before it can be adopted.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    base = sources["base"]
+    bf16 = sources["swift_bf16"]
+    prefix = "model.language_model." if "text_config" in base.config else "model."
+    _assign(recipe, "text/token_embedding", Q8,
+            source=model.source("text/token_embedding", bf16))
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding" or name.endswith(
+            ("/gdn/a_projection", "/gdn/b_projection")
+        ):
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8, source=model.source(name, bf16))
+            continue
+        parts = name.split("/")
+        if len(parts) >= 4 and _is_bf16_exception(int(parts[2]), parts[3], parts[-1]):
+            recipe.assign(name, format="bf16", method=cast_direct,
+                          source=model.source(name, bf16))
+            continue
+        if "/mlp/" in name:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, base, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+            continue
+        role = name.rsplit("/", 1)[1]
+        modules = _ATTENTION_MODULES if "/attention/" in name else _GDN_MODULES
+        module = modules.get(role)
+        if module is None:
+            raise ValueError(f"{name}: no NVFP4 site is registered for this projection")
+        divisor = _activation_divisor(base, f"{prefix}layers.{parts[2]}.", module)
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            source=model.source(name, bf16),
+            activation_policy="AllowA4",
+        )
+        for input_name in parameter.inputs:
+            recipe.use(
+                name, input_name, auxiliaries={"activation_input_divisor": divisor}
+            )
+    add_proposal(recipe, source=model.source("text/output_head", bf16))
+
+
+def qwen3_8_27b_nvfp4_swift15_nvdraft(model, recipe, sources):
+    """Swift 1.5 with the DFlash2 draft encoded to NVFP4 instead of left at Q8.
+
+    Identical to `qwen3_8_27b_nvfp4_swift` except the draft projections take the NVFP4 encoding the
+    other three lines use, which is the only lever that moves device weight on this artifact. That
+    matters because the DFlash2 + Vision lane no longer serves the native 262,144 on this tree: with
+    the draft at Q8 the artifact's device weights are 18.0 GiB and the lane is refused at 262,144
+    with 1.18 GiB free at 240,000, while QUASAR and NVIDIA still serve 262,144 on 1.51 and 1.37 GiB.
+    The margin between serving and being refused is under a gigabyte, and the draft is the one part
+    of this artifact whose encoding is a measured choice rather than a producer's.
+
+    It is measured here rather than assumed because on Swift 1.0 the same change LOST 3.2 acceptance
+    points on the DFlash2 lane (57.7 % against 60.9 %) -- the draft was trained on the stock model's
+    hidden states, and this target's are not the stock ones. So this recipe buys context reach with
+    acceptance, and which side wins is a measurement rather than a preference.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
+    base = sources["base"]
+    bf16 = sources["swift_bf16"]
+    prefix = "model.language_model." if "text_config" in base.config else "model."
+    _assign(recipe, "text/token_embedding", Q8,
+            source=model.source("text/token_embedding", bf16))
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding" or name.endswith(
+            ("/gdn/a_projection", "/gdn/b_projection")
+        ):
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8, source=model.source(name, bf16))
+            continue
+        if "/mlp/" in name:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, base, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+            continue
+        role = name.rsplit("/", 1)[1]
+        modules = _ATTENTION_MODULES if "/attention/" in name else _GDN_MODULES
+        module = modules.get(role)
+        if module is None:
+            raise ValueError(f"{name}: no NVFP4 site is registered for this projection")
+        divisor = _activation_divisor(base, f"{prefix}layers.{name.split('/')[2]}.", module)
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            source=model.source(name, bf16),
+            activation_policy="AllowA4",
+        )
+        for input_name in parameter.inputs:
+            recipe.use(
+                name, input_name, auxiliaries={"activation_input_divisor": divisor}
+            )
+    add_proposal(recipe, source=model.source("text/output_head", bf16))
+
+
 def qwen3_8_27b_nvfp4_nvidia(model, recipe, sources):
     """The ModelOpt-sourced line: its NVFP4 MLP imported, its FP8 attention re-encoded.
 
@@ -564,5 +825,9 @@ RECIPES = {
     "qwen3_8_27b_nvfp4_swift": qwen3_8_27b_nvfp4_swift,
     "qwen3_8_27b_nvfp4_nvidia": qwen3_8_27b_nvfp4_nvidia,
     "qwen3_8_27b_nvfp4_unsloth": qwen3_8_27b_nvfp4_unsloth,
+    "qwen3_8_27b_nvfp4_unsloth_noex": qwen3_8_27b_nvfp4_unsloth_noex,
+    "qwen3_8_27b_nvfp4_unsloth_nvdiv": qwen3_8_27b_nvfp4_unsloth_nvdiv,
+    "qwen3_8_27b_nvfp4_swift15_exc": qwen3_8_27b_nvfp4_swift15_exc,
+    "qwen3_8_27b_nvfp4_swift15_nvdraft": qwen3_8_27b_nvfp4_swift15_nvdraft,
     "qwen3_6_35b_a3b": qwen3_6_35b_a3b,
 }
