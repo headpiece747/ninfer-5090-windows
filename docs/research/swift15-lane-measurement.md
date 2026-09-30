@@ -292,12 +292,67 @@ that **cannot start at the context the product advertises**; the NVFP4 build's i
 domain where the drafter is weakest. Recorded, measured, and shipped as the NVFP4 draft, with the
 per-domain figures here rather than a single headline.
 
+## The 308 MiB that was missing, and why it is not the same fix on every lane
+
+The runtime growth is not a defect in this port. Commit `e621c7d6` ("derive launch plans from device
+sm count") is on `upstream/dev`, and it threads the device's SM count through
+`causal_softmax_attention_workspace_capacity_bytes`, which raises the split count and with it the
+partials the workspace reserves. `e621c7d6`'s own message says it preserves launch decisions at 170
+SM, which is this card, so the larger reservation is upstream's deliberate memory-for-parallelism
+trade rather than a regression introduced here. It is recorded here rather than treated as a
+candidate for reversal: undoing it would trade throughput back for context on every lane at once,
+which is a larger decision than the one this document answers.
+
+What the refusal actually needs is small. Reading the engine's own arithmetic for
+`start_ninfer_v3_dflash2_vision` at 262,144 with Vision, with `--log-level debug`:
+
+```text
+weights ready | 17.9 GiB
+FATAL | minimum Engine runtime reservation requires 12487716865 bytes in addition to
+       1073741824 bytes of automatic headroom, but only 13244563456 bytes are available
+       after weights
+```
+
+11.63 GiB of reservation plus 1 GiB of headroom against 12.33 GiB available after weights —
+**short by 308 MiB.** For scale, the KV pool at 262,144 is 8.0 GiB of that 11.63 (4,096 pages at
+2 MiB), so the non-KV part is about 3.6 GiB, of which the DFlash2 graph allowance at width 7 is
+480 MiB across its six visible-context tiers.
+
+**308 MiB is reachable from the artifact side, and the encoding that reaches it is worth different
+things to different routes.** NVFP4-full keeps nine fused parents in BF16; encoding them to NVFP4
+frees 0.7 GiB, which clears the refusal with margin — 17.2 GiB of device weights against 17.9, and
+the lane then reads the same 1.51 GiB free that QUASAR does. Interleaved against the BF16-exception
+build, `code`, two rounds:
+
+| route | BF16 exceptions | NVFP4 no-exception | change |
+|---|---:|---:|---:|
+| DFlash2 d7, context | 240,000 (refused at 262,144) | **262,144** | +9.4 % |
+| DFlash2 d7 tok/s | 230.4 | **287.6** | **+24.8 %** |
+| DFlash2 d7 acceptance | 37.1 % | **48.7 %** | **+11.6 pp** |
+| MTP d5 tok/s | **206.5** | 151.3 | **−26.8 %** |
+| MTP d5 acceptance | **53.7 %** | 32.3 % | **−21.4 pp** |
+| full-corpus perplexity | **4.998419** | 5.002751 | +0.087 % |
+
+**The two routes want opposite encodings**, which is the same rule as the DFlash2 draft: a pattern is
+measured per target. The BF16 exceptions are worth 21.4 acceptance points to the MTP head and cost
+the DFlash2 route 11.6. So the line is split — `start_ninfer_v3_dflash2_vision` runs the
+no-exception image at 262,144, and `start_ninfer_v3_mtp5_vision` keeps the BF16-exception image at
+262,144 — and both were verified through their own launchers at the native context.
+
+The no-exception image's cost is the honest part of this trade: **+0.087 % overall perplexity**,
+5.002751 against 4.998419 on the same binary and day, and one domain moves the other way
+(`english_reference` improves 0.32 %). The older note in `official_recipes.py` recorded the same
+change as +0.65 % on `--quick` and +0.167 % on the full corpus; the full-corpus figure here is half
+that, so the earlier number was not reproduced exactly and the measured one is the one quoted.
+
 ## The recorded table does not reproduce, which is a finding and not a footnote
 
-`profiles.py` records the Swift DFlash2 lane at **370.9 tok/s and 67.3 % acceptance**. Same lane, same
-domain, same binary, today: **325.0 tok/s and 57.1 %** — 12.4 % and 10.2 pp adrift, and the lane is
-refused at its shipped context. The MTP lane's recorded 242.0 reproduces at 231.1, −4.5 %, which is
-inside the harness's own spread. The DFlash2 figure does not.
+`profiles.py` recorded the Swift DFlash2 lane at **370.9 tok/s and 67.3 % acceptance**. Same lane, same
+domain, same binary, today: **325.0 tok/s and 57.1 %** for Swift 1.0 and **349.4 / 63.0 %** for
+Swift 1.5 — and the lane was refused at its shipped context until the rebuild above. The Swift MTP
+lane's recorded 242.0 reproduces at 231.1, −4.5 %, which is inside the harness's own spread.
+NVFP4-full's recorded MTP 231.2 reads 204.4 today, −11.5 %, outside it. The DFlash2 figures do not
+reproduce; the MTP ones are mixed.
 
 `profiles.py`'s docstring already records that the 2026-09-28 table came from one interleaved window
 and that the merges since invalidated the performance table. This is that invalidation arriving, and

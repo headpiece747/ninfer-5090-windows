@@ -76,6 +76,12 @@ def template_path() -> str:
 # published by cometkim. "ninfer" alone is ambiguous and should not be used. See CONTEXT.md.
 QUASAR = "qwen3_8_27b_nvfp4qat.v3.ninfer"
 NVFP4FULL = "qwen3_8_27b_nvfp4full.v3.ninfer"
+# The same unsloth line with its nine BF16 exception parents encoded to NVFP4. It is a separate image
+# rather than a replacement because the two encodings measure better on different routes, which is
+# the same rule the DFlash2 draft encodes: a pattern is measured per target. On this line the BF16
+# exceptions are worth +21.4 acceptance points to the MTP head and cost the DFlash2 route 11.6, and
+# only the no-exception build fits the native 262,144 with Vision.
+NVFP4FULLNOEX = "qwen3_8_27b_nvfp4full_noex.v3.ninfer"
 # UkisAI's Swift 1.5 finetune, re-encoded by this port. It carries both Swift lanes.
 #
 # Swift 1.0's image is gone from this table rather than renamed: `SWIFT` was withdrawn in the same
@@ -112,26 +118,30 @@ PROFILES: list[dict[str, Any]] = [
               "the warmup transient, and QUASAR's d4/d5 gap was 3.4% -- inside what that contamination "
               "could reorder. Re-measured 2026-09-28 with the transient excluded, interleaved two "
               "rounds: d5 250.4 against d4 231.4."),
-    dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULL, device_state_slots=1,
+    dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
-         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=240000,
-         tok=230.3, acc="37.1%", runtime="10.9 GiB", free="1.47 GiB",
-         note="Context lowered from 262,144 on 2026-09-30, and this is a fix rather than a demotion: "
-              "the lane was REFUSED at startup and could not start at all. It served 262,144 on "
-              "2026-09-28 at 10.3 GiB runtime; runtime is now 10.9 GiB at 240,000 and 11.5 GiB at "
-              "262,144, which is the same growth that cost the two Swift lanes their native context. "
-              "QUASAR and NVIDIA still serve 262,144 on this build, on 1.51 and 1.37 GiB free, so "
-              "the margin between serving and being refused is under a gigabyte. Three interleaved "
-              "rounds, 1.3% spread. The 262,144 figure of 304.6 tok/s / 53.8% was recorded 2026-09-28 "
-              "and does not reproduce; the ceiling probe is the authority for what serves."),
+         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
+         tok=290.0, acc="48.7%", runtime="11.6 GiB", free="1.51 GiB",
+         note="This lane is REFUSED at startup on the BF16-exception image and was, until "
+              "2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB "
+              "of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after "
+              "weights -- short by 308 MiB. Encoding the nine BF16 exception parents to NVFP4 is "
+              "0.7 GiB and clears it, at 17.2 GiB of device weights against 17.9, and the lane then "
+              "reads the same 1.51 GiB free that QUASAR does. That costs 0.087 % perplexity overall "
+              "(5.002751 against 4.998419, same binary same day) and buys back the native context "
+              "plus 24.8 % throughput and 11.6 acceptance points on this route. The exceptions stay "
+              "on the MTP lane below, where they are worth far more than they cost here."),
     dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
-         tok=231.2, acc="56.8%", runtime="9.96 GiB", free="3.01 GiB",
-         note="MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here and is the one "
-              "depth the 2026-09-28 re-measurement confirmed unchanged. Note that its d4 is the worst "
-              "depth on any lane (172.8 against d5's 234.1) while accepting least, so depth is not "
-              "monotone in either direction and cannot be carried between artifacts."),
+         tok=204.4, acc="53.7%", runtime="11.3 GiB", free="1.64 GiB",
+         note="MTP lane on the second artifact, and the one lane where the BF16 exception "
+              "projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's "
+              "context costs this lane 21.4 acceptance points and 26.8 % throughput, measured "
+              "interleaved against the no-exception build. Depth 5 measured fastest of 2-5 here. The "
+              "recorded 231.2/56.8% of 2026-09-28 does not reproduce on the same flags and binary; "
+              "runtime on every lane has grown about a gigabyte since, and 204.4 is what this "
+              "configuration serves today."),
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,

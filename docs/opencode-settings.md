@@ -196,14 +196,15 @@ Applied:
 | --- | --- | --- | --- |
 | quasar-v3-dflash2-vision | 221,376 | 209,376 | 262,144 |
 | quasar-v3-mtp4-vision | 221,376 | 209,376 | 262,144 |
-| nvfp4-v3-dflash2-vision | 221,376 | 209,376 | 240,000 |
+| nvfp4-v3-dflash2-vision | 221,376 | 209,376 | 262,144 |
 | nvfp4-v3-mtp5-vision | 221,376 | 209,376 | 262,144 |
 | swift15-v3-dflash2-vision | 221,376 | 209,376 | 262,144 |
 | swift15-v3-mtp4-vision | 221,376 | 209,376 | 262,144 |
 
 The two Swift rows are the 2026-09-30 model ids; the lanes were `swift-v3-*` before Swift 1.5
-replaced Swift 1.0 on them. `nvfp4-v3-dflash2-vision` moved to 240,000 on the same date because the
-lane was refused at startup at 262,144 — see
+replaced Swift 1.0 on them. `nvfp4-v3-dflash2-vision` is back at 262,144 after being lowered to
+240,000 the same day: the lane was refused at startup at 262,144 until the artifact behind it was
+rebuilt with its BF16 exception projections encoded to NVFP4 — see
 [swift15-lane-measurement.md](research/swift15-lane-measurement.md).
 
 - **`buffer: 8000`** rather than the 20,000 default. The buffer is the margin the compaction

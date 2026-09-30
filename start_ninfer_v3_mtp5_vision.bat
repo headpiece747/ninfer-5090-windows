@@ -3,10 +3,10 @@ REM ============================================================================
 REM  NVFP4-full + MTP5 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 231.2 tok/s   draft acceptance 56.8%
-REM      runtime 9.96 GiB   free VRAM 3.01 GiB
+REM      context 262,144   decode 204.4 tok/s   draft acceptance 53.7%
+REM      runtime 11.3 GiB   free VRAM 1.64 GiB
 REM
-REM  MTP lane on the second artifact. Depth 5 measured fastest of 2-5 here and is the one depth the 2026-09-28 re-measurement confirmed unchanged. Note that its d4 is the worst depth on any lane (172.8 against d5's 234.1) while accepting least, so depth is not monotone in either direction and cannot be carried between artifacts.
+REM  MTP lane on the second artifact, and the one lane where the BF16 exception projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's context costs this lane 21.4 acceptance points and 26.8 % throughput, measured interleaved against the no-exception build. Depth 5 measured fastest of 2-5 here. The recorded 231.2/56.8% of 2026-09-28 does not reproduce on the same flags and binary; runtime on every lane has grown about a gigabyte since, and 204.4 is what this configuration serves today.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable

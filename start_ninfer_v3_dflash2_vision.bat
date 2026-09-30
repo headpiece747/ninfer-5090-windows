@@ -3,10 +3,10 @@ REM ============================================================================
 REM  NVFP4-full + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 240,000   decode 230.3 tok/s   draft acceptance 37.1%
-REM      runtime 10.9 GiB   free VRAM 1.47 GiB
+REM      context 262,144   decode 290.0 tok/s   draft acceptance 48.7%
+REM      runtime 11.6 GiB   free VRAM 1.51 GiB
 REM
-REM  Context lowered from 262,144 on 2026-09-30, and this is a fix rather than a demotion: the lane was REFUSED at startup and could not start at all. It served 262,144 on 2026-09-28 at 10.3 GiB runtime; runtime is now 10.9 GiB at 240,000 and 11.5 GiB at 262,144, which is the same growth that cost the two Swift lanes their native context. QUASAR and NVIDIA still serve 262,144 on this build, on 1.51 and 1.37 GiB free, so the margin between serving and being refused is under a gigabyte. Three interleaved rounds, 1.3% spread. The 262,144 figure of 304.6 tok/s / 53.8% was recorded 2026-09-28 and does not reproduce; the ceiling probe is the authority for what serves.
+REM  This lane is REFUSED at startup on the BF16-exception image and was, until 2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after weights -- short by 308 MiB. Encoding the nine BF16 exception parents to NVFP4 is 0.7 GiB and clears it, at 17.2 GiB of device weights against 17.9, and the lane then reads the same 1.51 GiB free that QUASAR does. That costs 0.087 % perplexity overall (5.002751 against 4.998419, same binary same day) and buys back the native context plus 24.8 % throughput and 11.6 acceptance points on this route. The exceptions stay on the MTP lane below, where they are worth far more than they cost here.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -44,8 +44,8 @@ REM too. An absolute path here bakes one machine's checkout into a file that shi
 REM made the generated launchers unverifiable anywhere else.
 set "SERVE=%~dp0ninfer-serve.exe"
 if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
-set "MODEL=%~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer"
-if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer"
+set "MODEL=%~dp0models\qwen3_8_27b_nvfp4full_noex.v3.ninfer"
+if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4full_noex.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
 REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
 REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
@@ -64,8 +64,8 @@ if not exist "%SERVE%" (
 )
 if not exist "%MODEL%" (
     echo [ERROR] Artifact not found.
-    echo         Expected models\qwen3_8_27b_nvfp4full.v3.ninfer beside this launcher,
-    echo         or C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer
+    echo         Expected models\qwen3_8_27b_nvfp4full_noex.v3.ninfer beside this launcher,
+    echo         or C:\AI\models\qwen3_8_27b_nvfp4full_noex.v3.ninfer
     echo         Run download_model.bat to fetch it.
     pause
     exit /b 1
@@ -148,7 +148,7 @@ if not errorlevel 1 (
   --host 127.0.0.1 ^
   --port 8088 ^
   --model-id qwen3.8-27b-nvfp4-v3-dflash2-vision ^
-  --max-context 240000 ^
+  --max-context 262144 ^
   --device-state-slots 1 ^
   --kv-capacity auto ^
   --kv-dtype fp8 ^

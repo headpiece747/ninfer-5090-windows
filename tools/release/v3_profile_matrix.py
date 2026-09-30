@@ -80,6 +80,17 @@ ARTS = {
 SUPERSEDED = Path(r"C:\AI\models\_superseded")
 ARTS["swift15q8"] = str(SUPERSEDED / "qwen3_8_27b_nvfp4swift15_q8draft.v3.ninfer")
 ARTS["swift"] = str(SUPERSEDED / "qwen3_8_27b_nvfp4swift.v3.ninfer")
+# NVFP4-full with its nine BF16 exception parents encoded to NVFP4. Kept addressable because it is
+# the candidate that restores the native context on the DFlash2 + Vision lane, and every figure
+# quoted for it is measured against the BF16-exception build under the same name below.
+ARTS["nvfp4fullnoex"] = "qwen3_8_27b_nvfp4full_noex.v3.ninfer"
+# ART_BY_FILE maps a profile's `art` field back to an ARTS key, so it only covers the shipping
+# artifacts in the model directory, whose ARTS values are bare filenames. The two superseded entries
+# above are absolute paths under _superseded and are deliberately unreachable through profile mode:
+# a retired artifact must not be startable by naming a lane. Sweeps reach them by --art directly,
+# which is what the Swift 1.0 and Q8-draft controls in the measurement record use.
+ARTS_BY_FILE = {artifact: key for key, artifact in ARTS.items()
+                if not Path(artifact).is_absolute()}
 LADDER = [262144, 240000, 212992, 180224, 163840, 131072]
 MTP_DEPTHS = [2, 3, 4, 5]
 
@@ -128,6 +139,15 @@ CEILINGS = {
     ("nvfp4full", "mtp", True, True): 262144,
     ("nvfp4full", "dflash2", False, True): 262144,
     ("nvfp4full", "dflash2", True, True): 240000,
+    # nvfp4fullnoex: the same line with its nine BF16 exception parents encoded to NVFP4, measured
+    # 2026-09-30. 17.2 GiB of device weights against the BF16 build's 17.9, and that 0.7 GiB is what
+    # the refusal was about: at 262,144 with Vision the BF16 build needs 11.63 GiB of reservation plus
+    # 1 GiB of automatic headroom against 12.33 GiB available after weights, short by 308 MiB, while
+    # this build reads 1.51 GiB free on the same configuration -- the same margin QUASAR has.
+    ("nvfp4fullnoex", "mtp", False, True): 262144,
+    ("nvfp4fullnoex", "mtp", True, True): 262144,
+    ("nvfp4fullnoex", "dflash2", False, True): 262144,
+    ("nvfp4fullnoex", "dflash2", True, True): 262144,
     # swift (UkisAI's 1.0 finetune, re-encoded by this port), re-measured 2026-09-30. The three
     # 262,144 rows hold; Vision + DFlash2 is refused at 262,144 and serves 240,000, where the
     # 2026-09-24 probe recorded 262,144 at 10.7 GiB. That is a runtime change, not a source change:
@@ -523,9 +543,6 @@ def refusal_reason(text: str) -> str:
 
 # ------------------------------------------------------------------ one profile run
 
-ART_BY_FILE = {artifact: key for key, artifact in ARTS.items()}
-
-
 def profile_args(profile: dict, log_jsonl: Path,
                  slots: str | None = None) -> tuple[list[str], str]:
     """Arguments for one *shipped* profile, composed through profiles.launcher_args.
@@ -620,7 +637,7 @@ def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = Fa
                           lm_head=lm_head, kv_dtype=kv_dtype)
     else:
         args, CURRENT_MODEL_ID = profile_args(profile, jsonl, slots=slots)
-        art, spec, draft = ART_BY_FILE[profile["art"]], profile["spec"], profile["draft"]
+        art, spec, draft = ARTS_BY_FILE[profile["art"]], profile["spec"], profile["draft"]
         vision, max_context = bool(profile["vision"]), profile["ctx"]
     proc, fh = start(profile, args, log)
     ready = wait_ready(PORT, proc)
