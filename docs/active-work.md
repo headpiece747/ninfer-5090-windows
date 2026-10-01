@@ -1,4 +1,4 @@
-# Active work — 2026-09-28
+# Active work — current as of 2026-10-01
 
 **This file is temporary.** It is the single current record of work in progress. Per `AGENTS.md`,
 remove it when the list is empty; do not grow it into a roadmap and do not add a parallel `v2`.
@@ -14,7 +14,24 @@ artifacts do not need rebuilding**. What the merge invalidated is the recorded p
 
 ---
 
-## Open, in order
+## The item list, in order
+
+**Read the heading before the body: most of these are settled.** The list is kept in its original
+order and its original numbering, because a settled item is a record of how a question was answered
+and renumbering them would break every cross-reference to it. Each heading carries its own status
+(`DONE`, `ANSWERED`, `CLOSED`, `RESOLVED`, `NOT RUNNABLE`, or `Triaged … KEEP` for the ones still
+open). As of 2026-10-01 the only items with work outstanding are:
+
+- **item 5** — the Recall@1 / Recall@16 / path-acceptance split. Triaged `KEEP`; not started.
+- **item 12, second half** — the nine `PORT-DISPATCH` gates on the FP8 A8 TMA route. The cause is
+  established and the fix has landed; ungating is a separate performance decision. See the
+  `RESOLVED` block at the top of item 12.
+- **item 14, speed half** — the first request being *faster*, which nothing in the literature
+  explains. The text half is answered (prefix caching, documented engine behaviour).
+
+Everything else below is closed, answered or negative, and is kept because the reasoning is the
+durable part. The header date was `2026-09-28` until 2026-10-01, when it was corrected: the file's
+most recent item is dated 2026-10-01 and the old header under-dated its own contents by three days.
 
 ### 1. Perplexity regression on a real artifact, post-merge — **DONE 2026-09-28**
 **Why:** 88 attention files were rewritten wholesale. The suite passes, but the suite does not check
@@ -309,8 +326,9 @@ ships. The withdrawn "within 0.08 % of BF16" figure — traced to NVFP4-KV again
 Qwen3.5-397B-A17B, a different model on a different baseline, not k8v4 at all — stays withdrawn.
 
 ### 8. MTP draft window 5 to 10 — **NOT RUNNABLE ON THIS TREE, closed 2026-09-30**
-The engine refuses to start above 5. `startup.cpp:785` raises "MTP draft window must be in [1,5]"
-against `kMaximumMtpDraftTokens = 5` (`program/internal.h:11`), so windows 8 and 10 cannot be
+The engine refuses to start above 5. `src/models/qwen3_5/program/planning/startup.cpp:798` raises
+"MTP draft window must be in [1,5]" against `kMaximumMtpDraftTokens = 5`
+(`src/models/qwen3_5/program/internal.h:11`), so windows 8 and 10 cannot be
 requested at all — the item's comparison is not a measurement this tree can make. **Raising that cap
 is the only way to run the item**, and nothing here argues for it.
 
@@ -347,7 +365,10 @@ Do not read this row as an argument for finishing it.
 `candidate_selector_tree`, `speculative_accept_tree_drafts`, `speculative_compact_columns`, tree-aware
 GDN replay and tree-aware target attention, each with a host oracle.
 **Expected value is low, and that is the finding, not a reason to skip it:** the selector's value is
-inversely proportional to drafter strength, and our shipping DFlash2 lanes accept 52-67%. The +55%
+inversely proportional to drafter strength, and our shipping DFlash2 lanes accept **48.7%–63.0%**
+(`tools/release/profiles.py`: NVFP4-full 48.7%, QUASAR 55.0%, NVIDIA 56.2%, Swift 1.5 63.0%; this
+figure previously read 52-67% here and 52-69% in the closed-items table, and neither matched any
+recorded lane). The +55%
 reference was measured on a lane accepting 27%.
 
 **The research is already done and is better than anything I would add here.** Read
@@ -546,6 +567,8 @@ configuration nobody was checking.
 
 **Attempted 2026-09-29, first aborted, then merged the same day. Suite green with it: 135 tests,
 133 passed, the two by-construction `dflash_real` and `moe_real`; `check_test_baseline.py` GATE PASSED.**
+*(A dated record of that day's run, not the current size: the suite is 137 — see the reconciliation
+below the merge narrative. The 135 and 133/135 figures are what the gate read on 2026-09-29.)*
 
 `upstream/dev` is at `d44ab584` and we were 14 behind, 426 ahead. The merge touches 171 files. It is
 **five conflicts, all documentation** — every kernel, program file and test auto-merges, and the merge
@@ -582,14 +605,24 @@ unaffected. Resolutions, to reuse rather than re-derive:
    on both counts. Both comments are corrected; the divergence is deliberate, not drift.
 
    **Correction to this item's own recorded reason, 2026-10-01 — the mechanism is not what the comments
-   say.** The in-tree comments justify the fix as inheriting `TENSOR_MAP_ALIGN = 64` under MSVC. On this
-   build it inherits **8**: `__cplusplus` is `199711` without `/Zc:__cplusplus`, so `cuda.h`'s `alignas`
-   never fires and the header's `_MSC_VER` branch is dead code. **The shipped W4A4 route is correct by
-   layout accident, not by the mechanism recorded** — descriptors first at 128 bytes each give offsets
-   0/128/256/384, all 16-aligned, which is why it works. Anyone reasoning from the comment would draw
-   the wrong conclusion about which property is load-bearing. A sweep of this toolchain also shows
-   `alignas` 8/16/32/64 accepted and **128 and 256 rejected with four C2719 sites each**, all in nvcc's
-   generated host stub.
+   said, and the comments have since been corrected to say so.** The comments in three kernel headers
+   justified the fix as inheriting `TENSOR_MAP_ALIGN = 64` under MSVC. That is false: on this build
+   `CUtensorMap` inherits **8**, because `__cplusplus` is `199711` without `/Zc:__cplusplus`, so
+   `cuda.h`'s `alignas` never fires and the header's `_MSC_VER` branch is dead code. **The shipped W4A4
+   route is correct by layout accident, not by the mechanism those comments recorded** — descriptors
+   first at 128 bytes each give offsets 0/128/256/384, all 16-aligned, which is why it works. Anyone
+   reasoning from the old comment would draw the wrong conclusion about which property is load-bearing.
+   A sweep of this toolchain also shows `alignas` 8/16/32/64 accepted and **128 and 256 rejected with
+   four C2719 sites each**, all in nvcc's generated host stub.
+
+   **The correction is in the tree, in `38cdc8e0`** ("correct three TMA comments that named the wrong
+   mechanism, and land the probe that measures it"). `src/ops/linear/bf16/bf16_a16_tma_mma.cuh:14-34`
+   now states the opposite in its own words — "the reason is **NOT** the one an earlier revision of this
+   comment gave … The attribute is not applied at all" — and quotes the probe's output
+   (`alignof(CUtensorMap) = 8, TENSOR_MAP_ALIGN = 64, __cplusplus = 199711, attribute applied: NO`).
+   `src/ops/common/mbarrier.cuh` and the two other headers were corrected with it. The measurement
+   above is unchanged and is the reason the comments now say what they say; what changed is that the
+   tree no longer contradicts it.
 
    **The deferral risk is live, and the premise about who carries the attribute is wrong.** Upstream
    `Neroued/ninfer` still carries `alignas(128)` on all three descriptor structs on **both `dev` and
@@ -662,7 +695,9 @@ unaffected. Resolutions, to reuse rather than re-derive:
 
    **2026-10-01, later: TMA availability is now MEASURED, not inferred, and the answer is yes.**
    `bench/ops/linear_bench.cu` run at `--qtype BF16 --n 14336 --k 5120 --t 128` selects
-   `launch_bf16_tma_mma` — `src/ops/linear/bf16/shapes/n14336_k5120.cu:27` routes `tokens <= 128` to it,
+   `launch_bf16_tma_mma` — `src/ops/linear/bf16/shapes/n14336_k5120.cu:24-25` routes `tokens <= 128`
+   to it (line 24 is the `if`, line 25 the `return launch_bf16_tma_mma<…Bf16A16TmaR64T128K64S2…>`;
+   the `:27` this used to cite is the `tokens <= 192` branch, one below it),
    and unlike the FP8 route it carries **no `_WIN32` gate**. It completes and exits 0 on this RTX 5090.
    (The bench times rather than validating against an oracle, so exit 0 proves the kernel *ran without
    faulting* — which is exactly what the control needed, and is not a statement about its numerics.)
@@ -722,17 +757,37 @@ unaffected. Resolutions, to reuse rather than re-derive:
 `ninfer_qwen3_5_dflash_prefill_real_test` was added to `required_tests`: it reads `NINFER_TEST_ARTIFACT`
 and skipped without it, and it passed against this product's artifact in 6.73 s, so the evidence the
 gate exists to demand is available here. `ninfer_bench_fixtures_test` needs no artifact and so belongs to
-neither list. The count was derived by enumerating both registration macros across all thirteen
-registration sites under `tests/` and differencing that set against `HEAD` — deriving it from recorded
-numbers alone is what produced two wrong counts in this file before, and a first pass that scanned two
-files and one macro found the net as zero and missed both additions.
+neither list.
 
-**The 135 above is this merge's figure and it was correct on the day. The suite is now 136** — the
-`topk_logprobs` Op and its test landed 2026-09-29, after this was written. `tools/release/test_baseline.json`
-is the authority and records 137, so a reader comparing this file against the baseline should expect the
+**The count-derivation method, corrected, because as previously written it does not reproduce the
+number.** The earlier text here said the count came from "enumerating both registration macros across
+all thirteen registration sites under `tests/`". Run against the current tree that yields **135, not
+137**, across **eleven** sites, so the method as stated was wrong twice. Enumerated by hand on
+2026-10-01: `ninfer_add_test` / `ninfer_add_op_test` are called from **eleven** files under `tests/`
+(`artifact/`, the five `cmake/` files except `NinferTests.cmake` which only defines the macros,
+`models/qwen3_5/`, `ops/tests.cmake` and its four `ops/linear*/` includes) for **96** literal names;
+`ops/tests.cmake`'s `ninfer_op_tests` list adds **28**; `CoreTests.cmake`'s `sync_modes` loop adds
+**4**; and **10** further registrations are bare `add_test(NAME …)` calls that use neither macro
+(`ninfer_public_api_test`, `ninfer_device_sync_invalid_test`, `ninfer_device_sync_empty_test`,
+`ninfer_chat_templates_test`, `ninfer_artifact_writer_interop_test`,
+`ninfer_context_cost_measure_test`, `ninfer_kv_cache_append_nvfp4_test`,
+`ninfer_kv_cache_append_k8v4_test`, `ninfer_release_launcher_generation_test`, and the fourth
+`sync_modes` entry). 96 + 28 + 4 + 10 = **137**, which `ctest --test-dir build-test -N` reports as
+"Total Tests: 137" and `tools/release/test_baseline.json` records as `suite_size`. The two macros
+alone miss the two loop bodies (a regex over them matches the templates `ninfer_${op}_test` and
+`ninfer_device_sync_${mode}_test`, not their expansions) and all ten bare `add_test` calls — which is
+exactly the 135-vs-137 gap, and why the earlier text was confident and wrong. Deriving a count from
+recorded numbers alone is what produced two wrong counts in this file before, so the enumeration is
+worth keeping; it has to be complete to be worth anything.
+
+**The 135 above is this merge's figure and it was correct on the day. The suite is now 137** — the
+`topk_logprobs` Op and its test took it to 136 on 2026-09-29, and `ninfer_topk_record_test` took it
+to 137 on 2026-09-30, both after this was written. The intermediate "136" this paragraph used to
+quote was already stale on the day it was written: it named only the first of the two additions.
+`tools/release/test_baseline.json` is the authority and records 137, corroborated by
+`ctest --test-dir build-test -N`, so a reader comparing this file against the baseline should expect the
 difference rather than treat either as wrong. Annotated rather than edited in place: a dated record of
-what a merge produced should not be rewritten to match a later state. The count-derivation method above
-is the part worth reusing, and it still holds.
+what a merge produced should not be rewritten to match a later state.
 
 **Not established:** why the FP8 TMA kernel faults. It may be an sm_120a limitation or a defect in
 upstream's kernel, and telling upstream it faults on a consumer Blackwell target is worth doing either
@@ -745,6 +800,9 @@ way.
 **2026-09-29, after the `d44ab584` merge. The suite is green at 133/135; the two failures are
 `dflash_real` and `moe_real`, which fail by construction because this product ships no `dflash`
 component and no 35B-A3B MoE checkpoint. `check_test_baseline.py` GATE PASSED.**
+*(A dated record of that day's run, not the current size: the suite is **137** now —
+`tools/release/test_baseline.json` `suite_size`, corroborated by `ctest --test-dir build-test -N`.
+The current known failures are the same two.)*
 
 **The gap: 265 lines of shipped kernel with no unit coverage.** `candidate_selector_path` dispatches
 on `predecessor_codebook.qtype` alone, so the NVFP4 route runs whenever the predecessor is NVFP4. It
@@ -925,7 +983,7 @@ Each of these was investigated and settled. They look like open work and are not
 | **The drafter's block uses a causal-over-block mask** | Refuted. The reference is non-causal (DFlash paper section 4.2; the published checkpoint sets `is_causal: false`), and `context_query.cuh:275-283` already gives every query row `valid_keys = valid` with no causal predicate. |
 | **Re-measure at T=1.0 to match the model card** | Backwards. DFlash2's selector measures 4.61 at T=0 against 4.25 at T=1; greedy is the *favourable* side. Re-measuring at T=1 would widen the gap. |
 | **The planner's `chunked_target` topology class causes the acceptance cliff** | Refuted by measurement. Acceptance is bit-identical before and after `a012e2bc` removed the predicate. The class selected which shared `cudaGraphExec_t` a profile reused, not which kernel ran. |
-| **Acceptance is low because our drafter is mismatched to the target** | True of `qwen3_8_27b_nvfp4.v3.ninfer` (unsloth quantization plus official drafter — upstream issue 298 section 3 documents 3.3-5.1% for exactly that pairing), but that artifact **is not a shipping lane**. The four shipping lanes accept 52-69%. |
+| **Acceptance is low because our drafter is mismatched to the target** | True of `qwen3_8_27b_nvfp4.v3.ninfer` (unsloth quantization plus official drafter — upstream issue 298 section 3 documents 3.3-5.1% for exactly that pairing), but that artifact **is not a shipping lane**. The four shipping DFlash2 lanes accept **48.7%–63.0%** (`tools/release/profiles.py`; this row previously read 52-69%, and item 9 read 52-67% for the same measurement — neither matched the recorded per-lane figures). |
 | **Take the full 16-commit upstream merge** | The 7 fp8 TMA commits needed an `alignas(64)` descriptor, which landed in `a5077adf`; they compile and run on MSVC now. The nine dispatch gates that hid them are the only thing still holding the route back. Three one-line `alignas` reapplications, already validated here. |
 | **The NVFP4 block scale should be searched, not taken from the block max** | Measured on the weights that are actually re-encoded, and it loses: 4.925917 against 4.915181 paired in one window, while weight reconstruction error fell 40-66 %. It cannot be said about `NVFP4MSECalibrator` at all: that calibrator's 193 sites are the MLP and `lm_head`, which this recipe imports unencoded, while the re-encoded attention sites are FP8 `MaxCalibrator` in the source. See item 2 and `docs/perplexity-baseline.md`. Lower weight error is not better output quality. |
 | **Lower quantization error implies better perplexity** | The same measurement, stated as the general form. A searched scale that clips a block's largest value reduces squared error on that block and costs output quality, because the large value is carrying signal. Qualify a converter change on perplexity, never on reconstruction error. |
@@ -940,10 +998,12 @@ Each of these was investigated and settled. They look like open work and are not
 ## Also worth doing, small
 
 - `--ngram chain` is accepted, validated against the backend, carried into `Program`, and produces
-  nothing: `ngram_drafted_tokens` and `ngram_accepted_tokens` are declared at `types.h:761-762` and
-  written nowhere, and `impl->ngram` (`startup.cpp:819`) is never read. **It does not reserve
-  288 MiB** — that allowance went with `ngram_policy.h` in `8c7242e6`, and `startup.cpp:884` now says a
-  copy round runs at the round's own width and provisions nothing extra. **This is now a withdrawal
+  nothing: `ngram_drafted_tokens` and `ngram_accepted_tokens` are declared at
+  `include/ninfer/types.h:786-787` and written nowhere, and `impl->ngram`
+  (`src/models/qwen3_5/program/planning/startup.cpp:833`) is never read. **It does not reserve
+  288 MiB** — that allowance went with `ngram_policy.h` in `8c7242e6`, and
+  `src/models/qwen3_5/program/planning/startup.cpp:899-901` now says a copy round runs at the round's
+  own width and provisions nothing extra. **This is now a withdrawal
   item, not a build item.** An earlier revision of this file pointed at item 9 for the fix ("the flag
   is the switch `PromptLookup` needs"); item 9 is closed, so that reasoning no longer holds. What
   remains is that a shipped flag validates, enters the program and produces nothing, and
