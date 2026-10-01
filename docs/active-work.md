@@ -637,6 +637,42 @@ unaffected. Resolutions, to reuse rather than re-derive:
    seconds; adding a rank-3/3d arm is the measurement, and it has not been run. **Do not record this
    as the cause until that arm passes.**
 
+   **2026-10-01, later still: an independent Windows port runs this exact route, and we do two things
+   it does not.** `Wallawalla47/ninfer-custom` has the same `fp8_a8_tma_mma.cuh`, and read at its
+   `master` it matches ours line for line in every respect that has mattered so far — `struct
+   alignas(128) Fp8TmaDescriptors`, the `_WIN32` pointer-passed descriptor macro, a **rank-2**
+   descriptor with `dimensions{k, …}` and a single `strides{k}` entry, and **`cp.async.bulk.tensor.2d`**.
+   Its comment names the same defect in the same terms: *"MSVC cannot pass the over-aligned
+   (alignas(128)) CUtensorMap struct by value as a `__grid_constant__` parameter (C2719), so on Windows
+   the descriptors are pointer-passed"*. So the C2719 and the pointer workaround are **not this port's
+   invention** — another Windows port hit them independently and resolved them the same way.
+
+   **It also does not gate the route off.** Its launch site calls the TMA kernel on `_WIN32`; ours
+   dispatches the pre-merge body instead. Two concrete differences, both of which we lack:
+
+   1. **It emits the tensormap proxy acquire that we established our tree is missing.** Inside the
+      kernel, under `_WIN32`, before the first copy: *"A staged tensor map was written through the
+      generic proxy; each 128-byte map needs its own acquire for the TMA (tensormap) proxy before its
+      first use"*, then `acquire_staged_tensor_map(&descriptors.activation)` and the same for
+      `.weight`. That is precisely the `fence.proxy.acquire.tensormap::generic` requirement from PTX
+      ISA §8.8.4, applied once per 128-byte map.
+   2. **Its descriptor has a persistent home.** It uses `core/tma_descriptor_staging.cuh` — a
+      `TmaDescriptorStaging<Fp8TmaDescriptors>` singleton with a device buffer reused across launches —
+      and the launch comment reads *"Staged once: every token-slice launch below reads the same copy,
+      in stream order."* Ours `cudaMallocAsync`es and `cudaFreeAsync`es a block **inside every
+      launch**, relying on both being stream-ordered to be safe.
+
+   **This is the strongest lead this item has, and it partly answers "why does nobody else hit this":
+   another Windows port runs the route, with the same descriptor shape and the same MSVC workaround, and
+   it does the two things this tree does not.** It also weakens the 2d-versus-3d hypothesis above,
+   because that port uses `.2d` and is not reported as disabled — so `.2d` is **not** shown to be the
+   problem, and that hypothesis should be demoted rather than pursued first.
+
+   **What is not established:** that their port *runs* this route successfully. I read their source, not
+   their CI, benchmarks or issues — nothing here is a measurement that their FP8 TMA route executes on
+   Windows. And the acquire fence alone did **not** fix our standalone reproducer, so it is not
+   sufficient by itself; the staging lifetime may be the part that matters, or the pair may be.
+
 **The suite grew 133 to 135 from this merge**, which `tools/release/test_baseline.json` now records, and
 `ninfer_qwen3_5_dflash_prefill_real_test` was added to `required_tests`: it reads `NINFER_TEST_ARTIFACT`
 and skipped without it, and it passed against this product's artifact in 6.73 s, so the evidence the
