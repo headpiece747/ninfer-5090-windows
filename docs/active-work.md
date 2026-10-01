@@ -131,7 +131,7 @@ Two things make the alternative uninteresting rather than merely unmeasured:
 the 1.26 GiB acquires a consumer.
 Full evidence: `docs/research/quantization-coverage-evidence.md`.
 
-### 4. The vision tower is quantized in all four artifacts and BF16 in all three sources — **KEEP, and it is now the strongest revert candidate on this list**
+### 4. The vision tower is quantized in all four artifacts and BF16 in all three sources — **RESOLVED 2026-10-01: keep it, on a measurement**
 **A precision note first, because it changes what is being decided.** The tower is *not* NVFP4. It is
 grouped-integer, assigned at `official_recipes.py:24-39`: `patch_embedding` Q6, `merger/` Q8,
 `attention/{query,key,value}` and `mlp/fc1` Q4, everything else Q5. Verified on the artifact rather than
@@ -380,7 +380,7 @@ digest-based control in the bench depends on.
 against our own baseline. **"Built, measured, and not shipped" is an acceptable outcome** and should be
 reported as one.
 
-### 10. The A4 activation divisor at the re-encoded attention sites — **PREMISE CORRECTED 2026-10-01, downgraded**
+### 10. The A4 activation divisor at the re-encoded attention sites — **CLOSED 2026-10-01: the divisors are right, and the cited failure mode is not evidenced here**
 **The reason this item was open is wrong, and it was wrong in this file.** The claim was that the
 `activation_input_divisor` is "recovered from a source `input_scale` the producer calibrated for
 **FP8**", so that "a divisor sized for 8-bit activations is not obviously roomy enough for 4-bit ones."
@@ -409,14 +409,47 @@ Three findings bound how far that concern can be taken:
    0.4219]` is a 90× spread across blocks, which is the *shape* max calibration produces; it does not
    by itself show the small blocks are being harmed.
 
-**Disposition: keep, but as an untried improvement rather than a suspected bug.** Nothing here suggests
-the divisors are wrong, and the evidence that they might be is a risk NVIDIA also accepts on the same
-sites. That is a weaker claim than the one this item made, and it should not be described as a
-documented failure mode any more.
-**Done when:** unchanged in substance — compare the A4 divisors against headroom-anchored ones on one
-shipping lane, measuring perplexity and decode acceptance. Needs a calibration corpus, so it is a real
-cost. Re-scope it to `qwen3_8_27b_nvfp4_nvidia`, which is the recipe that re-encodes the 128 groups;
-the two shipping lanes use `..._unsloth_noex` and `..._swift15_nvdraft`.
+**Disposition: CLOSED.** Five findings, and they do not leave a defect — they remove the reason there
+was an item.
+
+1. **The derivation matches NVIDIA's own schema, stated in their source.** The exported divisor is
+   `amax / 448` at an FP8 site and `amax / 2688` at an NVFP4 one (ModelOpt `config.py:684`). Our
+   `FULL_RANGE = 2688.0` **is** that constant, and the two branches of the `_activation_divisor` probe
+   agree by construction because 6 is the conversion between them. This is no longer an inference from
+   a docstring.
+2. **Our static choice is what published engines do — for exactly this format.** vLLM, SGLang and
+   TensorRT-LLM all read a per-tensor NVFP4 activation global scale **out of the checkpoint** and use it
+   statically; only the 16-wide E4M3 block scale is computed at runtime. So the choice this item
+   questioned is the mainstream one for the format the `AllowA4` sites use.
+3. **The failure mode is not present in our data, and the datum offered as evidence argues against
+   it.** The subnormal flush needs a block scale below the E4M3 normal floor, `2**-6 = 0.015625`
+   (NVIDIA carries this as `_FP8_NORMAL_DYNAMIC_RANGE = 448 / 2**-6 = 28672`, and it doubles as the
+   `rho` validation bound). This item cited `mlp.gate_proj`'s `amax=[0.0047, 0.4219]` — a 90x spread —
+   as "exactly that shape". Recomputed here: that gives a smallest block scale of **4.99** against an
+   FP8 global scale and **29.9** against an NVFP4 one, which is **319x and 1917x above the floor**. The
+   spread is real; it is two to three orders of magnitude short of the mechanism it was offered for.
+4. **No published measurement says headroom calibration is better.** There is no perplexity or accuracy
+   comparison of max-calibrated against headroom/percentile-calibrated activation scales anywhere;
+   every row of NVIDIA's published NVFP4 accuracy table is weight-side. The calibrator is opt-in, and
+   NVIDIA's own shipped Qwen3.8-27B uses plain max on these very sites.
+5. **The 40x divisor disagreement is unresolved but is not evidence of a bug in ours.** Both figures are
+   the same statistic — per-tensor absmax of the same module input — so per-tensor-versus-per-block
+   does not explain it, and corpus choice is not the only candidate: NVIDIA fake-quantizes weights
+   *before* the activation forward (this port does not), propagates activations layerwise through QDQ,
+   and differs in sequence structure, padding and token count. **The in-tree note's own arithmetic does
+   not reconcile either** — "amax ~ 2092 / 5.12, a ratio of 0.025 in divisor" gives 410, not 0.025, and
+   the direction is inverted relative to its own table. That figure is withdrawn.
+
+**One observation the research turned up that this tree does not examine, recorded so it is not lost.**
+The static/dynamic split runs the other way for FP8: all three engines default to *runtime-computed*
+per-tensor activation scales for FP8, while this port carries 512 static input divisors. That is a real
+difference and it is not obviously wrong — a static scale skips a per-token reduction, and this
+artifact's perplexity is measured and good. It is an observation, not a defect, and it is not on the
+critical path to this item's answer. If it is ever worth a look, the question is whether the FP8 sites'
+divisors were calibrated on a corpus representative of production traffic.
+
+Evidence, including the four competing calibrator policies and the survey behind them:
+`docs/research/activation-scale-method-evidence.md`.
 
 Retained because it is the producer's own statement of the residual risk, not an inference:
 ModelOpt's `NVFP4ActHeadroomCalibrator` exists because plain max calibration of the activation global
