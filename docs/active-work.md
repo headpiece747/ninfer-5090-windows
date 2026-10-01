@@ -615,6 +615,28 @@ unaffected. Resolutions, to reuse rather than re-derive:
    that the honest answer to "is TMA available on this GPU" is yes — so the divergence from upstream
    should not be written up as a hardware limitation, because the evidence does not support that.
 
+   **2026-10-01, later: TMA availability is now MEASURED, not inferred, and the answer is yes.**
+   `bench/ops/linear_bench.cu` run at `--qtype BF16 --n 14336 --k 5120 --t 128` selects
+   `launch_bf16_tma_mma` — `src/ops/linear/bf16/shapes/n14336_k5120.cu:27` routes `tokens <= 128` to it,
+   and unlike the FP8 route it carries **no `_WIN32` gate**. It completes and exits 0 on this RTX 5090.
+   (The bench times rather than validating against an oracle, so exit 0 proves the kernel *ran without
+   faulting* — which is exactly what the control needed, and is not a statement about its numerics.)
+
+   **That control is what makes the next hypothesis specific, and it is the strongest lead this item
+   has: the working route and the failing route differ in the TMA variant they issue.**
+
+   | | working BF16 route | failing FP8 route |
+   |---|---|---|
+   | descriptor | `bf16_tma_map` — **rank 3**, K factored into 128-byte sectors | `fp8_tma_map` — **rank 2** |
+   | copy instruction | `cp.async.bulk.tensor.3d` | `cp.async.bulk.tensor.2d` |
+
+   **Not yet tested**, and it is the obvious next step: that `cp.async.bulk.tensor.2d` is what fails on
+   sm_120a while `.3d` works. If so the fix is not exotic — it is to give `fp8_tma_map` the rank-3,
+   sector-factored shape `bf16_tma_map` already uses, which is a descriptor change inside one
+   function. The standalone reproducer already has a rank-2/2d arm that reproduces the fault in two
+   seconds; adding a rank-3/3d arm is the measurement, and it has not been run. **Do not record this
+   as the cause until that arm passes.**
+
 **The suite grew 133 to 135 from this merge**, which `tools/release/test_baseline.json` now records, and
 `ninfer_qwen3_5_dflash_prefill_real_test` was added to `required_tests`: it reads `NINFER_TEST_ARTIFACT`
 and skipped without it, and it passed against this product's artifact in 6.73 s, so the evidence the
