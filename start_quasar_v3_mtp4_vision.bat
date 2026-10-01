@@ -1,12 +1,12 @@
 @echo off
 REM ============================================================================
-REM  NVFP4-full + MTP5 + Vision
+REM  QUASAR QAT + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 209.2 tok/s   draft acceptance 53.7%
-REM      runtime 9.96 GiB   free VRAM 2.99 GiB
+REM      context 262,144   decode 221.2 tok/s   draft acceptance 59.6%
+REM      runtime 9.96 GiB   free VRAM 3.40 GiB
 REM
-REM  MTP lane on the second artifact, and the one lane where the BF16 exception projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's context costs this lane 21.4 acceptance points and 26.8 % throughput, measured interleaved against the no-exception build. Depth 5 measured fastest of 2-5 here. Three recorded generations of this lane have failed to reproduce in turn -- 231.2/56.8% of 2026-09-28, then 204.4/53.7%, and 209.2/53.7% on 2026-09-30 after the tiled saturation guard. Acceptance has been 53.7% throughout the last two, so only the throughput moved. Depth 5 has not been re-measured against 1-4 since 2026-09-28. This lane's 2.99 GiB free is the fleet's tightest, because it carries the BF16 exceptions and so has the heaviest weights while its runtime matches every other MTP lane.
+REM  Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against d4's 220.4 and chinese 113.2 against 129.0. On maximin -- the rule this table is chosen by, since the worst domain decides -- d4's worst case is 0.0% and d5's is -17.0%, so d5's best case does not buy its worst. d5 is still faster on prose (121.8 against 116.5) and dialogue (159.6 against 155.1), which is the reversal that makes the code domain alone the wrong single domain to read.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -44,8 +44,8 @@ REM too. An absolute path here bakes one machine's checkout into a file that shi
 REM made the generated launchers unverifiable anywhere else.
 set "SERVE=%~dp0ninfer-serve.exe"
 if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
-set "MODEL=%~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer"
-if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer"
+set "MODEL=%~dp0models\qwen3_8_27b_nvfp4qat.v3.ninfer"
+if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
 REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
 REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
@@ -64,8 +64,8 @@ if not exist "%SERVE%" (
 )
 if not exist "%MODEL%" (
     echo [ERROR] Artifact not found.
-    echo         Expected models\qwen3_8_27b_nvfp4full.v3.ninfer beside this launcher,
-    echo         or C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer
+    echo         Expected models\qwen3_8_27b_nvfp4qat.v3.ninfer beside this launcher,
+    echo         or C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer
     echo         Run download_model.bat to fetch it.
     pause
     exit /b 1
@@ -121,12 +121,12 @@ for %%D in (avcodec avformat avutil swscale swresample) do (
     )
 )
 
-netstat -ano | findstr ":8089" | findstr /I "LISTENING" >nul 2>&1
+netstat -ano | findstr ":8087" | findstr /I "LISTENING" >nul 2>&1
 if not errorlevel 1 (
-    echo [ERROR] Port 8089 is already in use.
+    echo [ERROR] Port 8087 is already in use.
     echo         Something is already listening there. Stop it, or change the --port flag
     echo         in this launcher. To see what holds it:
-    echo             netstat -ano ^| findstr ":8089"
+    echo             netstat -ano ^| findstr ":8087"
     pause
     exit /b 1
 )
@@ -143,11 +143,11 @@ if not errorlevel 1 (
 "%SERVE%" "%MODEL%" ^
   --vision ^
   --spec mtp ^
-  --draft-tokens 5 ^
+  --draft-tokens 4 ^
   --lm-head-draft ^
   --host 127.0.0.1 ^
-  --port 8089 ^
-  --model-id qwen3.8-27b-nvfp4-v3-mtp5-vision ^
+  --port 8087 ^
+  --model-id qwen3.8-27b-quasar-v3-mtp4-vision ^
   --max-context 262144 ^
   --device-state-slots 1 ^
   --kv-capacity auto ^

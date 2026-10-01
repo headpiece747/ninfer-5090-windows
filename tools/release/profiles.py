@@ -111,17 +111,18 @@ PROFILES: list[dict[str, Any]] = [
               "the shipped configuration every DFlash2 lane reads 11.6 GiB and about 1.50 GiB free, "
               "and this row is the measured one. Two earlier figures on this lane, 343.4/62.5% and "
               "the 45.7% published-file reading, had already been withdrawn as not reproducing."),
-    dict(file="start_quasar_v3_mtp5_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
-         label="QUASAR QAT + MTP5 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp5-vision",
-         spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
-         tok=183.5, acc="43.0%", runtime="9.96 GiB", free="3.40 GiB",
-         note="Depth 5 was chosen on 2026-09-28 records that no longer reproduce: this lane reads "
-              "182.3 tok/s at 43.0% acceptance today, against the 250.4/60.5% recorded here until "
-              "2026-09-30. The shortfall is not the prefill-chunk setting -- measured at both 8192 "
-              "and 4096 the lane returns the same 43.0% and a byte-identical digest. **The depth "
-              "choice itself is therefore unrevalidated**: it was made from the stale population, "
-              "and depths 1-5 have not been re-measured since. Do not read this row as evidence "
-              "that depth 5 is still fastest."),
+    dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
+         label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
+         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
+         tok=221.2, acc="59.6%", runtime="9.96 GiB", free="3.40 GiB",
+         note="Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept "
+              "2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this "
+              "depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against "
+              "d4's 220.4 and chinese 113.2 against 129.0. On maximin -- the rule this table is "
+              "chosen by, since the worst domain decides -- d4's worst case is 0.0% and d5's is "
+              "-17.0%, so d5's best case does not buy its worst. d5 is still faster on prose (121.8 "
+              "against 116.5) and dialogue (159.6 against 155.1), which is the reversal that makes "
+              "the code domain alone the wrong single domain to read."),
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
@@ -140,20 +141,24 @@ PROFILES: list[dict[str, Any]] = [
               "this class of lane was thin. The guard now returns about 1.35 GiB, and "
               "`--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% "
               "prefill -- is no longer needed to improve it."),
-    dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
-         label="NVFP4-full + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
-         spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
-         tok=209.2, acc="53.7%", runtime="9.96 GiB", free="2.99 GiB",
+    dict(file="start_ninfer_v3_mtp4_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
+         label="NVFP4-full + MTP4 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp4-vision",
+         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
+         tok=190.3, acc="51.4%", runtime="9.96 GiB", free="2.96 GiB",
          note="MTP lane on the second artifact, and the one lane where the BF16 exception "
               "projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's "
-              "context costs this lane 21.4 acceptance points and 26.8 % throughput, measured "
-              "interleaved against the no-exception build. Depth 5 measured fastest of 2-5 here. "
-              "Three recorded generations of this lane have failed to reproduce in turn -- "
-              "231.2/56.8% of 2026-09-28, then 204.4/53.7%, and 209.2/53.7% on 2026-09-30 after the "
-              "tiled saturation guard. Acceptance has been 53.7% throughout the last two, so only "
-              "the throughput moved. Depth 5 has not been re-measured against 1-4 since 2026-09-28. This lane's "
-              "2.99 GiB free is the fleet's tightest, because it carries the BF16 exceptions and so "
-              "has the heaviest weights while its runtime matches every other MTP lane."),
+              "context costs that lane acceptance points and throughput, measured interleaved "
+              "against the no-exception build. Re-swept 2026-09-30 over depths 1-5 on five domains "
+              "at three interleaved rounds each, this depth changes from 5 to 4: d4 wins prose "
+              "(120.3 against 110.0), chinese (125.3 against 117.4) and dialogue (166.3 against "
+              "140.9), and loses only code (190.6 against 204.8) and repetition by 2.9%, so its "
+              "worst case is -2.9% against d5's -7.5%. **The first pass of this sweep read the wrong "
+              "artifact**: `widths --art ninfer` resolves to cometkim's base `qwen3_8_27b_nvfp4`, "
+              "which is not a shipping lane, while this lane ships `nvfp4full`. Swept on the shipped "
+              "image the verdict is the same, but it had to be re-measured to be known -- the two "
+              "images differ by 26 tok/s on the same configuration, which is wider than the depth "
+              "effect being decided. This lane's 2.96 GiB free is the fleet's tightest, because it "
+              "carries the BF16 exceptions and so has the heaviest weights at the same runtime."),
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,

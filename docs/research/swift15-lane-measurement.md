@@ -261,27 +261,44 @@ So the change worth making is not `--prefill-chunk` and not a revert of the spli
 saturation guard above, which lands in `mxfp8_tiled_partition` and returns the memory **without**
 paying prefill for it — unlike this flag, which pays prefill and leaves the split count untouched.
 
-## A larger lever exists, and this tree does not have it
+## #217: not needed, and the arithmetic agrees
 
 Upstream **#217** ("Concurrency ceiling 8 is too low for large-VRAM GPUs") measured aggregate
 throughput on a 96 GB RTX 5090 running Qwen3.8-27B at 600 tok/request: **429 tok/s at C8, 556 at C16,
 ~732 at C32**, flat or collapsing at C64, with zero failures. Its audit found the cap is
 **validation-only** — every kernel takes batch as a runtime grid dimension, and the ceiling is
 `kMaximumConcurrency` sizing `std::array` members plus scattered `batch > 8` checks. It was closed
-COMPLETED on 2026-09-09.
+COMPLETED on 2026-09-09. **It never landed here**: `include/ninfer/types.h:20` still reads
+`kMaximumConcurrency = 8`, and `git log -S` over every ref shows only the original value ever touched
+it.
 
-**It never landed here.** `include/ninfer/types.h:20` still reads
-`kMaximumConcurrency = 8`, and `git log -S` over every ref shows only the original value and the
-original concurrency commit ever touched it. So a ~70% aggregate-throughput win that upstream accepted
-is unavailable to this port, and all eight lanes additionally run at `--max-concurrency 1`.
+**It should not land here.** Concurrency 1 is this product's operating point by decision. The lanes
+are single-request latency configurations, and a second in-flight sequence divides the same device
+between two requests rather than making either one faster. Higher concurrency is an
+aggregate-throughput lever, and aggregate throughput is not what these lanes are for.
 
-That last part is deliberate rather than an oversight: the lanes are configured for single-request
-latency, where concurrency 1 is correct, and higher concurrency trades per-request latency for
-aggregate throughput. But the **ceiling** is a different question from the lane setting, and the ceiling
-is the part that is missing. Porting #217 is a 24-file change per its branch, and on a 32 GB card the
-compile-time `std::array` members it resizes are a genuine memory cost against ~2 GiB free — so it
-needs measuring here, not importing. Recorded as the largest identified throughput lever, not
-attempted.
+Two independent findings support leaving it, which is why this is settled rather than merely declined:
+
+* **The gain is bounded and then reverses.** vLLM on the same class of card goes 101 tok/s at c=1 to
+  2,907 at c=50 and saturates there; *"adding more users yields no throughput gain — marginal TPS
+  actually regresses at c=128"*, and raising `max_num_seqs` from 64 to 128 was measured to hurt *both*
+  latency and throughput through scheduling contention. A ceiling raised to 64 would not buy 64.
+* **At the native context it is arithmetically unavailable anyway.** vLLM V1 documents that it
+  *"reserves KV / CUDA-graph capacity per in-flight slot in proportion to `max_model_len`"*. On this
+  card one 262,144-token slot costs 8.681 GiB of sequence arena, against 17.213 GiB of weights and
+  1.599 GiB of workspace plus graphs. Two slots need 17.36 GiB of KV where roughly 10.5 GiB is
+  available, so C=2 at 262,144 is short by about 6.9 GiB whatever the validation constant permits. C=2
+  would cap context near 158k — a direct trade against the context this product ships.
+
+A concurrency-2 startup was **not** attempted. The product decision settles the question, and spending
+a GPU measurement on a configuration that will not ship would be measuring something already decided.
+
+One related caution from the same research, recorded because it bears on the `--prefill-chunk` work
+above: a vLLM write-up reports that raising the prefill chunk to 8,192 *"silently disabled the draft
+model's CUDA graph. Decode collapsed from roughly 109 to 19 tok/s while speculative acceptance still
+looked healthy."* These lanes ship 8,192 and measure 339–362 tok/s with acceptance unchanged, so this
+product does not hit that interaction — but acceptance alone would not have revealed it, which is why
+the decode column is measured rather than inferred.
 
 The prefill cost is **-2.3%**, from three interleaved rounds per arm: 13,102/13,075/13,054 against
 12,780/12,799/12,732. The two clusters are disjoint and the within-arm spread is 0.37% and 0.52%. An

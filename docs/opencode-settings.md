@@ -197,7 +197,7 @@ Applied:
 | quasar-v3-dflash2-vision | 221,376 | 209,376 | 262,144 |
 | quasar-v3-mtp4-vision | 221,376 | 209,376 | 262,144 |
 | nvfp4-v3-dflash2-vision | 221,376 | 209,376 | 262,144 |
-| nvfp4-v3-mtp5-vision | 221,376 | 209,376 | 262,144 |
+| nvfp4-v3-mtp4-vision | 221,376 | 209,376 | 262,144 |
 | swift15-v3-dflash2-vision | 221,376 | 209,376 | 262,144 |
 | swift15-v3-mtp4-vision | 221,376 | 209,376 | 262,144 |
 

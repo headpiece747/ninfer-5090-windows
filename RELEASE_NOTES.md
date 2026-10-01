@@ -122,9 +122,9 @@ that earlier builds shipped.
 | Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
 | --- | --- | --- | --- | --- | --- | --- |
 | `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **319 tok/s** | 55.0% |
-| `start_quasar_v3_mtp5_vision.bat` | QUASAR QAT | MTP (5) | yes | 262,144 | **184 tok/s** | 43.0% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **221 tok/s** | 59.6% |
 | `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **296 tok/s** | 48.7% |
-| `start_ninfer_v3_mtp5_vision.bat` | NVFP4-full | MTP (5) | yes | 262,144 | 209 tok/s | 53.7% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 190 tok/s | 51.4% |
 | `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **362 tok/s** | 63.0% |
 | `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (4) | yes | 262,144 | 218 tok/s | 58.7% |
 | `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (7) | yes | 262,144 | **338 tok/s** | 56.2% |
