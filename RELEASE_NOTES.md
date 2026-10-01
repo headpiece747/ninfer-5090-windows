@@ -27,7 +27,7 @@ are new.
   realizations. Perplexity improves to **4.75750** from 4.82452 on the subset and **4.97532** from
   4.98768 on the corpus.
 - **A fourth line joins the release.** `start_nvidia_v3_dflash2_vision.bat` and
-  `start_nvidia_v3_mtp5_vision.bat` serve NVIDIA's own ModelOpt quantization of the base model: its
+  `start_nvidia_v3_mtp4_vision.bat` serve NVIDIA's own ModelOpt quantization of the base model: its
   NVFP4 MLP imported on all 64 layers, its FP8 attention encoded from the BF16 base using the
   checkpoint's per-site scales. Perplexity is **4.90168** against the official stock's 4.90169 on the
   full corpus — the same, not better — while the file is **20% smaller** (18.95 GB against 23.72 GB),

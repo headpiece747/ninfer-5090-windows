@@ -2,7 +2,7 @@
 
 Published measurements use one NVIDIA GeForce RTX 5090 through NInfer's public HTTP serving route.
 
-This port ships four launcher profiles. Their measured figures, the exact argument set each one
+This port ships **eight** launcher profiles. Their measured figures, the exact argument set each one
 starts, and the interleaving rule behind the numbers are in the
 [README's Profiles and launchers section](../README.md#profiles-and-launchers). That table is the
 port's published performance claim, and `tools/release/profiles.py` is its only copy.

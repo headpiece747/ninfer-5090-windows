@@ -34,17 +34,20 @@ header. `GET /health` answers once the model is loaded. The eight launchers and 
 figures are under [Profiles and launchers](#profiles-and-launchers); building from source is under
 [Windows](#windows).
 
-Four v3 artifacts ship with this port. The eight launchers use these four, and `download_model.bat`
-offers the two that are published:
+Four weight **lines** ship with this port, and the unsloth line ships as **two images** because one
+image cannot serve both routes: the DFlash2 lane runs the no-exception build, its MTP lane the
+BF16-exception one. That is **five artifacts across eight launchers**. `download_model.bat` offers the
+two that are published:
 
 | Model | Weights | Artifact | Download |
 |---|---|---|---|
 | Qwen3.8-27B | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | [QUASAR QAT](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer), 17.36 GiB, `8b86901a…` |
 | Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.v3.ninfer` | [NVFP4-full](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4full-NInfer), 18.07 GiB, `ac98cd39…` |
-| Qwen3.8-27B | `nvfp4swift` (Swift finetune) | `qwen3_8_27b_nvfp4swift.v3.ninfer` | 18.42 GiB, `6353a46f…`; its `download_model.py` pin lands with its publication |
+| Qwen3.8-27B | `nvfp4full_noex` | `qwen3_8_27b_nvfp4full_noex.v3.ninfer` | 17.65 GiB, `32713a7a…`; DFlash2 lane, local build only |
+| Qwen3.8-27B | `nvfp4swift15` (Swift 1.5) | `qwen3_8_27b_nvfp4swift15.v3.ninfer` | 17.65 GiB, `9c05290f…`; its `download_model.py` pin lands with its publication |
 | Qwen3.8-27B | `nvfp4nvidia` (NVIDIA ModelOpt) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | 17.65 GiB, `76131f79…`; its `download_model.py` pin lands with its publication |
 
-All four are Qwen3.8-27B. The first two rows are the published files this port has always fetched, and
+All are Qwen3.8-27B. The first two rows are the published files this port has always fetched, and
 their digests are the ones pinned in `download_model.py`, which verifies every download against them;
 a republish upstream means updating that pin. This port also builds its own copy of each line from the
 same sources, which is what the launchers here run: those differ from the two published files in the
@@ -188,12 +191,15 @@ native context at all, which is why it was replaced.
 each choice are recorded in [ADR-0005](docs/adr/0005-per-profile-flags-are-measured.md):
 
 - QUASAR: on for both routes;
-- NVFP4 MTP: on at depth 5;
+- NVFP4 MTP: on at depth 4;
 - NVFP4-full DFlash2: **on**, but marginally, and it costs headroom, so it is the first thing to
   turn off if a profile ever refuses to start.
 
-MTP depth is chosen per artifact from measurement rather than convention: depth 5 on QUASAR and
-NVFP4-full, depth 4 on Swift and NVIDIA. All sixteen lane-by-depth combinations were re-measured
+MTP depth is chosen per artifact from measurement rather than convention, and every MTP lane now
+ships **depth 4**. QUASAR and NVFP4-full previously shipped depth 5; both were re-swept 2026-09-30 over
+depths 1-5 on five domains at three interleaved rounds each and moved to 4, because depth 5's worst
+domain is -17.0% on QUASAR against depth 4's 0.0%. NVIDIA and Swift 1.5 were swept the same way and
+already sat at 4. All sixteen lane-by-depth combinations were re-measured
 2026-09-28 with the warmup transient excluded, interleaved two rounds. The previous choice -- d4 on
 QUASAR, d5 on the other three -- came from records that mixed runs with and without that transient,
 and three of the four lanes were on the wrong depth as a result; NVIDIA's was the largest, d5 reading

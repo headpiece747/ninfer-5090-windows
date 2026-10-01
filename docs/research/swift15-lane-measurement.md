@@ -616,7 +616,7 @@ build, `code`, two rounds:
 **The two routes want opposite encodings**, which is the same rule as the DFlash2 draft: a pattern is
 measured per target. The BF16 exceptions are worth 21.4 acceptance points to the MTP head and cost
 the DFlash2 route 11.6. So the line is split — `start_ninfer_v3_dflash2_vision` runs the
-no-exception image at 262,144, and `start_ninfer_v3_mtp5_vision` keeps the BF16-exception image at
+no-exception image at 262,144, and `start_ninfer_v3_mtp4_vision` keeps the BF16-exception image at
 262,144 — and both were verified through their own launchers at the native context.
 
 The no-exception image's cost is the honest part of this trade: **+0.087 % overall perplexity**,

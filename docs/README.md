@@ -21,7 +21,9 @@ The executable `--help` output is the exact source for command-line option spell
 
 ## Model artifacts
 
-This port ships two, and the launchers use them:
+This port ships four weight lines, as **five images** — the unsloth line ships twice, because the
+DFlash2 lane runs the no-exception build and its MTP lane the BF16-exception one. Two of the five are
+published and pinned here; the rest are built by this port:
 
 | Model | Weights | Download | Versioned model card source |
 |---|---|---|---|
