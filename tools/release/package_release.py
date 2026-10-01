@@ -58,6 +58,22 @@ LAUNCHER_FILES = [
 TOOL_FILES = ["upgrade_ninfer_v2_to_v3.py", "chat_templates"]
 
 
+def _notes_version() -> str:
+    """The version RELEASE_NOTES.md titles, e.g. "v1.2.0" from "# NInfer Windows v1.2.0 (RTX 5090)".
+
+    Read from the notes rather than restated, because a restated default is how the packager came to
+    disagree with them. The historical sections below the title carry their own headings, so this
+    takes the first one only.
+    """
+    import re
+
+    text = (REPO / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+    match = re.search(r"^# NInfer Windows (v[0-9]+\.[0-9]+\.[0-9]+)", text, re.MULTILINE)
+    if match is None:
+        raise SystemExit("RELEASE_NOTES.md has no '# NInfer Windows vX.Y.Z' title to version from")
+    return match.group(1)
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -85,7 +101,11 @@ def debug_crt_import(path: Path) -> str | None:
 def main() -> int:
     positional = [argument for argument in sys.argv[1:] if not argument.startswith("--")]
     skip_gate = "--skip-test-gate" in sys.argv[1:]
-    version = positional[0] if positional else "v1.1.0"
+    # Default to the version RELEASE_NOTES.md titles. That default used to be v1.1.0, which the notes
+    # had moved past, so packaging with no argument would have produced an archive carrying a version
+    # number three releases stale -- and overwriting a published archive's name. Derived from the notes
+    # rather than restated so the two cannot drift again.
+    version = positional[0] if positional else _notes_version()
 
     # The archive carries RELEASE_NOTES.md, so packaging a version whose notes name a different release
     # ships stale notes. That happened once and the archive had to be re-cut; this refuses instead.

@@ -8,8 +8,14 @@ Docker. It runs text, image, and video prompts through a local CLI or OpenAI-/An
 HTTP APIs. The runtime is deliberately specialized: one GPU, one resident model, and a
 startup-fixed capacity of one to eight active requests.
 
-v1.2.0 ships both retention fixes in every launcher; v1.1.0 moved to the **v3 artifact line**: four measured launchers over two artifacts, both
-vision-capable at the full 262,144-token context, with DFlash2 or MTP speculative decoding. The
+**v1.2.0 is the current release and the first since v1.1.0.** It adds a fourth and fifth artifact
+(Swift 1.5 and NVIDIA ModelOpt, both built by this port), taking the product to **eight measured
+launchers over five artifacts**, every one vision-capable at the full 262,144-token context with
+DFlash2 or MTP speculative decoding. It also re-measures the whole lane table — three recorded lanes
+had stopped reproducing — corrects two MTP draft depths, and stops the attention planner from
+splitting a saturated launch, which returns about 1.3 GiB of VRAM per lane at no throughput cost.
+
+v1.1.0 moved to the **v3 artifact line**: four measured launchers over two artifacts. The
 engine rejects v2 artifacts outright, so a v1.0.x user must download a v3 artifact or
 [upgrade the one they have](docs/weight-conversion.md#upgrade-an-existing-v2-artifact). Details in
 [RELEASE_NOTES.md](RELEASE_NOTES.md).

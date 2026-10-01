@@ -1,6 +1,12 @@
-# NInfer Windows v1.3.0 (RTX 5090)
+# NInfer Windows v1.2.0 (RTX 5090)
 
-## What changed in 1.3.0
+## What changed in 1.2.0
+
+This is the first release since `v1.1.0`. Two drafts of these notes existed — one calling this
+release `1.2.0` and a later one `1.3.0` — and they are merged here into `1.2.0`, because versions are
+published in order and never skipped, and `1.2.0` has never been published. Shipping it as `1.3.0`
+would leave a `1.1.0 → 1.3.0` gap in the public list, which reads as a withdrawn release. Everything
+below is what a user on `v1.1.0` gets.
 
 Three artifacts are now built by this port from their published sources rather than fetched from
 `cometkim`, and one draft rule replaces another across every line. All eight launchers change, and two
@@ -57,27 +63,33 @@ are new.
 |---|---|---|---|
 | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | 17.65 GiB | `814db0db…` |
 | `nvfp4full` (unsloth) | `qwen3_8_27b_nvfp4full.v3.ninfer` | 18.36 GiB | `f8dc6470…` |
-| `nvfp4swift` (Swift) | `qwen3_8_27b_nvfp4swift.v3.ninfer` | 18.42 GiB | `6353a46f…` |
+| `nvfp4full_noex` (unsloth, DFlash2 lane) | `qwen3_8_27b_nvfp4full_noex.v3.ninfer` | 17.65 GiB | `32713a7a…` |
+| `nvfp4swift15` (Swift 1.5) | `qwen3_8_27b_nvfp4swift15.v3.ninfer` | 17.65 GiB | `9c05290f…` |
 | `nvfp4nvidia` (NVIDIA) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | 17.65 GiB | `76131f79…` |
+
+Five artifacts across eight launchers. The unsloth line ships twice on purpose: the DFlash2 lane runs
+the **no-exception** image and its MTP lane the BF16-exception one, because re-encoding those nine
+exception parents to NVFP4 is what returns the native context to the DFlash2 lane and costs the MTP
+head 11.6 acceptance points, so one image cannot serve both routes.
 
 `download_model.py` still pins the two artifacts previously fetched from `cometkim`, which are not the
 files above; republishing these pins is outstanding, so a fresh download runs a different build than
 the profile figures describe until it is done.
 
-# NInfer Windows v1.2.0 (RTX 5090)
-
-## What changed in 1.2.0
+### Retained in 1.2.0, from the draft that carried this version
 
 Two retention defects, and the configuration that hid them. All six launchers change, so an upgrade
 behaves differently without any action on your part.
 
 - **Two Swift lanes join the release.** `start_swift_v3_dflash2_vision.bat` and
-  `start_swift_v3_mtp5_vision.bat` serve UkisAI's Swift finetune as a third artifact. Its ModelOpt
+  `start_swift_v3_mtp4_vision.bat` serve UkisAI's Swift finetune as a third artifact. Its ModelOpt
   checkpoint keeps attention and GDN in FP8; importing that left 9 GiB of 8-bit weights and capped
   both lanes below the native context. They are now encoded to NVFP4 from the finetune's BF16
   source, with both W8 endpoints Q8, so no FP8 code word reaches the artifact. Perplexity on the
   fixed corpus improves to **4.68429** from 4.84938 for the same recipe importing the FP8, and both
-  lanes reach the full 262,144-token context.
+  lanes reach the full 262,144-token context. The lanes now serve **Swift 1.5**, and their DFlash2 draft
+  is encoded to NVFP4, which is what returns the native context to the DFlash2 lane; see the DFlash2
+  entry above.
 
 - **A growing conversation stopped reusing its own prefix.** Once the State pools filled, publishing
   the newest checkpoint meant replacing a resident, and the capture could not be valued against doing
@@ -104,7 +116,9 @@ behaves differently without any action on your part.
   file, is safe.
 
 The request log gained a `policy` field and a `captures` group (`offered`, `no_vacancy`,
-`plan_refused`, `infeasible`) naming why a capture was refused. The log schema version is 22.
+`plan_refused`, `infeasible`) naming why a capture was refused.
+
+### Retained from 1.1.0, for context
 
 First Windows release on the **v3 artifact line**, with speculative decoding working on
 upstream-shaped artifacts, four measured-optimal launchers, and two production bugs fixed
@@ -234,6 +248,12 @@ with it).
 Versions are published in order and never skipped. `v1.0.1` and `v1.0.2` were built on the
 maintainer's machine and never released — their archives are still in `C:\AI\releases` — so the
 published list reads `1.0.0, 1.0.3, ...`. Nothing was withdrawn, and `1.0.0` is unaffected.
+
+**`v1.2.0` is this release, and it is the first since `v1.1.0`.** Two drafts of these notes called it
+`1.2.0` and `1.3.0`; because `1.2.0` has never been published, shipping it as `1.3.0` would leave a
+`1.1.0 → 1.3.0` gap in the public list, and a gap reads as a withdrawn release. The two are merged
+here under `1.2.0` and the `1.3.0` label is withdrawn. A locally built `v1.2.0` archive from 2026-09-22
+predated this work and was deleted rather than left where the filename would find it.
 
 Patch numbers carry fixes to the shipped profile set; a minor number carries a new artifact line,
 which is what `1.1.0` is: the v3 container, the measured profile table, and the QUASAR lane.
