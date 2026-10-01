@@ -87,8 +87,9 @@ cover checkpoints this port does not ship.
 ## Startup notes
 
 GPU residency is fixed at process startup. `--spec` selects speculative decoding residency, and
-`--vision` independently selects Vision residency. On all four shipped artifacts the DFlash2 route
-accelerates generated-text decode after multimodal prefill, not Vision encode itself.
+`--vision` independently selects Vision residency. On all five shipped artifacts the DFlash2 route
+accelerates generated-text decode after multimodal prefill, not Vision encode itself. **(This said
+"four shipped artifacts"; five ship, and every one of the eight launchers carries `--vision`.)**
 
 ## Windows
 
@@ -151,9 +152,12 @@ Two build notes specific to Windows:
 ### Profiles and launchers
 
 Eight launchers ship for the RTX 5090, one per measured-optimal profile. Every number below was
-measured on this machine with the exact argument set the launcher uses, in one interleaved window of
-three rounds on 2026-09-28 against the artifacts this release ships. Absolute decode varies by up to
-~9% *between* sessions on a card whose clocks are not pinned, so compare lanes to each other and
+measured on this machine with the exact argument set the launcher uses, in one interleaved window
+against the artifacts this release ships. **The window is dated 2026-09-30, not 2026-09-28 as this
+previously said**: `tools/release/profiles.py` records the current figures as re-measured 2026-09-30
+across all eight lanes and names the 2026-09-24 set they replaced, and the 2026-09-28 date belongs to
+the interleaved depth sweep further down this section, not to this table. Absolute decode varies by up
+to ~9% *between* sessions on a card whose clocks are not pinned, so compare lanes to each other and
 expect your own absolute figures to differ; within one interleaved window the same lane repeats to
 1.5% or less. Acceptance is the column to trust in a comparison.
 
@@ -163,7 +167,7 @@ different, shorter text, and the 16-token warmup did not reach the state it affe
 was averaged into the figures. On the NVIDIA MTP5 lane it read 261.7 tok/s against 169.8 for requests
 two onward, which is most of the difference between that row's old 228 tok/s and its measured 166.
 The harness now discards a full-length warmup, and its acceptance denominator excludes the same
-request. No lane, flag, context or draft depth changed. All four
+request. No lane, flag, context or draft depth changed. All five
 artifacts are vision-only here because Vision measured free on every one of them at 262,144; the
 with/without comparison is recorded in
 [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md). No degraded text-only variant ships,
@@ -183,11 +187,18 @@ and every profile reaches the full native context.
 Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
 runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after weights, and
 it reports the byte counts when it refuses. That ceiling is a property of the artifact's weight size,
-measured per lane with each launcher's own flags: these four builds carry 16.3-17.1 GiB of device
-weights on their MTP lanes and 17.2-18.0 GiB on their DFlash2 lanes, and every one of them still fits
-the full KV pool. The FP8-importing Swift build this release replaced carried 18.90 GiB on its MTP lane
-and stopped at 240,000, and the retired NVFP4 image carried 19.7 GiB and could not reach the full
-native context at all, which is why it was replaced.
+measured per lane with each launcher's own flags, and every one of the five artifacts still fits the
+full KV pool. The figures the tree records, per artifact, are in
+[the artifact reference](docs/maintainer/qwen3.8-27b-artifact.md): the QAT line at **16.3 GiB** on its
+MTP lane and **17.2 GiB** on its DFlash2 lane, the NVIDIA line at the same 16.3/17.2, the unsloth
+BF16-exception image at **17.1/17.9**, and the unsloth no-exception image — the DFlash2 lane's build —
+at **17.2 GiB** on that lane (`tools/release/profiles.py`, section on the refusal it cleared).
+**This paragraph previously said "these four builds carry 16.3-17.1 GiB … and 17.2-18.0 GiB": the
+count was one low (five artifacts ship) and the 18.0 upper bound is not a figure anything in the tree
+records, so it is dropped rather than reproduced.** The retired builds it then contrasts are real and
+stay: the FP8-importing Swift build this release replaced carried 18.90 GiB on its MTP lane and
+stopped at 240,000, and the retired NVFP4 image carried 19.7 GiB and could not reach the full native
+context at all, which is why it was replaced.
 
 `--lm-head-draft` is set per profile because its value is not uniform; the measured gains behind
 each choice are recorded in [ADR-0005](docs/adr/0005-per-profile-flags-are-measured.md):
@@ -240,8 +251,9 @@ every call and no error or degradation signal anywhere. Raising the shared-prefi
 alone changed nothing; the anchor and private-continuation bounds were the binding
 constraints. All three together gave **5/5 hits at 99.1%** on a host State pool with headroom, and that
 qualifier is load-bearing: those five prefixes and the private continuations they leave behind compete
-for the same pool. Re-measured with the shipped DFlash2 bounds (`--host-state-slots 8
---max-private-continuations 8`) the same five-prompt resend gives **3/5 hits at a 59.1% token-level
+for the same pool. Re-measured with a narrower host pool than the one that ships
+(`--host-state-slots 8 --max-private-continuations 8`; the launchers ship **16**, per the line above)
+the same five-prompt resend gives **3/5 hits at a 59.1% token-level
 rate** -- the last two prefixes are evicted to hold the five continuations -- and with
 `--max-private-continuations 2` it returns to **5/5 at 98.6%**. Retention policy makes no difference to
 either figure.

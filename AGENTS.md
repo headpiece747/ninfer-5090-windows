@@ -228,13 +228,13 @@ something, and each is named here so it gets used rather than rediscovered.
 
 | situation | tool |
 |---|---|
-| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Doc links, profile consistency, converter tests: seconds, no network |
+| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Four gate scripts (`check_doc_links.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`), then `pytest tests/convert` plus three named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the seven steps** — it omitted the calibration-corpus gate, the stream-default ratchet, ruff and mypy |
 | a check that passes here and fails in CI | `tools/scripts/verify_as_ci.cmd` **first**, before forming any hypothesis. It reproduces the runner's conditions — Python 3.11, CI's package set, `NINFER_PYTHON` as a command name, a scratch venv. On 2026-09-25 six serious hypotheses were formed against a failing CI gate without once reproducing the runner's conditions, and five were wrong; the sixth was found in one run of this script |
 | a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` — **with `NINFER_TEST_ARTIFACT` set**: without it the four required real-model tests skip and the gate fails on missing coverage rather than on a regression, which is how it was misread once |
 | anything that could be order- or state-dependent | the suite recipe passes `--schedule-random`; run it twice before believing a fixed order |
 | a device-side memory, race or synchronisation question | `tools/scripts/test_v3_compute_sanitizer.cmd` — memcheck on a small subset; `racecheck`/`initcheck`/`synccheck` and the wider method are in the `cuda-debugging` skill |
 | a host-side lifetime question | `tools/scripts/test_v3_asan.cmd` — ASan cannot instrument device code, which is why the two recipes are separate |
-| a kernel's performance | the `ncu-report` skill, records under `profiles/ncu/` and `profiles/nsys/` |
+| a kernel's performance | the `ncu-report` skill, records under `profiles/ncu/` and `profiles/nsys/`. **`profiles/ncu/` exists on this machine (`gdn_decode`); `profiles/nsys/` does not, and `profiles/` is gitignored in full, so its absence here is not evidence the layout is wrong — the path is unverifiable from the tree and is kept on the skill's own authority** |
 | a host-side C++ question | `clang-tidy -p build src/text/jinja.cpp` — `.clang-tidy` sets a narrow check set and `build/compile_commands.json` already exists; run it from the Visual Studio environment so the MSVC headers resolve |
 | Python tooling, before committing it | `ruff check tools tests` and `mypy tools/release tools/convert tests` — both clean, both enforced by the hook, so a new finding is a regression rather than a cost |
 | a lingering suspicion of flakiness | `ctest --test-dir build-test --repeat until-fail:5` |
@@ -269,6 +269,15 @@ Use the selected Python 3.11 interpreter explicitly. On this machine it is
 version. Use `python3` only after selecting the maintainer environment or checking its version.
 Normal resources are `build/`, `out/qwen3_6_27b.ninfer`, its `.conversion.json` report, and
 `profiles/ncu/`, `profiles/nsys/`, `profiles/bench/`; the local toolchain is CUDA 13.1.
+*(This paragraph is upstream's Linux text and the Windows section below disclaims it. Two of its
+claims are false on this machine and are recorded here rather than edited, because editing them would
+make the upstream section silently Windows-specific: the toolchain is **CUDA 13.3**, not 13.1 —
+`build/CMakeCache.txt` has `CMAKE_CUDA_COMPILER=…/CUDA/v13.3/bin/nvcc.exe` and
+`C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA` holds `v13.3` only; and of the three `profiles/`
+paths only `profiles/ncu/` exists, `profiles/perplexity/` being the other populated one. `profiles/`
+is gitignored in full, so the two missing directories are unverifiable from the tree rather than
+known-wrong, and `profiles/bench/` is independently attested by `bench/README.md`, which writes its
+CSVs and JSON there.)*
 Select model artifacts by explicit path, never glob order, modification time, or unqualified
 “latest”. Source checkpoints and large artifacts are prerequisites; download or regenerate them
 only when that work is in scope. Install or upgrade dependencies only when the task needs it.
@@ -281,16 +290,27 @@ such as `feat`, `fix`, `perf`, `bench`, `test`, `build`, `refactor`, `docs`, or 
 This fork is the Windows port. The Linux paths in Local operations above do not apply here: the
 port targets MSVC 14.51 and CUDA 13.3, and the Python used for tooling is
 `C:\vllm-env\Scripts\python.exe`. What ships is governed by `tools/release/profiles.py`, and the
-release surface is documented in the Windows section of `README.md`. There are two build trees:
-`build/` for the apps, and `build-test/` for the suite the release gate runs
-(`ctest --test-dir build-test`).
+release surface is documented in the Windows section of `README.md`. There are **four** build trees
+on this machine, all gitignored by the `build-*/` rule: `build/` for the apps and the bench,
+`build-test/` for the suite the release gate runs (`ctest --test-dir build-test`), `build-asan/` for
+the five host-only sanitizer tests (`CMAKE_CXX_FLAGS=/fsanitize=address /Zi`; `test_v3_asan.cmd` sets
+`TESTS` to five names and skips a sixth, `ninfer_context_cost_test`, as a diagnosed failure), and
+`build-bench/` for
+the standalone bench binaries. **This sentence previously said "two build trees" and named only the
+first two.** `build-asan` is not new — the sanitizer rule below already runs against it — and
+`build-bench/` exists for the bench; both are listed because a rule that names a directory should say
+which of the four it means.
 
 Sixty-one rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
-  minutes before its timeout. `tools/scripts/test_v3_asan.cmd` names its six host-only tests for
+  minutes before its timeout. `tools/scripts/test_v3_asan.cmd` names its host-only tests for
   exactly that reason and says so in its header. The recipe's scope is part of the recipe.
+  **This rule said "six"; the recipe sets `TESTS` to five**
+  (`ninfer_resource_manager_test`, `ninfer_artifact_reader_test`, `ninfer_admission_policy_test`,
+  `ninfer_kv_capacity_test`, `ninfer_materialization_budget_test`) **and separately skips a sixth,
+  `ninfer_context_cost_test`, as a diagnosed 2026-09-20 failure.** Five run, six are named.
 - **Check before you package, not after.** A package built before its review has to be re-cut and
   re-packaged: this session's was, three times, because a code review and the sanitizer run both
   landed afterwards. "The archive is cheap to regenerate" is the reason to check first, not to

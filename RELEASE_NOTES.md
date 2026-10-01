@@ -145,17 +145,23 @@ that earlier builds shipped.
 | `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 210 tok/s | 53.1% |
 
 Every number was measured on an RTX 5090 with the exact arguments the launcher passes, and re-measured
-2026-09-24 on the artifacts this release ships; every context ceiling is the highest value the engine
-accepts for that configuration -- the next step up is refused, not degraded. Decode varies by up to ~9%
-between sessions on a card whose clocks are not pinned, so compare lanes to each other and expect your
-own absolute figures to differ; acceptance is stable across sessions, so it is the column to trust in a
-comparison.
+**2026-09-30** on the artifacts this release ships; every context ceiling is the highest value the
+engine accepts for that configuration -- the next step up is refused, not degraded. Decode varies by up
+to ~9% between sessions on a card whose clocks are not pinned, so compare lanes to each other and
+expect your own absolute figures to differ; acceptance is stable across sessions, so it is the column
+to trust in a comparison. **This said "re-measured 2026-09-24" and dated the table two sweeps early** —
+`tools/release/profiles.py` records the current figures as the 2026-09-30 pass and names the
+2026-09-24 set they replaced, and the numbers in the table above are the 2026-09-30 ones.
 
 **All four lines are built here now**, so the choice is a measured trade-off rather than one of
 provenance. The QUASAR line is the only one whose text weights are a quantization-aware-trained
 checkpoint imported unchanged; the other three re-encode their FP8 attention from the BF16 base and
-score lower full-corpus perplexity (4.98, 4.92 and 4.90 against QUASAR's 4.99), with the NVFP4-full
-line also carrying the fastest DFlash2 lane (340 tok/s against QUASAR's 311). Compare artifacts only on
+score lower full-corpus perplexity (4.98, 4.92 and 4.90 against QUASAR's 4.99). **The claim that
+"the NVFP4-full line also carrying the fastest DFlash2 lane (340 tok/s against QUASAR's 311)" is
+stale and is withdrawn**: in the table above the NVFP4-full DFlash2 lane reads **296 tok/s** against
+QUASAR's **319**, and the fastest DFlash2 lane in this release is **Swift 1.5 at 362 tok/s**. The
+340/311 pair is a superseded measurement that no longer reproduces, in the same way as the withdrawn
+figures `profiles.py` names in its own notes. Compare artifacts only on
 the full corpus: a `--quick` figure is decided by four streams and is not comparable, as
 `docs/perplexity-baseline.md` explains. ADR-0004 records why each DFlash2 lane rides a third-party draft
 with no in-house fallback, and Vision is free on every shipped artifact (the with/without comparison is

@@ -64,7 +64,12 @@ formats, not one:
 
 The disabled 257 are 144 attention, **112 vision tower**, and `embed_tokens`. The 144 attention ones
 are exactly the 48 `conv1d` sites plus GDN `in_proj_a` / `in_proj_b` — the projections this port
-already `recipe.separate()`s at `official_recipes.py:521-523`.
+already exempts from the local NVFP4 re-encode. In the `nvfp4full_noex` recipe that exemption is
+`recipe.assign(name, source=model.source(name, quantized))` at
+`tools/convert/official_recipes.py:521-523`, taking them unencoded from the source rather than
+re-encoding them; the `recipe.separate()` call of that name appears in the two `qwen3_6_27b` recipes
+(`official_recipes.py:72` and `:138`), not in this one. **This text previously said
+`recipe.separate()`s at `:521-523`, which is the wrong call for those lines.**
 
 **So the answer is no, and the reason is structural rather than a matter of the converter.** NVIDIA's
 own attention is INT4 with a per-tensor scale, not NVFP4 block-scaled at all, and its vision tower
@@ -127,8 +132,14 @@ nothing that is wanted.
 The item asserted Q8 is "the right default". It is not the convention: across ~90 surveyed
 quantized checkpoints **Q8 appears nowhere**, and the field splits three ways — BF16, FP8 and NVFP4.
 Measured in this tree, the endpoints are indeed `q8_g32_fp16` on both shipping artifacts
-(`qwen3_8_27b_nvfp4full_noex`, `qwen3_8_27b_nvfp4swift15`), assigned at
-`official_recipes.py:512` and `:518-519` — so the *format* is right, but the *justification* was not.
+(`qwen3_8_27b_nvfp4full_noex`, `qwen3_8_27b_nvfp4swift15`) — read off each artifact's own
+`.conversion.json`, where `text/token_embedding` and `text/output_head` both carry
+`"format": "q8_g32_fp16"` — so the *format* is right, but the *justification* was not.
+**The line citation this used to carry, `official_recipes.py:512` and `:518-519`, is only right for
+the first of the two.** Those lines are in `qwen3_8_27b_nvfp4_unsloth_noex`, which is what
+`qwen3_8_27b_nvfp4full_noex` was built from. The swift15 artifact records
+`"recipe": "qwen3_8_27b_nvfp4_swift15_nvdraft"` in the same file, and that recipe assigns the two
+endpoints at `official_recipes.py:717-718` and `:726-727`.
 Keeping Q8 is defensible on our own measurement and on the absence of any evidence against it; it is
 **not** defensible as "the default", and a reader would have taken that as a citation.
 
@@ -237,7 +248,9 @@ this item. Full evidence: `docs/research/quantization-coverage-evidence.md`.
 
 ### 5. Recall@1 / Recall@16 / path-acceptance split
 **Why:** the only diagnostic that discriminates three different root causes, and it needs no new
-kernel. The drafter emits `frame.candidate_ids` and `scores` at `draft.cpp:351-355`, shape `[16,K,B]`.
+kernel. The drafter emits `frame.candidate_ids` and `scores` at
+`src/models/qwen3_5/execution/draft.cpp:351-355`, shape `[16,K,B]` (the frame allocates it as
+`{16, columns - 1, batch}` at `src/models/qwen3_5/program/round_buffers.cpp:203-204`).
 Decompose per position:
 - Recall@1 — the drafter's unary top pick
 - Recall@16 — the target argmax anywhere in the 16
@@ -651,13 +664,16 @@ unaffected. Resolutions, to reuse rather than re-derive:
    under memcheck ran 30 minutes on the smallest failing test without naming an instruction and then lost
    the context, the watchdog hazard `tools/scripts/test_v3_compute_sanitizer.cmd` already documents here.
 
-   **2026-10-01: a 2-second reproducer, and four causes ruled out — but no fix.**
-   `tools/scripts/probe_sm120_tma_load.cmd` reproduces this fault class in a standalone ~150-line
-   program with no project code in the path, replacing the 30-minute sanitizer run. It builds a
-   descriptor with `fp8_tma_map`'s own proven shape — rank 2, dimensions `{k, rows}` with K first, one
-   `globalStrides` entry, `elementStrides {1,1}`, `L2_PROMOTION_NONE` — which encodes successfully, is
-   64-byte aligned, and then dies at execution with "an illegal memory access was encountered".
-   **Every arm faults, which rules out four candidate causes:**
+   **[SUPERSEDED] 2026-10-01: a 2-second reproducer, and four causes ruled out — but no fix.**
+   `tools/scripts/probe_sm120_tma_load.cmd` — **since deleted; the resolution block at the top of this
+   item records why, and the "four causes ruled out" conclusion below is false.** It reproduced this
+   fault class in a standalone ~150-line program with no project code in the path, replacing the
+   30-minute sanitizer run. It built a descriptor with `fp8_tma_map`'s own proven shape — rank 2,
+   dimensions `{k, rows}` with K first, one `globalStrides` entry, `elementStrides {1,1}`,
+   `L2_PROMOTION_NONE` — which encoded successfully, was 64-byte aligned, and then died at execution
+   with "an illegal memory access was encountered". Its fault was in its own `mbarrier.try_wait.parity`
+   operand numbering, so it faulted before any TMA instruction ran and none of the arms below were
+   under test. **As written at the time, the table read:**
 
    | varied | result |
    |---|---|
@@ -666,9 +682,11 @@ unaffected. Resolutions, to reuse rather than re-derive:
    | swizzle **128B** vs **NONE** | both fault |
    | `fence.proxy.acquire.tensormap::generic` present vs absent; `expect_tx` before vs after the copy | faults either way |
 
-   So it is **not** the by-pointer descriptor form, **not** the swizzle mode, **not** the missing
-   tensormap proxy fence, and **not** the mbarrier transaction ordering. That last one matters because
-   it was the most likely single bug and the fix for it is correct regardless.
+   **So the conclusion drawn at the time — that it is *not* the by-pointer descriptor form, *not* the
+   swizzle mode, *not* the missing tensormap proxy fence, and *not* the mbarrier transaction ordering —
+   is withdrawn.** None of the four was under test, because the reproducer faulted in its own wait
+   before issuing a TMA instruction. With the operands corrected, TMA runs in every legal arm: rank 2
+   and rank 3, swizzle 128B and NONE, by value and by pointer. See the resolution block.
 
    **What the platform evidence says, from primary sources** (`docs/research/sm120-tma-illegal-instruction-evidence.md`):
    sm_120 **does** support TMA — `cp.async.bulk.tensor` requires sm_90 or higher and the TMA unit is
@@ -689,9 +707,12 @@ unaffected. Resolutions, to reuse rather than re-derive:
    document maps a TMA-constraint violation to illegal-instruction or to an illegal memory access.
 
    **So the deferral stands, and this is not a close.** What changed is that the next attempt starts
-   from four ruled-out causes and a two-second reproducer instead of a 30-minute sanitizer run, and
-   that the honest answer to "is TMA available on this GPU" is yes — so the divergence from upstream
-   should not be written up as a hardware limitation, because the evidence does not support that.
+   from a two-second reproducer instead of a 30-minute sanitizer run, and that the honest answer to
+   "is TMA available on this GPU" is yes — so the divergence from upstream should not be written up as
+   a hardware limitation, because the evidence does not support that. **The "four ruled-out causes" this
+   paragraph originally claimed are not on that list; they were never tested, and the next attempt does
+   not start from them.** (The deferral itself was later overtaken anyway — see the resolution block:
+   the cause was the `alignas(128)` descriptor, and `a5077adf` fixed it.)
 
    **2026-10-01, later: TMA availability is now MEASURED, not inferred, and the answer is yes.**
    `bench/ops/linear_bench.cu` run at `--qtype BF16 --n 14336 --k 5120 --t 128` selects
@@ -710,12 +731,14 @@ unaffected. Resolutions, to reuse rather than re-derive:
    | descriptor | `bf16_tma_map` — **rank 3**, K factored into 128-byte sectors | `fp8_tma_map` — **rank 2** |
    | copy instruction | `cp.async.bulk.tensor.3d` | `cp.async.bulk.tensor.2d` |
 
-   **Not yet tested**, and it is the obvious next step: that `cp.async.bulk.tensor.2d` is what fails on
-   sm_120a while `.3d` works. If so the fix is not exotic — it is to give `fp8_tma_map` the rank-3,
-   sector-factored shape `bf16_tma_map` already uses, which is a descriptor change inside one
-   function. The standalone reproducer already has a rank-2/2d arm that reproduces the fault in two
-   seconds; adding a rank-3/3d arm is the measurement, and it has not been run. **Do not record this
-   as the cause until that arm passes.**
+   **[SUPERSEDED] Not yet tested**, and it was the obvious next step: that
+   `cp.async.bulk.tensor.2d` is what fails on sm_120a while `.3d` works. If so the fix is not exotic —
+   it is to give `fp8_tma_map` the rank-3, sector-factored shape `bf16_tma_map` already uses, which is
+   a descriptor change inside one function. The standalone reproducer already has a rank-2/2d arm that
+   reproduces the fault in two seconds; adding a rank-3/3d arm is the measurement, and it has not been
+   run. **Do not record this as the cause until that arm passes.** — It was never the cause, and the
+   arm is moot: the reproducer's rank-2/2d fault was its own `try_wait` bug, corrected TMA runs in
+   *both* ranks, and the resolution block records the actual cause (`alignas(128)`) and the fix.
 
    **2026-10-01, later still: an independent Windows port runs this exact route, and we do two things
    it does not.** `Wallawalla47/ninfer-custom` has the same `fp8_a8_tma_mma.cuh`, and read at its
@@ -742,16 +765,25 @@ unaffected. Resolutions, to reuse rather than re-derive:
       in stream order."* Ours `cudaMallocAsync`es and `cudaFreeAsync`es a block **inside every
       launch**, relying on both being stream-ordered to be safe.
 
-   **This is the strongest lead this item has, and it partly answers "why does nobody else hit this":
+   **This was the strongest lead this item had, and it partly answers "why does nobody else hit this":
    another Windows port runs the route, with the same descriptor shape and the same MSVC workaround, and
    it does the two things this tree does not.** It also weakens the 2d-versus-3d hypothesis above,
    because that port uses `.2d` and is not reported as disabled — so `.2d` is **not** shown to be the
    problem, and that hypothesis should be demoted rather than pursued first.
+   **Both of this item's live leads are now closed as wrong.** The 2d-versus-3d theory was withdrawn
+   outright, and neither this port's proxy-acquire fence nor its persistent descriptor staging was the
+   cause — `a5077adf` deleted both the staging buffer and the pointer-passed descriptor. What this
+   comparison did establish, and what survives, is that the `alignas(128)` attribute is *this* fork's
+   divergence from upstream, carried identically by two independent Windows ports, and that no
+   upstream or CUTLASS fix exists to wait for.
 
    **What is not established:** that their port *runs* this route successfully. I read their source, not
    their CI, benchmarks or issues — nothing here is a measurement that their FP8 TMA route executes on
    Windows. And the acquire fence alone did **not** fix our standalone reproducer, so it is not
    sufficient by itself; the staging lifetime may be the part that matters, or the pair may be.
+   *(The reproducer's "did not fix" reading is itself void — it faulted in its own wait before running
+   any TMA instruction. Neither the fence nor the staging is load-bearing, which is now a measured
+   result rather than an open question.)*
 
 **The suite grew 133 to 135 from this merge**, which `tools/release/test_baseline.json` now records, and
 `ninfer_qwen3_5_dflash_prefill_real_test` was added to `required_tests`: it reads `NINFER_TEST_ARTIFACT`
@@ -789,9 +821,12 @@ quote was already stale on the day it was written: it named only the first of th
 difference rather than treat either as wrong. Annotated rather than edited in place: a dated record of
 what a merge produced should not be rewritten to match a later state.
 
-**Not established:** why the FP8 TMA kernel faults. It may be an sm_120a limitation or a defect in
-upstream's kernel, and telling upstream it faults on a consumer Blackwell target is worth doing either
-way.
+**Not established (as of the merge; superseded since):** why the FP8 TMA kernel faults. It may be an
+sm_120a limitation or a defect in upstream's kernel, and telling upstream it faults on a consumer
+Blackwell target is worth doing either way. **This is answered now and neither answer is what it
+predicted:** the cause was neither, and the resolution block at the top of this item records it — the
+`alignas(128)` descriptor, fixed by `a5077adf`. What is still open is only whether to ungate the nine
+`PORT-DISPATCH` sites.
 
 ---
 ---
@@ -830,8 +865,10 @@ diagnostic on the lattice route. A test that cannot fail is worse than no test.
 independently by `require_codebook` and the route is chosen from the predecessor alone, so an NVFP4
 predecessor with a BF16 successor passed validation and reached the NVFP4 kernel, which dereferenced
 the successor's null `scales` pointer: an illegal access at 0x38AC, which aborts the process rather
-than failing the request. compute-sanitizer named the frame (`selector_walk_nvfp4_kernel` via
-`score_row` at `candidate_selector_path_nvfp4.cu:108`) and a temporary probe printing the pointers
+than failing the request. compute-sanitizer named the frame (`selector_walk_nvfp4_kernel` at
+`src/ops/candidate_selector/nvfp4/candidate_selector_path_nvfp4.cu:148`, via `score_row` defined at
+line 95, whose `a.successor_scales` read at line 108-111 is the dereference in question) and a
+temporary probe printing the pointers
 confirmed the main loop's own operands were correct, which is what attributed the fault to the mixed
 case rather than to the new test. The wrapper now requires the two qtypes to match. Both codebooks
 come from one artifact in production, so the guard costs nothing, and
@@ -978,7 +1015,7 @@ Each of these was investigated and settled. They look like open work and are not
 | Item | Why it is closed |
 |---|---|
 | **Rebuild the four models** | The merge touched no artifact, layout, binding or converter file, and no container version. Weights, layout and bindings are byte-compatible. What was stale is the *measurements* — item 3. |
-| **Store the DFlash2 drafter at Q4** | Already measured here, per target. `tools/convert/official_recipes.py:303-312` records that the NVFP4 draft rule "was tried here and *lost* 3.2 acceptance points on the DFlash2 lane (57.7% against 60.9%)", which is why the Swift line keeps its draft at Q8, and states the rule: "a draft encoding is measured per target, and this target's hidden states are not the stock ones." Lines 40-51 and 57-58 already assign `Q8` to drafter parameters. The published Q4 result is on a different model. |
+| **Store the DFlash2 drafter at Q4** | Already measured here, per target. `tools/convert/official_recipes.py:303-312` records that the NVFP4 draft rule "was tried here and *lost* 3.2 acceptance points on the DFlash2 lane (57.7% against 60.9%)", which is why the Swift line keeps its draft at Q8, and states the rule: "a draft encoding is measured per target, and this target's hidden states are not the stock ones." Lines 40-51 already assign `Q8` to drafter parameters (the `mtp/`, `dflash/`, `dflash2/` branch of `_optional`, with the router/score/conv/hidden-projection suffixes skipped at 41-50). **This text also cited "and 57-58", which does not assign Q8**: lines 57-58 are the `share()` loop that aliases each drafter layer's `context_key`/`context_value` onto its `key`/`value` — a different mechanism, and the Q8 claim needs only 40-51. The published Q4 result is on a different model. |
 | **Fix C2719 by passing the descriptor by reference** | It compiles and then faults: nvcc's host stub passes the host address as a device pointer. A compile-only check would pass it. The correct fix is to drop `alignas(128)`, which this port already did in `1218d574`. |
 | **The drafter's block uses a causal-over-block mask** | Refuted. The reference is non-causal (DFlash paper section 4.2; the published checkpoint sets `is_causal: false`), and `context_query.cuh:275-283` already gives every query row `valid_keys = valid` with no causal predicate. |
 | **Re-measure at T=1.0 to match the model card** | Backwards. DFlash2's selector measures 4.61 at T=0 against 4.25 at T=1; greedy is the *favourable* side. Re-measuring at T=1 would widen the gap. |
@@ -999,8 +1036,11 @@ Each of these was investigated and settled. They look like open work and are not
 
 - `--ngram chain` is accepted, validated against the backend, carried into `Program`, and produces
   nothing: `ngram_drafted_tokens` and `ngram_accepted_tokens` are declared at
-  `include/ninfer/types.h:786-787` and written nowhere, and `impl->ngram`
-  (`src/models/qwen3_5/program/planning/startup.cpp:833`) is never read. **It does not reserve
+  `include/ninfer/types.h:786-787` and written nowhere — `git grep` finds them at their declaration
+  and nowhere else in the tree — and `impl->ngram`
+  (`src/models/qwen3_5/program/planning/startup.cpp:833`) is only ever stored: it lands in
+  `ProgramImpl::ngram` (`src/models/qwen3_5/program/program_impl.h:587`, initialised at
+  `program_impl.cpp:47`) and nothing reads it. **It does not reserve
   288 MiB** — that allowance went with `ngram_policy.h` in `8c7242e6`, and
   `src/models/qwen3_5/program/planning/startup.cpp:899-901` now says a copy round runs at the round's
   own width and provisions nothing extra. **This is now a withdrawal
