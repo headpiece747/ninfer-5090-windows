@@ -129,13 +129,47 @@ from the same seed. It is invisible at temperature 0 (the greedy digest is stabl
 visible at the sampling temperature the bench uses. That is a serving behaviour question, not a
 benchmark one, and it is not diagnosed.
 
-### 7. k8v4 KV against the shipped fp8
-**Why:** every profile ships `--kv-dtype fp8`. K8V4 is available as a third option behind one flag.
-**No published evidence exists for k8v4.** The "within 0.08 % of BF16" figure that first prompted this
-was traced to NVFP4-KV against FP8-KV on Qwen3.5-397B-A17B — a different model, a different baseline,
-and not k8v4 at all. It is withdrawn. The test stands only as our own measurement to be made.
-**Done when:** perplexity and decode acceptance are compared across bf16 / fp8 / k8v4 on one shipping
-lane, interleaved.
+### 7. k8v4 KV against the shipped fp8 — **CLOSED 2026-10-01: not warranted here**
+The only thing that would justify a KV size reduction on this product is context, and context is
+already at the ceiling. Upstream caps Qwen3.8-27B at `kNativeContext` = 262,144 and states outright
+that a smaller KV "does not change max context" (issue #123, verified against the tracker while
+closing this). What a 1.78 GiB saving at native context (fp8 8.06 → 6.28 GiB, −22.1%, measured in-tree
+and recorded in `docs/research/kv-dtype-evidence.md`) actually buys is **concurrency headroom** — and
+concurrency 1 is a product decision for these lanes, so that value is declined by construction.
+
+Two further findings make the comparison moot rather than merely unattractive:
+
+* **No published k8v4-vs-FP8 quality measurement exists.** The one first-party measurement
+  (vLLM #38479, merged 2026-04-15) compares against an *unquantized* baseline — GSM8K 0.860 against
+  0.900 — which is a loss, not parity, at roughly 1.9σ on 200 questions. Too small to establish or
+  exclude an effect, which is the same structural defect that killed the withdrawn "0.08 %" figure.
+* **The format measured is not the format this tree ships.** vLLM's `turboquant_k8v4` is unrotated
+  FP8-E4M3 K with no scale plane plus per-vector uniform 4-bit V. This tree's `k8v4` is
+  `Fp8KeyNvfp4Value`: FP8-E4M3FN-**row256** K, Hadamard-prepared with a 2-byte scale, plus NVFP4-G16 V.
+  The slot sizes differ and match vLLM's published 196 B exactly, so **no external number transfers**
+  even if a sound one existed.
+
+Ecosystem support is vLLM-only: zero code hits for `k8v4` or `turboquant` in TensorRT-LLM, ModelOpt,
+SGLang or FlashInfer, against a live control query. vLLM's own tracker leaves "publish recommended
+config table" unticked, and users report it "does not work with modern models" and that **MTP ×
+TurboQuant produces degenerate token loops** — which is this product's shipping configuration.
+
+**This closes the investigation, not the option.** `k8v4` stays selectable and fully implemented here
+(`src/ops/kv_cache/append/k8v4_kernel.cuh`, `k8v4_launch.cu`). Unlike item 9's `PromptLookup`, this is
+a working format behind a flag, not a ported component whose consumer will never exist — so it is not a
+withdrawal candidate, and nothing in this row should be read as a reason to remove it.
+
+Full evidence, including what was searched and not found and one published table excluded as
+non-discriminating, in `docs/research/kv-dtype-evidence.md`.
+
+**Why it was once open, and why that reason no longer holds:** every profile ships `--kv-dtype fp8` and
+k8v4 sat behind one flag. The item's own premise — "**no published evidence exists for k8v4**" — has
+since been **confirmed and extended**: no evidence exists, and the one first-party measurement that
+does is of a different format. Its "Done when" was a perplexity and acceptance comparison across
+bf16 / fp8 / k8v4 on a shipping lane, interleaved. That comparison is **not performed**, and the
+closure above is the reason: it would settle a question whose answer cannot change what this product
+ships. The withdrawn "within 0.08 % of BF16" figure — traced to NVFP4-KV against FP8-KV on
+Qwen3.5-397B-A17B, a different model on a different baseline, not k8v4 at all — stays withdrawn.
 
 ### 8. MTP draft window 5 to 10 — **NOT RUNNABLE ON THIS TREE, closed 2026-09-30**
 The engine refuses to start above 5. `startup.cpp:785` raises "MTP draft window must be in [1,5]"
