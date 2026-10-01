@@ -555,9 +555,44 @@ configuration nobody was checking.
 >   rank-2 descriptor and `cp.async.bulk.tensor.2d`.
 >
 > **What is still open is the second half:** the nine `PORT-DISPATCH` gates are untouched, so no
-> shipping configuration has changed and no lane is faster. An earlier bench put the TMA route about
-> 10x slower than the MMA route on one shape, so ungating is a performance decision requiring its own
-> interleaved measurement — not a consequence of this fix.
+> shipping configuration has changed and no lane is faster. **And the case for ungating them is now
+> stronger than the case against it**, on evidence rather than on the throughput figure that first
+> suggested otherwise.
+>
+> **The ~10x figure is not reproduced by anything published, and the obvious confound does not explain
+> it.** An earlier bench put the TMA-selected token bands at ~100-125 GB/s against ~1110-1316 GB/s for
+> the MMA bands. Three findings dissolve that as a reason to keep the gate
+> (`docs/research/sm120-tma-fp8-throughput-evidence.md`):
+>
+> * **No apples-to-apples comparison exists to lose to.** CUTLASS ships **no non-TMA sm_120 mainloop
+>   at all** — all eight SM120 collectives are `*_tma.hpp`, all seven builders are TMA-only, and
+>   `sm120_mma_builder.inl` hardwires `SM90_TMA_LOAD`. Every other sm_120 FP8 GEMM in existence uses
+>   TMA because there is no alternative to compare against, so our two-route situation is one nobody
+>   has published numbers for.
+> * **The nearest controlled measurement has TMA slightly AHEAD.** Same tile, stages and warps on an
+>   RTX 5090, only the load function changed: TMA 4-9% ahead of `cp.async`, a margin inside that
+>   source's own 6.9% run-to-run swing.
+> * **"Thin M" was my hypothesis and it is wrong.** Computed from this tree's own templates, both arms
+>   use a **32-token** tile; the TMA arm's *row* tile is twice as large (64 vs 32), so it launches half
+>   the CTAs — not a smaller tile. At T>=129 the two arms already share a 64x128x128 tile and differ
+>   only in stage count (3 vs 2), which moves shared memory 73,776 -> 49,152 B and occupancy 288 ->
+>   512 threads/SM.
+>
+> **Occupancy is a real, NVIDIA-confirmed sm_120 wall** — 101,376 B (99 KiB) against sm_100's 232,448,
+> per `arch.h` and TensorRT-LLM PR #12141. That credibly explains roughly 1.8x at T>=129. **It explains
+> nothing at T<=64, where occupancy is equal.** So part of the gap is stage count and part is
+> unexplained, and the leading internal candidate is CTA starvation: half the CTAs at equal
+> threads/SM.
+>
+> **What would settle it:** a run with the SAME tile, stages, warps and epilogue, changing only the
+> load path. Not obtainable from CUTLASS on sm_120 for the reason above, so it has to be a local
+> schedule change plus an interleaved measurement. Until then, "TMA is slower here" is unsupported —
+> and "TMA is faster" is equally unsupported. **Do not ungate or keep the gate on the 10x figure.**
+>
+> Note also that the FP8 peak convention is unsettled (419 TFLOPS at FP32 accumulate vs 838 that
+> circulate for the same part), so any percentage-of-peak framing for FP8 on this card is fragile.
+> Throughput against the DRAM constant is the more robust denominator.
+
 >
 > **[SUPERSEDED] The standalone reproducer's finding was a harness bug, not a platform fact.**
 > `tools/scripts/probe_sm120_tma_load.{cu,cmd}` reported that a bare `cp.async.bulk.tensor.2d` "does not
