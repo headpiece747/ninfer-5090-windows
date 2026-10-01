@@ -26,7 +26,7 @@ output-neutral, which is a stronger result than the +/-1% band required. The oth
 so that drift belongs to the older baseline and must not be cited as an attention regression without a
 same-day control. Recorded in `docs/perplexity-baseline.md`.
 
-### 1b. Can a full-NVFP4-coverage artifact be built from NVIDIA's source?
+### 1b. Can a full-NVFP4-coverage artifact be built from NVIDIA's source? — **ANSWERED 2026-10-01: no**
 **Why:** the `nvfp4full` lane is built from `Qwen3.8-27B-NVFP4-unsloth`, a community quantization,
 and scores **5.002854** on 2026-09-28, **5.002854 -> 4.998419** on 2026-09-29. The `nvfp4nvidia` lane
 is built from NVIDIA's ModelOpt output — which is the official stock, its 4.90168 sitting against the
@@ -36,13 +36,38 @@ protocol, on the same nominal model. Both re-measurements are on the build carry
 merge and are in `docs/perplexity-baseline.md`; the per-domain breakdown there shows the same four
 artifacts spanning 6.4 % on `chinese_reference` against 1.8 % overall, so this gap is a statement
 about the aggregate and understates the disagreement.
-The lane's name appears to describe a format property rather than a source, so the community
-checkpoint was probably chosen deliberately as the one permitting complete NVFP4 coverage. That
-reasoning is written down nowhere and has not been tested.
-**Done when:** we know whether NVIDIA's checkpoint admits the same complete coverage. If it does, a
-lane built from it is strictly better than the one we ship under that name. If it does not, the
-current split is correct and the reasoning gets written down so the next reader does not have to
-rediscover it.
+**Measured from `Qwen3.8-27B-NVFP4-nvidia/.quant_summary.txt` this session, not inferred.** The file
+declares 658 weight quantizers: **401 active, 257 disabled.** The active ones are two different
+formats, not one:
+
+| active weight quantizers | count | format as declared |
+|---|---|---|
+| `text` attention projections | 208 | `TensorQuantizer((4, 3) bit fake per-tensor amax=… calibrator=MaxCalibrator quant)` — **INT4, per-tensor amax** |
+| `mlp` projections + `lm_head` | 193 | `StaticBlockScaleQuantizer((2, 1) bit fake block_sizes={-1: 16, 'type': 'static', 'scale_bits': (4, 3)} … NVFP4MSECalibrator)` — **NVFP4** |
+
+The disabled 257 are 144 attention, **112 vision tower**, and `embed_tokens`. The 144 attention ones
+are exactly the 48 `conv1d` sites plus GDN `in_proj_a` / `in_proj_b` — the projections this port
+already `recipe.separate()`s at `official_recipes.py:521-523`.
+
+**So the answer is no, and the reason is structural rather than a matter of the converter.** NVIDIA's
+own attention is INT4 with a per-tensor scale, not NVFP4 block-scaled at all, and its vision tower
+and embeddings are left unquantized. Full NVFP4 coverage is not something NVIDIA's checkpoint
+*permits*; it is something **this port adds**, by re-encoding every non-MLP text projection through
+`nvfp4_maxabs` at `official_recipes.py:534-540` and assigning the vision tower grouped-integer
+formats at `official_recipes.py:24-39`.
+
+**The lane name is therefore accurate, and the reasoning it rests on is now written down here so the
+next reader does not have to rediscover it:** `nvfp4full` names a property of the *port's recipe*, not
+of the community checkpoint it starts from. The unsloth source was chosen because its MLP layers
+already carry usable NVFP4 encodings for layers < 56 (`import_encoded`), which is what makes the
+lane's 4.998 possible at all; the remaining coverage is re-encoded locally. Swapping the source to
+NVIDIA's would **lose** NVFP4 coverage on 208 attention projections, not gain it.
+
+This also settles why `nvfp4nvidia` scores better (4.911 against 4.998) without that being a
+contradiction: it is a different artifact with different coverage, and the gap is not attributable to
+coverage alone.
+
+**Done when:** satisfied — the coverage was read, not tested.
 
 ### 2. Give the local NVFP4 encoder a scale search instead of max scaling - **ANSWERED 2026-09-28, negative**
 Built as `nvfp4_mse` (`900a0f78`, reverted `b891e1e9`), wired into the 128 object groups
@@ -73,18 +98,74 @@ unused method.
 before it is believed. This is the same rule as "a cost you can compute is not a cost you have
 measured", pointed the other way.
 
-### 3. The W8 endpoints are 2.52 GiB, 14.3 % of everything bound
-**Why:** both W8 endpoints are Q8, which is the right default and the only choice with a measurement
-behind it. An NVFP4-endpoint build would return roughly 1.26 GiB — the same order as the whole spread
-between lanes that reach 262144 context and one that does not.
-**Done when:** an NVFP4-endpoint variant of one lane is built and measured, and the capacity difference
-is recorded against the lane's current free memory.
+### 3. The W8 endpoints are 2.52 GiB, 14.3 % of everything bound — **CLOSED 2026-10-01: not warranted here**
+**The memory argument died with the context goal.** The item was worth 1.26 GiB "the same order as the
+whole spread between lanes that reach 262144 context and one that does not" — and as of this session
+**all eight lanes reach 262,144 natively**. There is no longer a spread to close, so the 1.26 GiB buys
+concurrency headroom, which concurrency 1 declines by construction. This is the same closure item 7
+reached, and for the same reason: with the context goal met, memory on this product converts into
+nothing that is wanted.
 
-### 4. The vision tower is quantized in all four artifacts and BF16 in all three sources
-**Why:** ours alone; no source checkpoint quantizes it, and no source measures doing so. Estimated
-around 600 MiB. **Perplexity cannot see it**, so it needs its own check.
-**Done when:** the decision is measured rather than assumed -- either a quality check that shows
-quantizing the tower is safe, or the tower is left BF16.
+**A false claim about the field has to be corrected here, because it reads as settled practice.**
+The item asserted Q8 is "the right default". It is not the convention: across ~90 surveyed
+quantized checkpoints **Q8 appears nowhere**, and the field splits three ways — BF16, FP8 and NVFP4.
+Measured in this tree, the endpoints are indeed `q8_g32_fp16` on both shipping artifacts
+(`qwen3_8_27b_nvfp4full_noex`, `qwen3_8_27b_nvfp4swift15`), assigned at
+`official_recipes.py:512` and `:518-519` — so the *format* is right, but the *justification* was not.
+Keeping Q8 is defensible on our own measurement and on the absence of any evidence against it; it is
+**not** defensible as "the default", and a reader would have taken that as a citation.
+
+Two things make the alternative uninteresting rather than merely unmeasured:
+
+* **No source measures Q8 against NVFP4 or against FP8 for these endpoints.** Nothing in the survey
+  bears on the trade at all, so an NVFP4-endpoint build would answer a question no baseline exists for.
+* **NVIDIA's own stock quantizes `lm_head` to NVFP4** — verified here, not taken from documentation:
+  `lm_head.weight_quantizer` in `Qwen3.8-27B-NVFP4-nvidia/.quant_summary.txt` reads
+  `StaticBlockScaleQuantizer((2, 1) bit fake block_sizes={-1: 16, 'type': 'static', 'scale_bits': (4, 3)}, … NVFP4MSECalibrator)`.
+  So there is now a first-party precedent for the alternative. It is not a reason to switch: the
+  `nvfp4nvidia` lane already inherits NVIDIA's endpoints by `import_encoded`, so fidelity to the
+  official stock is already achieved on the lane that has it, and re-quantizing the two most
+  sensitive weights on `nvfp4full` would be a numerics change with no capacity benefit in return.
+
+**Reopen only if concurrency or native context changes**, since that is the only condition under which
+the 1.26 GiB acquires a consumer.
+Full evidence: `docs/research/quantization-coverage-evidence.md`.
+
+### 4. The vision tower is quantized in all four artifacts and BF16 in all three sources — **KEEP, and it is now the strongest revert candidate on this list**
+**A precision note first, because it changes what is being decided.** The tower is *not* NVFP4. It is
+grouped-integer, assigned at `official_recipes.py:24-39`: `patch_embedding` Q6, `merger/` Q8,
+`attention/{query,key,value}` and `mlp/fc1` Q4, everything else Q5. Verified on the artifact rather than
+the recipe — of 441 vision sites in `qwen3_8_27b_nvfp4full_noex`, **108 are Q4, 54 Q5, 1 Q6, 2 Q8, and
+276 are BF16** (biases, norms and embeddings, which are not projections). So ~165 sites are quantized
+and the majority of the tower is untouched. That is a materially gentler position than "quantized", and
+it is what the ~600 MiB estimate covers.
+
+**The external evidence has shifted against quantizing it, and it is now the strongest of the four
+remaining quantization items to act on:**
+
+* **94 of 130** surveyed VLM NVFP4 checkpoints leave the vision tower in BF16. All **15**
+  llm-compressor multimodal examples ignore it. TensorRT-LLM lists **no** multimodal model under NVFP4.
+* **Qwen's own official FP8 checkpoint excludes all 330 vision Linears** — the same vendor, the same
+  model family, excluding them on purpose.
+* **ModelOpt disables it in a shared exclusion unit, with two stated reasons and five NVBug IDs behind
+  it.** That is a deliberate vendor decision with a bug-tracker history, not an omission.
+* **No source anywhere measures a quantized-versus-BF16 vision tower.** The nearest thing is a third
+  party's 8-image fixture, which its own author declines to call a benchmark. So this remains a trade
+  nobody has published, in either direction.
+
+**The decisive new fact: one of NVIDIA's two stated reasons cannot apply here.** One is divisibility —
+and Qwen3.8's patch embedding has 1536 in-features, `1536 % 128 == 0`, so the alignment constraint that
+would force quantization is simply absent. That removes the strongest available defence of the current
+choice, and it was not checkable without going and checking it.
+
+**Why it still cannot simply be reverted on this evidence:** the ~600 MiB is not needed (all lanes sit
+at native context), so there is no pressure either way, and our format is grouped-integer rather than
+NVFP4 — a much smaller bet than the field's BF16 majority implies. Reverting is a numerics change to
+the one component **perplexity cannot see**, which is precisely why it needs its own check rather than
+a vote.
+**Done when:** unchanged — either a quality check showing the quantized tower is safe, or it goes back
+to BF16. What has changed is that the check now has to beat an explicit vendor exclusion rather than an
+absence of precedent. Full evidence: `docs/research/quantization-coverage-evidence.md`.
 
 ### 5. Recall@1 / Recall@16 / path-acceptance split
 **Why:** the only diagnostic that discriminates three different root causes, and it needs no new
@@ -94,6 +175,11 @@ Decompose per position:
 - Recall@16 — the target argmax anywhere in the 16
 - path acceptance — what the selector actually commits
 
+**Triaged 2026-10-01: KEEP — warranted, and now the cheapest item on this list.** No external evidence
+is needed or wanted here: the instrument reads data the drafter already emits, so this is an engineering
+task rather than a question. It is also the only item that discriminates between three *different* root
+causes of the position-1 acceptance collapse rather than tuning one of them, which is why it should not
+be reordered behind the quantization work.
 **Done when:** all three are reported per position on a shipping lane, and they point at one of:
 healthy Recall@16 with collapsing path acceptance (selector); Recall@16 itself collapsing after
 position 1 (backbone or conditioning); or Recall@1 low at position 1 (head or conditioning weak from
@@ -243,25 +329,53 @@ digest-based control in the bench depends on.
 against our own baseline. **"Built, measured, and not shipped" is an acceptable outcome** and should be
 reported as one.
 
-### 10. The A4 activation divisor at the re-encoded attention sites
-**Why:** this is the axis item 2 was aimed at by mistake, and it has a documented failure mode rather
-than a plausible one. The 128 groups `qwen3_8_27b_nvfp4_nvidia` re-encodes are assigned
-`activation_policy="AllowA4"`, and their `activation_input_divisor` is recovered from a source
-`input_scale` the producer calibrated for **FP8** — `6 / input_scale` at an FP8 site against
-`1 / input_scale` at an already-NVFP4 one (`official_recipes.py`, the `_activation_divisor` probe). A
-divisor sized for 8-bit activations is not obviously roomy enough for 4-bit ones, and nothing here has
-measured it.
-**The producer's own source names this failure mode.** ModelOpt's `NVFP4ActHeadroomCalibrator` exists
-because plain max calibration of the activation global scale "would drag the global scale up so far
-that every other block's FP8 block scale falls below subnormal and flushes to zero — losing the whole
-tensor to protect one value"; its default anchors to the 99.99th percentile and clips the rare blocks
-deliberately instead. The source checkpoint shows exactly that shape: `mlp.gate_proj` records
-`amax=[0.0047, 0.4219]`, a 90x spread between the smallest block and the tensor maximum.
-**Expected gain:** unknown, and that is the point — it is the one quantization scale in these
-artifacts with a documented way to be badly wrong and no measurement behind it.
-**Done when:** the A4 divisors at these sites are compared against headroom-anchored ones on one
-shipping lane, measuring perplexity and decode acceptance. Unlike the weight scale, the comparison
-needs a calibration corpus, so it is a real cost and not a free-at-runtime change.
+### 10. The A4 activation divisor at the re-encoded attention sites — **PREMISE CORRECTED 2026-10-01, downgraded**
+**The reason this item was open is wrong, and it was wrong in this file.** The claim was that the
+`activation_input_divisor` is "recovered from a source `input_scale` the producer calibrated for
+**FP8**", so that "a divisor sized for 8-bit activations is not obviously roomy enough for 4-bit ones."
+It is not. This tree's own recipe docstring records what NVIDIA actually writes
+(`official_recipes.py:556-558`): NVIDIA's checkpoint stores `amax / (6 * 448)` at an **NVFP4** site and
+`amax / 448` at an **FP8** site. So `6 / input_scale` at an FP8 site and `1 / input_scale` at an
+already-NVFP4 site are the *same expression* — both recover `2688 / amax`, and `2688 = 6 × 448` is
+precisely the factor that converts an FP8 scale into the A4 orientation. `calibration.py`'s
+`FULL_RANGE = 2688.0` is that same constant. **The factor of 6 is the conversion, not a stale
+bit-width**, and the two branches of the `_activation_divisor` probe agree by construction.
+
+Verified from the source rather than from this file's own summary: NVIDIA's real
+`6/input_scale` tensors were read by HTTP Range and equal `2688/amax`, matching `calibration.py`'s
+rule. **What remains is a different and weaker concern:** the divisor is `amax`-derived, and
+`amax` is exactly what `NVFP4ActHeadroomCalibrator`'s own docstring identifies as leaving no headroom.
+
+Three findings bound how far that concern can be taken:
+
+1. **NVIDIA does the same thing here.** Its shipped Qwen3.8-27B uses plain max on these sites — 401
+   `MaxCalibrator` activation quantizers against 193 `NVFP4MSECalibrator` weight quantizers. The
+   headroom calibrator is opt-in, recent, and carries **no published accuracy number**.
+2. **Our divisors are not NVIDIA's.** NVIDIA's calibrated `amax` and this port's own disagree by up to
+   **40×** at some of 24 sampled sites — different corpora, not a format mismatch. So "we already match
+   the official stock" is false here, in the other direction: both are max-derived, from different data.
+3. **The `mlp.gate_proj` spread quoted below is real but is not evidence of a defect.** `amax=[0.0047,
+   0.4219]` is a 90× spread across blocks, which is the *shape* max calibration produces; it does not
+   by itself show the small blocks are being harmed.
+
+**Disposition: keep, but as an untried improvement rather than a suspected bug.** Nothing here suggests
+the divisors are wrong, and the evidence that they might be is a risk NVIDIA also accepts on the same
+sites. That is a weaker claim than the one this item made, and it should not be described as a
+documented failure mode any more.
+**Done when:** unchanged in substance — compare the A4 divisors against headroom-anchored ones on one
+shipping lane, measuring perplexity and decode acceptance. Needs a calibration corpus, so it is a real
+cost. Re-scope it to `qwen3_8_27b_nvfp4_nvidia`, which is the recipe that re-encodes the 128 groups;
+the two shipping lanes use `..._unsloth_noex` and `..._swift15_nvdraft`.
+
+Retained because it is the producer's own statement of the residual risk, not an inference:
+ModelOpt's `NVFP4ActHeadroomCalibrator` exists because plain max calibration of the activation global
+scale "would drag the global scale up so far that every other block's FP8 block scale falls below
+subnormal and flushes to zero — losing the whole tensor to protect one value"; its default anchors to
+the 99.99th percentile and clips the rare blocks deliberately instead. **That is a vendor describing
+what max calibration can do, on a model where they chose not to enable their own fix.** It is the
+strongest form the argument takes, and it is still an argument about NVIDIA's choice, not a defect
+attributable to this port.
+Full evidence, including the ~90-checkpoint survey: `docs/research/quantization-coverage-evidence.md`.
 
 ### 11. The sparse accept path had no distributional test, and every sparse case used `top_k=1` - **DONE 2026-09-28**
 **Found while auditing a claim of mine that turned out to be false. The premise below was also false.**
@@ -330,6 +444,27 @@ unaffected. Resolutions, to reuse rather than re-derive:
    device copy whose allocation, copy and free are all ordered on the consuming stream — a NULL-stream
    free is ordered against nothing on a non-blocking stream and the pool can recycle the block under the
    TMA unit's read, which is the 786,432-token prefill live-lock that shape already caused here once.
+
+   **Correction to this item's own recorded reason, 2026-10-01 — the mechanism is not what the comments
+   say.** The in-tree comments justify the fix as inheriting `TENSOR_MAP_ALIGN = 64` under MSVC. On this
+   build it inherits **8**: `__cplusplus` is `199711` without `/Zc:__cplusplus`, so `cuda.h`'s `alignas`
+   never fires and the header's `_MSC_VER` branch is dead code. **The shipped W4A4 route is correct by
+   layout accident, not by the mechanism recorded** — descriptors first at 128 bytes each give offsets
+   0/128/256/384, all 16-aligned, which is why it works. Anyone reasoning from the comment would draw
+   the wrong conclusion about which property is load-bearing. A sweep of this toolchain also shows
+   `alignas` 8/16/32/64 accepted and **128 and 256 rejected with four C2719 sites each**, all in nvcc's
+   generated host stub.
+
+   **The deferral risk is live, and the premise about who carries the attribute is wrong.** Upstream
+   `Neroued/ninfer` still carries `alignas(128)` on all three descriptor structs on **both `dev` and
+   `master`** today (`75a89050`), so a merge reintroduces an unrecoverable C2719 — that part of the
+   deferral stands. But **CUTLASS does not carry it** at any tag from `v3.8.0` to `main`: it declares
+   `TmaDescriptor = CUtensorMap` outright with an `alignas(64)` fallback, and FlashAttention has zero
+   `alignas` in any TMA file and inherits that alias. So the exposure is *this fork's divergence from
+   upstream*, not a CUTLASS/FlashAttention attribute, and it is **not tracked** in any CUTLASS,
+   FlashAttention or NVIDIA tracker reached — the same diagnosis appears only in three third-party
+   Windows ports (ONNX Runtime, vllm-windows, llmjob). **No upstream fix exists to wait for**, so the
+   local divergence is not temporary and should not be written up as pending one.
 
 2. **Upstream routed every FP8 A8 path to that TMA kernel, and it faults here at execution** with
    `cudaErrorIllegalInstruction`, which poisons the context so the test aborts `0xc0000409`. There is no
@@ -493,11 +628,44 @@ is a correct fix for the *measurement*. It is explicitly not a fix for the behav
 gets different, shorter first-turn text. Fixing the harness and fixing the engine are two different jobs
 and only the first has been done.
 
-**Not established, and the question is not yet even shaped.** Whether this is a sampler or RNG
-initialisation that is not yet warmed, a speculative-decode path that behaves differently on an empty
-prefix, an adapter or template state materialised lazily on first use, or a cache/prefix-population
-effect. Item 6 established that it is *real* and *not* a measurement artefact. It did not establish where
-it comes from.
+**Re-scoped 2026-10-01: this is two separate items, and the text half is answered.** The four candidate
+causes listed above are not equally live. External research, and one in-tree fact, split them:
+
+* **The *text* difference is a known, engine-wide behaviour with a named mechanism: prefix caching.**
+  SGLang's own FAQ states two identical requests can differ even at temperature 0 and names prefix
+  caching as a distinct cause of the indeterminism. vLLM **#40896** (open) is this item's question
+  verbatim — run 1 returns A, runs 2..N return B≠A, restart returns to A, and
+  `--no-enable-prefix-caching` makes it deterministic — with a maintainer answering "we haven't fully
+  supported determinism with prefix caching currently", and determinism roadmap **#27433** still listing
+  it unticked. llama.cpp ships `cache_prompt` on by default and warns in the option's own docs that it
+  "can cause nondeterministic results". This port has a context cache with incremental encode, so the
+  mechanism is present by construction. The sharpest corroboration is a comment on #40896 measuring
+  **logprobs rather than token ids**: max delta 4.6e-02 on H100 with **identical token ids**, bit-exact
+  under `VLLM_BATCH_INVARIANT=1`. That is exactly this item's signature — greedy stable from request 1,
+  sampling divergent.
+* **An uninitialised RNG is ruled out, in-tree.** This port's sampler is counter-based with no mutable
+  RNG state — `sampling_uniform(seed, position, purpose, sub)` — so there is no generator that could be
+  cold on the first request. The logits or the logical position must differ instead.
+* **The *speed* half is undocumented, and its sign is opposite to every documented case.** Nothing found
+  anywhere documents a first request that is **faster**. Every documented first-request effect — JIT,
+  graph capture, allocator and cuBLAS warm-up — *adds* latency, and this port does not call cuBLAS. The
+  recorded 261.7 against 169.8 tok/s is not explained by anything in the literature.
+* **One in-tree lead for the speed half:** upstream issue #80 documents that the token count
+  `t = Σ(1 + accepted drafts)` selects the kernel and therefore the reduction order. That is consistent
+  with the first request *accepting better* (64.6 % against 32.7 %) — a different `t` selects different
+  arithmetic, which can be faster and can change sampling. This is a hypothesis with a mechanism, not a
+  diagnosis.
+
+**So: the text divergence is not a defect to fix, it is documented engine behaviour** — but it is still
+worth stating explicitly, because the bench compensates for it silently and a reader may remove the
+warmup discard as redundant. **The speed asymmetry is the real open item**, and it is the opposite
+shape from every published first-request effect, which is why it deserves its own diagnosis rather than
+being folded into the text half.
+**Done when:** for the text half — satisfied, characterise it in `docs/serving.md` as intended
+behaviour and cite the mechanism. For the speed half — identify the cause; the token-count-driven
+kernel selection in #80 is the leading candidate and is checkable against `spec_rounds` /
+`spec_acceptance_rate` already reported by `ninfer_bench`.
+Full evidence: `docs/research/first-request-transient-and-msvc-tma-evidence.md`.
 
 **Why it is worth an item despite looking small.** It is user-visible and it is deterministic: the same
 seed gives different text on the first turn and stable text afterwards. A client that treats turn one as
