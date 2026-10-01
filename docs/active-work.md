@@ -524,6 +524,26 @@ configuration nobody was checking.
 > shipping configuration has changed and no lane is faster. An earlier bench put the TMA route about
 > 10x slower than the MMA route on one shape, so ungating is a performance decision requiring its own
 > interleaved measurement — not a consequence of this fix.
+>
+> **[SUPERSEDED] The standalone reproducer's finding was a harness bug, not a platform fact.**
+> `tools/scripts/probe_sm120_tma_load.{cu,cmd}` reported that a bare `cp.async.bulk.tensor.2d` "does not
+> run on sm_120a on this machine", and that ruled out four candidate causes. That conclusion was wrong.
+> Its bounded wait mis-numbered the inline-asm operands for `mbarrier.try_wait.parity`: the barrier
+> *address* was taken from the predicate-result register and the *phase* from the address, so it
+> dereferenced a kernel parameter as a shared address and faulted **before any TMA instruction ran**.
+> `compute-sanitizer` names `SYNCS.PHASECHK.TRANS64.TRYWAIT` at the fault offset, with `UTMALDG.2D`
+> nearby and not faulting; a kernel containing no tensor map and no TMA instruction reproduces the same
+> fault; and with the operands corrected, TMA runs in every legal arm — rank 2 and 3, swizzle 128B and
+> NONE, by value and by pointer. So none of the four causes that reproducer claimed to eliminate was
+> ever under test. `docs/research/why-no-others-hit-sm120-tma-evidence.md` has the measurement.
+>
+> **This does not touch the fix.** The fix was validated by a different loop that drives the project's
+> own kernel — flip the gates, build `ninfer_linear_fp8_a8_test`, run it — and that one reproduced
+> `cudaErrorIllegalInstruction` at `[14336,5120] T=129` and went green after `a5077adf`. This tree's
+> only `try_wait` is `src/ops/common/mbarrier.cuh:21`, which is correctly numbered (no output operand,
+> so `%0` is the barrier address), so the project does not share the reproducer's defect. The
+> reproducer has been deleted rather than corrected: the real loop supersedes it.
+
 **Attempted 2026-09-29, first aborted, then merged the same day. Suite green with it: 135 tests,
 133 passed, the two by-construction `dflash_real` and `moe_real`; `check_test_baseline.py` GATE PASSED.**
 
