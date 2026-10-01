@@ -18,6 +18,9 @@ import sys
 import zipfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from profiles import PROFILES  # noqa: E402
+
 REQUIRED = [
     "ninfer-serve.exe",
     "ninfer.exe",
@@ -30,10 +33,11 @@ REQUIRED = [
     "launcher_env.bat",
     "download_model.bat",
     "download_model.py",
-    "start_quasar_v3_dflash2_vision.bat",
-    "start_quasar_v3_mtp4_vision.bat",
-    "start_ninfer_v3_dflash2_vision.bat",
-    "start_ninfer_v3_mtp4_vision.bat",
+    # Every launcher the packager stages, derived from the same table the packager derives it from.
+    # This list was four hand-copied names, which meant the check could not fail for a launcher it
+    # did not name -- so an archive that silently lost the Swift or NVIDIA lane passed, which is the
+    # exact failure this file's own docstring says it exists to catch. Deriving it removes the copy.
+    *[profile["file"] for profile in PROFILES],
     "upgrade_ninfer_v2_to_v3.py",
     "README.md",
     "RELEASE_NOTES.md",
