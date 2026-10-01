@@ -161,8 +161,18 @@ what this harness's own `DOMAINS` comment predicted: d13 is 33 % faster than the
 and slower on chinese, prose and dialogue. d7 wins three domains of five. Full table and the
 per-position profiles are in `docs/research/swift15-lane-measurement.md`.
 
-### 9. ngram: the verify-tree integration
-**Why:** `PromptLookup` is ported and tested (`c0da270e`); the integration is not built. It needs
+### 9. ngram: the verify-tree integration — **CLOSED 2026-10-01 by product decision**
+**Closed on the maintainer's own evidence, not on an argument from this file.** The copy-drafting
+combination was tried against different LLMs and did not work out. That settles it: the research
+below, the break-even arithmetic and the "measure `p` of the copied token" framing are all moot, and
+the verify-tree integration is not going to be built.
+
+Retained only because `PromptLookup` (`c0da270e`) is in the tree with no caller, and
+`prompt_lookup.h:33` says so in as many words — `NOT YET WIRED`. That dead surface is now a
+**withdrawal candidate on its own terms**: it is a ported component whose consumer will not exist.
+Do not read this row as an argument for finishing it.
+
+**Why it was once open:** `PromptLookup` is ported and tested (`c0da270e`); the integration is not built. It needs
 `candidate_selector_tree`, `speculative_accept_tree_drafts`, `speculative_compact_columns`, tree-aware
 GDN replay and tree-aware target attention, each with a host oracle.
 **Expected value is low, and that is the finding, not a reason to skip it:** the selector's value is
@@ -495,10 +505,12 @@ Each of these was investigated and settled. They look like open work and are not
   nothing: `ngram_drafted_tokens` and `ngram_accepted_tokens` are declared at `types.h:761-762` and
   written nowhere, and `impl->ngram` (`startup.cpp:819`) is never read. **It does not reserve
   288 MiB** — that allowance went with `ngram_policy.h` in `8c7242e6`, and `startup.cpp:884` now says a
-  copy round runs at the round's own width and provisions nothing extra. So the fix is item 9, not
-  withdrawal: the flag is the switch `PromptLookup` needs, and the requirement is to add copy
-  drafting. Recorded here only because an earlier revision of this file said to withdraw it, on the
-  strength of the withdrawn allowance.
+  copy round runs at the round's own width and provisions nothing extra. **This is now a withdrawal
+  item, not a build item.** An earlier revision of this file pointed at item 9 for the fix ("the flag
+  is the switch `PromptLookup` needs"); item 9 is closed, so that reasoning no longer holds. What
+  remains is that a shipped flag validates, enters the program and produces nothing, and
+  `prompt_lookup.h` is a tested component with no caller. Either is a surface this project does not
+  otherwise keep.
 - ~~`tools/release/check_doc_links.py` does not skip fenced code blocks~~ — done in `46ec0c5b`, with
   seven tests, six of which fail against the previous body.
 - DFlash **v1**'s published config has no `is_causal` key, so the reference gives it five causal and
