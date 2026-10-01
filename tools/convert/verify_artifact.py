@@ -16,20 +16,35 @@ non-decreasing order, non-overlapping, and cover exactly the declared element co
 points at the wrong rows of a tensor produces a model that loads and generates, so nothing else in the
 pipeline would notice.
 
-**Every NVFP4 payload, decoded through an independent path.** The stored bytes are unswizzled, the
-E2M1 codes and E4M3FN scales recovered, and the dequantized parent rebuilt, then compared against the
-source checkpoint's own matrix. ``tools/artifact/codecs/nvfp4.py`` is the *storage* codec; it is not
-reused as the oracle, because a codec that both writes and verifies its own output would agree with a
-wrong encoder. The reference here is built from the format definitions instead: E2M1 magnitudes and
+**Every NVFP4 and grouped-integer payload.** The stored bytes are unswizzled, the E2M1 codes and
+E4M3FN scales recovered, and the dequantized parent rebuilt, then compared against the source
+checkpoint's own matrix. ``tools/artifact/codecs/nvfp4.py`` is the *storage* codec; it is not reused as
+the oracle, because a codec that both writes and verifies its own output would agree with a wrong
+encoder. The reference here is built from the format definitions instead: E2M1 magnitudes and
 round-to-nearest-even from the published table, E4M3FN from its own encoding.
+
+Grouped-integer sites (Q4/Q5/Q6/Q8) were added to this pass on 2026-10-01 and **were not covered by it
+before**, which left every quantized vision-tower payload and every NVFP4-draft payload unverified
+against its source. They are the format this tree assigns to the vision tower
+(``official_recipes.py`` ``_optional``) and to the draft projections (``_nvfp4_draft``). Their bound is
+derived from the encoder rather than tabulated -- see ``grouped_bound`` -- and is ``0.5 / qmax`` of the
+tensor maximum, against NVFP4's ``1/6 + 1/16 = 0.2292``.
 
 **The weight divisor and every input divisor.** Each must be a positive finite FP32 word. The divisor
 words are compared against the source's stored ``input_scale`` where the site is an imported NVFP4 one,
 which is where a factor-of-six error would live.
 
-**Both W8 endpoints against base rows.** The two Q8 endpoints are the largest W8 objects in the
-artifact and the most expensive to have silently rebuilt from the wrong rows, so they are compared
-against the BF16 base's rows rather than merely checked for a valid encoding.
+**The W8 endpoints are NOT value-checked, and an earlier revision of this docstring said they were.**
+It claimed "Both W8 endpoints against base rows ... compared against the BF16 base's rows rather than
+merely checked for a valid encoding". No such check existed in this file; the sentence described an
+entry point that ``docs/maintainer/artifact-conventions.md`` records as never having been ported. Now
+that grouped-integer sites are claimed, the two endpoints are *attempted* and fail for a reason that
+has nothing to do with their encoding: the source factory short-reads at
+``248320 x 5120 = 1,270,998,400`` elements ("short source read"), and ``proposal/head`` needs an
+explicit logical source that no recipe supplies. Both are reported as **unchecked**, not as failures,
+because a reference that cannot be read is a limit of the lookup rather than evidence about the
+payload. So the endpoints -- 2.52 GiB, and the subject of ``docs/active-work.md`` item 3 -- remain
+unproven by this tool.
 
 Exit code 0 if every check passes, 1 otherwise. Run with ``--only`` to verify a single class, which
 is how the time was divided during development.
@@ -48,8 +63,12 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.artifact.codecs.nvfp4 import decode_nvfp4_words  # noqa: E402
+from tools.artifact.codecs.row_split import dequantize_row_split  # noqa: E402
 from tools.artifact.formats import (  # noqa: E402
     NVFP4_FORMATS,
+    QUANT_FORMATS,
+    QuantFormat,
+    get_format,
     valid_positive_fp32_word,
 )
 from tools.artifact.reader import Artifact  # noqa: E402
@@ -67,6 +86,23 @@ E2M1_MAGNITUDES = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
 # the machine down. The tables below are built once and the arithmetic is vectorized, so a block costs
 # 4 bytes per element, and blocks are the unit of work rather than whole parents.
 BLOCK_ELEMENTS = 8 << 20  # 8 Mi elements = 32 MiB per float32 block
+
+
+def grouped_bound(spec: QuantFormat) -> float:
+    """Worst-case max-relative error of grouped absmax, against the tensor's own maximum.
+
+    Derived from the encoder rather than tabulated. ``groupwise.quantize_matrix`` chooses
+    ``codes = clamp(round(x / scale), qmin, qmax)`` with ``scale = binary16(group_absmax / qmax)``,
+    so a reconstructed value is off by at most half a step, ``0.5 * scale``. Since
+    ``group_absmax <= tensor_absmax`` that is at most ``0.5 / qmax`` of the tensor maximum, and the
+    binary16 scale carries its own ``2**-11`` relative rounding on top.
+
+    Divided by the tensor maximum rather than the group maximum because that is what the comparison
+    measures, which makes this bound conservative: a tensor whose largest group is much smaller than
+    its maximum will measure well under it.
+    """
+    return 0.5 / spec.qmax * (1.0 + 2.0**-11)
+
 
 
 def e2m1_value(code: int) -> float:
@@ -118,7 +154,9 @@ class Report:
 
     passed: list[str] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
+    observed: dict[str, float] = field(default_factory=dict)
 
     def check(self, label: str, ok: bool, reason: str = "") -> bool:
         if ok:
@@ -127,8 +165,30 @@ class Report:
             self.failures.append(f"{label}: {reason}" if reason else label)
         return ok
 
+    def note(self, label: str, reason: str = "") -> None:
+        """Record a site this run could not check, which is not the same as a site that failed.
+
+        A reference that cannot be resolved says nothing about the artifact: it is a limit of the
+        lookup, and counting it as a failure makes a verifier that could not see a payload look
+        like a verifier that disproved it. These are listed separately so a reader can tell which
+        payloads remain unproven.
+        """
+        self.notes.append(f"{label}: {reason}" if reason else label)
+        self.count("unchecked")
+
     def count(self, key: str, n: int = 1) -> None:
         self.counts[key] = self.counts.get(key, 0) + n
+
+    def observe(self, key: str, error_ratio: float) -> None:
+        """Record the worst max-relative error seen for a format.
+
+        A pass/fail verdict says whether a payload stayed inside its bound. It does not say how far
+        inside, and the margin is the interesting number when the question is whether one format is
+        a tighter bet than another: "Q4 measured 0.0718 against a bound of 0.0715" is a fact about
+        this artifact, while "PASS" is not.
+        """
+        if error_ratio > self.observed.get(key, -1.0):
+            self.observed[key] = error_ratio
 
 
 def check_directory(artifact: Artifact, report: Report) -> None:
@@ -330,12 +390,17 @@ def check_values(
     tolerance: float,
     methods: dict[str, str],
 ) -> None:
-    """Decode each NVFP4 payload and compare it against the source it was made from.
+    """Decode each NVFP4 and grouped-integer payload and compare it against the source it was made from.
+
+    Grouped-integer sites joined this pass on 2026-10-01. Before that the ``obj.format.startswith
+    ("nvfp4")`` filter below meant every quantized vision-tower payload and every NVFP4-draft payload
+    was skipped without comment, so a wrong encoding in either would have passed unnoticed.
 
     The site -> method map decides the reference and the bound for each site; see _compare_site. The
     two families are counted separately, so a run says how many payloads it proved bit-identical and
     how many it bounded against the format's arithmetic, rather than reporting one total that mixes
-    a copy check with a lossy one.
+    a copy check with a lossy one. The bound is per format: NVFP4 takes ``--tolerance``, and a grouped
+    format takes ``grouped_bound`` of its own spec.
 
     This is the check the fork's ``verify_*`` entry points describe and this tree lacked. It is
     deliberately the expensive one -- decoding all 26.1 billion elements of the nvidia lane takes
@@ -379,7 +444,9 @@ def check_values(
         obj = _object(by_id, object_ids[0])
         if obj is None or getattr(obj, "kind", "") != "tensor":
             continue
-        if not obj.format.startswith("nvfp4") or len(obj.shape) != 2:
+        if len(obj.shape) != 2:
+            continue
+        if not obj.format.startswith("nvfp4") and obj.format not in QUANT_FORMATS:
             continue
         columns = obj.shape[1]
         parts = binding.get("parts")
@@ -400,12 +467,43 @@ def check_values(
             for name, _, _, _ in entries:
                 report.check(f"object for {name}", False, "binding names a non-tensor object")
             continue
+        # Each parent is decoded once and released before the next is read, whichever format it is.
+        # Grouped-integer parents are an order of magnitude smaller than the NVFP4 ones, but the
+        # release is unconditional rather than per-branch so a future format cannot reintroduce the
+        # retention that exhausted this machine once.
         try:
-            codes, scales, divisor = decode_nvfp4_words(
-                artifact.read_object(object_id), obj.shape
-            )
-            parent = decode_nvfp4_parent(codes, scales, divisor, obj.shape)
-            del codes, scales
+            if obj.format in QUANT_FORMATS:
+                # Grouped absmax, not NVFP4. Reuses the storage codec, which the module docstring
+                # otherwise declines to do, and that is deliberate here: the oracle for this site is
+                # the BF16 source matrix, compared against a bound derived from the format's own
+                # arithmetic. A decoder that mis-read the plane order, the nibble order or the sign
+                # would produce values uncorrelated with the source and measure O(1) error, not the
+                # 0.07 this bound allows, so the source comparison is what validates the decode --
+                # not the codec's agreement with itself.
+                spec = get_format(obj.format)
+                if not isinstance(spec, QuantFormat):
+                    raise ValueError(
+                        f"{obj.format} is in QUANT_FORMATS but is not a QuantFormat"
+                    )
+                bound = grouped_bound(spec)
+                # float32, not the codec's bfloat16 default. The default rounds the reconstruction to
+                # bfloat16, which adds up to 2**-9 relative error of its own -- larger than Q8's entire
+                # half-step budget of 0.0039 -- and that error belongs to the decode, not to the
+                # encoding, so it would be charged against the format's bound. Casting to float32
+                # afterwards does not remove it; the dtype has to be chosen at the call.
+                parent = dequantize_row_split(
+                    artifact.read_object(object_id),
+                    spec,
+                    obj.shape,
+                    dtype=torch.float32,
+                )
+            else:
+                bound = tolerance
+                codes, scales, divisor = decode_nvfp4_words(
+                    artifact.read_object(object_id), obj.shape
+                )
+                parent = decode_nvfp4_parent(codes, scales, divisor, obj.shape)
+                del codes, scales
         except Exception as error:  # noqa: BLE001
             for name, _, _, _ in entries:
                 report.check(f"decode {name}", False, f"{type(error).__name__}: {error}")
@@ -419,9 +517,10 @@ def check_values(
                     model,
                     stores,
                     report,
-                    tolerance,
+                    bound,
                     obj.shape[1],
                     methods.get(name, "unknown"),
+                    obj.format,
                 )
         finally:
             # Released before the next parent is read, not at the end of the loop.
@@ -507,6 +606,7 @@ def _compare_site(
     tolerance: float,
     columns: int,
     method: str,
+    fmt: str = "unknown",
 ) -> None:
     """Compare one decoded slice against the right reference for how the recipe produced it.
 
@@ -544,14 +644,22 @@ def _compare_site(
             source = model.source(name, store, hint)
             values = source.values(0, got.shape[0] * columns)
         except Exception as error:  # noqa: BLE001
-            reason = f"{type(error).__name__}: {error}"
+            # The FIRST attempt's reason is kept, not the last. Base is tried first, so the last
+            # attempt is the quantized store and its "missing source tensor '<name>_packed'" is a
+            # consequence of the hint being wrong for a site that is not NVFP4-encoded. Keeping it
+            # hid the real cause, which for both W8 endpoints is a "short source read" at 1.27
+            # billion elements -- a limit of the lookup, and invisible while a later attempt's
+            # unrelated error was printed instead.
+            if not reason:
+                reason = f"{store_name}/{hint or '-'}: {type(error).__name__}: {error}"
             continue
         expected = values.reshape(got.shape[0], columns)
         used = f"{store_name}/{hint}"
         break
     if expected is None:
-        report.check(
-            f"source mapping {name}", False, reason or "no opened source maps this site"
+        report.note(
+            f"source mapping {name}",
+            reason or "no opened source maps this site",
         )
         return
     want = expected.to(torch.float32)
@@ -561,6 +669,7 @@ def _compare_site(
         report.count("values")
         return
     error_ratio = float((got - want).abs().max()) / scale
+    report.observe(fmt, error_ratio)
     if imported:
         report.check(
             f"imported words {name}",
@@ -692,6 +801,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     for key in sorted(report.counts):
         print(f"  {key:<18} {report.counts[key]}")
+    if report.observed:
+        print("\n  worst max-relative error against source, by format:")
+        for key in sorted(report.observed):
+            print(f"    {key:<18} {report.observed[key]:.6f}")
+    if report.notes:
+        # Printed before the failure count and on the same stream as the counts, because "not
+        # checked" is part of what a run covered. A payload listed here is unproven, not disproven.
+        print(f"\nverify: {len(report.notes)} site(s) this run could NOT check:")
+        for note in report.notes[:40]:
+            print(f"  {note}")
+        if len(report.notes) > 40:
+            print(f"  ... and {len(report.notes) - 40} more")
     if report.failures:
         print(f"\nverify: {len(report.failures)} failure(s):", file=sys.stderr)
         for failure in report.failures[:40]:

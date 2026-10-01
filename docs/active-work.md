@@ -163,9 +163,60 @@ at native context), so there is no pressure either way, and our format is groupe
 NVFP4 — a much smaller bet than the field's BF16 majority implies. Reverting is a numerics change to
 the one component **perplexity cannot see**, which is precisely why it needs its own check rather than
 a vote.
-**Done when:** unchanged — either a quality check showing the quantized tower is safe, or it goes back
-to BF16. What has changed is that the check now has to beat an explicit vendor exclusion rather than an
-absence of precedent. Full evidence: `docs/research/quantization-coverage-evidence.md`.
+**Measured 2026-10-01: KEEP the quantized tower.** The check this item asked for now exists, and it
+says the risk is smaller than the risk this artifact already accepts elsewhere. `verify_artifact.py`
+decoded every grouped-integer payload and compared it against its BF16 source — **564 locally-encoded
+payloads verified, 0 failures**, including 165 vision-tower sites across all four formats that had
+**never been value-checked before** (`check_values` filtered on `obj.format.startswith("nvfp4")`, so
+every grouped site was skipped silently). Worst max-relative error per format, same artifact, same
+measurement, same code path:
+
+| format | where | worst measured | format's own bound |
+|---|---|---|---|
+| `nvfp4` | text stack | **0.165869** | 0.2292 (`1/6 + 1/16`) |
+| `q4_g64_fp16` | vision tower | **0.071429** | 0.071463 (`0.5/qmax`) |
+| `q5_g64_fp16` | vision tower | **0.033315** | 0.033350 |
+| `q6_g64_fp16` | vision tower | **0.016031** | 0.016137 |
+| `q8_g32_fp16` | merger, DFlash draft | **0.003930** | 0.003939 |
+
+**The vision tower's worst format is 2.3x tighter than the NVFP4 the text stack already ships.** And
+`q4_g64_fp16` measures 0.071429 against a derived bound of 0.071463 — that is `1/14 = 0.5/7` to six
+places, so the Q4 encoder is hitting its half-step bound and no more, which is the strongest statement
+this measurement can make. The bounds are derived from `groupwise._canonical_scale_words` rather than
+tabulated: codes are `clamp(round(x/scale), qmin, qmax)` with `scale = binary16(group_absmax/qmax)`, so
+a value is off by at most half a step, `0.5/qmax` of the tensor maximum.
+
+**What this does not prove.** A bounded weight error is not a bounded change in vision *task quality*.
+Perplexity still cannot see the tower, and no vision benchmark was run, so the residual is real
+however small the weight error is. What changed is which side of the argument each piece of evidence
+sits on: "94 of 130 checkpoints leave it BF16" is a convention, while 0.0714 against the 0.1659 we
+already ship is a measurement of this artifact. Reverting on the first while ignoring the second would
+be arguing from a headline against a number.
+
+**So the decision is to keep it, and the thing that would change it is named rather than implied:** a
+vision task benchmark (MMMU, DocVQA or ChartQA) comparing the BF16 tower against this one on the same
+artifact pair. That is the only remaining evidence that would settle it, and it is a real project of
+its own — not a reason to revert now.
+
+**Two defects this work exposed, both fixed, both worth recording:**
+
+* **The verifier's docstring advertised a check that did not exist.** It claimed "Both W8 endpoints
+  against base rows ... compared against the BF16 base's rows rather than merely checked for a valid
+  encoding". No such code was in the file — it described the `verify_*` entry points that
+  `artifact-conventions.md` records as never having been ported. **The endpoints are still not
+  value-checked**, now for a reason that is stated rather than assumed: the source factory short-reads
+  at `248320 x 5120 = 1,270,998,400` elements, and `proposal/head` needs an explicit logical source no
+  recipe supplies. They are reported as **unchecked**, a verdict distinct from failure, because a
+  reference that cannot be read is a limit of the lookup and not evidence about a payload.
+* **`_compare_site` reported the wrong attempt's reason.** It overwrote the failure reason on each
+  attempt and printed the last, which for a locally-encoded site is the `quantized/nvfp4` attempt. The
+  message became `missing source tensor 'embed_tokens.weight_packed'` — an artifact of passing an NVFP4
+  hint to a Q8 site — while the real cause was the base store's short read. Keeping the *first* reason
+  is what made this findable.
+
+**Done when:** satisfied for the weight-encoding question. A vision task benchmark remains the only
+outstanding evidence, and is recorded above as its own piece of work rather than as a condition on
+this item. Full evidence: `docs/research/quantization-coverage-evidence.md`.
 
 ### 5. Recall@1 / Recall@16 / path-acceptance split
 **Why:** the only diagnostic that discriminates three different root causes, and it needs no new
