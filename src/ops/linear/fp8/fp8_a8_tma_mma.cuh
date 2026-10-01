@@ -21,12 +21,26 @@ struct alignas(128) Fp8TmaDescriptors {
     CUtensorMap weight;
 };
 
-// Windows/MSVC cannot lay out a by-value alignas(128) kernel parameter (C2719 in the cudafe1 host
-// launcher), so on Windows the launcher keeps the descriptor block in a device buffer and passes a
-// pointer; the TMA unit reads the tensor map from that address. Elsewhere the __grid_constant__
-// by-value parameter keeps the map in parameter space. All kernel translation units must share this
-// spelling, so it is a macro rather than a constexpr type. Same fix, and same reason, as the NVFP4
-// W4A4 route's NINFER_NVFP4_TMA_DESCRIPTOR_PARAM.
+// Windows/MSVC cannot lay out a by-value alignas(128) kernel parameter, so on Windows the launcher
+// keeps the descriptor block in a device buffer and passes a pointer; the TMA unit reads the tensor
+// map from that address. Elsewhere the __grid_constant__ by-value parameter keeps the map in
+// parameter space. All kernel translation units must share this spelling, so it is a macro rather
+// than a constexpr type.
+//
+// The threshold is measured rather than assumed. tools/scripts/probe_tma_align.cmd compiles a
+// by-value __grid_constant__ descriptor block at each width: 8/16/32/64 ACCEPTED, 128 and 256
+// REJECTED with four C2719 sites each, all in nvcc's generated host stub. This struct therefore
+// keeps alignas(128) -- the TMA unit needs the descriptor 128-byte aligned on the DEVICE -- and
+// steps around the host-side ABI limit by not passing it by value on Windows.
+//
+// This is NOT the same resolution as the NVFP4 W4A4 route, and an earlier revision of this comment
+// claimed it was. That route once had a NINFER_NVFP4_TMA_DESCRIPTOR_PARAM macro (723c1290) and no
+// longer does: 1218d574 replaced it with a by-value parameter precisely because a device buffer
+// filled by cudaMemcpyAsync reads a caller stack frame that is gone by the time a CUDA Graph replay
+// runs. That route is correct by the layout of its own descriptor block rather than by the header --
+// see the comment on Bf16TmaDescriptors for why no alignas is needed there, and for why CUtensorMap
+// contributes no alignment at all in this build. This route keeps the device copy instead, and
+// orders its allocation, copy and free on the consuming stream.
 #ifndef NINFER_FP8_TMA_DESCRIPTOR_PARAM
 #ifdef _WIN32
 #define NINFER_FP8_TMA_DESCRIPTOR_PARAM const Fp8TmaDescriptors* __restrict__

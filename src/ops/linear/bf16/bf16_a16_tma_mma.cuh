@@ -11,12 +11,35 @@
 
 namespace ninfer::ops::detail {
 
-// No alignas override: CUtensorMap already declares alignas(TENSOR_MAP_ALIGN), which is 64 under MSVC
-// and 128 elsewhere, so inheriting it leaves a by-value kernel parameter MSVC can lay out. Overriding
-// it to 128 produced C2719 ("formal parameter with requested alignment of 128 won't be aligned") in the
-// cudafe1 host launcher on Windows. This is the port's fix from 1218d574, which also makes the
-// descriptor safe under CUDA Graph capture -- the bytes travel in the kernel node, so a replay sees them
-// again, where a device buffer filled by cudaMemcpyAsync would read a caller stack frame that is gone.
+// No alignas override, and the reason is NOT the one an earlier revision of this comment gave. It
+// used to say CUtensorMap "already declares alignas(TENSOR_MAP_ALIGN), which is 64 under MSVC and 128
+// elsewhere, so inheriting it leaves a by-value kernel parameter MSVC can lay out". The macro is 64.
+// The attribute is not applied at all. cuda.h:3749-3753 selects TENSOR_MAP_ALIGN = 64 under _MSC_VER,
+// but cuda.h:3756 applies it only inside `#if defined(__cplusplus) && (__cplusplus >= 201103L)`, and
+// nvcc's host pass on MSVC reports __cplusplus = 199711L unless /Zc:__cplusplus is passed. This build
+// does not pass it, so CUtensorMap carries no alignment attribute and inherits alignof == 8 from its
+// `cuuint64_t[16]` payload. It is the ABSENCE of the attribute, not an inherited 64, that leaves the
+// by-value parameter below layable.
+//
+// Measured on this toolchain (CUDA 13.3, MSVC) by tools/scripts/probe_tma_align.cmd:
+//   alignof(CUtensorMap) = 8, TENSOR_MAP_ALIGN = 64, __cplusplus = 199711, attribute applied: NO
+//   with /Zc:__cplusplus: alignof = 64, __cplusplus = 202002, attribute applied: yes
+// So this is a property of the build flags, not of the type. Re-run that tool after touching the CUDA
+// headers, the MSVC toolchain, or the C++ flags in CMakeLists.txt; these comments quote its numbers.
+//
+// Overriding to alignas(128) produced C2719 ("formal parameter with requested alignment of 128 won't
+// be aligned") in nvcc's cudafe1 host stub on Windows. The same sweep shows a by-value
+// __grid_constant__ descriptor block accepted at 8/16/32/64 and rejected at 128 and 256 with four
+// C2719 sites each, so 128 is past what MSVC's ABI will honour for a by-value parameter -- which is
+// why the header picks 64 and why this struct declares nothing.
+//
+// If /Zc:__cplusplus is ever added to this build, the struct below inherits alignas(64) and the
+// reasoning above has to be re-checked rather than assumed to carry over. That combination is not
+// built today, so it is not measured here.
+//
+// This is the port's fix from 1218d574, which also makes the descriptor safe under CUDA Graph capture
+// -- the bytes travel in the kernel node, so a replay sees them again, where a device buffer filled by
+// cudaMemcpyAsync would read a caller stack frame that is gone.
 struct Bf16TmaDescriptors {
     CUtensorMap weight;
     CUtensorMap activation;

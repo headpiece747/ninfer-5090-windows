@@ -439,11 +439,18 @@ unaffected. Resolutions, to reuse rather than re-derive:
 
 1. `src/ops/linear/fp8/fp8_a8_tma_mma.cuh` does not compile on MSVC — `error C2719`, a by-value
    `__grid_constant__ alignas(128)` TMA descriptor that the MSVC ABI cannot lay out. Fixed with the
-   port's own established pattern (`723c1290`'s `NINFER_NVFP4_TMA_DESCRIPTOR_PARAM`): a macro that is a
-   pointer on `_WIN32` and the by-value parameter elsewhere, a `descriptor_block` local, and an RAII
-   device copy whose allocation, copy and free are all ordered on the consuming stream — a NULL-stream
-   free is ordered against nothing on a non-blocking stream and the pool can recycle the block under the
-   TMA unit's read, which is the 786,432-token prefill live-lock that shape already caused here once.
+   pattern `723c1290` established for the NVFP4 route: a macro that is a pointer on `_WIN32` and the
+   by-value parameter elsewhere, a `descriptor_block` local, and an RAII device copy whose allocation,
+   copy and free are all ordered on the consuming stream — a NULL-stream free is ordered against
+   nothing on a non-blocking stream and the pool can recycle the block under the TMA unit's read,
+   which is the 786,432-token prefill live-lock that shape already caused here once.
+
+   **The macro this cites no longer exists, and the NVFP4 route no longer uses this fix.**
+   `NINFER_NVFP4_TMA_DESCRIPTOR_PARAM` is gone from the tree — `1218d574` replaced it with a by-value
+   parameter, because a device buffer filled by `cudaMemcpyAsync` reads a caller stack frame that is
+   gone by the time a CUDA Graph replay runs. So the two routes now resolve the same C2719 two
+   different ways, and the FP8 header's claim that it was the "same fix, and same reason" was wrong
+   on both counts. Both comments are corrected; the divergence is deliberate, not drift.
 
    **Correction to this item's own recorded reason, 2026-10-01 — the mechanism is not what the comments
    say.** The in-tree comments justify the fix as inheriting `TENSOR_MAP_ALIGN = 64` under MSVC. On this

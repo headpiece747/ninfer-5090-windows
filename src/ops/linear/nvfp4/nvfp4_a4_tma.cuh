@@ -21,9 +21,12 @@
 
 namespace ninfer::ops::detail {
 
-// No alignas override, for the reason recorded on Bf16TmaDescriptors: CUtensorMap declares
-// alignas(TENSOR_MAP_ALIGN) itself (64 under MSVC, 128 elsewhere), and overriding it to 128 is what
-// produced C2719 on Windows and forced the pointer form this port later removed.
+// No alignas override, for the reason recorded on Bf16TmaDescriptors: CUtensorMap carries NO
+// alignment attribute in this build -- not an inherited TENSOR_MAP_ALIGN of 64 -- because cuda.h
+// gates the alignas on __cplusplus >= 201103L and nvcc's MSVC host pass reports 199711 without
+// /Zc:__cplusplus. Measured by tools/scripts/probe_tma_align.cmd: alignof(CUtensorMap) == 8.
+// Overriding it to 128 is what produced C2719 on Windows and forced the pointer form this port
+// later removed.
 struct Nvfp4A4TmaDescriptors {
     CUtensorMap a_codes;
     CUtensorMap b_codes;
