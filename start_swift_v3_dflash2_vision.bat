@@ -3,10 +3,10 @@ REM ============================================================================
 REM  Swift 1.5 + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 349.4 tok/s   draft acceptance 63.0%
-REM      runtime 11.6 GiB   free VRAM 1.51 GiB
+REM      context 262,144   decode 339.4 tok/s   draft acceptance 63.0%
+REM      runtime 11.6 GiB   free VRAM 1.50 GiB
 REM
-REM  Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured 2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured against every window 1-15 on the code domain and re-measured on four others: 13 is 33% faster on code and slower on chinese, prose and dialogue, so the width that maximises the worst domain is the one already shipped. This image encodes the DFlash2 draft to NVFP4 where Swift 1.0's left it at Q8, which is 0.77 GiB smaller and is exactly the margin that puts the native 262,144 back in reach -- the Q8 build of this same checkpoint is REFUSED at 262,144 with Vision. The encoding is measured per target and it reverses here: on Swift 1.0 the same change lost 3.2 acceptance points, so it was measured rather than assumed.
+REM  Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured 2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured against every window 1-15 on the code domain and re-measured on four others: 13 is 33% faster on code and slower on chinese, prose and dialogue, so the width that maximises the worst domain is the one already shipped. This image encodes the DFlash2 draft to NVFP4 where Swift 1.0's left it at Q8, which is 0.77 GiB smaller and is exactly the margin that puts the native 262,144 back in reach -- the Q8 build of this same checkpoint is REFUSED at 262,144 with Vision. The encoding is measured per target and it reverses here: on Swift 1.0 the same change lost 3.2 acceptance points, so it was measured rather than assumed. Whether the Q8 build would also serve at a smaller --prefill-chunk has not been probed; at 4096 this lane reads 2.87 GiB free against 1.50 GiB at the shipped 8192, so if the Q8 build fits that configuration the encoding choice and the 13.7 acceptance points it buys are both open to re-examination.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable

@@ -5,6 +5,13 @@ interleaved and rotated. The Swift 1.0 control is same-day and same-binary throu
 2026-09-28 table it would otherwise be compared against does not reproduce — see the last section,
 which is a finding in its own right.**
 
+**The lane configuration changed after most of this document was written.** Every table below was
+taken at `--prefill-chunk 8192`, which is what ships; 4096 was measured and rejected (see
+"`--prefill-chunk` is a memory lever"). The figures in `tools/release/profiles.py` and the launcher
+headers were re-measured across all eight lanes on 2026-09-30 and supersede several generations of
+recorded numbers that no longer reproduced — including ones this document quotes, which are left as
+they were recorded rather than rewritten.
+
 ## The question
 
 Replace the two lanes that ship `ukisai/Swift-Qwen3.8-27B-NVFP4` — `start_swift_v3_dflash2_vision`
@@ -82,6 +89,216 @@ and NVIDIA still serve 262,144 on 1.51 and 1.37 GiB free. **Runtime grew from 10
 2026-09-24 to 11.5/11.6 GiB on 2026-09-30**, and the DFlash2 + Vision lanes had under a gigabyte of
 margin left. `profile` mode then measured `start_swift_v3_dflash2_vision` **REFUSED** through the real
 launcher — the fastest lane in the product, 370.9 tok/s in the table, does not start today.
+
+## Which component grew, measured rather than inferred
+
+The growth was attributed to an upstream commit from its message before it was checked. It is now
+measured, component by component, by rebuilding the tree that produced the 2026-09-24 figure
+(`80e911bd`) and starting the **same artifact** with the same flags on both binaries. The
+`server_start` event in the request log carries the per-arena breakdown, which the single `capacity`
+startup line does not.
+
+Swift 1.5 Q8-draft, DFlash2 draft window 7, vision, `--max-context 240000`:
+
+| component | 09-24 binary | current binary | change |
+|---|---:|---:|---:|
+| weights | 17.991 GiB | 17.991 GiB | — |
+| sequence arena (KV) | 8.234 GiB | 8.234 GiB | — |
+| CUDA Graph allowance | 0.469 GiB | 0.469 GiB | — |
+| **unified workspace (capacity)** | **1.354 GiB** | **2.246 GiB** | **+0.892 GiB** |
+| unified workspace (peak used) | 1.198 GiB | 2.090 GiB | +0.892 GiB |
+| **runtime reservation** | **10.057 GiB** | **10.949 GiB** | **+0.892 GiB** |
+| available after startup | 2.334 GiB | 1.211 GiB | −1.123 GiB |
+
+The whole increase is the unified workspace, and its **peak** grew by the same amount, so this is
+genuine demand rather than over-reservation: some width in the band really does allocate that much.
+It is not the graph allowance, which is what the earlier reading of the commit history suggested.
+
+**Read in the source.** `causal_softmax_attention_workspace_capacity_bytes` used to take a
+`max_width` and derive its splits from `detail::causal_attention_split_capacity(q_heads, width,
+cache_storage, envelope, batch_size)` — a function of shapes alone. That function no longer exists.
+It now takes a `DeviceExecutionView` and dispatches per storage type with
+`execution.multiprocessor_count`, and `src/ops/softmax_attention/dense/causal_cache/fp8/plan.cpp`
+budgets splits against the SM count directly: decode budgets `2 * sms`, and the reservation is the
+**maximum** partials buffer over every width in the band. A 170-SM 5090 therefore reserves
+substantially more partial scratch than a card with fewer SMs would.
+
+**The ngram change is not the cause.** It added a second graph family (`d0d419f6`) and
+`8c7242e6` withdrew it — that family was charged twice for executables the tree never built, and the
+charge is gone. The graph allowance measures 0.469 GiB on *both* binaries, and the growth is in the
+workspace, which that code did not size.
+
+**What the merges cost, measured.** Same artifact, one full-length warmup discarded, no server-side
+seed:
+
+| binary | context | decode | acceptance |
+|---|---:|---:|---:|
+| 09-24 | 262,144 | 329.0 tok/s (n=5) | 60.1% (n=5) |
+| current | 240,000 | 328.9 tok/s (n=24) | 58.4% ± 1.1 pp (n=24) |
+
+Per-record acceptance spans 46–67%, so these are indistinguishable: the workspace growth bought no
+measurable throughput and cost no acceptance. Two caveats on that row: the old side is n=5 at a
+larger context, and a first comparison of 60.1% against the harness's 49.3% was **invalid** — the
+harness fixes a seed and repeats one draw, so its figure is reproducible but is a single sample of
+the distribution, and the two do not share a sampling method.
+
+**The process gap.** `docs/active-work.md` item 1 recorded that the merge rewrote 88 files of
+`src/ops/softmax_attention` and that "what the merge invalidated is the recorded performance table."
+That was right about throughput and it left the memory reservation unchecked: no pre-merge control
+was run against the same artifact, which is why this took a rebuild to locate.
+
+## `--prefill-chunk` is a memory lever, 4096 was measured, and it is rejected
+
+`startup.cpp:271` sets `max_width = min(prefill_chunk, capacity)`, and that is the width the
+reservation is maximised over. So a flag every lane already ships is a direct memory lever, and
+changing it needs no CUDA change and no revert.
+
+Swift 1.5 DFlash2 d7 + Vision at `--max-context 262,144`, measured with the engine's own per-request
+`timings` (`prompt_ms`, `prompt_per_second`, `predicted_per_second`):
+
+| `--prefill-chunk` | workspace | workspace peak | reservation | free after startup | prefill tok/s @19.2k |
+|---:|---:|---:|---:|---:|---:|
+| 8192 | 2.246 GiB | 2.090 | 11.630 GiB | 1.505 GiB | 13,077 |
+| **4096** | **1.130 GiB** | 0.974 | **10.280 GiB** | **2.856 GiB** | 12,770 |
+| 2048 | 0.807 GiB | 0.499 | 9.839 GiB | 3.018 GiB | 11,621 |
+
+KV capacity is 262,144 with pages 4,096/4,096 in all three, so nothing is bought by serving less
+context.
+
+**Neither alternative ships.** The rejection is not that 4096 fails — it does exactly what it says,
+recovering 1.12 GiB of workspace for -2.3% prefill. It is that **262,144 is already served at 8192 on
+all eight lanes**, each started through its own launcher. The experiment bought *margin, not context*,
+and margin was not the binding constraint: it spent measured throughput on headroom nothing was short
+of. A flag that reduces the worst-case memory without enabling anything is a robustness purchase, and
+it has to be argued as one rather than presented as a fix. Recorded in `profiles.py` so the
+measurement is not repeated.
+
+### The lever that is actually worth changing is the split rule, not the width
+
+The field standard for choosing split-KV splits is FlashAttention's `num_splits_heuristic`
+(`hopper/heuristics.h`, and the same file vendored by vLLM). It selects by wave-quantization
+efficiency and then returns **the smallest split count reaching 85% of peak efficiency**, with the
+stated reason that "we also don't want too many splits as that would incur more HBM reads/writes".
+It also returns **1 split whenever work tiles already fill 80% of the SMs**, and caps splits at
+`min(max_splits, num_SMs, num_n_blocks)`.
+
+This tree replaced that shape of decision with a flat CTA budget: `fp8/plan.cpp` computes
+`budget = 2 * multiprocessor_count` for decode and `multiprocessor_count` otherwise, then
+`causal_partition_target` returns `clamp(budget / independent_tiles, 1, kMaxSplits)`. That is a
+CTA-per-tile rule, not an occupancy rule. Two consequences follow directly from the difference, and
+both are consistent with what was measured here:
+
+- It can allocate materially more splits than the standard would at the same shapes, and a split
+  costs a partial buffer — so the workspace is oversized relative to the parallelism actually needed.
+- It grows with SM count by construction, which is the 0.892 GiB this document opened with.
+
+There is also independent support for the "smallest adequate count" half: a 2026 study of
+FlashAttention-3 on Hopper (arXiv 2604.00028) sweeps splits at a low-head decode point and finds a
+**broad low-latency plateau from s=3**, with the best tested value (s=64) under ~2% better than s=3.
+Over-splitting buys almost nothing and costs HBM traffic and scratch.
+
+### What the tracker already decided, and why its justification does not transfer
+
+Upstream issue **#277** ("Raise default `prefill_chunk` 1024 → 2048", open) measured the same lever and
+reached the opposite direction from 4096: every chunk boundary costs about 10 ms, so **larger** chunks
+are faster, and chunking is **math-neutral** — identical greedy token across 512/1024/2048, which
+independently corroborates the byte-identical digests measured here at 4096 and 8192. Its case for not
+going further was that "workspace grows linearly with chunk size and stays small vs model weights
+(~15 GiB)" — but that was measured on a **2332-token prompt**, where the workspace peak was 76–305 MiB.
+At this product's native 262,144 the same reservation is **2.246 GiB**, because the plan sizes splits
+against `max_visible_keys` at full capacity. The conclusion does not carry to a lane that actually
+serves the native context, and the −2.3% measured here is consistent with #277's direction: more chunk
+boundaries cost time. 8192 is the right shipped value on both counts.
+
+So the change worth making is not `--prefill-chunk` and not a revert: it is to size splits by
+occupancy the way the standard does, which could recover the memory **and** keep or improve prefill.
+`--prefill-chunk` pays prefill for memory while leaving the split count untouched, which is why it is
+the wrong lever even though its measurement is sound. This has not been implemented or measured here.
+
+## A larger lever exists, and this tree does not have it
+
+Upstream **#217** ("Concurrency ceiling 8 is too low for large-VRAM GPUs") measured aggregate
+throughput on a 96 GB RTX 5090 running Qwen3.8-27B at 600 tok/request: **429 tok/s at C8, 556 at C16,
+~732 at C32**, flat or collapsing at C64, with zero failures. Its audit found the cap is
+**validation-only** — every kernel takes batch as a runtime grid dimension, and the ceiling is
+`kMaximumConcurrency` sizing `std::array` members plus scattered `batch > 8` checks. It was closed
+COMPLETED on 2026-09-09.
+
+**It never landed here.** `include/ninfer/types.h:20` still reads
+`kMaximumConcurrency = 8`, and `git log -S` over every ref shows only the original value and the
+original concurrency commit ever touched it. So a ~70% aggregate-throughput win that upstream accepted
+is unavailable to this port, and all eight lanes additionally run at `--max-concurrency 1`.
+
+That last part is deliberate rather than an oversight: the lanes are configured for single-request
+latency, where concurrency 1 is correct, and higher concurrency trades per-request latency for
+aggregate throughput. But the **ceiling** is a different question from the lane setting, and the ceiling
+is the part that is missing. Porting #217 is a 24-file change per its branch, and on a 32 GB card the
+compile-time `std::array` members it resizes are a genuine memory cost against ~2 GiB free — so it
+needs measuring here, not importing. Recorded as the largest identified throughput lever, not
+attempted.
+
+The prefill cost is **-2.3%**, from three interleaved rounds per arm: 13,102/13,075/13,054 against
+12,780/12,799/12,732. The two clusters are disjoint and the within-arm spread is 0.37% and 0.52%. An
+earlier reading of this as "unchanged" came from two samples per arm and was wrong; it is a real cost,
+just a small one. Decode is unaffected — 232 against 232 in the same rounds.
+
+**This corrects the claim above that the growth bought no throughput.** That conclusion came from a
+400-token decode comparison, where the split budget barely binds (splits ≈ 2) and the SM count cannot
+show up. What the growth buys is *prefill*, and a short-context decode measurement cannot see it. The
+general form: a memory change sized by a width that only wide operations reach will look free on any
+benchmark that never reaches that width.
+
+At 4096 the attention workspace is 1.130 GiB, below the 1.354 GiB the same card showed on the
+pre-merge binary at 8192 — so more headroom was available without reverting `e621c7d6`. That is why
+the split rule, not a revert, is the interesting target.
+
+**The change is output-preserving.** Three lanes were measured at both chunk widths:
+
+| lane | 8192 | 4096 |
+|---|---|---|
+| QUASAR MTP5 | 183.5 tok/s, 43.0%, `4b7c11dd` | 184.9 tok/s, 43.0%, `4b7c11dd` |
+| NVIDIA DFlash2 | 323.9 tok/s, 56.2%, `558e4ba6` | 319.9 tok/s, 56.2%, `558e4ba6` |
+| NVIDIA MTP4 | 202.5 tok/s, 53.1%, `26331348` | 208.5 tok/s, 53.1%, `26331348` |
+
+Identical acceptance and byte-identical digests on all three, which is the control that matters:
+acceptance is draft-versus-target agreement and cannot depend on how a ~50-token test prompt is
+chunked, so an acceptance difference would have meant the change altered output rather than cost
+time.
+
+**The recorded table did not reproduce, and this is how it surfaced.** Re-measuring all eight lanes
+moved QUASAR MTP5 from 250.4/60.5% to 184.9/43.0% and both NVIDIA lanes down 5-9 points. Those
+figures were **not** caused by the flag — the controls above hold acceptance and digests fixed — and
+at 8192 QUASAR MTP5 reads 183.5/43.0% and NVIDIA DFlash2 323.9/56.2% as well. Three recorded
+generations of figures on these lanes had already been withdrawn for not reproducing. Two consequences
+are recorded in `profiles.py` rather than left implicit: the QUASAR and NVIDIA **draft-depth choices
+were made from the stale population and have not been re-measured since**, and at 8192 *every*
+DFlash2 lane read 11.6 GiB with 1.51 GiB free, not the two that were believed to be thin — QUASAR and
+NVIDIA looked comfortable only because their rows still carried 2026-09-24 numbers.
+
+## Depth: 262,144 has been shown reachable, and now fast enough to name
+
+The ceiling figures above are startup acceptance. What a request at that depth actually costs was
+never measured, so it is measured here, on Swift 1.5 DFlash2 d7 + Vision at the **shipped**
+`--prefill-chunk 8192`, fresh text per depth so no request is answered from the context cache, depth
+read from the engine's own `prompt_n`:
+
+| prompt depth | prefill | prefill tok/s | decode tok/s |
+|---:|---:|---:|---:|
+| 3,068 | 0.22 s | 13,705 | 215.1 |
+| 45,097 | 4.21 s | 10,706 | 194.7 |
+| 131,172 | 19.95 s | 6,574 | 188.6 |
+| **248,839** (95% of the ceiling) | **58.49 s** | 4,254 | **119.0** |
+
+So a request near the ceiling spends about a minute in prefill before the first token and then decodes
+at roughly 120–190 tok/s. **262,144 is a capacity claim, not a latency claim**, and this table is the
+latency one.
+
+The same sweep at 4096, for the decision above: 11,868 / 10,463 / 6,468 / 4,201 prefill tok/s at the
+four depths, so 8192 is faster at every one (+15% shallow, +2.3% at 45k, +1.3% at 249k). The decode
+column is a single sample per depth and is not used for any decision here — this card's decode figures
+drift several percent between windows with host load, which is why the depth work above reports
+prefill, which is GPU-bound and repeatable to 0.4%, and why the lane table's decode comes from three
+runs through the harness instead.
 
 ## Draft window: the shipped widths are already right, and the code domain hides it
 

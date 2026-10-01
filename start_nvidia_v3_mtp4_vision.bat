@@ -3,10 +3,10 @@ REM ============================================================================
 REM  NVIDIA ModelOpt + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 223.4 tok/s   draft acceptance 61.4%
-REM      runtime 9.96 GiB   free VRAM 3.43 GiB
+REM      context 262,144   decode 208.7 tok/s   draft acceptance 53.1%
+REM      runtime 11.3 GiB   free VRAM 2.47 GiB
 REM
-REM  Depth 4 measured fastest of 2-5 here, and the largest correction in the table: d5 read 228.3 on the 2026-09-17 records, which the warmup transient accounts for almost entirely, and measures 167.8 with it excluded. Depth 4 against depth 5 is 223.4 against 167.8, +33%, and d4 also accepts 61.4% against 38.2% -- the one lane where acceptance and throughput agree, which is why the contaminated figure looked plausible. Re-measured 2026-09-28, interleaved two rounds.
+REM  Depth 4 measured fastest of 2-5 here, and the largest correction in the table: d5 read 228.3 on the 2026-09-17 records, which the warmup transient accounts for almost entirely, and measures 167.8 with it excluded. Depth 4 against depth 5 is 223.4 against 167.8, +33%, and d4 also accepts 61.4% against 38.2% -- the one lane where acceptance and throughput agree, which is why the contaminated figure looked plausible. Re-measured 2026-09-28, interleaved two rounds. **The 223.4/61.4% no longer reproduces either**: 2026-09-30 reads 208.7 at 53.1%, and 53.1% is what this lane returns at --prefill-chunk 4096 as well, with a byte-identical digest, so the depth comparison rests on the same stale population as QUASAR's and has not been re-measured since.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
