@@ -173,29 +173,76 @@ of. A flag that reduces the worst-case memory without enabling anything is a rob
 it has to be argued as one rather than presented as a fix. Recorded in `profiles.py` so the
 measurement is not repeated.
 
-### The lever that is actually worth changing is the split rule, not the width
+### The lever that was actually worth changing — and where my first attribution was wrong
 
 The field standard for choosing split-KV splits is FlashAttention's `num_splits_heuristic`
 (`hopper/heuristics.h`, and the same file vendored by vLLM). It selects by wave-quantization
 efficiency and then returns **the smallest split count reaching 85% of peak efficiency**, with the
 stated reason that "we also don't want too many splits as that would incur more HBM reads/writes".
 It also returns **1 split whenever work tiles already fill 80% of the SMs**, and caps splits at
-`min(max_splits, num_SMs, num_n_blocks)`.
+`min(max_splits, num_SMs, num_n_blocks)`. A 2026 study of FlashAttention-3 on Hopper (arXiv
+2604.00028) sweeps a low-head decode point and finds a **broad low-latency plateau from s=3**, with
+the best tested value (s=64) under ~2% better — over-splitting buys almost nothing and costs HBM
+traffic and scratch.
 
-This tree replaced that shape of decision with a flat CTA budget: `fp8/plan.cpp` computes
-`budget = 2 * multiprocessor_count` for decode and `multiprocessor_count` otherwise, then
-`causal_partition_target` returns `clamp(budget / independent_tiles, 1, kMaxSplits)`. That is a
-CTA-per-tile rule, not an occupancy rule. Two consequences follow directly from the difference, and
-both are consistent with what was measured here:
+**The first attribution here was wrong and is withdrawn.** It blamed `causal_partition_target`'s flat
+`2 * multiprocessor_count` CTA budget divided by independent tiles. That rule governs the small-width
+families, whose partials are tens of MiB. It is not where the workspace is.
 
-- It can allocate materially more splits than the standard would at the same shapes, and a split
-  costs a partial buffer — so the workspace is oversized relative to the parallelism actually needed.
-- It grows with SM count by construction, which is the 0.892 GiB this document opened with.
+The workspace is the **tiled prefill family**, and the rule there was already an occupancy rule that
+simply had no economic term. `mxfp8_tiled_partition` minimises waves per partition and retains fewer
+on a tie — but more splits always balance better, so on this product's shapes it walks to its cap of 8
+at every step:
 
-There is also independent support for the "smallest adequate count" half: a 2026 study of
-FlashAttention-3 on Hopper (arXiv 2604.00028) sweeps splits at a low-head decode point and finds a
-**broad low-latency plateau from s=3**, with the best tested value (s=64) under ~2% better than s=3.
-Over-splitting buys almost nothing and costs HBM traffic and scratch.
+| splits | next waves | `next*selected < waves*splits` |
+|---:|---:|---|
+| 1 | 25 | — |
+| 2 | 49 | 49 < 50 ✓ |
+| 3 | 73 | 146 < 147 ✓ |
+| 4 | 97 | 291 < 292 ✓ |
+| 5 | 121 | 484 < 485 ✓ |
+| 6 | 145 | 725 < 726 ✓ |
+| 7 | 169 | 1014 < 1015 ✓ |
+| 8 | 193 | 1351 < 1352 ✓ |
+
+Each split costs a full FP32 accumulator of `kCausalHeadDim` depth per head per width. `allocate_causal_partials`
+reserves `{kCausalHeadDim, heads, width, splits*batch}` FP32 plus two more `{heads, width, splits*batch}`,
+so with `head_dim` 256 and `num_attention_heads` 24 (`docs/research/dflash2-acceptance-baseline.md:308`)
+that is `8 × 8192 × 24 × (4·256 + 8) B` = **1.62 GiB** of the 2.246 GiB workspace, held for work that
+was never short of occupancy: `ctas = 24 × 64 = 1536` query tiles against a threshold of
+`0.8 × 170 = 136`. The comparison is not marginal.
+
+**The fix adds the missing term**, and it is the one FA states: 1 split once the query tiles already
+fill 80% of the SMs. Below that threshold the wave-balance search still runs, because there the splits
+are what fill the machine.
+
+| | before | with the guard |
+|---|---:|---:|
+| runtime, DFlash2 lane | 11.6 GiB | **10.3 GiB** |
+| free VRAM | 1.50 GiB | **2.83 GiB** |
+| prefill @ ~45k, interleaved, 3 rounds/arm | 10,482 tok/s | **10,839 tok/s (+3.4%, disjoint arms)** |
+| prefill @ ~131k, interleaved, 3 rounds/arm | 6,462 tok/s | 6,444 tok/s (−0.3%, overlapping arms) |
+| acceptance / digest | 63.0% / `c04e7c1d` | **63.0% / `c04e7c1d`** |
+
+So it returns 1.3 GiB per lane **at no prefill cost**, and slightly positive at moderate depth.
+
+Two things about how that was measured are worth recording, because both would have produced a wrong
+answer:
+
+* **A single sample said the guard cost 3.6–12.4% prefill.** Three interleaved rounds per arm said
+  +3.4% at one depth and −0.3% at another. This card's decode figures drift several percent between
+  windows; the prefill column was the repeatable one (0.4% within-arm) and the single-sample reading
+  was pure window.
+* **Both arms had to be in one binary.** Rebuilding per arm cannot be interleaved, so the guard's
+  threshold was temporarily readable from the environment, the two arms were measured alternately
+  with the same executable, and the probe was then removed before anything was committed. The
+  permanent form is the constant, and the probe is gone.
+
+**Qualification.** All five KV storage types pass the FP64 oracle (`ninfer_softmax_attention_test`,
+bf16 / int8-g64 / fp8 / nvfp4-g16 / k8v4, plus packed and context attention), and all eight lanes
+return byte-identical digests with unchanged acceptance. The change alters the split count, which
+alters FP32 reduction order in principle; with 1 split there is no reduction to reorder, and the
+digests confirm it empirically.
 
 ### What the tracker already decided, and why its justification does not transfer
 
@@ -210,10 +257,9 @@ against `max_visible_keys` at full capacity. The conclusion does not carry to a 
 serves the native context, and the −2.3% measured here is consistent with #277's direction: more chunk
 boundaries cost time. 8192 is the right shipped value on both counts.
 
-So the change worth making is not `--prefill-chunk` and not a revert: it is to size splits by
-occupancy the way the standard does, which could recover the memory **and** keep or improve prefill.
-`--prefill-chunk` pays prefill for memory while leaving the split count untouched, which is why it is
-the wrong lever even though its measurement is sound. This has not been implemented or measured here.
+So the change worth making is not `--prefill-chunk` and not a revert of the split budget. It is the
+saturation guard above, which lands in `mxfp8_tiled_partition` and returns the memory **without**
+paying prefill for it — unlike this flag, which pays prefill and leaves the split count untouched.
 
 ## A larger lever exists, and this tree does not have it
 

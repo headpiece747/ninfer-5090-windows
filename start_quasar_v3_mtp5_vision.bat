@@ -3,8 +3,8 @@ REM ============================================================================
 REM  QUASAR QAT + MTP5 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 182.3 tok/s   draft acceptance 43.0%
-REM      runtime 11.3 GiB   free VRAM 2.36 GiB
+REM      context 262,144   decode 183.5 tok/s   draft acceptance 43.0%
+REM      runtime 9.96 GiB   free VRAM 3.40 GiB
 REM
 REM  Depth 5 was chosen on 2026-09-28 records that no longer reproduce: this lane reads 182.3 tok/s at 43.0% acceptance today, against the 250.4/60.5% recorded here until 2026-09-30. The shortfall is not the prefill-chunk setting -- measured at both 8192 and 4096 the lane returns the same 43.0% and a byte-identical digest. **The depth choice itself is therefore unrevalidated**: it was made from the stale population, and depths 1-5 have not been re-measured since. Do not read this row as evidence that depth 5 is still fastest.
 REM

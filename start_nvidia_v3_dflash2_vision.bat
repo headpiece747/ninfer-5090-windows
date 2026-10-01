@@ -3,10 +3,10 @@ REM ============================================================================
 REM  NVIDIA ModelOpt + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 336.0 tok/s   draft acceptance 56.2%
-REM      runtime 11.6 GiB   free VRAM 1.53 GiB
+REM      context 262,144   decode 337.5 tok/s   draft acceptance 56.2%
+REM      runtime 10.3 GiB   free VRAM 2.91 GiB
 REM
-REM  NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same full-corpus perplexity as the official stock at 20% smaller, with no FP8 tensor where that has 146, and this lane reaches the full context where it caps below. The 349.2/61.5% recorded until 2026-09-30 was taken 2026-09-24, before the workspace grew; this lane now reads 11.6 GiB and 1.53 GiB free, and its acceptance is 56.2% at both --prefill-chunk 4096 and 8192 with a byte-identical digest, so the gap is the stale record rather than the flag.
+REM  NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same full-corpus perplexity as the official stock at 20% smaller, with no FP8 tensor where that has 146, and this lane reaches the full context where it caps below. The 349.2/61.5% recorded until 2026-09-30 was taken 2026-09-24, before the workspace grew; this lane now reads 10.3 GiB and 2.91 GiB free, and its acceptance is 56.2% with a byte-identical digest across the tiled saturation guard, so the gap is the stale record rather than the configuration.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable

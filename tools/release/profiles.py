@@ -104,7 +104,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=320.4, acc="55.0%", runtime="11.6 GiB", free="1.50 GiB",
+         tok=319.2, acc="55.0%", runtime="10.3 GiB", free="2.82 GiB",
          note="Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 "
               "across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime "
               "10.3 GiB) were taken before the workspace grew and no longer describe this lane; at "
@@ -114,7 +114,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_mtp5_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP5 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp5-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
-         tok=182.3, acc="43.0%", runtime="11.3 GiB", free="2.36 GiB",
+         tok=183.5, acc="43.0%", runtime="9.96 GiB", free="3.40 GiB",
          note="Depth 5 was chosen on 2026-09-28 records that no longer reproduce: this lane reads "
               "182.3 tok/s at 43.0% acceptance today, against the 250.4/60.5% recorded here until "
               "2026-09-30. The shortfall is not the prefill-chunk setting -- measured at both 8192 "
@@ -125,7 +125,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=280.1, acc="48.7%", runtime="11.6 GiB", free="1.50 GiB",
+         tok=296.4, acc="48.7%", runtime="10.3 GiB", free="2.85 GiB",
          note="This lane is REFUSED at startup on the BF16-exception image and was, until "
               "2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB "
               "of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after "
@@ -135,29 +135,29 @@ PROFILES: list[dict[str, Any]] = [
               "buys back the native context plus 24.8 % throughput and 11.6 acceptance points on "
               "this route. The exceptions stay on the MTP lane below, where they are worth far more "
               "than they cost here. Note that the artifact fix is not the only thing standing between this lane and "
-              "its context: every DFlash2 lane, this one included, reads 11.6 GiB and about 1.50 GiB "
-              "free at the shipped configuration, so the split into two images remains necessary and "
-              "the margin on this class of lane is thin. `--prefill-chunk 4096` was measured and "
-              "rejected: it takes free VRAM to 2.83-3.33 GiB for -2.3% prefill, which buys headroom "
-              "nothing is currently short of."),
+              "its context: before the tiled saturation guard, every DFlash2 lane read 11.6 GiB and "
+              "about 1.50 GiB free, so the split into two images remained necessary and the margin on "
+              "this class of lane was thin. The guard now returns about 1.35 GiB, and "
+              "`--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% "
+              "prefill -- is no longer needed to improve it."),
     dict(file="start_ninfer_v3_mtp5_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP5 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp5-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144,
-         tok=205.7, acc="53.7%", runtime="11.3 GiB", free="1.65 GiB",
+         tok=209.2, acc="53.7%", runtime="9.96 GiB", free="2.99 GiB",
          note="MTP lane on the second artifact, and the one lane where the BF16 exception "
               "projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's "
               "context costs this lane 21.4 acceptance points and 26.8 % throughput, measured "
               "interleaved against the no-exception build. Depth 5 measured fastest of 2-5 here. "
               "Three recorded generations of this lane have failed to reproduce in turn -- "
-              "231.2/56.8% of 2026-09-28, then 204.4/53.7%, and 205.7/53.7% on 2026-09-30 at the "
-              "shipped configuration. Acceptance has been 53.7% throughout the last two, so only "
-              "the throughput moved. Depth 5 has not been re-measured against 1-4 since 2026-09-28. "
-              "This lane's 1.65 GiB free is the fleet's tightest: it carries the BF16 exceptions, so "
-              "its weights are the heaviest while its runtime matches every other MTP lane."),
+              "231.2/56.8% of 2026-09-28, then 204.4/53.7%, and 209.2/53.7% on 2026-09-30 after the "
+              "tiled saturation guard. Acceptance has been 53.7% throughout the last two, so only "
+              "the throughput moved. Depth 5 has not been re-measured against 1-4 since 2026-09-28. This lane's "
+              "2.99 GiB free is the fleet's tightest, because it carries the BF16 exceptions and so "
+              "has the heaviest weights while its runtime matches every other MTP lane."),
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=339.4, acc="63.0%", runtime="11.6 GiB", free="1.50 GiB",
+         tok=362.0, acc="63.0%", runtime="10.3 GiB", free="2.85 GiB",
          note="Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured "
               "2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured "
               "against every window 1-15 on the code domain and re-measured on four others: 13 is "
@@ -167,15 +167,15 @@ PROFILES: list[dict[str, Any]] = [
               "exactly the margin that puts the native 262,144 back in reach -- the Q8 build of this "
               "same checkpoint is REFUSED at 262,144 with Vision. The encoding is measured per "
               "target and it reverses here: on Swift 1.0 the same change lost 3.2 acceptance points, "
-              "so it was measured rather than assumed. Whether the Q8 build would also serve at a smaller "
-               "--prefill-chunk has not been probed; at 4096 this lane reads 2.87 GiB free against "
-               "1.50 GiB at the shipped 8192, so if the Q8 build fits that configuration the "
-               "encoding choice and the 13.7 acceptance points it buys are both open to "
-               "re-examination."),
+              "so it was measured rather than assumed. The Q8-draft build of this same checkpoint is REFUSED at "
+               "262,144 with Vision, so this encoding is load-bearing today; with the tiled "
+               "saturation guard in place this lane now reads 2.85 GiB free, so whether the Q8 build "
+               "would now also fit is worth re-probing -- if it would, the encoding choice and the 13.7 "
+               "acceptance points it buys are both open to re-examination."),
     dict(file="start_swift_v3_mtp4_vision.bat", port=8091, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + MTP4 + Vision", model_id="qwen3.8-27b-swift15-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=222.4, acc="58.7%", runtime="11.3 GiB", free="2.37 GiB",
+         tok=218.3, acc="58.7%", runtime="9.96 GiB", free="3.43 GiB",
          note="Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped "
               "at 5 by kMaximumMtpDraftTokens, so docs/active-work.md item 8's proposed window of 10 "
               "cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, "
@@ -185,19 +185,19 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=336.0, acc="56.2%", runtime="11.6 GiB", free="1.53 GiB",
+         tok=337.5, acc="56.2%", runtime="10.3 GiB", free="2.91 GiB",
          note="NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP "
               "imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same "
               "full-corpus perplexity as the official stock at 20% smaller, with no FP8 tensor where "
               "that has 146, and this lane reaches the full context where it caps below. The "
               "349.2/61.5% recorded until 2026-09-30 was taken 2026-09-24, before the workspace "
-              "grew; this lane now reads 11.6 GiB and 1.53 GiB free, and its acceptance is 56.2% at "
-              "both --prefill-chunk 4096 and 8192 with a byte-identical digest, so the gap is the "
-              "stale record rather than the flag."),
+              "grew; this lane now reads 10.3 GiB and 2.91 GiB free, and its acceptance is 56.2% with "
+              "a byte-identical digest across the tiled saturation guard, so the gap is the stale "
+              "record rather than the configuration."),
     dict(file="start_nvidia_v3_mtp4_vision.bat", port=8093, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + MTP4 + Vision", model_id="qwen3.8-27b-nvidia-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=208.7, acc="53.1%", runtime="11.3 GiB", free="2.47 GiB",
+         tok=210.1, acc="53.1%", runtime="9.96 GiB", free="3.45 GiB",
          note="Depth 4 measured fastest of 2-5 here, and the largest correction in the table: d5 read "
               "228.3 on the 2026-09-17 records, which the warmup transient accounts for almost "
               "entirely, and measures 167.8 with it excluded. Depth 4 against depth 5 is 223.4 "
@@ -229,15 +229,19 @@ PROFILES: list[dict[str, Any]] = [
 # Recorded here because the margin it bought is real and the finding behind it is not the flag: the
 # workspace is oversized by the split-planning rule, not by this width. See the next comment.
 #
-# The rule worth changing is upstream's, in `causal_attention_split_capacity`'s replacement. The
-# field standard -- FlashAttention's `num_splits_heuristic` -- selects splits by wave-quantization
-# efficiency and then takes the *smallest* count reaching 85% of peak, explicitly to avoid the extra
-# HBM traffic of over-splitting, and returns 1 split once work tiles already fill 80% of the SMs.
-# This tree instead budgets a flat `2 * multiprocessor_count` CTAs and divides by independent tiles,
-# which is a different rule and can allocate materially more splits than the standard would. That is
-# where both the 0.892 GiB of growth and the prefill it buys come from, and it is the lever that
-# could recover the memory *without* paying prefill for it -- unlike this flag, which pays prefill
-# and leaves the split count untouched. See docs/research/swift15-lane-measurement.md.
+# The rule worth changing was upstream's, and it was not this one. `mxfp8_tiled_partition` selects
+# splits by wave balance alone, and more splits always balance better, so it walks to its cap of 8 --
+# while each split costs a full FP32 accumulator of head_dim depth per head per width. At 24 heads and
+# head_dim 256 that cap held 1.62 GiB of partials for work that was never short of occupancy: 1536
+# query tiles against a threshold of 136. Adding the term FlashAttention's rule carries -- 1 split
+# once the tiles already fill 80% of the SMs, because "we also don't want too many splits as that
+# would incur more HBM reads/writes" -- returns 1.3 GiB of free VRAM per lane at no prefill cost: three
+# interleaved rounds per arm gave +3.4% prefill at depth ~45k with disjoint arms, and -0.3% at ~131k
+# with overlapping arms. Output is unchanged -- identical acceptance and byte-identical digests on all
+# eight lanes -- and all five KV storage types pass the FP64 oracle. The earlier attribution to
+# `causal_partition_target`'s flat 2*SM budget was wrong: that governs the small-width families, whose
+# buffers are tens of MiB, not the tiled prefill family that dominates. See
+# docs/research/swift15-lane-measurement.md.
 INVARIANT_FLAGS: list[tuple[str, str | None]] = [
     ("--kv-capacity", "auto"),
     ("--kv-dtype", "fp8"),
