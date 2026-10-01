@@ -141,8 +141,10 @@ Two build notes specific to Windows:
 
 - Artifact I/O uses Win32 unbuffered positional reads
   (`CreateFileW` with `FILE_FLAG_NO_BUFFERING` and `OVERLAPPED`), the counterpart of POSIX `O_DIRECT`/`pread`.
-- The Blackwell NVFP4 TMA kernels pass their descriptor block by **device pointer**, because
-  MSVC cannot pass an `alignas(128)` struct by value as a kernel parameter (`C2719`).
+- Every TMA kernel passes its descriptor block by value as a `__grid_constant__` parameter, on every
+  platform. MSVC cannot pass an `alignas(128)` struct that way (`C2719`); `alignas(64)` is accepted on
+  this toolchain, and a map in parameter space is already in the proxy the TMA unit reads it through,
+  which is also what makes it CUDA Graph safe. See `tools/scripts/probe_tma_align.cmd`.
 - MSVC has no `__int128`; the runtime contract's 128-bit cost arithmetic goes through
   `ninfer::Uint128` (`src/core/uint128.h`).
 

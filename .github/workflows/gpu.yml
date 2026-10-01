@@ -38,7 +38,7 @@ jobs:
       - name: the suite (configure, build, ctest with --schedule-random)
         run: cmd /c tools\scripts\test_v3.cmd
 
-      # The artifact is outside the checkout: the three required real-model tests read
+      # The artifact is outside the checkout: the four required real-model tests read
       # C:\AI\models, which is why this runs here rather than anywhere else.
       - name: baseline gate
         env:

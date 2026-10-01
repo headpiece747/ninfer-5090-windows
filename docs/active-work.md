@@ -499,6 +499,31 @@ multi-token case is where the accept rule actually has arithmetic to get wrong, 
 configuration nobody was checking.
 
 ### 12. Upstream's 14 commits are merged; the FP8 A8 TMA route is held back on Windows only
+
+> **RESOLVED 2026-10-01 (`a5077adf`) — CAUSE ESTABLISHED, FIX LANDED, NINE GATES STILL IN PLACE.**
+> Everything below this line describes the investigation as it stood *before* that commit and is kept
+> as the record of how the cause was found. Several of its conclusions are now false and are marked
+> **[SUPERSEDED]** where they are load-bearing. The short version:
+>
+> * **Cause:** `struct alignas(128) Fp8TmaDescriptors`. The 128 was the only reason the descriptor had
+>   to be passed by pointer, and the pointer form was the fault. `tools/scripts/probe_tma_align.cmd`
+>   measures this toolchain: 8/16/32/64 accepted, 128 and 256 rejected by four C2719 sites each.
+> * **Fix:** `alignas(64)`, and the descriptor passed **by value on every platform**, deleting the
+>   staging buffer and its per-launch `cudaMallocAsync`/`cudaFreeAsync` entirely.
+> * **Evidence:** a red loop that drives the real code path — flip the nine gates, build
+>   `ninfer_linear_fp8_a8_test`, run it. `FP8_A8 [14336,5120] T=129` went from
+>   `cudaErrorIllegalInstruction` to `OK FP8 A8 Linear`, exit 0.
+> * **Two fixes were falsified first**, one variable at a time: the `fence.proxy.acquire.tensormap`
+>   per map, and a process-lifetime staging buffer. Both left the loop red. The proxy fence is
+>   deliberately **not** re-added.
+> * **The 2d-versus-3d theory is withdrawn.** `docs/research/windows-ports-tma-survey.md` surveyed 293
+>   forks: three Windows ports build and run this exact route on sm_120a and all three keep the
+>   rank-2 descriptor and `cp.async.bulk.tensor.2d`.
+>
+> **What is still open is the second half:** the nine `PORT-DISPATCH` gates are untouched, so no
+> shipping configuration has changed and no lane is faster. An earlier bench put the TMA route about
+> 10x slower than the MMA route on one shape, so ungating is a performance decision requiring its own
+> interleaved measurement — not a consequence of this fix.
 **Attempted 2026-09-29, first aborted, then merged the same day. Suite green with it: 135 tests,
 133 passed, the two by-construction `dflash_real` and `moe_real`; `check_test_baseline.py` GATE PASSED.**
 
@@ -560,7 +585,7 @@ unaffected. Resolutions, to reuse rather than re-derive:
 2. **Upstream routed every FP8 A8 path to that TMA kernel, and it faults here at execution** with
    `cudaErrorIllegalInstruction`, which poisons the context so the test aborts `0xc0000409`. There is no
    single seam: a TMA schedule and an MMA schedule are different tile shapes, so the *selection* has to
-   differ. All **six** call sites are gated on Windows — the five `linear/fp8` shape files plus
+   differ. All **nine** call sites are gated on Windows — the five `linear/fp8` shape files plus
    `attn_input_proj`, `gdn_input_proj`, `linear_add` and `linear_swiglu` — each restored to its
    **pre-merge dispatch verbatim**, because those are the bodies that passed. Upstream's routes stay in
    the tree and stay selected on other platforms.
@@ -684,7 +709,7 @@ files and one macro found the net as zero and missed both additions.
 
 **The 135 above is this merge's figure and it was correct on the day. The suite is now 136** — the
 `topk_logprobs` Op and its test landed 2026-09-29, after this was written. `tools/release/test_baseline.json`
-is the authority and records 136, so a reader comparing this file against the baseline should expect the
+is the authority and records 137, so a reader comparing this file against the baseline should expect the
 difference rather than treat either as wrong. Annotated rather than edited in place: a dated record of
 what a merge produced should not be rewritten to match a later state. The count-derivation method above
 is the part worth reusing, and it still holds.
@@ -881,7 +906,7 @@ Each of these was investigated and settled. They look like open work and are not
 | **Re-measure at T=1.0 to match the model card** | Backwards. DFlash2's selector measures 4.61 at T=0 against 4.25 at T=1; greedy is the *favourable* side. Re-measuring at T=1 would widen the gap. |
 | **The planner's `chunked_target` topology class causes the acceptance cliff** | Refuted by measurement. Acceptance is bit-identical before and after `a012e2bc` removed the predicate. The class selected which shared `cudaGraphExec_t` a profile reused, not which kernel ran. |
 | **Acceptance is low because our drafter is mismatched to the target** | True of `qwen3_8_27b_nvfp4.v3.ninfer` (unsloth quantization plus official drafter — upstream issue 298 section 3 documents 3.3-5.1% for exactly that pairing), but that artifact **is not a shipping lane**. The four shipping lanes accept 52-69%. |
-| **Take the full 16-commit upstream merge** | The 7 fp8 TMA commits fail on MSVC (`error C2719`) and are deferred, not forgotten. Three one-line `alignas` reapplications, already validated here. |
+| **Take the full 16-commit upstream merge** | The 7 fp8 TMA commits needed an `alignas(64)` descriptor, which landed in `a5077adf`; they compile and run on MSVC now. The nine dispatch gates that hid them are the only thing still holding the route back. Three one-line `alignas` reapplications, already validated here. |
 | **The NVFP4 block scale should be searched, not taken from the block max** | Measured on the weights that are actually re-encoded, and it loses: 4.925917 against 4.915181 paired in one window, while weight reconstruction error fell 40-66 %. It cannot be said about `NVFP4MSECalibrator` at all: that calibrator's 193 sites are the MLP and `lm_head`, which this recipe imports unencoded, while the re-encoded attention sites are FP8 `MaxCalibrator` in the source. See item 2 and `docs/perplexity-baseline.md`. Lower weight error is not better output quality. |
 | **Lower quantization error implies better perplexity** | The same measurement, stated as the general form. A searched scale that clips a block's largest value reduces squared error on that block and costs output quality, because the large value is carrying signal. Qualify a converter change on perplexity, never on reconstruction error. |
 | **The E2M1 block scale should be 4, not 6** | Measured 2026-09-29 on the unsloth lane, both arms freshly converted, the control reproducing the shipped `nvfp4full` artifact to every per-domain digit. Overall 4.998419 → 5.016626, **+0.36 % worse**, so NVIDIA's 6 stands and the encoder is unchanged. The per-domain spread is the durable part: `english_reference` −2.82 % against `chinese_reference` +3.56 %, opposite signs that largely cancel. `ninfer_code` moved least at +0.27 %. See [nvfp4-block-scale-4-vs-6.md](research/nvfp4-block-scale-4-vs-6.md). Distinct from the scale-*search* row above: that one varied the divisor per block, this one varied the format's own maximum. |

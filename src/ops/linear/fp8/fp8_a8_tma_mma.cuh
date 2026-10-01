@@ -68,7 +68,7 @@ inline Fp8TmaSplitKPlan fp8_tma_split_k_plan(int tiles, int k) {
 
 inline CUtensorMap fp8_tma_map(const std::uint8_t* pointer, int rows, int k, int block_rows,
                                int block_k) {
-    CUtensorMap result{};
+    alignas(64) CUtensorMap result{};
     const std::uint64_t dimensions[]{static_cast<std::uint64_t>(k),
                                      static_cast<std::uint64_t>(rows)};
     const std::uint64_t strides[]{static_cast<std::uint64_t>(k)};

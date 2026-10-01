@@ -49,7 +49,7 @@ inline CUtensorMap bf16_tma_map(const __nv_bfloat16* pointer, int rows, int k, i
                                 int block_k) {
     // Factor K into 64-element sectors. The contiguous 128-byte dimension matches the
     // hardware swizzle while the next box dimension permits larger K tiles without repacking.
-    CUtensorMap result{};
+    alignas(64) CUtensorMap result{};
     const std::uint64_t dimensions[]{64, static_cast<std::uint64_t>(k / 64),
                                      static_cast<std::uint64_t>(rows)};
     const std::uint64_t strides[]{128, static_cast<std::uint64_t>(k) * 2};

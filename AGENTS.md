@@ -230,7 +230,7 @@ something, and each is named here so it gets used rather than rediscovered.
 |---|---|
 | every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Doc links, profile consistency, converter tests: seconds, no network |
 | a check that passes here and fails in CI | `tools/scripts/verify_as_ci.cmd` **first**, before forming any hypothesis. It reproduces the runner's conditions — Python 3.11, CI's package set, `NINFER_PYTHON` as a command name, a scratch venv. On 2026-09-25 six serious hypotheses were formed against a failing CI gate without once reproducing the runner's conditions, and five were wrong; the sixth was found in one run of this script |
-| a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` — **with `NINFER_TEST_ARTIFACT` set**: without it the three required real-model tests skip and the gate fails on missing coverage rather than on a regression, which is how it was misread once |
+| a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` — **with `NINFER_TEST_ARTIFACT` set**: without it the four required real-model tests skip and the gate fails on missing coverage rather than on a regression, which is how it was misread once |
 | anything that could be order- or state-dependent | the suite recipe passes `--schedule-random`; run it twice before believing a fixed order |
 | a device-side memory, race or synchronisation question | `tools/scripts/test_v3_compute_sanitizer.cmd` — memcheck on a small subset; `racecheck`/`initcheck`/`synccheck` and the wider method are in the `cuda-debugging` skill |
 | a host-side lifetime question | `tools/scripts/test_v3_asan.cmd` — ASan cannot instrument device code, which is why the two recipes are separate |
@@ -420,7 +420,7 @@ Sixty-one rules, each earned by a failure rather than chosen:
   A truncated search is not evidence of absence either: "the shared handle is never populated" came
   from `git grep .handle.emplace` piped through `Select-Object -First 20`, which cut the match list
   short, and an ADR was written and committed on it before a wider read found the assignment at
-  `resource_manager.h:3249`.
+  `src/runtime/engine/context_cache/resource_manager.h:1086` and `:3307`.
 - **Profile values come from `profiles.py`.** Run `tools/release/check_profile_consistency.py`
   after touching a launcher, a doc table, an opencode provider entry or a harness. Fixing tables by
   hand once touched three files and missed two.
@@ -502,7 +502,7 @@ Sixty-one rules, each earned by a failure rather than chosen:
   smaller number, it is a different one -- the rule above exists because this card's behaviour moves
   with load. Serialise the card: stop the server before a sweep, finish the suite before the
   measurement, and give any automated GPU work a concurrency lock rather than a timer that can fire
-  mid-measurement, which is why `.github/workflows/gpu.yml` declares one and is dispatch-only.
+  mid-measurement, which is why `.github/workflows/gpu.yml` declares one and fires on a nightly cron as well as on dispatch.
 - **The release matrix kills every `ninfer-serve.exe` on the machine, including the lane a chat session
   is using.** `v3_profile_matrix.py` stops every engine before each sweep, which is right for its own
   measurement and fatal to anything else serving. On 2026-09-25 a sweep took down the desktop app's
