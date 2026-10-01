@@ -573,6 +573,48 @@ unaffected. Resolutions, to reuse rather than re-derive:
    under memcheck ran 30 minutes on the smallest failing test without naming an instruction and then lost
    the context, the watchdog hazard `tools/scripts/test_v3_compute_sanitizer.cmd` already documents here.
 
+   **2026-10-01: a 2-second reproducer, and four causes ruled out — but no fix.**
+   `tools/scripts/probe_sm120_tma_load.cmd` reproduces this fault class in a standalone ~150-line
+   program with no project code in the path, replacing the 30-minute sanitizer run. It builds a
+   descriptor with `fp8_tma_map`'s own proven shape — rank 2, dimensions `{k, rows}` with K first, one
+   `globalStrides` entry, `elementStrides {1,1}`, `L2_PROMOTION_NONE` — which encodes successfully, is
+   64-byte aligned, and then dies at execution with "an illegal memory access was encountered".
+   **Every arm faults, which rules out four candidate causes:**
+
+   | varied | result |
+   |---|---|
+   | descriptor passed **by value** (the BF16/NVFP4 form, ungated on Windows) | faults |
+   | descriptor passed **by pointer** (the form this port's MSVC workaround forces) | faults |
+   | swizzle **128B** vs **NONE** | both fault |
+   | `fence.proxy.acquire.tensormap::generic` present vs absent; `expect_tx` before vs after the copy | faults either way |
+
+   So it is **not** the by-pointer descriptor form, **not** the swizzle mode, **not** the missing
+   tensormap proxy fence, and **not** the mbarrier transaction ordering. That last one matters because
+   it was the most likely single bug and the fix for it is correct regardless.
+
+   **What the platform evidence says, from primary sources** (`docs/research/sm120-tma-illegal-instruction-evidence.md`):
+   sm_120 **does** support TMA — `cp.async.bulk.tensor` requires sm_90 or higher and the TMA unit is
+   listed for CC 9.0 through 12.x — so this is *not* "TMA is unavailable on consumer Blackwell". sm_120
+   supports **neither** `wgmma` (sm_90a only) nor `tcgen05` (sm_100a/101a only), and this tree uses
+   warp-level `mma.sync`, which is what sm_120 uses instead, so the MMA is not at fault either. And
+   working SM120 TMA kernels do exist: CUTLASS ships `MainloopSm120TmaWarpSpecializedBlockwiseScaling`,
+   vLLM ships a dense-FP8 SM120 CUTLASS GEMM, and TensorRT-LLM ships TMA FMHA as its default sm_120
+   prefill. **CUTLASS #2728 reports illegal instruction inside `cp.async.bulk.tensor` on an RTX 5090** —
+   the same instruction on the same GPU class, on Ubuntu rather than Windows.
+
+   **One documented requirement is genuinely unmet, and it is labelled inferred rather than
+   established.** PTX ISA §8.8.4 says the tensormap proxy "is not acquired from generic-proxy at CUDA
+   Kernel start and must therefore be acquired explicitly using `fence.proxy.tensormap::generic.acquire`
+   when needed", and `git grep` shows **none** of this tree's three TMA kernels emit that fence while
+   the Windows build places the descriptor in a `.global` buffer rather than `.param`. Adding the fence
+   is correct and cheap. **It did not fix the reproducer**, so it is not the whole cause, and no
+   document maps a TMA-constraint violation to illegal-instruction or to an illegal memory access.
+
+   **So the deferral stands, and this is not a close.** What changed is that the next attempt starts
+   from four ruled-out causes and a two-second reproducer instead of a 30-minute sanitizer run, and
+   that the honest answer to "is TMA available on this GPU" is yes — so the divergence from upstream
+   should not be written up as a hardware limitation, because the evidence does not support that.
+
 **The suite grew 133 to 135 from this merge**, which `tools/release/test_baseline.json` now records, and
 `ninfer_qwen3_5_dflash_prefill_real_test` was added to `required_tests`: it reads `NINFER_TEST_ARTIFACT`
 and skipped without it, and it passed against this product's artifact in 6.73 s, so the evidence the
