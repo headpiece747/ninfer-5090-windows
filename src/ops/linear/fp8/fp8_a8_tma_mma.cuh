@@ -16,37 +16,25 @@
 
 namespace ninfer::ops::detail {
 
-struct alignas(128) Fp8TmaDescriptors {
+// alignas(64), not 128. The 128 was what MSVC's ABI rejected (C2719) and what forced the pointer
+// form below; tools/scripts/probe_tma_align.cmd measures this toolchain directly and records
+// 8/16/32/64 ACCEPTED with 128 and 256 rejected by four C2719 sites each. 64 is the width CUDA asks
+// for here (cuda.h:3749) and it compiles, so the by-value parameter can be used on Windows too --
+// which removes the pointer form, and the pointer form is the only thing that differs from the three
+// ports that run this route on sm_120a.
+struct alignas(64) Fp8TmaDescriptors {
     CUtensorMap activation;
     CUtensorMap weight;
 };
 
-// Windows/MSVC cannot lay out a by-value alignas(128) kernel parameter, so on Windows the launcher
-// keeps the descriptor block in a device buffer and passes a pointer; the TMA unit reads the tensor
-// map from that address. Elsewhere the __grid_constant__ by-value parameter keeps the map in
-// parameter space. All kernel translation units must share this spelling, so it is a macro rather
-// than a constexpr type.
-//
-// The threshold is measured rather than assumed. tools/scripts/probe_tma_align.cmd compiles a
-// by-value __grid_constant__ descriptor block at each width: 8/16/32/64 ACCEPTED, 128 and 256
-// REJECTED with four C2719 sites each, all in nvcc's generated host stub. This struct therefore
-// keeps alignas(128) -- the TMA unit needs the descriptor 128-byte aligned on the DEVICE -- and
-// steps around the host-side ABI limit by not passing it by value on Windows.
-//
-// This is NOT the same resolution as the NVFP4 W4A4 route, and an earlier revision of this comment
-// claimed it was. That route once had a NINFER_NVFP4_TMA_DESCRIPTOR_PARAM macro (723c1290) and no
-// longer does: 1218d574 replaced it with a by-value parameter precisely because a device buffer
-// filled by cudaMemcpyAsync reads a caller stack frame that is gone by the time a CUDA Graph replay
-// runs. That route is correct by the layout of its own descriptor block rather than by the header --
-// see the comment on Bf16TmaDescriptors for why no alignas is needed there, and for why CUtensorMap
-// contributes no alignment at all in this build. This route keeps the device copy instead, and
-// orders its allocation, copy and free on the consuming stream.
+// The descriptor is passed BY VALUE on every platform, including Windows. It used to be a pointer on
+// Windows because a by-value alignas(128) parameter would not compile there; at alignas(64) it does,
+// so there is now one code path. That matters beyond compilation: a map in parameter space is already
+// in the proxy the TMA unit reads it through, whereas the pointer form had to stage the map into
+// device memory and could be caught mid-flight by the pool. A macro rather than a typedef so every
+// kernel translation unit spells it identically.
 #ifndef NINFER_FP8_TMA_DESCRIPTOR_PARAM
-#ifdef _WIN32
-#define NINFER_FP8_TMA_DESCRIPTOR_PARAM const Fp8TmaDescriptors* __restrict__
-#else
 #define NINFER_FP8_TMA_DESCRIPTOR_PARAM const __grid_constant__ Fp8TmaDescriptors
-#endif
 #endif
 
 struct Fp8TmaSplitKPlan {
@@ -133,11 +121,7 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_tma
     float* partials) {
     constexpr int BT = Schedule::kBlockTokens, BR = Schedule::kBlockRows;
     constexpr int BK = Schedule::kBlockK, S = Schedule::kStages;
-#ifdef _WIN32
-    const Fp8TmaDescriptors* descriptor_block = descriptors;
-#else
     const Fp8TmaDescriptors* descriptor_block = &descriptors;
-#endif
     const int k = Schedule::kStaticK ? Schedule::kStaticK : operands.k;
     int tile = blockIdx.x, partial = -1, k_begin = 0, tiles_k = k / BK;
     if constexpr (SplitK) {
@@ -307,27 +291,7 @@ __global__ void fp8_a8_tma_split_k_reduce(Fp8A8Operands p, const float* partials
     }
 }
 
-#ifdef _WIN32
-// The device-side home for the FP8 TMA descriptor block on Windows. See launch_fp8_a8_tma_mma for
-// why both ends are ordered on the consuming stream.
-struct Fp8TmaDescriptorBlock {
-    Fp8TmaDescriptors* device = nullptr;
-    cudaStream_t stream        = nullptr;
 
-    explicit Fp8TmaDescriptorBlock(cudaStream_t allocation_stream) : stream(allocation_stream) {
-        CUDA_CHECK(cudaMallocAsync(reinterpret_cast<void**>(&device), sizeof(Fp8TmaDescriptors),
-                                   stream));
-    }
-
-    Fp8TmaDescriptorBlock(const Fp8TmaDescriptorBlock&)            = delete;
-    Fp8TmaDescriptorBlock& operator=(const Fp8TmaDescriptorBlock&) = delete;
-
-    ~Fp8TmaDescriptorBlock() {
-        if (device == nullptr) { return; }
-        CUDA_CHECK(cudaFreeAsync(device, stream));
-    }
-};
-#endif
 
 template <class Schedule, class Output, class Epilogue, class RowPolicy = Fp8IdentityRows>
 void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilogue,
@@ -345,21 +309,6 @@ void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilo
     const Fp8TmaDescriptors descriptors{
         fp8_tma_map(p.x, p.tokens, p.k, Schedule::kBlockTokens, Schedule::kBlockK),
         fp8_tma_map(p.codes, p.rows, p.k, weight_span, Schedule::kBlockK)};
-#ifdef _WIN32
-    // On Windows the kernel takes a pointer, so the block has to reach the device before the launch
-    // and be released after it. cudaMallocAsync is pool-backed, so BOTH the allocation and the free
-    // are ordered on the consuming compute stream: a NULL-stream free is ordered against nothing
-    // when that stream is non-blocking, and the pool can recycle the block while the TMA unit is
-    // still reading the tensor map. A half-overwritten map deadlocks the kernel's mbarrier
-    // transaction wait -- the 786,432-token prefill live-lock this shape already caused on the
-    // NVFP4 W4A4 route. The copy is stream-ordered too, so Graph capture records it with the launch.
-    Fp8TmaDescriptorBlock block(stream);
-    CUDA_CHECK(cudaMemcpyAsync(block.device, &descriptors, sizeof(descriptors),
-                               cudaMemcpyHostToDevice, stream));
-    const Fp8TmaDescriptors* descriptor_arg = block.device;
-#else
-    const Fp8TmaDescriptors* descriptor_arg = &descriptors;
-#endif
     for_each_token_slice(p.tokens, Schedule::kBlockTokens, [&](int offset, int count) {
         const int blocks  = p.rows / Schedule::kBlockRows * div_up(count, Schedule::kBlockTokens);
         const auto plan   = fp8_tma_split_k_plan<Schedule>(blocks, p.k);
@@ -371,7 +320,7 @@ void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilo
             const int dynamic = fp8_prepare_shared<bytes, kernel, true>();
             const int grid    = Split ? plan.full_tiles + plan.split_ctas : blocks;
             kernel<<<grid, Schedule::kThreads, dynamic, stream>>>(
-                descriptor_arg, p, output, epilogue, row_policy, offset, count, plan, partials);
+                descriptors, p, output, epilogue, row_policy, offset, count, plan, partials);
             CUDA_CHECK(cudaGetLastError());
             if constexpr (Split) {
                 fp8_a8_tma_split_k_reduce<Schedule>
