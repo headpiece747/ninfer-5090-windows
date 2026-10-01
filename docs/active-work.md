@@ -569,9 +569,16 @@ configuration nobody was checking.
 >   `sm120_mma_builder.inl` hardwires `SM90_TMA_LOAD`. Every other sm_120 FP8 GEMM in existence uses
 >   TMA because there is no alternative to compare against, so our two-route situation is one nobody
 >   has published numbers for.
-> * **The nearest controlled measurement has TMA slightly AHEAD.** Same tile, stages and warps on an
->   RTX 5090, only the load function changed: TMA 4-9% ahead of `cp.async`, a margin inside that
->   source's own 6.9% run-to-run swing.
+> * **There is no published measurement either way, and an earlier reading of one was wrong.** A
+>   previous revision of this block cited a third-party exercise as "TMA 4-9% ahead of `cp.async` on
+>   an RTX 5090". Verification refuted it: the exercise is `02_matmul_sm120`, it measures **BF16 and
+>   INT8 only with no FP8 anywhere**, its INT8 pair differs in `BLOCK_K` so that margin is not
+>   attributable to TMA, and the "6.9% run-to-run swing" appears in none of its files
+>   (`docs/research/verify-cutlass-sm120-claims.md`). The BF16 pair *is* genuinely controlled — same
+>   tile, stages, warps and MMA — so it is weak evidence about BF16 and none about FP8.
+>   **So "TMA is slower here" is unsupported by this tree's bench, and "TMA is faster" is now
+>   unsupported by anything published.** Both directions are open.
+
 > * **"Thin M" was my hypothesis and it is wrong.** Computed from this tree's own templates, both arms
 >   use a **32-token** tile; the TMA arm's *row* tile is twice as large (64 vs 32), so it launches half
 >   the CTAs — not a smaller tile. At T>=129 the two arms already share a 64x128x128 tile and differ
