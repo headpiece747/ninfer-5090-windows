@@ -25,7 +25,14 @@ def main() -> int:
     args = cli_args(profile)
     line = 'set "QUASAR_ARGS=' + " ".join(args) + '"'
 
-    text = ENV.read_text(encoding="utf-8", errors="replace")
+    # newline="" on both the read and the write, and both are load-bearing. A default-mode read silently
+    # converts this file's CRLF to LF in memory, and write_text then writes that back verbatim, so the
+    # shipped file loses its line endings. git diff does not show it -- core.autocrlf=true normalises
+    # both sides on commit -- but this file is compared as text between machines, where a checkout on
+    # Windows restores CRLF and a regeneration would not. Path.open rather than Path.read_text because
+    # read_text only gained a newline parameter in Python 3.13 and this runs on 3.12.
+    with ENV.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+        text = handle.read()
     current = next((l for l in text.splitlines() if l.startswith('set "QUASAR_ARGS=')), None)
     if current is None:
         print("  ANCHOR NOT FOUND: QUASAR_ARGS")

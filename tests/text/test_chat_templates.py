@@ -11,7 +11,16 @@ import unittest
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 ROOT = Path(__file__).resolve().parents[2]
-RENDERER = ROOT / "build" / "tests" / "ninfer_jinja_test"
+# The renderer is a C++ test binary, so it lives in whichever tree has BUILD_TESTING on. Upstream
+# builds it into build/; this port sets BUILD_TESTING off in the apps tree and runs the suite from
+# build-test/, so a fixed build/tests path never resolves here and the test failed with a bare
+# FileNotFoundError that named a directory this port never populates. Both trees are searched and
+# the platform's executable suffix is applied, so the test works on either layout.
+RENDERER_CANDIDATES = tuple(
+    ROOT / tree / "tests" / f"ninfer_jinja_test{Path(sys.executable).suffix}"
+    for tree in ("build-test", "build")
+)
+RENDERER = next((path for path in RENDERER_CANDIDATES if path.exists()), None)
 SOURCES = {
     version: (ROOT / "tools" / "chat_templates" / f"{version}.jinja").read_text()
     for version in ("qwen3_6", "qwen3_8")
@@ -281,6 +290,11 @@ class ChatTemplates(unittest.TestCase):
             dict(messages=[message("system", "no user")], add_generation_prompt=True),
         ]
         cases = [(name, context) for name in SOURCES for context in contexts]
+        if RENDERER is None:
+            self.skipTest(
+                "ninfer_jinja_test is not built; looked for "
+                + ", ".join(str(path) for path in RENDERER_CANDIDATES)
+            )
         result = subprocess.run(
             [str(RENDERER), "--render"],
             text=True,
