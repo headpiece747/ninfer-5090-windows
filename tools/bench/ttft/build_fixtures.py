@@ -761,7 +761,14 @@ def check() -> None:
             raise RuntimeError(f"missing TTFT fixture: {record['path']}")
         actual = _sha256(path)
         if actual != record["sha256"]:
-            raise RuntimeError(f"TTFT fixture hash mismatch: {record['path']}")
+            # Name the cause when it is the one that has actually happened twice. The manifest
+            # describes the bytes a checkout produces, which .gitattributes pins to LF; a worktree
+            # holding CRLF matches nothing, and "hash mismatch" on its own sends the reader looking
+            # for a corpus change that was never made.
+            detail = ""
+            if b"\r\n" in path.read_bytes():
+                detail = " -- the file holds CRLF and the manifest describes LF"
+            raise RuntimeError(f"TTFT fixture hash mismatch: {record['path']}{detail}")
 
     for name in ("system-a", "system-b"):
         frontier = manifest["shared"][name]["marked_frontier_tokens"]
