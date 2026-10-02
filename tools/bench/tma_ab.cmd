@@ -27,7 +27,12 @@ set "REPO=C:\AI\ninfer-v3-windows"
 set "REPEATS=%~1"
 if "%REPEATS%"=="" set "REPEATS=5"
 set "ROOT=%TEMP%\ninfer_tma_ab"
-if not exist "%ROOT%" mkdir "%ROOT%"
+REM Clear it first. A bench that throws writes nothing, its output is discarded by >nul, and the
+REM reporter then reads whatever CSV the PREVIOUS tile left behind -- so a failed run reported the last
+REM good run's numbers, twice, identically. That is how a split-K tile measured at token counts with no
+REM partials allocated came back looking like a valid result. A missing input must read as missing.
+if exist "%ROOT%" rd /s /q "%ROOT%"
+mkdir "%ROOT%" 2>nul
 
 call "%VCVARS%" >nul 2>&1
 if errorlevel 1 (

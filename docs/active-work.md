@@ -809,6 +809,39 @@ configuration nobody was checking.
 > capacities. Transport-at-matched-tile is the same *question*, but this is not a measurement at those
 > gates' own shapes, and it does not ungate anything: a gate is a correctness decision first.
 >
+> **All five gated tiles are now measured, and the "TMA wins every band" reading does not survive.**
+> The three wide/tall tiles came back 0-for-8 losses. The two 128-row tiles do not:
+>
+> | tile | median | min | max | bands where MMA wins |
+> |---|---|---|---|---|
+> | 64x256x128 (2,4,2,1) | 1.270 | 1.000 | 1.414 | 0 of 8 |
+> | 96x256x128 (3,4,2,1) | 1.288 | 1.056 | 1.370 | 0 of 8 |
+> | 192x128x128 (3,4,2,1) | 1.241 | 1.058 | 1.284 | 0 of 8 |
+> | 64x128x128 (2,4,**2**,1) | 1.107 | **0.943** | 1.313 | **1 of 9** (768) |
+> | 128x128x128 (2,4,**2**,1) split | 1.047 | **0.952** | 1.284 | **2 of 8** (448, 512) |
+>
+> **MMA is faster at 512 and 448 on the split 128x128 tile, by 4.8% and 2.7%, and at 768 on 64x128 by
+> 5.7%.** TMA is ahead on the median everywhere, but "TMA wins every band" was true only of the three
+> tiles measured first, and reporting it as a general result would have been wrong.
+>
+> **Two structural limits, both measured rather than argued:**
+>
+> 1. **The split 128x128 tile cannot be measured below 193 tokens.** `allocate_fp8_a8_workspace` sizes
+>    partials from the *current* invocation's token count (`fp8_linear_add_a8.cu:215`), and
+>    `fp8_linear_add_partial_capacity_bytes` returns **0** for `max_tokens <= 192` — correctly, because
+>    the real ladder never places a split tile there. Forcing one makes the launcher throw
+>    `FP8 TMA split-K requires aligned caller partials`. So that tile's evidence covers 193-1025 only.
+> 2. **That same tile has NO oracle coverage.** The FP8 linear_add test crashes on it for the same
+>    reason, so unlike the other four it has never been checked against the oracle at all. Its twin is
+>    geometrically identical to `K6144MidBulk` (Stages=3) which is checked, differing only in pipeline
+>    depth — but "differs only in Stages" is an argument, not a measurement, and it is recorded here as
+>    an open gap rather than as evidence.
+>
+> **A harness bug that made the above look like a result.** `tma_ab.cmd` discarded bench output with
+> `>nul`, so a bench that threw wrote no CSV, and the reporter then read whatever CSV the *previous*
+> tile had left behind. Two different tiles came back byte-identical — because they were the same file
+> read twice. The root is now cleared before each run so a missing input reads as missing.
+>
 > **A harness trap worth recording.** Restoring the perturbed file with `Copy-Item` preserved the
 > backup's older mtime, so ninja judged the source unchanged and **skipped the rebuild** — the test
 > then reported the perturbation's failure against restored source, which read as "the fix didn't work".

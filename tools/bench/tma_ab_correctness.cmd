@@ -46,7 +46,7 @@ REM linear_swiglu / attn_input_proj / the shapes, 96x256 in attn_input_proj, 192
 REM NINFER_FP8_TMA_TILE pins one tile for BOTH arms, so each is checked at the tile it will be measured
 REM at. Without this the oracle only ever saw the default ladder and said nothing about these twins --
 REM the same "passed because it never ran" failure this script exists to catch.
-for %%T in (wide64 wide96 tall192) do (
+for %%T in (wide64 wide96 tall192 mid128 midbulk128) do (
     for %%A in (tma mma) do (
         set "NINFER_FP8_TMA_TILE=%%T"
         set "NINFER_FP8_TMA_ARM=%%A"

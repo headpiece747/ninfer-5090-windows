@@ -71,6 +71,18 @@ using K6144Tall192x128 = Fp8A8TmaMmaSchedule<192, 128, 128, 3, 4, 2, 1>;
 using K6144Tall192x128Mma = Fp8A8MmaSchedule<192, 128, 128, 3, 4, 2, 1, Cache::cg, Cache::cg,
                                              Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>;
 
+// The two Stages=2 variants. 64x128x128 is the highest-reuse tile in the gated set -- six files select
+// it -- and the K=6144 ladder measured Stages=3, which is a different schedule, so its result could not
+// transfer. 128x128x128 split Stages=2 is gdn_input_proj's MidBulk and n16384's.
+using K6144Mid64x128S2 = Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 2, 1>;
+using K6144Mid64x128S2Mma = Fp8A8MmaSchedule<64, 128, 128, 2, 4, 2, 1, Cache::cg, Cache::cg,
+                                              Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>;
+using K6144MidBulkS2 = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 2, 1>, 170, 4, 8>;
+using K6144MidBulkS2Mma =
+    Fp8A8SplitKSchedule<Fp8A8MmaSchedule<128, 128, 128, 2, 4, 2, 1, Cache::cg, Cache::cg,
+                                          Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>,
+                         170, 4, 8>;
+
 using K17408Tma32x64 = Fp8A8TmaMmaSchedule<32, 64, 128, 1, 2, 3, 2>;
 using K17408Small =
     Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
@@ -120,6 +132,12 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
             if (want == "tall192")
                 return mma ? launch.template operator()<K6144Tall192x128Mma>()
                            : launch.template operator()<K6144Tall192x128>();
+            if (want == "mid128")
+                return mma ? launch.template operator()<K6144Mid64x128S2Mma>()
+                           : launch.template operator()<K6144Mid64x128S2>();
+            if (want == "midbulk128")
+                return mma ? launch.template operator()<K6144MidBulkS2Mma>()
+                           : launch.template operator()<K6144MidBulkS2>();
         }
         if (const char* arm = std::getenv("NINFER_FP8_TMA_ARM")) {
             // Each arm runs the schedule ladder the OTHER transport would run, tile for tile, so the
