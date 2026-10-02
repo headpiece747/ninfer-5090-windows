@@ -73,7 +73,7 @@ At startup, `none` and MTP do not materialize DFlash2 weights; DFlash2 does not 
 weights. Vision and DFlash2 may be resident together. The target always materializes `text/output_head`. The full proposal-head route reuses it; the
 optimized route additionally materializes `text/draft_head` and `text/draft_head_token_ids`.
 The Engine accepts startup-fixed `draft_tokens=1..15` (recommended 7), independently of the
-checkpointâ€™s source block size. See [DFlash2 mathematics and state](dflash.md).
+checkpoint’s source block size. See [DFlash2 mathematics and state](dflash.md).
 
 The identity is read from the v3 artifact directory. The filename, object count, and any
 representative tensor descriptor do not select the model or weights profile.
@@ -954,7 +954,7 @@ plan, and numeric recipes before opening the output, then writes the sibling
 
 This fork additionally builds a fuller-nvfp4 Qwen3.8-27B artifact with the memory profile of the
 Qwen3.6 nvfp4 recipe, carrying the DFlash2 companion bundle of Section 7 in the same complete
-image â€” byte-identical module objects and the same q8_g32_fp16/bf16 suffix contract as the two
+image — byte-identical module objects and the same q8_g32_fp16/bf16 suffix contract as the two
 registered profiles. It is produced and verified by the fork-local tools
 `tools.convert.qwen3_8_27b.{nvfp4_encode, calibrate_nvfp4full, convert_nvfp4full, verify_nvfp4full}`
 and binds through the same registered target as an additional weights contract.
@@ -1121,7 +1121,7 @@ converter  = tools.convert.qwen3_8_27b.convert_nvfp4qat
 The artifact contains 1328 tensors and the same six frontend resources (1334 objects), including
 the DFlash2 companion bundle of Section 7. Its Text allocation has no bf16 exception parents:
 every `attention/query_key_gate_value`, `attention/output`, `gdn/query_key_value_z`, `gdn/output`,
-`mlp/gate_up`, and `mlp/down` is nvfp4 â€” 256 parents with 256 site-level fp32 input divisors.
+`mlp/gate_up`, and `mlp/down` is nvfp4 — 256 parents with 256 site-level fp32 input divisors.
 The token embedding and full output head keep `q8_g32_fp16`; MTP, Vision, and the optimized
 draft head keep the registered formats of Section 13.
 
@@ -1147,8 +1147,8 @@ draft head keep the registered formats of Section 13.
 The quantized source is `QUASAR-QAT/Qwen3.8-27B-QUASAR-nvfp4` revision
 `d8e6fbfa3e3a78899b440222b827430045a05b44` (compressed-tensors `nvfp4-pack-quantized`, group 16,
 E4M3 scale words): one epoch of loss-aware nvfp4 quantization-aware distillation against the
-frozen bf16 teacher (QUASAR, arXiv 2608.13966). Every text linear is quantized there â€” 496
-source sites â€” under one `weight_global_scale`/`input_global_scale` pair per quantization site,
+frozen bf16 teacher (QUASAR, arXiv 2608.13966). Every text linear is quantized there — 496
+source sites — under one `weight_global_scale`/`input_global_scale` pair per quantization site,
 shared by every constituent tensor of a fused parent; the converter enforces that sharing through
 the same-divisor checks before any word is copied. Its only artifact inputs are the 256 fused
 nvfp4 parents' packed-code and scale words (copied bit-exactly through the Section 14 row
@@ -1210,7 +1210,7 @@ sha256     = 6353a46f54dbf9d5cc46d718d88ded9f54bcbbbf25f9f879989ef1a560f01bcc
 payload    = 7e9a3bebc65526c9b2aaf6502dafc82c32477ad309f8c306ff9195b2ee272bee
 ```
 
-The artifact holds 1513 bindings over 1590 objects â€” 1072 reached from bindings and 844 `uses` â€” plus
+The artifact holds 1513 bindings over 1590 objects — 1072 reached from bindings and 844 `uses` — plus
 the six frontend resources. Its Text allocation is all-NVFP4: 256 parents cover every
 `attention/query_key_gate_value`, `attention/output`, `gdn/query_key_value_z`, `gdn/output`,
 `mlp/gate_up` and `mlp/down`, with 256 site-level fp32 input divisors. The token embedding and the
@@ -1355,7 +1355,7 @@ checkpoint, the draft's projections take the NVFP4 rule of section 16, and norms
 
 Two facts about this source were measured rather than assumed. It quantizes 496 fused sites covering
 *every* text linear, including `gdn/a_projection` and `gdn/b_projection`, which the other two sources
-leave BF16 â€” so those two are taken from the base checkpoint, because at (96, 5120) the
+leave BF16 — so those two are taken from the base checkpoint, because at (96, 5120) the
 `block_scale_k16_m128x4_v1` layout cannot represent them at all. And all 496 sites carry an
 `input_global_scale`, so no calibration is needed for this line: `d_x = 1 / input_scale`.
 

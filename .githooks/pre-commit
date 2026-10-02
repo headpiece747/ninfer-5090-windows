@@ -1,11 +1,13 @@
 #!/bin/sh
-# Five checks, all seconds: documentation links resolve, the profile tables match the profile module
-# and the generated launchers, the calibration corpus is still the one the artifact's creator used,
-# the set of production functions defaulting a CUDA stream has not widened, and the converter tests
-# pass. Each has caught a real drift in this repository -- a README quoting a digest the pins had
-# moved past, a suite size that had drifted from the baseline, a recipe defect, a block scale that
-# one of its three carriers had moved without the others, a KV block-table publish left unordered
-# against the compute stream -- and before this hook existed, nothing ran them automatically.
+# Six checks, all seconds: documentation links resolve, tracked text is byte-preserved UTF-8, the
+# profile tables match the profile module and the generated launchers, the calibration corpus is
+# still the one the artifact's creator used, the set of production functions defaulting a CUDA stream
+# has not widened, and the converter tests pass. Each has caught a real drift in this repository --
+# a README quoting a digest the pins had moved past, 181 lines of documentation re-encoded by a
+# scripted edit while every other gate still passed, a suite size that had drifted from the baseline,
+# a recipe defect, a block scale that one of its three carriers had moved without the others, a KV
+# block-table publish left unordered against the compute stream -- and before this hook existed,
+# nothing ran them automatically.
 #
 # Deliberately not here: the C++ suite (minutes, and it needs the GPU), the baseline gate (it runs
 # ctest), compute-sanitizer (much slower again), and the Op perturbation gate. Those belong at a
@@ -58,6 +60,7 @@ gate() {
 }
 
 gate "documentation links" "$PY" tools/release/check_doc_links.py
+gate "text encoding" "$PY" tools/release/check_text_encoding.py
 gate "profile consistency" "$PY" tools/release/check_profile_consistency.py
 gate "calibration corpus" "$PY" tools/release/check_calibration_corpus.py
 gate "stream-default ratchet" "$PY" tools/release/check_production_stream_defaults.py
@@ -66,7 +69,7 @@ echo "pre-commit: converter tests"
 # so collecting the directory would abort the run instead of adding to it. The calibration-corpus and
 # perturbation tests are named for the same reason, and because a gate whose failure paths have never
 # been run is indistinguishable from one that always passes.
-"$PY" -m pytest tests/convert tests/release/test_doc_links.py tests/release/test_calibration_corpus.py tests/release/test_test_mutation.py -q
+"$PY" -m pytest tests/convert tests/release/test_doc_links.py tests/release/test_text_encoding.py tests/release/test_calibration_corpus.py tests/release/test_test_mutation.py -q
 echo "pre-commit: ruff"
 "$PY" -m ruff check tools tests --quiet
 echo "pre-commit: mypy"
