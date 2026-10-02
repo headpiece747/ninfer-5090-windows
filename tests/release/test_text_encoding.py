@@ -33,7 +33,6 @@ from check_text_encoding import (  # noqa: E402
     build_reverse_table,
     count_markers,
     describe,
-    is_corpus_data,
     repair,
     to_text,
 )
@@ -137,23 +136,23 @@ def test_a_clean_file_reports_nothing(tmp_path: Path) -> None:
     assert describe(path) == ""
 
 
-def test_corpus_data_is_exempt_from_the_c1_rule_but_not_the_sequences() -> None:
-    # bench/fixtures/ttft/text holds generated prompts in which a "\x97" written in Python 3 as an
-    # em dash became U+0097. That is a generator bug, and the mojibake inverse would map it back to
-    # a bare 0x97, so the C1 rule must skip it -- while a real round trip there is still caught.
+def test_a_c1_control_in_a_corpus_fixture_is_flagged(tmp_path: Path) -> None:
+    # The TTFT prompts used to carry U+0097 from a generator bug, and this gate exempted
+    # bench/fixtures/ and examples/ from the C1 rule so it would not fire on them. The corpus has
+    # been regenerated from its seed and the exemption is gone, so this asserts both halves: the real
+    # fixtures carry no C1 control, and one that does is reported even under a corpus path. That is
+    # the guard against the exemption being quietly re-added, and against the defect returning.
     fixture = Path("bench/fixtures/ttft/text/rotation_55k_0.json")
-    assert is_corpus_data(fixture)
-    assert not is_corpus_data(Path("docs/active-work.md"))
-
     text = fixture.read_bytes().decode("utf-8")
-    controls = [char for char in text if 0x80 <= ord(char) <= 0x9F]
-    assert controls, "the fixture stopped carrying C1 controls, so this exemption needs re-deciding"
-    assert count_markers(text) > 0, "the C1 controls must be counted when the rule is enabled"
-    assert describe(fixture) == "", "a corpus fixture with C1 controls is exempt from the rule"
+    assert not any(0x80 <= ord(char) <= 0x9F for char in text), "a fixture regressed to a C1 control"
+    assert describe(fixture) == ""
 
-    # The exemption is narrow: the multi-character sequences are still counted on that same path, so
-    # a genuine round trip inside a corpus fixture is not hidden by it.
-    assert count_markers(_corrupt(f"a {EM_DASH} b\n", 2), not is_corpus_data(fixture)) > 0
+    corpus = tmp_path / "bench" / "fixtures" / "ttft" / "text" / "rotation.json"
+    corpus.parent.mkdir(parents=True)
+    # C2 97, which is U+0097 encoded as UTF-8. A bare 0x97 would not be valid UTF-8 and describe()
+    # would report that instead, so it would not exercise the C1 rule this test is about.
+    corpus.write_bytes(b"a \xc2\x97 b\n")
+    assert "C1 controls" in describe(corpus)
 
 
 def test_the_sequences_are_the_ones_the_documents_actually_carried() -> None:

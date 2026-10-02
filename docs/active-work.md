@@ -1613,12 +1613,42 @@ one. No prose was edited.
 
 The C1-control rule is skipped under `bench/fixtures/` and `examples/`, and prints how many files
 that covers on every run, because an exclusion that cannot be seen is one that cannot be reviewed.
-Those roots hold generated prompts in which a byte written as `0x97` — meant as an em dash — became
-`U+0097`, because in Python 3 that escape is the C1 control and not the cp1252 punctuation it is in
-.NET. That is a generator bug rather than a mis-decode, and one this gate must not "repair", since
-the inverse maps it to a bare `0x97`. The multi-character sequences are still checked there.
-**That `0x97` in the fixture generator is still unfixed and remains a separate defect.**
+Those roots held generated prompts carrying `U+0097`, which an earlier revision of this gate
+exempted rather than flagged. **That exemption is gone and the defect is fixed** — see below.
 
+
+
+**The U+0097 in the TTFT corpus — FIXED 2026-10-02, and the exemption removed with it.** Ten files
+carried `U+0097` where an em dash was meant, all of them the same Lewis Carroll passage in the NIAH
+source (`Lisp—in fact, the defining quality of Lisp—is that it can be written in itself`). An earlier
+revision of the encoding gate exempted `bench/fixtures/` and `examples/` from the C1 rule to cope
+with it; both the defect and the exemption are now gone.
+
+The cause was not what it first looked like. There is no `0x97` literal in any generator — `git
+grep` finds none — so this was not a Python escape. `build_fixtures.py` seeds from
+`examples/cli/messages/long_niah_64k.json`, encodes it, and decodes a *truncated* token prefix, and
+the seed itself carried the character; the derived fixtures inherited it. Nine of the ten are
+reachable as corpus shapes, and one of those, `long-64k-32`, points at the seed file directly.
+
+Fixing it was not a ten-file find-and-replace, because an em dash and `U+0097` are different tokens
+and `prompt_tokens` is an exact-fit contract. The sequence that made it safe:
+
+1. **Prove the local tokenizer is the qualified one.** A regeneration with *no* seed edit had to
+   reproduce every text fixture byte-for-byte, and it did. The 56 other changed files were PNGs
+   re-encoded by a different media writer on this machine — unrelated to tokens, and reverted. Had the
+   text not reproduced, the only correct action would have been to record the defect as blocked
+   rather than regenerate against a different tokenizer.
+2. **Fix the seed, regenerate, and let the fit absorb it.** 27 characters across the three
+   `examples/cli/messages` seeds, then a full rebuild.
+3. **Re-pin only what must move.** 20 shape digests and 3 shared digests changed. `media` and
+   `tokenizer.local_qualification_path_name` were reverted, the latter because the rebuild ran against
+   a Windows path and would otherwise have committed a machine-local directory name into the corpus
+   manifest.
+
+**`prompt_tokens` is identical for all 26 shapes**, and `marked_frontier_tokens` and
+`example_prompt_tokens` are identical for all three shared prompts. That is the property every
+published TTFT figure rests on, and it is why this could be done without re-measuring anything.
+`build_fixtures.py --check` passes.
 
 ## Closed — do not reopen
 

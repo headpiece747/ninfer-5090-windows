@@ -81,15 +81,12 @@ TEXT_SUFFIXES: frozenset[str] = frozenset(
 
 NAME_ONLY = frozenset({"CMakeLists.txt", "LICENSE", "NOTICE", "README.md", "RELEASE_NOTES.md"})
 
-# The C1-control rule is narrower than the sequence rule, because these roots hold generated corpus
-# data rather than authored prose, and the two carry different defects. bench/fixtures/ttft/text/
-# holds tokenisation and TTFT prompts in which a "\x97" written in Python 3 as an em dash became
+# No path carries an exemption. An earlier revision skipped the C1 rule under bench/fixtures/ and
+# examples/, because the TTFT prompts held a "\x97" written in Python 3 as an em dash and became
 # U+0097 -- a generator bug, not a mis-decode, and one this gate must not "repair", since the
-# mojibake inverse maps U+0097 back to the bare byte 0x97, which is not valid UTF-8 on its own. The
-# multi-character sequences below are still checked there, so a genuine round-trip in a fixture is
-# still caught. The count of files under these roots is printed on every run, because an exclusion
-# that cannot be seen is an exclusion that cannot be reviewed.
-CORPUS_ROOTS: tuple[str, ...] = ("bench/fixtures/", "examples/")
+# inverse maps U+0097 back to the bare byte 0x97. That was fixed by regenerating the corpus from its
+# seed, so the exemption it needed is gone rather than left behind: an exclusion whose cause is gone
+# is a blind spot waiting for the next defect to hide behind.
 
 MAX_PASSES = 12
 
@@ -124,12 +121,6 @@ def to_bytes(text: str, table: dict[str, bytes]) -> bytes:
         original = table.get(char)
         out += original if original is not None else char.encode("utf-8")
     return bytes(out)
-
-
-def is_corpus_data(path: Path) -> bool:
-    """Whether this file is generated corpus data, where a C1 control is a generator bug."""
-    name = path.as_posix()
-    return any(name.startswith(root) for root in CORPUS_ROOTS)
 
 
 def to_text(raw: bytes) -> str:
@@ -172,15 +163,14 @@ def to_text(raw: bytes) -> str:
     return "".join(out)
 
 
-def count_markers(text: str, check_controls: bool = True) -> int:
+def count_markers(text: str) -> int:
     """Count every marker occurrence, so a repair can only be accepted as progress."""
     total = sum(text.count(sequence) for sequence in MOJIBAKE_SEQUENCES)
-    if check_controls:
-        total += sum(1 for char in text if C1_RANGE[0] <= ord(char) <= C1_RANGE[1])
+    total += sum(1 for char in text if C1_RANGE[0] <= ord(char) <= C1_RANGE[1])
     return total
 
 
-def repair(text: str, table: dict[str, bytes], check_controls: bool = True) -> tuple[str, int]:
+def repair(text: str, table: dict[str, bytes]) -> tuple[str, int]:
     """Reverse any number of generations of the corruption.
 
     Stops as soon as no marker remains rather than continuing until the text is byte-stable: the
@@ -191,14 +181,14 @@ def repair(text: str, table: dict[str, bytes], check_controls: bool = True) -> t
     current = text
     passes = 0
     while passes < MAX_PASSES:
-        if count_markers(current, check_controls) == 0:
+        if count_markers(current) == 0:
             return current, passes
         following = to_text(to_bytes(current, table))
         if following == current:
             return current, passes
         current = following
         passes += 1
-    if count_markers(current, check_controls) == 0:
+    if count_markers(current) == 0:
         return current, passes
     raise ValueError(f"did not converge within {MAX_PASSES} passes")
 
@@ -233,7 +223,7 @@ def describe(path: Path) -> str:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as error:
         return f"{path}: not valid UTF-8 at byte {error.start}"
-    if count_markers(text, not is_corpus_data(path)):
+    if count_markers(text):
         found = sorted({sequence for sequence in MOJIBAKE_SEQUENCES if sequence in text})
         controls = sum(1 for char in text if C1_RANGE[0] <= ord(char) <= C1_RANGE[1])
         parts = [f"mojibake from a mis-decoded round trip ({len(found)} sequences"]
@@ -245,8 +235,6 @@ def describe(path: Path) -> str:
 def check(files: list[Path]) -> int:
     """Report every offending file, and fail if there is one."""
     print(f"  text files checked: {len(files)}")
-    corpus = sum(1 for path in files if is_corpus_data(path))
-    print(f"  corpus files exempt from the C1 rule (sequences still checked): {corpus}")
     broken = [message for message in (describe(path) for path in files) if message]
     for message in broken:
         print(f"    {message}")
@@ -278,14 +266,14 @@ def repair_files(files: list[Path]) -> int:
             path.write_bytes(raw)
             changed += 1
             print(f"  FIXED {path}: byte-order mark removed")
-        if not count_markers(text, not is_corpus_data(path)):
+        if not count_markers(text):
             continue
         try:
-            fixed, passes = repair(text, table, not is_corpus_data(path))
+            fixed, passes = repair(text, table)
         except ValueError as error:
             print(f"  SKIP  {path}: {error}")
             continue
-        remaining = count_markers(fixed, not is_corpus_data(path))
+        remaining = count_markers(fixed)
         path.write_bytes(fixed.encode("utf-8"))
         changed += 1
         print(f"  FIXED {path}: {passes} generation(s) reversed, {remaining} markers left")
