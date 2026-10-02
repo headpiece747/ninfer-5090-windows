@@ -31,30 +31,20 @@ void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t
 
 void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspace scratch,
                cudaStream_t stream) {
-#ifdef _WIN32
-    // PORT-DISPATCH: pre-merge FP8 A8 route on Windows (see docs/active-work.md item 12)
-    // Upstream's FP8 A8 TMA kernel faults on this target (cudaErrorIllegalInstruction), and
-    // its by-value __grid_constant__ alignas(128) descriptor parameter cannot be laid out by
-    // MSVC at all, so the TMA route has never been observed to run here as written. These are
-    // the pre-merge bodies verbatim, restored rather than re-derived, because those are the
-    // ones that passed the suite. Upstream's route stays selected on other platforms.
+    // UNGATED 2026-10-02 (docs/active-work.md item 12). Ninth and last of the nine. Fp8N5120K6144
+    // owned by linear_add, whose oracle (ninfer_linear_add_fp8_test) is green on the ungated K-templated
+    // ladder with these same tiles. Its partials thresholds were already correct and unconditional:
+    // MidBulk at >192 and Bulk at >768 match the ladder's 193-768 and 769+ selection bands exactly.
     if (x.ne[1] <= 64)
-        return launch_fp8_a8<Geometry, Fp8A8T32R32K128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, Tma32x64>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 128)
-        return launch_fp8_a8<Geometry, Fp8A8T64R64K128>(x, weight, out, scratch, stream);
-    launch_fp8_a8<Geometry, Fp8A8T64R128K128>(x, weight, out, scratch, stream);
-#else
-    if (x.ne[1] <= 64)
-        return launch_fp8_a8_tma<Geometry, Tma32x64>(x, weight, out, scratch, stream);
-    if (x.ne[1] <= 128)
-        return launch_fp8_a8<Geometry, Fp8A8T64R64K128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8<Geometry, Fp8A8T64R64K128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 192)
-        return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
     // The narrower row tile fills the GPU before the large-tile path reaches a full wave.
     if (x.ne[1] <= 768)
-        return launch_fp8_a8_tma<Geometry, MidBulk>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, MidBulk>(x, weight, out, scratch, stream);
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
-#endif
 }
 
 bool uses_a8(std::int32_t, std::int32_t max_tokens) { return max_tokens >= 17; }
