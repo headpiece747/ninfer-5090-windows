@@ -591,10 +591,59 @@ configuration nobody was checking.
 > unexplained, and the leading internal candidate is CTA starvation: half the CTAs at equal
 > threads/SM.
 >
-> **What would settle it:** a run with the SAME tile, stages, warps and epilogue, changing only the
-> load path. Not obtainable from CUTLASS on sm_120 for the reason above, so it has to be a local
-> schedule change plus an interleaved measurement. Until then, "TMA is slower here" is unsupported —
-> and "TMA is faster" is equally unsupported. **Do not ungate or keep the gate on the 10x figure.**
+> **MEASURED 2026-10-01: at a matched tile, TMA is FASTER — median 9.2%.** The ~10x was a schedule
+> confound, and the controlled experiment is now in the tree.
+>
+> `Fp8A8TmaMmaSchedule` derives from `Fp8A8MmaSchedule` and overrides only `kTmaSwizzle`, the producer
+> warp and the cache hint. So an MMA twin of a TMA tile is the same instantiation of the base template —
+> same BlockTokens, BlockRows, BlockK, WarpsTokens, WarpsRows, Stages and MinBlocksPerSm — and only the
+> load path differs. `tools/bench/tma_ab.cmd` runs both arms in ONE binary, interleaved
+> (tma, mma, tma, mma...), 5 repeats, and reports per-arm medians with the ratio taken after them.
+>
+> | tokens | tile | tma us | mma us | mma/tma |
+> |---|---|---|---|---|
+> | 32 | 32x64x128 | 28.032 | 30.016 | 1.071 |
+> | 64 | 32x64x128 | 30.048 | 32.096 | 1.068 |
+> | 65 | **CONTROL** | 32.096 | 32.128 | **1.001** |
+> | 96 | **CONTROL** | 32.128 | 32.096 | **0.999** |
+> | 129 | 64x128x128 | 34.176 | 40.288 | 1.179 |
+> | 192 | 64x128x128 | 36.192 | 40.288 | 1.113 |
+>
+> **The control band is what makes this admissible.** Tokens 65..96 dispatch to `Fp8A8T64R64K128` in
+> both arms, so they must agree; they came out at 1.001 and 0.999. The reporter runs that check FIRST
+> and reports VOID rather than a ratio if it fails, which is the control-arm rule that this session's
+> harness bugs were missing.
+>
+> **Correctness is checked too, and it had to be.** The bench times but has no oracle, so a throughput
+> ratio between two kernels where only one is known to be right is not a measurement.
+> `tools/bench/tma_ab_correctness.cmd` runs `ninfer_linear_add_fp8_test` -- which does have one
+> (`kA8Tolerance{0.04, ...}`, `verify_preserved`) -- once per arm: **tma OK, mma OK, unset OK.** Both
+> arms compute the same thing, so the ratio compares two correct kernels.
+>
+> **Reading, and it is NOT "TMA instructions are faster."** Measured at compile time, the two arms are
+> not occupancy-identical: the TMA schedule adds a 32-thread producer warp, so it runs **96 threads per
+> CTA against the MMA twin's 64**, with the same `kMinBlocksPerSm = 2` and 36,912 B of shared memory.
+> That is 192 versus 128 resident threads per SM. So the honest statement is:
+> **the TMA schedule as designed — same tile, plus a producer warp, giving 1.5x the resident threads —
+> is 6.8% to 17.9% faster, median 9.2%, than the MMA schedule at the same tile.** Part of that margin
+> is instruction and part is simply more parallelism in flight. Anyone reading this as a property of
+> `cp.async.bulk.tensor` alone will over-generalise it.
+>
+> That clears the 5.8-7.6% early-run spread this card has shown, though the 6.8% band sits near that
+> floor and wants more repeats before anyone treats it as real.
+
+>
+> **What this does NOT cover, and it matters:** only the two **non-split-K** tiles were twinned. The
+> split-K schedules `K6144MidBulk` (128x128x128) and `K6144Bulk` (128x256x128) cover tokens 193-768 and
+> beyond — which is most real prefill traffic — and they are **still untested**, because an MMA twin
+> would differ in two ways at once (transport AND split-K) and there is no MMA split-K schedule to pair
+> with. So this result says TMA is faster where it was measured and says nothing about the tiles that
+> matter most for prefill.
+>
+> **Next, in order:** build an MMA split-K schedule so `MidBulk` and `Bulk` can be twinned, measure
+> those, and only then decide about the nine gates. On the evidence so far the gates are defending a
+> confound, not a real cost.
+
 >
 > Note also that the FP8 peak convention is unsettled (419 TFLOPS at FP32 accumulate vs 838 that
 > circulate for the same part), so any percentage-of-peak framing for FP8 on this card is fragile.

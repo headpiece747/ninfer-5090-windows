@@ -2,6 +2,9 @@
 #include "ops/linear/fp8/fp8_template_launch.cuh"
 #include "ops/linear/fp8/fp8_instances.cuh"
 
+#include <cstdlib>
+#include <string_view>
+
 namespace ninfer::ops::detail {
 namespace {
 // This Op admits dense, even-width BF16 residuals. Adjacent MMA rows share one load.
@@ -16,6 +19,28 @@ struct Fp8ResidualAddEpilogue : LinearResidualAddEpilogue {
 
 using K6144Tma32x64  = Fp8A8TmaMmaSchedule<32, 64, 128, 1, 2, 3, 2>;
 using K6144Tma64x128 = Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 3, 1>;
+
+// MMA twins of the two non-split-K TMA tiles above, for the transport A/B in
+// docs/active-work.md item 12.
+//
+// Fp8A8TmaMmaSchedule derives from Fp8A8MmaSchedule and overrides only kTmaSwizzle, the producer
+// warp and the cache hint, so the twin is the SAME instantiation of the base template: same
+// BlockTokens, BlockRows, BlockK, WarpsTokens, WarpsRows, Stages and MinBlocksPerSm. Only the load
+// path differs. That is the controlled comparison the earlier ~10x figure was not -- that figure came
+// from a bench that ran ONE non-TMA schedule against FOUR TMA schedules with different tiles, so it
+// confounded transport with schedule and could not attribute anything to TMA.
+//
+// The split-K tiles (K6144MidBulk, K6144Bulk) are deliberately NOT twinned here. Their MMA equivalent
+// would differ in TWO ways at once -- transport and split-K -- so including them would reintroduce the
+// confound this exists to remove. They stay untested until an MMA split-K schedule exists.
+//
+// Both arms are instantiated in one binary so a measurement can interleave them; see the
+// NINFER_FP8_TMA_ARM selector in launch_problem. This is a measurement hook, not a product option:
+// remove it once item 12's question is answered.
+using K6144Mma32x64  = Fp8A8MmaSchedule<32, 64, 128, 1, 2, 3, 2, Cache::cg, Cache::cg,
+                                               Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>;
+using K6144Mma64x128 = Fp8A8MmaSchedule<64, 128, 128, 2, 4, 3, 1, Cache::cg, Cache::cg,
+                                               Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>;
 using K6144MidBulk =
     Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
 using K6144Bulk = Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
@@ -44,6 +69,25 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
             launch_fp8_a8_mma<S>(operands, output, LinearResidualAddEpilogue{{data, weight.n}},
                                    stream);
     };
+    // Transport A/B for docs/active-work.md item 12. Selected by NINFER_FP8_TMA_ARM=tma|mma at K=6144
+    // only, where both a TMA schedule and its MMA twin exist. Unset, the platform dispatch below runs
+    // completely unchanged, so this cannot affect a shipped configuration.
+    //
+    // A runtime branch over two compile-time instantiations on purpose: interleaving the arms needs
+    // both in ONE binary, because this card's clocks drift enough between windows that measuring A
+    // and then B would measure the window rather than the kernel.
+    if constexpr (K == 6144) {
+        if (const char* arm = std::getenv("NINFER_FP8_TMA_ARM")) {
+            if (std::string_view(arm) == "mma") {
+                if (x.ne[1] <= 64) return launch.template operator()<K6144Mma32x64>();
+                if (x.ne[1] <= 128) return launch.template operator()<Fp8A8T64R64K128>();
+                return launch.template operator()<K6144Mma64x128>();
+            }
+            if (x.ne[1] <= 64) return launch.template operator()<K6144Tma32x64>();
+            if (x.ne[1] <= 128) return launch.template operator()<Fp8A8T64R64K128>();
+            return launch.template operator()<K6144Tma64x128>();
+        }
+    }
     // PORT-DISPATCH: pre-merge FP8 A8 dispatch on Windows (docs/active-work.md item 12)
     //
     // Upstream routed every FP8 A8 path to its TMA kernel, which faults on this target with
