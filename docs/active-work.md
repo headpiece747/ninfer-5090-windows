@@ -842,6 +842,24 @@ configuration nobody was checking.
 > tile had left behind. Two different tiles came back byte-identical — because they were the same file
 > read twice. The root is now cleared before each run so a missing input reads as missing.
 >
+
+> **RESEARCHED: which SM120 TMA failures are real, and which one this tree had.** Third-party
+> reports of "TMA warp-specialized GEMM produces garbage output on SM120" are real, and there are
+> two distinct root causes behind that one symptom. Both are now identified against this tree:
+>
+> | reported SM120 failure | source | status here |
+> |---|---|---|
+> | **TMA descriptor alignment** - `misaligned address`, on RTX 5090 / Windows / CUDA 13.1 | PyGPUkit #107 | **The defect item 12 fixed.** That report reached the same conclusion after misdiagnosing it twice (first LDSM alignment, then an SM90-vs-SM120 kernel-selection error) and landing on TMA descriptor alignment. `Fp8TmaDescriptors` is `alignas(64)` and the encode destination is `alignas(64) CUtensorMap`, which is what `cuda.h:3749` asks for. |
+> | **SMEM overflow in grouped GEMM** - every TMA-WS tactic fails to initialise, garbage output or crash | CUTLASS #3096 | **Already guarded, statically.** `static_assert(kSharedBytes <= 99 * 1024)` at four sites in `fp8_schedule.cuh`; the largest gated tile footprint is 98,304 B against the 101,376 B SM120 limit. |
+> | `compute_120a` vs `compute_120f` arch suffix | CUTLASS #3096 | **Not ours.** A FlashInfer/CUTLASS JIT codegen constraint. This tree compiles natively with `sm_120a` and its TMA route is oracle-checked, so the suffix question does not arise. |
+>
+> **Effect on the gate decision.** This removes the reason to treat the SM120 TMA reports as a
+> reason to distrust our measurement: they are different mechanisms, one of which we had and fixed, one
+> of which we already prevent by construction. It confirms the discipline rather than relaxing it - a
+> platform whose documented TMA failure mode is *silent garbage output* is exactly the one where a
+> throughput number without an oracle is worthless, and where "it measured faster" must never be the
+> argument for ungating by itself. The `garbage output` symptom is why the per-route oracle run comes
+> BEFORE the gate decision, not after.
 > **A harness trap worth recording.** Restoring the perturbed file with `Copy-Item` preserved the
 > backup's older mtime, so ninja judged the source unchanged and **skipped the rebuild** — the test
 > then reported the perturbation's failure against restored source, which read as "the fix didn't work".
