@@ -1712,10 +1712,20 @@ any fresh clone — while `ninfer_qwen3_5_frontend_test` passed here, because he
 came from. The line-ending normalisation did not cause this and did not corrupt anything; it made a
 defect visible that a byte-exact gate exists to catch.
 
-Consequence to carry: **every published prompt-render and TTFT figure was taken with the Jinja
-fallback**, because the fast path was not actually engaged. Those numbers are not wrong, but they
-carry an overhead the code was written to avoid, and the release notes should say so rather than let
-v1.2.0 ship with the improvement unannounced.
+**Correction, and it reverses the consequence I first recorded here.** I wrote that every published
+prompt-render and TTFT figure had been taken with the Jinja fallback. **That is false.** The
+deduction: `test_registered_template_digest_matches_file` asserts `native_render_supported(sha256(source))`
+over the template *as read*, and the suite passed at 135/137 before the fix — so that assertion held,
+so the file as read hashed to the registered digest, which is the CRLF one. The worktree file was CRLF,
+so **the native renderer was active on this machine**, which is where every published figure was
+measured. `test_registered_template_media` corroborates it: it asserts native expansion and passed.
+
+So what this fix changes is **portability, not performance here**. The constant matched only a CRLF
+worktree, so the fast path was off on Linux, CI and any fresh clone, and any figure taken there carried
+Jinja's cost — ADR-0012's 48.3 ms render instead of 5.99 ms. No published figure moves, and **no
+re-measurement is called for**: the measured configuration did not change on the machine that
+measured. ADR-0012's own "projected, not measured" line for end-to-end `prepared` and warm TTFT remains
+open, and that is a pre-existing gap this fix does not close either way.
 
 ## Closed — do not reopen
 
