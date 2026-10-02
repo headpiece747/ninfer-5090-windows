@@ -768,6 +768,21 @@ configuration nobody was checking.
 > gate inherits the finding. "One measurement, nine gates" was never available: the gates select different
 > ladders. The remaining work is bounded and specific - three unmeasured tile shapes (64x256, 96x256,
 > 192x128) plus the `Stages` variants - not nine independent unknowns.
+
+> **A latent trap in the ungating work, found by checking every call site rather than the one I edited.**
+> Only `linear_add` forwards `partials` into the MMA launcher. Five call sites do not:
+> `attn_input_proj:33`, `gdn_input_proj:31` and `:41`, `linear_swiglu:31`, and
+> `linear/fp8/fp8_launch.cuh:40` -- the entry **all five shape instantiations** go through.
+> Today that is harmless: every Windows-gated branch instantiates non-split schedules, so
+> `if constexpr (kSplitWaveCtas > 0)` discards the split block and the null `partials` is never
+> dereferenced. But four of those ladders carry split-K tiles in their `#else` arms, and
+> `launch_fp8_a8` does not forward `scratch.partials` the way its TMA sibling `launch_fp8_a8_tma`
+> does. Ungating any shape file whose ladder includes `Bulk`/`MidBulk` would therefore reach
+> `FP8 split-K requires aligned caller partials` at runtime on first use.
+>
+> It fails loudly rather than corrupting, which is the right property, but it would present as a
+> mysterious per-shape failure partway through ungating. **Forwarding `scratch.partials` through
+> `launch_fp8_a8` is a prerequisite of ungating, not a follow-up to it.**
 >
 > **A harness trap worth recording.** Restoring the perturbed file with `Copy-Item` preserved the
 > backup's older mtime, so ninja judged the source unchanged and **skipped the rebuild** — the test
