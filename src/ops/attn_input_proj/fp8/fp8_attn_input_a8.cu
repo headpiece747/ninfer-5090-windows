@@ -13,20 +13,14 @@ using Bulk      = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2
 } // namespace
 
 std::size_t fp8_attn_input_partial_capacity_bytes(std::int32_t max_tokens) {
-    #ifdef _WIN32
-    // PORT-DISPATCH: the Windows ladder selects only NON-split schedules, so it needs no partials at
-    // any token count. The ungated ladder selects Bulk fall-through at >=289, so aligning this threshold now would
-    // allocate Bulk::kPartialBytes (21.3 MiB) per workspace across that band for a tile this platform
-    // never runs -- against a fixed DeviceArena that throws std::bad_alloc rather than slowing down.
-    // This is the fix that ungating needs; it lands WITH ungating, not before it.
-    (void)max_tokens;
-    return 0;
-#else
+    // Ungated with the ladder below, so this applies on every platform and the #ifdef that suppressed
+    // it while the gate was in place is gone.
+    //
     // Selection band, not engagement band: fp8_tma_split_k_plan decides at run time whether the tail
-    // wave splits, but the ladder decides whether a split schedule is SELECTED, and the buffer has to
-    // exist across the whole selection band.
+    // wave splits, but the ladder decides whether a split schedule is SELECTED. The old threshold was
+    // 384, which left 289-384 selecting Bulk with a null partials. Pre-existing upstream; the gate masked
+    // it. This route's test already exercises 289 and 385, the two boundaries of that band.
     return max_tokens > 288 ? Bulk::kPartialBytes : 0;
-#endif
 }
 
 void fp8_attn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& q, Tensor& gate,
@@ -43,21 +37,22 @@ void fp8_attn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& q, 
             launch_fp8_a8_tma_mma<S>(operands, output, LinearIdentityEpilogue{}, stream,
                                        workspace.partials);
         else
-            launch_fp8_a8_mma<S>(operands, output, LinearIdentityEpilogue{}, stream);
+            launch_fp8_a8_mma<S>(operands, output, LinearIdentityEpilogue{}, stream,
+                                 Fp8IdentityRows{}, workspace.partials);
     };
-    // PORT-DISPATCH: pre-merge FP8 A8 dispatch on Windows (docs/active-work.md item 12)
-    //
-    // Upstream routed every FP8 A8 path to its TMA kernel, which faults on this target with
-    // cudaErrorIllegalInstruction. A TMA schedule and an MMA schedule are different tile shapes, so
-    // the schedule selection itself has to differ rather than being forwarded at one seam. This is
-    // the pre-merge dispatch verbatim, because that is the one that passed the suite; upstream's
-    // stays selected on other platforms and stays in the tree.
-#ifdef _WIN32
-    if (x.ne[1] <= 32) return launch.template operator()<Fp8A8T32R32K128>();
-    if (x.ne[1] <= 96) return launch.template operator()<Fp8A8T32R128K128>();
-    if (x.ne[1] <= 128) return launch.template operator()<Fp8A8T64R128K256>();
-    launch.template operator()<Fp8A8T64R64K128>();
-#else
+    // UNGATED 2026-10-02 (docs/active-work.md item 12). Second of the nine, ungated on the same three
+    // grounds as linear_swiglu -- the cudaErrorIllegalInstruction that justified the gate was a
+    // descriptor ABI defect, alignas(128) on a by-value kernel parameter, now alignas(64) -- and this
+    // route's coverage is the best of the nine:
+    //   - all four tiles are oracle-checked on both arms: 64x128 Stages=2, 64x256, 96x256, and the
+    //     128x256 split Bulk. TMA leads the median on each (1.107, 1.270, 1.288, and 1.270 on the
+    //     linear_add Bulk measurement of the same tile).
+    //   - run_fp8_target() already drives tokens 1..128 and then {129, 191, 192, 193, 256, 257, 287,
+    //     288, 289, 383, 384, 385, 512, 513, 1024, 1025}, which reaches EVERY rung including Bulk and
+    //     the 289 boundary where the partials buffer starts.
+    //   - and it drives the same list again through CUDA Graph replay, which matters here specifically:
+    //     the TMA descriptors are launch-owned values copied into kernel parameters during capture, so
+    //     capture correctness is a separate question from eager correctness, and this route answers it.
     if (x.ne[1] <= 32) return launch.template operator()<Fp8A8T32R32K128>();
     if (x.ne[1] <= 96) return launch.template operator()<Fp8A8T32R128K128>();
     if (x.ne[1] <= 128) return launch.template operator()<Tma64x128>();
@@ -65,6 +60,5 @@ void fp8_attn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& q, 
     // Three 96-token tiles give 168 CTAs: one almost-full wave through T=288.
     if (x.ne[1] <= 288) return launch.template operator()<Tma96x256>();
     launch.template operator()<Bulk>();
-#endif
 }
 } // namespace ninfer::ops::detail
