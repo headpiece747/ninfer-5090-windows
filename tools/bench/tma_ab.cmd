@@ -37,9 +37,19 @@ if errorlevel 1 (
 copy /y "%REPO%\build\apps\*.dll" "%REPO%\build\bench\" >nul 2>&1
 cd /d "%REPO%\build\bench"
 
-set "SWEEP=32,64,65,96,129,192,193,256,384,512,768,1025"
+REM usage: tma_ab.cmd [repeats] [sweep]
+REM The sweep is a parameter so one band can be re-measured on its own. Item 12 recorded a 1.323
+REM ratio at tokens 384 whose cause is unexplained, and a single unexplained point is not a finding:
+REM the question is whether it is a spike at that exact block count or a broad trend, and that needs
+REM the neighbouring token counts, not the same number again.
+REM
+REM Read the sweep from the ENVIRONMENT, not %~2. Passing it as an argument silently delivered only
+REM the first value: a 7-value sweep produced a 1-row CSV that read as "only one band measured" rather
+REM than as a broken command line, and the bench itself handles comma lists correctly. An empty NINFER_TMA_SWEEP
+REM falls back to the full ladder.
+set "SWEEP=%NINFER_TMA_SWEEP%"
+if "%SWEEP%"=="" set "SWEEP=32,64,65,96,129,192,193,256,384,512,768,1025"
 echo === interleaved A/B, %REPEATS% repeats, K=6144, tokens=%SWEEP% ===
-echo     193 and above route to the split-K tiles (K6144MidBulk then K6144Bulk).
 for /L %%R in (1,1,%REPEATS%) do (
     set "NINFER_FP8_TMA_ARM=tma"
     ninfer_fp8_linear_add_bench.exe --k 6144 --policy a8 --t-sweep !SWEEP! --csv-out "%ROOT%\tma_%%R.csv" >nul 2>&1

@@ -724,20 +724,31 @@ configuration nobody was checking.
 > arithmetic in the previous entry was correct on all six overlapping points**, so this is a
 > confirmation, not a correction — the claim that it "contradicted the model" was itself wrong.
 >
-> **The headline needs narrowing, because the biggest number in it is not a split-K result.**
+> **The 1.323 at 384 was not an anomaly, and the previous entry's framing of it was wrong.** A
+> fine-grained sweep across the neighbourhood (320/352/384/416/448/480/512) shows it is a **band edge**,
+> not a spike, and 384 and 512 were never comparable neighbours:
 >
-> | tokens | split-K? | mma/tma |
-> |---|---|---|
-> | 193 | **yes** | 1.103 |
-> | 256 | **yes** | 1.103 |
-> | 384 | no | ~~1.323~~ |
-> | 512 | no | 0.999 |
-> | 768 | **yes** | 1.034 |
-> | 1025 | **yes** | 1.050 |
+> | tokens | token tiles | tma us | mma us | mma/tma |
+> |---|---|---|---|---|
+> | 320 | 3 | 48.512 | 64.896 | 1.338 |
+> | 352 | 3 | 50.528 | 64.896 | 1.285 |
+> | 384 | 3 | 50.560 | 64.928 | 1.284 |
+> | 416 | 4 | 75.776 | 77.184 | 1.019 |
+> | 448 | 4 | 77.216 | 77.248 | 1.000 |
+> | 480 | 4 | 77.216 | 79.264 | 1.027 |
+> | 512 | 4 | 81.344 | 79.264 | 0.974 |
 >
-> So the split-K tiles read 1.034-1.103, median ~1.07 — TMA ahead by roughly 3-10%, not the 32.3% the
-> full table suggested. The 1.323 at 384 is a **non-split** reading of the same tile pair and belongs to
-> the non-split-K result, where its cause is unexplained.
+> **The MMA arm sits at a flat ~64.9us floor across 320-384** — 64.896, 64.896, 64.928, it does not move
+> — while TMA climbs 48.5 -> 50.6. From four token tiles up both arms are token-throughput-bound and
+> equal. So the structure is: **TMA's margin is largest exactly where the machine is underfilled**, and
+> that is the prefill regime, which is the regime these gates were argued about. The earlier reading of
+> "384 is unexplained" was the tail arithmetic of a 12-point ladder being read as a local anomaly.
+>
+> **Harness bug found while measuring it, and it had been hiding data.** Passing the sweep as `%~2`
+> silently delivered **only the first value** — a 7-value sweep wrote a 1-row CSV, which reads as "one
+> band measured" rather than as a broken command line, and the bench itself parses comma lists
+> correctly. The sweep now comes from `NINFER_TMA_SWEEP` in the environment. Worth recording because the
+> failure mode was a plausible-looking result, not an error.
 >
 > **A harness trap worth recording.** Restoring the perturbed file with `Copy-Item` preserved the
 > backup's older mtime, so ninja judged the source unchanged and **skipped the rebuild** — the test
