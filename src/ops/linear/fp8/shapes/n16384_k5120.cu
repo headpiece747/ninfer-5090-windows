@@ -35,51 +35,34 @@ void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t
 
 void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspace scratch,
                cudaStream_t stream) {
-#ifdef _WIN32
-    // PORT-DISPATCH: pre-merge FP8 A8 route on Windows (see docs/active-work.md item 12)
-    // Upstream's FP8 A8 TMA kernel faults on this target (cudaErrorIllegalInstruction), and
-    // its by-value __grid_constant__ alignas(128) descriptor parameter cannot be laid out by
-    // MSVC at all, so the TMA route has never been observed to run here as written. These are
-    // the pre-merge bodies verbatim, restored rather than re-derived, because those are the
-    // ones that passed the suite. Upstream's route stays selected on other platforms.
+    // UNGATED 2026-10-02 (docs/active-work.md item 12). Fourth of the nine. Fp8N16384K5120 is the
+    // gdn_input_proj shape, so the three gdn tests are this shape's oracle and were already green on
+    // the ungated gdn ladder -- every tile here (64x128 Stages=2, 192x128, split 128x128 Stages=2, split
+    // 128x256) is the same tile that route exercises at 65-192, 193-384, 385-512 and 513+.
     if (x.ne[1] <= 32)
-        return launch_fp8_a8<Geometry, Fp8A8T32R64K128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8<Geometry, Fp8A8T32R32K128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 64)
-        return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
-    launch_fp8_a8<Geometry, Fp8A8T64R128K128>(x, weight, out, scratch, stream);
-#else
-    if (x.ne[1] <= 32)
-        return launch_fp8_a8<Geometry, Fp8A8T32R32K128>(x, weight, out, scratch, stream);
-    if (x.ne[1] <= 64)
-        return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
+    return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 128)
-        return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 192)
-        return launch_fp8_a8_tma<Geometry, Tma192x128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, Tma192x128>(x, weight, out, scratch, stream);
     // Smaller output tiles leave only two full-K tiles to split near the 512-token anchor.
     if (x.ne[1] > 384 && x.ne[1] <= 512)
-        return launch_fp8_a8_tma<Geometry, MidBulk>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, MidBulk>(x, weight, out, scratch, stream);
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
-#endif
 }
 
 bool uses_a8(std::int32_t, std::int32_t max_tokens) { return max_tokens >= 17; }
 
 std::size_t partial_capacity_bytes(std::int32_t max_tokens) {
-    #ifdef _WIN32
-    // PORT-DISPATCH: the Windows ladder selects only NON-split schedules, so it needs no partials at
-    // any token count. The ungated ladder selects Bulk fall-through at >=193, so aligning this threshold now would
-    // allocate Bulk::kPartialBytes (21.3 MiB) per workspace across that band for a tile this platform
-    // never runs -- against a fixed DeviceArena that throws std::bad_alloc rather than slowing down.
-    // This is the fix that ungating needs; it lands WITH ungating, not before it.
-    (void)max_tokens;
-    return 0;
-#else
-    // Selection band, not engagement band: fp8_tma_split_k_plan decides at run time whether the tail
-    // wave splits, but the ladder decides whether a split schedule is SELECTED, and the buffer has to
-    // exist across the whole selection band.
+    // Ungated with the ladder above, so this applies on every platform and the #ifdef that suppressed
+    // it while the gate was in place is gone.
+    //
+    // Selection band, not engagement band. The old threshold was 256, which left 193-256 selecting a
+    // split schedule with a null partials. This shape is Fp8N16384K5120 -- the gdn_input_proj shape -- so
+    // run_fp8() in the gdn tests covers 193, 255, 256, 257, 385 and 512, which is exactly this band.
     return max_tokens > 192 ? Bulk::kPartialBytes : 0;
-#endif
 }
 } // namespace
 
