@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -425,6 +426,110 @@ int test_human_and_csv_reports() {
     return failures;
 }
 
+// Split one CSV record. The bench table is read by header name and never by column position, and
+// this is the only reader that does so.
+std::vector<std::string> csv_record(const std::string& line) {
+    std::vector<std::string> fields;
+    std::size_t              start = 0;
+    while (true) {
+        const std::size_t comma = line.find(',', start);
+        if (comma == std::string::npos) {
+            fields.push_back(line.substr(start));
+            return fields;
+        }
+        fields.push_back(line.substr(start, comma - start));
+        start = comma + 1;
+    }
+}
+
+// The per-position split only carries a diagnosis if the three rates can be told apart at every
+// position, so each position here gets a different denominator and a different numerator per split:
+// a reader that swapped two columns, or divided by the wrong base, fails on this case.
+int test_per_position_recall_contract() {
+    qb::BenchEnvironment env = sample_environment();
+    env.speculative.backend      = ninfer::SpeculativeBackend::DFlash2;
+    env.speculative.draft_tokens = 3;
+
+    ninfer::SpeculativeStats spec{
+        .backend               = ninfer::SpeculativeBackend::DFlash2,
+        .enabled               = true,
+        .draft_window          = 3,
+        .rounds                = 4,
+        .drafted_tokens        = 11,
+        .accepted_tokens       = 3,
+        .fallback_steps        = 0,
+        .accepted_per_position = {2, 1, 0},
+        .proposed_per_position = {4, 4, 3},
+        .recall1_per_position  = {3, 3, 1},
+        .recall16_per_position = {4, 4, 2},
+    };
+    qb::TestResult tg;
+    tg.test = {qb::TestKind::Decode, 0, 8, "recall3"};
+    tg.reps = {{timings(0.01, 0.1, 0.5, 0.62), spec, 1}};
+
+    const std::string          csv    = qb::format_csv(env, {tg});
+    const std::vector<std::string> header = csv_record(csv.substr(0, csv.find('\n')));
+    const std::vector<std::string> row    = csv_record(csv.substr(csv.find('\n') + 1));
+    int                           failures = 0;
+    if (header.size() != row.size()) {
+        return fail("CSV header and row have different widths");
+    }
+    const auto field = [&](std::string_view name) -> const std::string* {
+        for (std::size_t i = 0; i < header.size(); ++i) {
+            if (header[i] == name) { return &row[i]; }
+        }
+        failures += fail(std::string("CSV field ") + std::string(name) + " is missing");
+        return nullptr;
+    };
+    // A missing column must fail rather than read as zero, so every value goes through `field`.
+    const auto rate = [&](std::string_view name) {
+        const std::string* value = field(name);
+        return value == nullptr ? -1.0 : std::strtod(value->c_str(), nullptr);
+    };
+    const auto text = [&](std::string_view name) {
+        const std::string* value = field(name);
+        return value == nullptr ? std::string("<missing>") : *value;
+    };
+    // Position 0: 0.75 / 1.0 / 0.5. Position 1: 0.75 / 1.0 / 0.25. Position 2: 1/3 / 2/3 / 0.
+    failures += expect_string(text("spec_proposed_pos0"), "4", "position 0 denominator");
+    failures += expect_string(text("spec_proposed_pos2"), "3", "position 2 denominator");
+    failures += expect_near(rate("spec_recall1_rate_pos0"), 0.75, "position 0 recall@1");
+    failures += expect_near(rate("spec_recall16_rate_pos0"), 1.0, "position 0 recall@16");
+    failures += expect_near(rate("spec_path_acceptance_rate_pos0"), 0.5, "position 0 path");
+    failures += expect_near(rate("spec_recall1_rate_pos1"), 0.75, "position 1 recall@1");
+    failures += expect_near(rate("spec_path_acceptance_rate_pos1"), 0.25, "position 1 path");
+    failures += expect_near(rate("spec_recall1_rate_pos2"), 1.0 / 3.0, "position 2 recall@1");
+    failures += expect_near(rate("spec_recall16_rate_pos2"), 2.0 / 3.0, "position 2 recall@16");
+    failures += expect_near(rate("spec_path_acceptance_rate_pos2"), 0.0, "position 2 path");
+    // A position the round never reached has no denominator and must read empty, not zero, and a
+    // run must not carry columns past its own draft window.
+    failures += expect(std::find(header.begin(), header.end(),
+                                 "spec_recall1_rate_pos3") == header.end(),
+                       "no column beyond the run's draft window");
+
+    Json report;
+    try {
+        report = Json::parse(qb::format_json(
+            env, "ninfer_bench --weights model.ninfer --spec dflash2 --draft-tokens 3", {tg}));
+    } catch (const nlohmann::json::exception& error) {
+        return fail(std::string("invalid benchmark JSON: ") + error.what());
+    }
+    const Json& reported = report.at("tests").at(0).at("speculative");
+    failures += expect(reported.at("proposed_per_position") == Json::array({4, 4, 3}),
+                       "JSON per-position denominators");
+    failures += expect(reported.at("recall1_per_position") == Json::array({3, 3, 1}),
+                       "JSON per-position recall@1 counts");
+    failures += expect(reported.at("recall16_per_position") == Json::array({4, 4, 2}),
+                       "JSON per-position recall@16 counts");
+    failures += expect_near(reported.at("recall1_rate_per_position").at(2).get<double>(),
+                            1.0 / 3.0, "JSON position 2 recall@1");
+    failures += expect_near(reported.at("recall16_rate_per_position").at(1).get<double>(), 1.0,
+                            "JSON position 1 recall@16");
+    failures += expect_near(reported.at("path_acceptance_per_position").at(0).get<double>(), 0.5,
+                            "JSON position 0 path acceptance");
+    return failures;
+}
+
 } // namespace
 
 int main() {
@@ -433,5 +538,6 @@ int main() {
     failures += test_measurement_contract();
     failures += test_report_contract();
     failures += test_human_and_csv_reports();
+    failures += test_per_position_recall_contract();
     return failures == 0 ? 0 : fail("ninfer_bench support contract failed");
 }

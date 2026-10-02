@@ -9,6 +9,7 @@
 #include "ninfer/ops/scatter.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -129,6 +130,13 @@ DecodeGraphExecutable& install_graph_profile(DecodeGraphFamily& family, DecodeGr
     return topology.executable;
 }
 
+// The DFlash2 drafter's ranked candidate count per proposal position. It is `16` in
+// `kSparseSpeculativeCandidates` (src/ops/kernel/speculative_round.cuh) and in the frame allocation
+// `{16, columns - 1, batch}` (src/models/qwen3_5/program/round_buffers.cpp). Neither is reachable
+// from a host translation unit, so the host side of the per-position recall split carries its own
+// constant and checks the frame's actual extent against it before reading.
+constexpr std::int32_t kDrafterCandidatesPerPosition = 16;
+
 } // namespace
 
 void ProgramImpl::install_sampling(SequenceState& sequence, RequestControl& request,
@@ -137,10 +145,13 @@ void ProgramImpl::install_sampling(SequenceState& sequence, RequestControl& requ
                         .view({dimension(parameters.model.resources().public_token_count)});
     request.sampling_host     = config;
     request.speculative_stats = SpeculativeStats{
-        .backend               = speculative_backend,
-        .enabled               = speculative_backend != SpeculativeBackend::None,
-        .draft_window          = draft_window,
-        .accepted_per_position = std::vector<std::uint64_t>(draft_window, 0),
+        .backend                = speculative_backend,
+        .enabled                = speculative_backend != SpeculativeBackend::None,
+        .draft_window           = draft_window,
+        .accepted_per_position  = std::vector<std::uint64_t>(draft_window, 0),
+        .proposed_per_position  = std::vector<std::uint64_t>(draft_window, 0),
+        .recall1_per_position   = std::vector<std::uint64_t>(draft_window, 0),
+        .recall16_per_position  = std::vector<std::uint64_t>(draft_window, 0),
     };
     const bool penalties = request.sampling_host.presence_penalty != 0.0F ||
                            request.sampling_host.frequency_penalty != 0.0F;
@@ -708,6 +719,37 @@ ProgramImpl::decode_dflash_batch(std::span<const std::uint32_t> lanes,
         }
         timing.end_wait();
 
+        // Per-position drafter recall. Both sides of the split are already emitted for every
+        // proposal position the round runs: the drafter's ranked candidates and the target's own
+        // pick for that position. Reading them needs a copy, not a kernel, and the device is idle
+        // here, so the read sits outside the round body rather than inside it.
+        constexpr std::size_t kDrafterCandidateSlots =
+            static_cast<std::size_t>(kDrafterCandidatesPerPosition) * kDFlashDecodeMaximumDrafts *
+            kMaximumConcurrency;
+        std::array<std::int32_t, kDrafterCandidateSlots> drafter_candidates{};
+        std::array<std::int32_t,
+                   static_cast<std::size_t>(kDFlashDecodeMaximumWidth) * kMaximumConcurrency>
+            target_picks{};
+        const bool record_recall = io.dflash_decode->candidate_ids.data != nullptr;
+        if (record_recall) {
+            const Tensor round_candidates =
+                io.dflash_decode->candidate_ids.slice(2, 0, static_cast<std::int32_t>(lanes.size()));
+            const Tensor round_picks =
+                io.dflash_decode->target_argmax.slice(1, 0, static_cast<std::int32_t>(lanes.size()));
+            if (round_candidates.dtype != DType::I32 || round_picks.dtype != DType::I32 ||
+                round_candidates.ne[0] != kDrafterCandidatesPerPosition ||
+                round_candidates.ne[1] != static_cast<std::int32_t>(draft_window) ||
+                round_picks.ne[0] != static_cast<std::int32_t>(width) ||
+                round_candidates.bytes() > drafter_candidates.size() * sizeof(std::int32_t) ||
+                round_picks.bytes() > target_picks.size() * sizeof(std::int32_t)) {
+                throw std::logic_error("DFlash recall frame has an unexpected shape");
+            }
+            CUDA_CHECK(cudaMemcpy(drafter_candidates.data(), round_candidates.data,
+                                  round_candidates.bytes(), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(target_picks.data(), round_picks.data, round_picks.bytes(),
+                                  cudaMemcpyDeviceToHost));
+        }
+
         const double seconds = std::chrono::duration<double>(Clock::now() - started).count();
         for (std::size_t row = 0; row < lanes.size(); ++row) {
             SequenceState& sequence       = active_sequence(lanes[row]);
@@ -738,6 +780,28 @@ ProgramImpl::decode_dflash_batch(std::span<const std::uint32_t> lanes,
                 for (std::int32_t i = 0; i < accepted_i; ++i) {
                     request.speculative_stats.accepted_per_position[static_cast<std::size_t>(i)] +=
                         1;
+                }
+                // The drafter proposes position i from its own candidate list, and the target's
+                // pick for draft position i is the argmax at verify column i, which is the same
+                // column `speculative_accept_sparse_drafts` compares the draft against.
+                if (record_recall) {
+                    for (std::int32_t i = 0; i < static_cast<std::int32_t>(extent); ++i) {
+                        const std::size_t position = static_cast<std::size_t>(i);
+                        const std::int32_t* candidates =
+                            drafter_candidates.data() +
+                            kDrafterCandidatesPerPosition *
+                                (static_cast<std::size_t>(row) * draft_window + position);
+                        const std::int32_t pick =
+                            target_picks[static_cast<std::size_t>(row) * width + position];
+                        request.speculative_stats.proposed_per_position[position] += 1;
+                        if (candidates[0] == pick) {
+                            request.speculative_stats.recall1_per_position[position] += 1;
+                        }
+                        if (std::find(candidates, candidates + kDrafterCandidatesPerPosition, pick) !=
+                            candidates + kDrafterCandidatesPerPosition) {
+                            request.speculative_stats.recall16_per_position[position] += 1;
+                        }
+                    }
                 }
             }
             sequence.dflash_context_frontier = base_E;

@@ -779,6 +779,18 @@ struct SpeculativeStats {
     std::uint64_t accepted_tokens = 0;
     std::uint64_t fallback_steps  = 0;
     std::vector<std::uint64_t> accepted_per_position;
+    // Drafter recall against the target's own pick at each draft position, indexed like
+    // `accepted_per_position`. `recall1_per_position[i]` counts the rounds whose target pick at
+    // position i was the drafter's top-1 candidate, `recall16_per_position[i]` the rounds whose
+    // target pick was anywhere in the drafter's 16, and `proposed_per_position[i]` the rounds that
+    // proposed position i at all. `proposed_per_position` is the denominator for all three per
+    // position rates, including the path acceptance `accepted_per_position[i] / proposed[i]`; a
+    // position the round never reached cannot be accepted or missed, and the drafter's candidates
+    // for it are still emitted, so a position's recall is only comparable against the rounds that
+    // proposed it.
+    std::vector<std::uint64_t> proposed_per_position;
+    std::vector<std::uint64_t> recall1_per_position;
+    std::vector<std::uint64_t> recall16_per_position;
     // Copy drafting: how many drafts came from the copy pool rather than the draft model, and how
     // many of those were committed. A copy round runs at the same width as a neural one, so there is
     // no per-width field and no count of rounds that paid a wider window; the width is the request's

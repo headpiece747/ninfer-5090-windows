@@ -14,6 +14,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <spdlog/logger.h>
 
@@ -222,6 +223,22 @@ void print_generation_summary(const ninfer::GenerationResult& result,
                 positions << speculative.accepted_per_position[i];
             }
             print_metric(backend + " accepted by pos", positions.str());
+        }
+        if (!speculative.proposed_per_position.empty()) {
+            const auto rate_by_pos = [&](const std::vector<std::uint64_t>& hits) {
+                std::ostringstream rates;
+                for (std::size_t i = 0; i < speculative.proposed_per_position.size(); ++i) {
+                    if (i != 0) { rates << ','; }
+                    rates << format_percent(i < hits.size() ? hits[i] : 0,
+                                            speculative.proposed_per_position[i]);
+                }
+                return rates.str();
+            };
+            print_metric(backend + " recall@1 by pos", rate_by_pos(speculative.recall1_per_position));
+            print_metric(backend + " recall@16 by pos",
+                         rate_by_pos(speculative.recall16_per_position));
+            print_metric(backend + " path acceptance by pos",
+                         rate_by_pos(speculative.accepted_per_position));
         }
     }
 }
