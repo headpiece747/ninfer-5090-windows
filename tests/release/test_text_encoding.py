@@ -136,6 +136,47 @@ def test_a_clean_file_reports_nothing(tmp_path: Path) -> None:
     assert describe(path) == ""
 
 
+def test_a_crlf_file_that_should_be_lf_is_flagged(tmp_path: Path) -> None:
+    # The worktree was 70 files CRLF against 16 LF before this rule, decided by whichever tool last
+    # wrote each file. It is invisible in a diff, because git normalises both sides.
+    path = tmp_path / "notes.md"
+    path.write_bytes(b"a\r\nb\r\n")
+    assert "CRLF line endings" in describe(path)
+
+
+def test_an_lf_batch_file_is_flagged(tmp_path: Path) -> None:
+    # The converse, and the one with two real gates behind it: check_profile_consistency compares
+    # each generated launcher against the table's render and parses QUASAR_ARGS out of launcher_env.
+    path = tmp_path / "launcher.cmd"
+    path.write_bytes(b"@echo off\r\necho ok\r\n")
+    assert describe(path) == ""
+    lf = tmp_path / "other.cmd"
+    lf.write_bytes(b"@echo off\necho ok\n")
+    assert "CRLF by definition" in describe(lf)
+
+
+def test_a_file_with_no_line_ending_is_not_flagged(tmp_path: Path) -> None:
+    # A single-line batch file legitimately has no terminator at all; requiring CRLF of it would be
+    # a check that fails on correct input.
+    path = tmp_path / "tiny.cmd"
+    path.write_bytes(b"@echo off")
+    assert describe(path) == ""
+
+
+def test_the_digest_pinned_corpus_inputs_are_reached_by_the_line_ending_rule(
+    tmp_path: Path,
+) -> None:
+    # Named because a line ending is not cosmetic there: the TTFT manifest digests these files and
+    # the corpus gate compares those digests, which is how a worktree CRLF once made the corpus
+    # unusable. The real fixture must be clean, and a CRLF copy of it must be reported.
+    real = Path("bench/fixtures/ttft/text/rotation_55k_0.json")
+    assert describe(real) == ""
+
+    copy = tmp_path / "rotation_55k_0.json"
+    copy.write_bytes(real.read_bytes().replace(b"\n", b"\r\n"))
+    assert "CRLF line endings" in describe(copy)
+
+
 def test_a_c1_control_in_a_corpus_fixture_is_flagged(tmp_path: Path) -> None:
     # The TTFT prompts used to carry U+0097 from a generator bug, and this gate exempted
     # bench/fixtures/ and examples/ from the C1 rule so it would not fire on them. The corpus has

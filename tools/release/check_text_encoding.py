@@ -81,6 +81,13 @@ TEXT_SUFFIXES: frozenset[str] = frozenset(
 
 NAME_ONLY = frozenset({"CMakeLists.txt", "LICENSE", "NOTICE", "README.md", "RELEASE_NOTES.md"})
 
+# .gitattributes pins every tracked text file to LF except these, which are CRLF by definition and
+# which two gates read byte for byte. The rule here restates the attribute rather than deriving it,
+# because the gate reads the worktree and the worktree is where the split actually lived: 70 files
+# CRLF against 16 LF, decided by whichever tool last wrote each one, invisible in a diff and fatal to
+# any byte-level comparison. It is the same tooling that re-encoded 181 lines of documentation.
+CRLF_SUFFIXES = frozenset({".bat", ".cmd"})
+
 # No path carries an exemption. An earlier revision skipped the C1 rule under bench/fixtures/ and
 # examples/, because the TTFT prompts held a "\x97" written in Python 3 as an em dash and became
 # U+0097 -- a generator bug, not a mis-decode, and one this gate must not "repair", since the
@@ -219,6 +226,14 @@ def describe(path: Path) -> str:
     if raw.startswith(b"\xef\xbb\xbf"):
         findings.append("byte-order mark: Set-Content -Encoding utf8 writes one under PowerShell 5.1")
         raw = raw[3:]
+    wants_crlf = path.suffix.lower() in CRLF_SUFFIXES
+    if b"\r\n" in raw:
+        if not wants_crlf:
+            findings.append(
+                "CRLF line endings: .gitattributes pins every text file except *.bat and *.cmd to LF"
+            )
+    elif wants_crlf and b"\n" in raw:
+        findings.append("LF line endings: *.bat and *.cmd are CRLF by definition")
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as error:

@@ -3,6 +3,19 @@
 /third_party/spdlog/include/** -whitespace
 /third_party/spdlog/src/** -whitespace
 
+# One line-ending convention for the whole tree, so no tool has to guess. Every committed blob was
+# already LF -- checked across all 1892 tracked files, zero holding CRLF -- so this changes no blob
+# and no digest. What it changes is the worktree, which was 70 files CRLF against 16 LF and was
+# decided by whichever tool last wrote the file: the Read/Edit and write tools emit LF, and a Windows
+# PowerShell round trip through Get-Content/WriteAllLines emits CRLF. That split is invisible in a
+# diff and fatal to any byte-level comparison, and it is the same tooling that re-encoded 181 lines of
+# documentation rather than preserving them.
+#
+# `text=auto` leaves git's own binary detection alone, so the 56 PNG fixtures are unaffected; eol=lf
+# overrides core.autocrlf=true, which is set on this machine and would otherwise decide per platform.
+# The .bat and .cmd rules below override this one, because those are CRLF by definition.
+* text=auto eol=lf
+
 # The Serve TTFT benchmark freezes its corpus and verifies it by sha256, so those bytes have to
 # survive a checkout unchanged. core.autocrlf=true rewrites them to CRLF on Windows, which changes
 # the digest without changing the content: 57 text fixtures under bench/fixtures/ttft and
