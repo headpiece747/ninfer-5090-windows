@@ -13,8 +13,20 @@ using Bulk    = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 
 } // namespace
 
 std::size_t fp8_gdn_input_partial_capacity_bytes(std::int32_t max_tokens) {
-    // 192, not 256: Bulk is the ladder's fall-through at >=193 tokens, so the whole 193+ selection band needs the buffer. Whether the tail wave actually splits is decided at run time by fp8_tma_split_k_plan; whether a split schedule is SELECTED is decided by the ladder. Sizing for engagement instead of selection leaves 193-256 running a split tile with a null partials. Pre-existing, and it blocked ungating.
+    #ifdef _WIN32
+    // PORT-DISPATCH: the Windows ladder selects only NON-split schedules, so it needs no partials at
+    // any token count. The ungated ladder selects Bulk fall-through at >=193, so aligning this threshold now would
+    // allocate Bulk::kPartialBytes (21.3 MiB) per workspace across that band for a tile this platform
+    // never runs -- against a fixed DeviceArena that throws std::bad_alloc rather than slowing down.
+    // This is the fix that ungating needs; it lands WITH ungating, not before it.
+    (void)max_tokens;
+    return 0;
+#else
+    // Selection band, not engagement band: fp8_tma_split_k_plan decides at run time whether the tail
+    // wave splits, but the ladder decides whether a split schedule is SELECTED, and the buffer has to
+    // exist across the whole selection band.
     return max_tokens > 192 ? Bulk::kPartialBytes : 0;
+#endif
 }
 
 void fp8_gdn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& qkv, Tensor& z,

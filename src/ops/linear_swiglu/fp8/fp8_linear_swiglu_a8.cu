@@ -11,13 +11,20 @@ using Bulk      = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2
 } // namespace
 
 std::size_t fp8_linear_swiglu_partial_capacity_bytes(std::int32_t max_tokens) {
-    // 192, not 256, and it has to track the ladder's own split-tile threshold below. The ladder selects
-    // Bulk at >=193 tokens, so every token count from 193 up needs the buffer even when the tail wave
-    // does not happen to split. Sizing for the band where split-K actually ENGAGES rather than where it
-    // is SELECTED leaves 193-256 selecting a split tile with a null partials, and the launcher throws
-    // "FP8 split-K requires aligned caller partials". That threshold mismatch is pre-existing, not
-    // introduced here, and it is why this route could not be ungated as written.
+    #ifdef _WIN32
+    // PORT-DISPATCH: the Windows ladder selects only NON-split schedules, so it needs no partials at
+    // any token count. The ungated ladder selects Bulk fall-through at >=193, so aligning this threshold now would
+    // allocate Bulk::kPartialBytes (21.3 MiB) per workspace across that band for a tile this platform
+    // never runs -- against a fixed DeviceArena that throws std::bad_alloc rather than slowing down.
+    // This is the fix that ungating needs; it lands WITH ungating, not before it.
+    (void)max_tokens;
+    return 0;
+#else
+    // Selection band, not engagement band: fp8_tma_split_k_plan decides at run time whether the tail
+    // wave splits, but the ladder decides whether a split schedule is SELECTED, and the buffer has to
+    // exist across the whole selection band.
     return max_tokens > 192 ? Bulk::kPartialBytes : 0;
+#endif
 }
 
 void fp8_linear_swiglu_a8_launch(const Tensor& x, const Weight& weight, Tensor& out,
