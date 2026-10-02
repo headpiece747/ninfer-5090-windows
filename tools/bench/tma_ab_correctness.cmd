@@ -41,11 +41,32 @@ for %%A in (tma mma unset) do (
 )
 set "NINFER_FP8_TMA_ARM="
 
+REM The three tiles the OTHER gated ladders use and this ladder never selects: 64x256 in
+REM linear_swiglu / attn_input_proj / the shapes, 96x256 in attn_input_proj, 192x128 in gdn_input_proj.
+REM NINFER_FP8_TMA_TILE pins one tile for BOTH arms, so each is checked at the tile it will be measured
+REM at. Without this the oracle only ever saw the default ladder and said nothing about these twins --
+REM the same "passed because it never ran" failure this script exists to catch.
+for %%T in (wide64 wide96 tall192) do (
+    for %%A in (tma mma) do (
+        set "NINFER_FP8_TMA_TILE=%%T"
+        set "NINFER_FP8_TMA_ARM=%%A"
+        echo.
+        echo === tile: %%T  arm: %%A ===
+        ninfer_linear_add_fp8_test.exe > "%TEMP%\tma_abc_%%T_%%A.txt" 2>&1
+        set "RC=!ERRORLEVEL!"
+        findstr /C:"OK" /C:"FAIL" /C:"criterion failed" "%TEMP%\tma_abc_%%T_%%A.txt"
+        echo     exit=!RC!
+        if not "!RC!"=="0" set "FAILED=1"
+    )
+)
+set "NINFER_FP8_TMA_ARM="
+set "NINFER_FP8_TMA_TILE="
+
 echo.
 if "%FAILED%"=="0" (
-    echo VERDICT: GREEN - both arms pass the FP8 linear_add oracle, so the A/B compares two CORRECT
-    echo kernels and the throughput ratio is admissible.
+    echo VERDICT: GREEN - both arms pass the FP8 linear_add oracle on the default ladder AND on all
+    echo three forced tiles, so the A/B compares two CORRECT kernels and the ratio is admissible.
     exit /b 0
 )
-echo VERDICT: RED - at least one arm fails the oracle. The A/B is void until that is explained.
+echo VERDICT: RED - at least one arm or tile fails the oracle. The A/B is void until that is explained.
 exit /b 1

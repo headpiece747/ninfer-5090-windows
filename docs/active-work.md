@@ -782,7 +782,32 @@ configuration nobody was checking.
 >
 > It fails loudly rather than corrupting, which is the right property, but it would present as a
 > mysterious per-shape failure partway through ungating. **Forwarding `scratch.partials` through
-> `launch_fp8_a8` is a prerequisite of ungating, not a follow-up to it.**
+> `launch_fp8_a8` is a prerequisite of ungating, not a follow-up to it.
+>
+> **The three previously unmeasured tiles are now measured (2026-10-01), and TMA wins every band.**
+> `NINFER_FP8_TMA_TILE` pins one tile for **both** arms, so each is measured at a matched tile instead
+> of at whatever the K=6144 ladder would have chosen. 7 interleaved repeats, oracle GREEN on both arms
+> of all three tiles.
+>
+> | tile | ratio median | min | max | bands where MMA wins |
+> |---|---|---|---|---|
+> | 64x256x128 (2,4,2,1) | **1.270** | 1.000 | 1.414 | **0 of 8** |
+> | 96x256x128 (3,4,2,1) | **1.288** | 1.056 | 1.370 | **0 of 8** |
+> | 192x128x128 (3,4,2,1) | **1.241** | 1.058 | 1.284 | **0 of 8** |
+>
+> Across 24 bands TMA is faster everywhere, 5.6% to 41.4%. That is a stronger result than the K=6144
+> ladder produced, which had ties at 0.974 and 0.999 — so the earlier ties were a property of those
+> token counts, not of the transport.
+>
+> **The control that makes this admissible**, because a forced-tile override that silently did nothing
+> would still pass the oracle on the default ladder: the three tiles produce three clearly distinct
+> timing profiles (TMA at 64 tokens is 44.4 / 60.8 / 62.8us). Identical profiles would have meant the
+> override never fired and the GREEN was vacuous.
+>
+> **What this still is not.** All three are measured at K=6144 with the linear_add residual epilogue.
+> The gates that use these tiles run at K=5120 with different epilogues and different partials
+> capacities. Transport-at-matched-tile is the same *question*, but this is not a measurement at those
+> gates' own shapes, and it does not ungate anything: a gate is a correctness decision first.
 >
 > **A harness trap worth recording.** Restoring the perturbed file with `Copy-Item` preserved the
 > backup's older mtime, so ninja judged the source unchanged and **skipped the rebuild** — the test

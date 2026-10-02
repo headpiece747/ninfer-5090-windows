@@ -56,6 +56,21 @@ using K6144BulkMma =
                                           Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>,
                          170, 4, 8>;
 
+// Twins of the three tiles the OTHER gated ladders use and nothing has measured: 64x256 and 96x256 in
+// linear_swiglu / attn_input_proj / the shape instantiations, and 192x128 in gdn_input_proj. codegraph
+// showed the gates do not share one ladder -- these are the shapes the K=6144 result cannot reach by
+// construction. Selected by NINFER_FP8_TMA_TILE, which overrides the ladder for both arms so each is
+// measured at the same tile rather than at whatever the ladder would have picked.
+using K6144Wide64x256 = Fp8A8TmaMmaSchedule<64, 256, 128, 2, 4, 2, 1>;
+using K6144Wide64x256Mma = Fp8A8MmaSchedule<64, 256, 128, 2, 4, 2, 1, Cache::cg, Cache::cg,
+                                            Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>;
+using K6144Wide96x256 = Fp8A8TmaMmaSchedule<96, 256, 128, 3, 4, 2, 1>;
+using K6144Wide96x256Mma = Fp8A8MmaSchedule<96, 256, 128, 3, 4, 2, 1, Cache::cg, Cache::cg,
+                                            Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>;
+using K6144Tall192x128 = Fp8A8TmaMmaSchedule<192, 128, 128, 3, 4, 2, 1>;
+using K6144Tall192x128Mma = Fp8A8MmaSchedule<192, 128, 128, 3, 4, 2, 1, Cache::cg, Cache::cg,
+                                             Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>;
+
 using K17408Tma32x64 = Fp8A8TmaMmaSchedule<32, 64, 128, 1, 2, 3, 2>;
 using K17408Small =
     Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
@@ -88,6 +103,24 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
     // both in ONE binary, because this card's clocks drift enough between windows that measuring A
     // and then B would measure the window rather than the kernel.
     if constexpr (K == 6144) {
+        // NINFER_FP8_TMA_TILE pins ONE tile for both arms, overriding the ladder, so a tile the
+        // Windows route never selects can still be measured at a matched tile. Without this the only
+        // measurable tiles are the ones the ladder happens to choose, and codegraph showed the other
+        // gates use 64x256, 96x256 and 192x128 -- none of which this ladder contains.
+        if (const char* tile = std::getenv("NINFER_FP8_TMA_TILE")) {
+            const std::string_view want(tile);
+            const char* arm_env   = std::getenv("NINFER_FP8_TMA_ARM");
+            const bool mma = arm_env && std::string_view(arm_env) == "mma";
+            if (want == "wide64")
+                return mma ? launch.template operator()<K6144Wide64x256Mma>()
+                           : launch.template operator()<K6144Wide64x256>();
+            if (want == "wide96")
+                return mma ? launch.template operator()<K6144Wide96x256Mma>()
+                           : launch.template operator()<K6144Wide96x256>();
+            if (want == "tall192")
+                return mma ? launch.template operator()<K6144Tall192x128Mma>()
+                           : launch.template operator()<K6144Tall192x128>();
+        }
         if (const char* arm = std::getenv("NINFER_FP8_TMA_ARM")) {
             // Each arm runs the schedule ladder the OTHER transport would run, tile for tile, so the
             // only difference between the arms is cp.async.bulk.tensor versus cp.async. Mirrors the
