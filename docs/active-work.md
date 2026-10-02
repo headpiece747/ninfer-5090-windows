@@ -710,14 +710,40 @@ configuration nobody was checking.
 > legend contradicted the column header directly above it and inverted the reading of every run it had
 > produced. Fixed, with the derivation printed instead of a conclusion to be trusted.
 >
-> **What this still does NOT license.** The whole table is one shape (K=6144 linear_add, N=5120) on one
-> card. The nine gates also span K=17408, `attn_input_proj`, `gdn_input_proj`, `linear_swiglu` and five
-> shape instantiations, and **none of those was measured**. Two checks are also owed before the K=6144
-> rows can be called admissible: a **negative control** proving the oracle fails when the MMA split-K
-> range is perturbed (a gate that also passed before this change proves nothing), and confirmation that
-> the split actually engages at the tokens attributed to it — the tail arithmetic says 193/256/768 split
-> and 384/512 do not, which would mean **the largest ratio in the table, 384 at 1.323, is not a split-K
-> result at all**. That is derived, not measured, and it must not be reported as either way yet.
+> **Both owed checks are now done (2026-10-01), and one of them corrects the headline.**
+>
+> **Negative control: PASSED.** `fp8_split_k_range` was perturbed so every part after the first
+> re-reads one K tile, and the oracle goes **RED** — failing at exactly seven token counts: 193, 255,
+> 256, 513, 767, 768, 1025. That proves the MMA split-K path is genuinely executed under the test and
+> genuinely covered by the oracle. The GREEN above was not vacuous: it also passed *before* the change,
+> so without this it discriminated nothing. Restored byte-identical (SHA256 prefix `725AEB14`) and
+> GREEN re-confirmed.
+>
+> **Split engagement, measured rather than derived.** The seven token counts above are exactly where
+> split-K runs; 257, 383, 384, 385, 511, 769, 1023 and everything ≤192 do not split. **The tail
+> arithmetic in the previous entry was correct on all six overlapping points**, so this is a
+> confirmation, not a correction — the claim that it "contradicted the model" was itself wrong.
+>
+> **The headline needs narrowing, because the biggest number in it is not a split-K result.**
+>
+> | tokens | split-K? | mma/tma |
+> |---|---|---|
+> | 193 | **yes** | 1.103 |
+> | 256 | **yes** | 1.103 |
+> | 384 | no | ~~1.323~~ |
+> | 512 | no | 0.999 |
+> | 768 | **yes** | 1.034 |
+> | 1025 | **yes** | 1.050 |
+>
+> So the split-K tiles read 1.034-1.103, median ~1.07 — TMA ahead by roughly 3-10%, not the 32.3% the
+> full table suggested. The 1.323 at 384 is a **non-split** reading of the same tile pair and belongs to
+> the non-split-K result, where its cause is unexplained.
+>
+> **A harness trap worth recording.** Restoring the perturbed file with `Copy-Item` preserved the
+> backup's older mtime, so ninja judged the source unchanged and **skipped the rebuild** — the test
+> then reported the perturbation's failure against restored source, which read as "the fix didn't work".
+> Restoring any probed source needs its mtime bumped forward, or the next build silently tests the old
+> binary.
 >
 > **Next, in order:** the negative control, then the split-engagement measurement, then re-measure
 > 384 and 1025 specifically since both are now suspect readings, then decide the gates per path rather

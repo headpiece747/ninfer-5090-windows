@@ -104,10 +104,17 @@ __global__ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void
         }
     };
 
+// Bounded by tiles_k, like the TMA producer loop. Unbounded, a split CTA whose K range is shorter
+// than S would prefetch past its own range: the loads are never consumed, so it burns bandwidth the
+// other arm does not -- which would bias a transport A/B in TMA's favour. Not reachable at
+// kMaxParts = 4 (parts <= 4, so tiles_k >= 12 >= S for K = 6144), but it becomes reachable the moment
+// kMaxParts rises, and a confound that appears only after someone tunes is the worst kind.
 #pragma unroll
     for (int stage = 0; stage < S; ++stage) {
-        stage_inputs(stage, k_begin + stage);
-        cp_commit();
+        if (stage < tiles_k) {
+            stage_inputs(stage, k_begin + stage);
+            cp_commit();
+        }
     }
 
     float accumulators[Schedule::kMmaTokens][Schedule::kMmaRows][4] = {};
