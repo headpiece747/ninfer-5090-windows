@@ -87,25 +87,49 @@ void launch_fp8_a16_sliced_k_mma(const Fp8A16Operands& p, Output output, Epilogu
 
 template <class Schedule, class Output, class Epilogue, class Rows = Fp8IdentityRows>
 void launch_fp8_a8_mma(const Fp8A8Operands& p, Output output, Epilogue epilogue,
-                       cudaStream_t stream, Rows rows = {}) {
+                       cudaStream_t stream, Rows rows = {}, float* partials = nullptr) {
     validate_fp8_operands<Schedule>(p);
     if (p.rows % Schedule::kBlockRows || p.k % Schedule::kBlockK ||
         p.k / Schedule::kBlockK < Schedule::kStages)
         throw std::invalid_argument("FP8 A8 MMA requires complete row/K tiles and enough K stages");
     for_each_token_slice(p.tokens, Schedule::kBlockTokens, [&](int offset, int count) {
         const int blocks  = p.rows / Schedule::kBlockRows * div_up(count, Schedule::kBlockTokens);
-        const auto launch = [&]<bool Full>() {
-            constexpr auto kernel = fp8_a8_mma_kernel<Schedule, Full, Epilogue, Output, Rows>;
+        const auto plan   = fp8_split_k_plan<Schedule>(blocks, p.k);
+        const auto launch = [&]<bool Full, bool Split>() {
+            constexpr auto kernel =
+                fp8_a8_mma_kernel<Schedule, Full, Epilogue, Output, Rows, Split>;
             const int bytes =
                 fp8_prepare_shared<fp8_mma_shared_bytes<Schedule, Epilogue>, kernel>();
-            kernel<<<blocks, Schedule::kThreads, bytes, stream>>>(p, output, epilogue, rows, offset,
-                                                                  count);
+            const int grid = Split ? plan.full_tiles + plan.split_ctas : blocks;
+            kernel<<<grid, Schedule::kThreads, bytes, stream>>>(p, output, epilogue, rows, offset,
+                                                                  count, plan, partials);
             CUDA_CHECK(cudaGetLastError());
+            if constexpr (Split) {
+                fp8_a8_split_k_reduce<Schedule, Output, Epilogue, Rows>
+                    <<<plan.tail_tiles * Schedule::kReductionBlocks, 256, 0, stream>>>(
+                        p, partials, output, epilogue, rows, plan, offset, count);
+                CUDA_CHECK(cudaGetLastError());
+            }
         };
+        if constexpr (Schedule::kSplitWaveCtas > 0) {
+            static_assert(
+                (!Rows::kPaired && requires { epilogue.apply(0, 0, 0.0f); }) ||
+                    (Rows::kPaired && requires { epilogue.apply_pair(0, 0, 0.0f, 0.0f); }),
+                "FP8 split-K requires a scalar or paired epilogue after reduction");
+            if (plan.split_ctas) {
+                if (!partials || reinterpret_cast<std::uintptr_t>(partials) % 16)
+                    throw std::invalid_argument("FP8 split-K requires aligned caller partials");
+                if (count % Schedule::kBlockTokens == 0)
+                    launch.template operator()<true, true>();
+                else
+                    launch.template operator()<false, true>();
+                return;
+            }
+        }
         if (count % Schedule::kBlockTokens == 0)
-            launch.template operator()<true>();
+            launch.template operator()<true, false>();
         else
-            launch.template operator()<false>();
+            launch.template operator()<false, false>();
     });
 }
 } // namespace ninfer::ops::detail

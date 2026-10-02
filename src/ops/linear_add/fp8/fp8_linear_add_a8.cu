@@ -30,9 +30,12 @@ using K6144Tma64x128 = Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 3, 1>;
 // from a bench that ran ONE non-TMA schedule against FOUR TMA schedules with different tiles, so it
 // confounded transport with schedule and could not attribute anything to TMA.
 //
-// The split-K tiles (K6144MidBulk, K6144Bulk) are deliberately NOT twinned here. Their MMA equivalent
-// would differ in TWO ways at once -- transport and split-K -- so including them would reintroduce the
-// confound this exists to remove. They stay untested until an MMA split-K schedule exists.
+// The split-K tiles (K6144MidBulk, K6144Bulk) ARE twinned, and that needed split-K on the MMA side
+// first: Fp8A8SplitKSchedule never depended on a tensor map, so the wrapper and the reduction work
+// unchanged over an MMA base (fp8_split_k.cuh). Those two tiles serve tokens 193-768 and beyond --
+// most real prefill traffic -- so leaving them untested left the gate question open exactly where it
+// matters most. The split geometry is decoded by one shared helper (fp8_split_k_range), so the two
+// arms cannot drift apart in how they split K.
 //
 // Both arms are instantiated in one binary so a measurement can interleave them; see the
 // NINFER_FP8_TMA_ARM selector in launch_problem. This is a measurement hook, not a product option:
@@ -42,17 +45,25 @@ using K6144Mma32x64  = Fp8A8MmaSchedule<32, 64, 128, 1, 2, 3, 2, Cache::cg, Cach
 using K6144Mma64x128 = Fp8A8MmaSchedule<64, 128, 128, 2, 4, 3, 1, Cache::cg, Cache::cg,
                                                Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>;
 using K6144MidBulk =
-    Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
-using K6144Bulk = Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
+    Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
+using K6144Bulk = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
+using K6144MidBulkMma =
+    Fp8A8SplitKSchedule<Fp8A8MmaSchedule<128, 128, 128, 2, 4, 3, 1, Cache::cg, Cache::cg,
+                                          Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>,
+                         170, 4, 8>;
+using K6144BulkMma =
+    Fp8A8SplitKSchedule<Fp8A8MmaSchedule<128, 256, 128, 2, 4, 2, 1, Cache::cg, Cache::cg,
+                                          Fp8MmaFragmentPipeline::PingPong, Fp8MmaRaster::TokenFast, 1>,
+                         170, 4, 8>;
 
 using K17408Tma32x64 = Fp8A8TmaMmaSchedule<32, 64, 128, 1, 2, 3, 2>;
 using K17408Small =
-    Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
-using K17408Mid = Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
+    Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
+using K17408Mid = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
 using K17408Wide =
-    Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<192, 128, 128, 3, 4, 2, 1>, 170, 4, 8>;
+    Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<192, 128, 128, 3, 4, 2, 1>, 170, 4, 8>;
 using K17408Bulk =
-    Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
+    Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
 
 template <int K>
 void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
@@ -67,7 +78,7 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
             launch_fp8_a8_tma_mma<S>(operands, output, epilogue, stream, workspace.partials);
         else
             launch_fp8_a8_mma<S>(operands, output, LinearResidualAddEpilogue{{data, weight.n}},
-                                   stream);
+                                   stream, Fp8IdentityRows{}, workspace.partials);
     };
     // Transport A/B for docs/active-work.md item 12. Selected by NINFER_FP8_TMA_ARM=tma|mma at K=6144
     // only, where both a TMA schedule and its MMA twin exist. Unset, the platform dispatch below runs
@@ -78,14 +89,22 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
     // and then B would measure the window rather than the kernel.
     if constexpr (K == 6144) {
         if (const char* arm = std::getenv("NINFER_FP8_TMA_ARM")) {
+            // Each arm runs the schedule ladder the OTHER transport would run, tile for tile, so the
+            // only difference between the arms is cp.async.bulk.tensor versus cp.async. Mirrors the
+            // #else dispatch below one-for-one. Tokens 65..128 are the CONTROL: both arms land on
+            // Fp8A8T64R64K128 and must agree.
             if (std::string_view(arm) == "mma") {
                 if (x.ne[1] <= 64) return launch.template operator()<K6144Mma32x64>();
                 if (x.ne[1] <= 128) return launch.template operator()<Fp8A8T64R64K128>();
-                return launch.template operator()<K6144Mma64x128>();
+                if (x.ne[1] <= 192) return launch.template operator()<K6144Mma64x128>();
+                if (x.ne[1] <= 768) return launch.template operator()<K6144MidBulkMma>();
+                return launch.template operator()<K6144BulkMma>();
             }
             if (x.ne[1] <= 64) return launch.template operator()<K6144Tma32x64>();
             if (x.ne[1] <= 128) return launch.template operator()<Fp8A8T64R64K128>();
-            return launch.template operator()<K6144Tma64x128>();
+            if (x.ne[1] <= 192) return launch.template operator()<K6144Tma64x128>();
+            if (x.ne[1] <= 768) return launch.template operator()<K6144MidBulk>();
+            return launch.template operator()<K6144Bulk>();
         }
     }
     // PORT-DISPATCH: pre-merge FP8 A8 dispatch on Windows (docs/active-work.md item 12)

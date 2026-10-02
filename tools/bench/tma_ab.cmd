@@ -37,8 +37,9 @@ if errorlevel 1 (
 copy /y "%REPO%\build\apps\*.dll" "%REPO%\build\bench\" >nul 2>&1
 cd /d "%REPO%\build\bench"
 
-set "SWEEP=32,64,65,96,129,192"
+set "SWEEP=32,64,65,96,129,192,193,256,384,512,768,1025"
 echo === interleaved A/B, %REPEATS% repeats, K=6144, tokens=%SWEEP% ===
+echo     193 and above route to the split-K tiles (K6144MidBulk then K6144Bulk).
 for /L %%R in (1,1,%REPEATS%) do (
     set "NINFER_FP8_TMA_ARM=tma"
     ninfer_fp8_linear_add_bench.exe --k 6144 --policy a8 --t-sweep !SWEEP! --csv-out "%ROOT%\tma_%%R.csv" >nul 2>&1

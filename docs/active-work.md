@@ -678,16 +678,50 @@ configuration nobody was checking.
 > floor and wants more repeats before anyone treats it as real.
 
 >
-> **What this does NOT cover, and it matters:** only the two **non-split-K** tiles were twinned. The
-> split-K schedules `K6144MidBulk` (128x128x128) and `K6144Bulk` (128x256x128) cover tokens 193-768 and
-> beyond — which is most real prefill traffic — and they are **still untested**, because an MMA twin
-> would differ in two ways at once (transport AND split-K) and there is no MMA split-K schedule to pair
-> with. So this result says TMA is faster where it was measured and says nothing about the tiles that
-> matter most for prefill.
+> **SPLIT-K IS NOW MEASURED (2026-10-01), and the reason it could not be is now fixed.** The blocker
+> was not a transport property: `kSplitWaveCtas`, `kMaxParts` and `kReductionBlocks` were declared on
+> `Fp8A8TmaMmaSchedule` rather than on `Fp8A8MmaSchedule`, so a plain MMA schedule had no member saying
+> "this tile splits" and the MMA launcher could not ask. The plan, the partials store and the reduction
+> never read a tensor map; they moved to `fp8_split_k.cuh`, both transports decode the split geometry
+> through the same `fp8_split_k_range`, and `Fp8A8TmaSplitKSchedule` became `Fp8A8SplitKSchedule`
+> (21 sites). Both arms pass the FP8 linear_add oracle at the split-K bands.
 >
-> **Next, in order:** build an MMA split-K schedule so `MidBulk` and `Bulk` can be twinned, measure
-> those, and only then decide about the nine gates. On the evidence so far the gates are defending a
-> confound, not a real cost.
+> 11 interleaved repeats, control band 1.000 / 0.999, so the harness is valid. `ratio = mma/tma`:
+>
+> | tokens | tile | tma us | mma us | mma/tma |
+> |---|---|---|---|---|
+> | 32 | Tma/Mma 32x64 | 28.000 | 30.080 | 1.074 |
+> | 64 | Tma/Mma 32x64 | 28.032 | 30.080 | 1.073 |
+> | 65 | shared | 30.080 | 30.080 | 1.000 CONTROL |
+> | 96 | shared | 32.096 | 32.064 | 0.999 CONTROL |
+> | 129 | Tma/Mma 64x128 | 36.192 | 40.288 | 1.113 |
+> | 192 | Tma/Mma 64x128 | 36.192 | 40.288 | 1.113 |
+> | 193 | MidBulk / **MidBulkMma** | 40.256 | 44.384 | 1.103 |
+> | 256 | MidBulk / **MidBulkMma** | 40.256 | 44.384 | 1.103 |
+> | 384 | MidBulk / **MidBulkMma** | 50.592 | 66.912 | **1.323** |
+> | 512 | MidBulk / **MidBulkMma** | 81.344 | 81.280 | 0.999 |
+> | 768 | MidBulk / **MidBulkMma** | 122.240 | 126.336 | 1.034 |
+> | 1025 | Bulk / **BulkMma** | 165.248 | 173.440 | 1.050 |
+>
+> **TMA is faster at 9 of the 10 measured bands, median 8.8%, max 32.3% at tokens 384, tie at 512.**
+>
+> **A defect in the reporter, found by reading its output against its own arithmetic.** It computes
+> `ratio = mma_median / tma_median` and then printed "> 1 means TMA is SLOWER" — the reverse. The
+> legend contradicted the column header directly above it and inverted the reading of every run it had
+> produced. Fixed, with the derivation printed instead of a conclusion to be trusted.
+>
+> **What this still does NOT license.** The whole table is one shape (K=6144 linear_add, N=5120) on one
+> card. The nine gates also span K=17408, `attn_input_proj`, `gdn_input_proj`, `linear_swiglu` and five
+> shape instantiations, and **none of those was measured**. Two checks are also owed before the K=6144
+> rows can be called admissible: a **negative control** proving the oracle fails when the MMA split-K
+> range is perturbed (a gate that also passed before this change proves nothing), and confirmation that
+> the split actually engages at the tokens attributed to it — the tail arithmetic says 193/256/768 split
+> and 384/512 do not, which would mean **the largest ratio in the table, 384 at 1.323, is not a split-K
+> result at all**. That is derived, not measured, and it must not be reported as either way yet.
+>
+> **Next, in order:** the negative control, then the split-engagement measurement, then re-measure
+> 384 and 1025 specifically since both are now suspect readings, then decide the gates per path rather
+> than globally.
 
 >
 > Note also that the FP8 peak convention is unsettled (419 TFLOPS at FP32 accumulate vs 838 that

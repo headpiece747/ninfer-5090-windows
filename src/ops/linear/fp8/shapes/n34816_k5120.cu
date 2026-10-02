@@ -9,7 +9,7 @@ using C4         = Fp8A16SimtSchedule<4, 2, 16, 4, 1, Fp8SimtActivationAccess::T
 using Tma64x128  = Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 2, 1>;
 using Tma64x256  = Fp8A8TmaMmaSchedule<64, 256, 128, 2, 4, 2, 1>;
 using Tma128x256 = Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>;
-using Bulk       = Fp8A8TmaSplitKSchedule<Tma128x256, 170, 4, 8>;
+using Bulk       = Fp8A8SplitKSchedule<Tma128x256, 170, 4, 8>;
 
 void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t stream) {
     const int tokens = x.ne[1];

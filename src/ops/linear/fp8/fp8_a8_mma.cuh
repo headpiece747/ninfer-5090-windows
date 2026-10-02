@@ -15,6 +15,7 @@
 #include "ops/linear/fp8/fp8_operands.h"
 #include "ops/linear/fp8/fp8_shared.cuh"
 #include "ops/linear/fp8/fp8_a8_mma_common.cuh"
+#include "ops/linear/fp8/fp8_split_k.cuh"
 
 #include <cuda_bf16.h>
 
@@ -23,10 +24,11 @@
 
 namespace ninfer::ops::detail {
 
-template <class Schedule, bool FullTokens, class Epilogue, class Output, class RowPolicy>
+template <class Schedule, bool FullTokens, class Epilogue, class Output, class RowPolicy,
+          bool SplitK = false>
 __global__ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_mma_kernel(
     Fp8A8Operands operands, Output output, Epilogue epilogue, RowPolicy row_policy,
-    int token_offset, int count) {
+    int token_offset, int count, Fp8SplitKPlan plan, float* partials) {
     constexpr bool PairRows                    = RowPolicy::kPaired;
     const auto* __restrict__ activation_codes  = operands.x;
     const auto* __restrict__ activation_scales = operands.x_scales;
@@ -34,7 +36,6 @@ __global__ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void
     const auto* __restrict__ weight_scales     = operands.scales;
     const int K             = Schedule::kStaticK ? Schedule::kStaticK : operands.k;
     const int tokens        = token_offset + count;
-    const int TILES_K       = K / Schedule::kBlockK;
     constexpr int BM        = Schedule::kBlockTokens;
     constexpr int BN        = Schedule::kBlockRows;
     constexpr int BK        = Schedule::kBlockK;
@@ -48,12 +49,17 @@ __global__ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void
     const int warp = tid >> 5;
     const int lane = tid & 31;
 
+    // Same geometry decode as the TMA kernel, from fp8_split_k.cuh. A split CTA owns a K range; an
+    // unsplit one keeps all of it. Sharing the decode is what makes the two transports comparable.
+    int tile = static_cast<int>(blockIdx.x), partial = -1, k_begin = 0, tiles_k = K / BK;
+    if constexpr (SplitK) {
+        tile = fp8_split_k_range<Schedule>(plan, tile, partial, k_begin, tiles_k);
+    }
     const int row_tiles   = operands.rows / BN;
     const int token_tiles = (count + BM - 1) / BM;
     int row_tile          = 0;
     int token_tile        = 0;
-    fp8_mma_tile_coordinates<Schedule>(static_cast<int>(blockIdx.x), row_tiles, token_tiles,
-                                       row_tile, token_tile);
+    fp8_mma_tile_coordinates<Schedule>(tile, row_tiles, token_tiles, row_tile, token_tile);
     constexpr int rows_per_block = PairRows ? BN / 2 : BN;
     const int row_begin          = row_tile * rows_per_block;
     const int token_begin        = token_offset + token_tile * BM;
@@ -100,15 +106,15 @@ __global__ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void
 
 #pragma unroll
     for (int stage = 0; stage < S; ++stage) {
-        stage_inputs(stage, stage);
+        stage_inputs(stage, k_begin + stage);
         cp_commit();
     }
 
     float accumulators[Schedule::kMmaTokens][Schedule::kMmaRows][4] = {};
 #pragma unroll 1
-    for (int k_tile = 0; k_tile < TILES_K; ++k_tile) {
+    for (int k_tile = 0; k_tile < tiles_k; ++k_tile) {
         const int stage = k_tile % S;
-        if (k_tile + S <= TILES_K) {
+        if (k_tile + S <= tiles_k) {
             cp_wait<S - 1>();
         } else {
             cp_wait<0>();
@@ -120,9 +126,16 @@ __global__ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void
 
         __syncthreads();
         const int next_k_tile = k_tile + S;
-        if (next_k_tile < TILES_K) {
-            stage_inputs(stage, next_k_tile);
+        if (next_k_tile < tiles_k) {
+            stage_inputs(stage, k_begin + next_k_tile);
             cp_commit();
+        }
+    }
+
+    if constexpr (SplitK) {
+        if (partial >= 0) {
+            fp8_store_split_partials<Schedule>(partials, partial, accumulators, warp, lane);
+            return;
         }
     }
 

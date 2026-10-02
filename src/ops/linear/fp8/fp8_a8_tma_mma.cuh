@@ -7,6 +7,7 @@
 #include "ops/linear/fp8/fp8_a8_mma_common.cuh"
 #include "ops/linear/fp8/fp8_operands.h"
 #include "ops/linear/fp8/fp8_shared.cuh"
+#include "ops/linear/fp8/fp8_split_k.cuh"
 
 #include <cuda.h>
 #include <algorithm>
@@ -46,34 +47,9 @@ static_assert(sizeof(Fp8TmaDescriptors) == 2 * sizeof(CUtensorMap),
 #define NINFER_FP8_TMA_DESCRIPTOR_PARAM const __grid_constant__ Fp8TmaDescriptors
 #endif
 
-struct Fp8TmaSplitKPlan {
-    int full_tiles = 0;
-    int tail_tiles = 0;
-    int split_ctas = 0;
-
-    __host__ __device__ int parts(int tail) const {
-        return split_ctas / tail_tiles + (tail < split_ctas % tail_tiles);
-    }
-
-    __host__ __device__ int first_part(int tail) const {
-        const int extra = split_ctas % tail_tiles;
-        return tail * (split_ctas / tail_tiles) + (tail < extra ? tail : extra);
-    }
-};
-
-template <class Schedule>
-inline Fp8TmaSplitKPlan fp8_tma_split_k_plan(int tiles, int k) {
-    Fp8TmaSplitKPlan plan{tiles, 0, 0};
-    if constexpr (Schedule::kSplitWaveCtas > 0) {
-        const int tail = tiles % Schedule::kSplitWaveCtas;
-        if (tail && tail <= Schedule::kSplitWaveCtas / 2) {
-            const int max_parts = std::min(Schedule::kMaxParts, k / Schedule::kBlockK);
-            if (max_parts >= 2)
-                plan = {tiles - tail, tail, std::min(Schedule::kSplitWaveCtas, tail * max_parts)};
-        }
-    }
-    return plan;
-}
+// Fp8SplitKPlan, fp8_split_k_plan, fp8_store_split_partials and fp8_a8_split_k_reduce moved to
+// fp8_split_k.cuh: none of them reads a tensor map, so the split-K route does not belong to TMA. See
+// that header for why item 12 needed them reachable from the MMA transport too.
 
 inline CUtensorMap fp8_tma_map(const std::uint8_t* pointer, int rows, int k, int block_rows,
                                int block_k) {
@@ -126,7 +102,7 @@ template <class Schedule, bool FullTokens, class Output, class Epilogue, bool Sp
 __global__
 __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_tma_mma_kernel(
     NINFER_FP8_TMA_DESCRIPTOR_PARAM descriptors, Fp8A8Operands operands, Output output,
-    Epilogue epilogue, RowPolicy row_policy, int token_offset, int count, Fp8TmaSplitKPlan plan,
+    Epilogue epilogue, RowPolicy row_policy, int token_offset, int count, Fp8SplitKPlan plan,
     float* partials) {
     constexpr int BT = Schedule::kBlockTokens, BR = Schedule::kBlockRows;
     constexpr int BK = Schedule::kBlockK, S = Schedule::kStages;
@@ -134,19 +110,7 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_tma
     const int k = Schedule::kStaticK ? Schedule::kStaticK : operands.k;
     int tile = blockIdx.x, partial = -1, k_begin = 0, tiles_k = k / BK;
     if constexpr (SplitK) {
-        if (tile >= plan.full_tiles) {
-            partial          = tile - plan.full_tiles;
-            const int base   = plan.split_ctas / plan.tail_tiles;
-            const int extra  = plan.split_ctas % plan.tail_tiles;
-            const int longer = extra * (base + 1);
-            const int tail =
-                partial < longer ? partial / (base + 1) : extra + (partial - longer) / base;
-            const int part  = partial - plan.first_part(tail);
-            const int parts = plan.parts(tail);
-            tile            = plan.full_tiles + tail;
-            k_begin         = tiles_k * part / parts;
-            tiles_k         = tiles_k * (part + 1) / parts - k_begin;
-        }
+        tile = fp8_split_k_range<Schedule>(plan, tile, partial, k_begin, tiles_k);
     }
     const int row_tiles = operands.rows / BR, token_tiles = div_up(count, BT);
     int row_tile, token_tile;
@@ -212,24 +176,7 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_tma
     }
     if constexpr (SplitK) {
         if (partial >= 0) {
-            // Store raw FP32 accumulators. Scales, epilogue and the final BF16 cast
-            // belong after the complete K reduction, including for fused epilogues.
-#pragma unroll
-            for (int mt = 0; mt < Schedule::kMmaTokens; ++mt) {
-                const int token =
-                    warp / Schedule::kWarpsRows * Schedule::kWarpTokens + mt * 16 + lane / 4;
-#pragma unroll
-                for (int mr = 0; mr < Schedule::kMmaRows; ++mr) {
-                    const int row =
-                        warp % Schedule::kWarpsRows * Schedule::kWarpRows + mr * 8 + 2 * (lane % 4);
-                    float* destination =
-                        partials + std::size_t(partial) * BT * BR + token * BR + row;
-                    *reinterpret_cast<float2*>(destination) =
-                        make_float2(accumulators[mt][mr][0], accumulators[mt][mr][1]);
-                    *reinterpret_cast<float2*>(destination + 8 * BR) =
-                        make_float2(accumulators[mt][mr][2], accumulators[mt][mr][3]);
-                }
-            }
+            fp8_store_split_partials<Schedule>(partials, partial, accumulators, warp, lane);
             return;
         }
     }
@@ -240,67 +187,7 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_tma
         operands.scales, row_begin, token_begin, operands.rows, token_offset + count, warp, lane);
 }
 
-template <class Schedule, class Output, class Epilogue, class RowPolicy>
-__global__ void fp8_a8_tma_split_k_reduce(Fp8A8Operands p, const float* partials, Output output,
-                                          Epilogue epilogue, RowPolicy row_policy,
-                                          Fp8TmaSplitKPlan plan, int token_offset, int count) {
-    constexpr int BT = Schedule::kBlockTokens, BR = Schedule::kBlockRows;
-    constexpr int stored_rows    = BR / (RowPolicy::kPaired ? 2 : 1);
-    constexpr int chunk_elements = BT * stored_rows / Schedule::kReductionBlocks;
-    const int tail               = blockIdx.x / Schedule::kReductionBlocks;
-    const int chunk              = blockIdx.x % Schedule::kReductionBlocks;
-    int row_tile, token_tile;
-    fp8_mma_tile_coordinates<Schedule>(plan.full_tiles + tail, p.rows / BR, div_up(count, BT),
-                                       row_tile, token_tile);
-    const int first = plan.first_part(tail), parts = plan.parts(tail);
-    const int row_begin    = row_tile * stored_rows;
-    const auto tile_output = linear_output_tile<stored_rows>(output, row_begin);
-    for (int index = chunk * chunk_elements + threadIdx.x * 2; index < (chunk + 1) * chunk_elements;
-         index += blockDim.x * 2) {
-        const int token_local = index / stored_rows;
-        const int token       = token_offset + token_tile * BT + token_local;
-        const int output_row  = index % stored_rows;
-        const int row         = row_begin + output_row;
-        if (token < token_offset + count) {
-            const auto sum_pair = [&](int local_row) {
-                float2 sum{};
-                for (int part = 0; part < parts; ++part) {
-                    const auto value = *reinterpret_cast<const float2*>(
-                        partials + std::size_t(first + part) * BT * BR + token_local * BR +
-                        local_row);
-                    sum.x += value.x;
-                    sum.y += value.y;
-                }
-                const int parent  = row_policy.weight_row(row_begin, local_row, p.rows);
-                const float scale = p.x_scales[token];
-                sum.x             = sum.x * scale * __bfloat162float(p.scales[parent]);
-                sum.y             = sum.y * scale * __bfloat162float(p.scales[parent + 1]);
-                return sum;
-            };
-            float2 value;
-            if constexpr (RowPolicy::kPaired) {
-                constexpr int half_warp = Schedule::kWarpRows / 2;
-                const int gate_row =
-                    (output_row / half_warp) * Schedule::kWarpRows + output_row % half_warp;
-                const float2 gate = sum_pair(gate_row);
-                const float2 up   = sum_pair(gate_row + half_warp);
-                value             = make_float2(epilogue.apply_pair(row, token, gate.x, up.x),
-                                                epilogue.apply_pair(row + 1, token, gate.y, up.y));
-            } else {
-                value = fp8_apply_row_pair(epilogue, row, row + 1, token, sum_pair(output_row));
-            }
-            if constexpr (std::is_same_v<Output, LinearBf16Output>) {
-                *reinterpret_cast<__nv_bfloat162*>(tile_output.at(row, token)) =
-                    __floats2bfloat162_rn(value.x, value.y);
-            } else {
-                tile_output.store(row, token, value.x);
-                tile_output.store(row + 1, token, value.y);
-            }
-        }
-    }
-}
-
-
+// fp8_a8_split_k_reduce moved to fp8_split_k.cuh.
 
 template <class Schedule, class Output, class Epilogue, class RowPolicy = Fp8IdentityRows>
 void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilogue,
@@ -320,7 +207,7 @@ void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilo
         fp8_tma_map(p.codes, p.rows, p.k, weight_span, Schedule::kBlockK)};
     for_each_token_slice(p.tokens, Schedule::kBlockTokens, [&](int offset, int count) {
         const int blocks  = p.rows / Schedule::kBlockRows * div_up(count, Schedule::kBlockTokens);
-        const auto plan   = fp8_tma_split_k_plan<Schedule>(blocks, p.k);
+        const auto plan   = fp8_split_k_plan<Schedule>(blocks, p.k);
         const auto launch = [&]<bool Full, bool Split>() {
             constexpr auto kernel =
                 fp8_a8_tma_mma_kernel<Schedule, Full, Output, Epilogue, Split, RowPolicy>;
@@ -332,7 +219,7 @@ void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilo
                 descriptors, p, output, epilogue, row_policy, offset, count, plan, partials);
             CUDA_CHECK(cudaGetLastError());
             if constexpr (Split) {
-                fp8_a8_tma_split_k_reduce<Schedule>
+                fp8_a8_split_k_reduce<Schedule>
                     <<<plan.tail_tiles * Schedule::kReductionBlocks, 256, 0, stream>>>(
                         p, partials, output, epilogue, row_policy, plan, offset, count);
                 CUDA_CHECK(cudaGetLastError());

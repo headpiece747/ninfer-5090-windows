@@ -84,7 +84,12 @@ def main(argv: list[str]) -> int:
     ratios = [b / a for _, a, b in measured]
     print(f"\n  measured bands: {len(measured)}   mma/tma ratio  min {min(ratios):.3f}  "
           f"median {statistics.median(ratios):.3f}  max {max(ratios):.3f}")
-    print("  ratio < 1 means TMA is FASTER; > 1 means TMA is SLOWER. 1.0 means no difference.")
+    # ratio = mma_median / tma_median (line 64), so a ratio ABOVE 1 means the MMA arm took LONGER and
+    # TMA is the faster arm. An earlier revision of this line printed the reverse, which inverted the
+    # reading of every run it had produced -- the tool disagreed with the column header directly above
+    # it. Derive the direction from the columns, never from this sentence.
+    print("  ratio = mma_median / tma_median, so > 1 means MMA took LONGER and TMA is FASTER;")
+    print("  < 1 means TMA is SLOWER. 1.0 means no difference.")
     print("\n  Samples per point are low by construction (the bench's own median over --repeat).")
     print("  Treat a ratio inside roughly +/-0.05 as indistinguishable and re-run with more")
     print("  repeats before claiming a difference; this card's early-run spread has been 5.8-7.6%.")
