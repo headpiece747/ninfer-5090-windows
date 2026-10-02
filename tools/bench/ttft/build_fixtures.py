@@ -36,6 +36,11 @@ def _json_text(value: Any) -> str:
 
 
 def _sha256(path: Path) -> str:
+    # The digest is over the bytes that ship, so every write in this module passes newline="\n".
+    # Path.write_text translates "\n" to the platform separator by default, which on Windows wrote
+    # CRLF, which made 18 of 26 digests describe bytes that no LF checkout -- Linux, CI, or a fresh
+    # clone -- would ever produce. .gitattributes already pins these paths to eol=lf, so the blob is
+    # LF while the manifest claimed CRLF and the corpus gate passed here and failed everywhere else.
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -375,7 +380,7 @@ def _expanded_media_tokens(tokenizer: Any, paths: Sequence[Path], prompt: str) -
 
 def _write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_json_text(value), encoding="utf-8")
+    path.write_text(_json_text(value), encoding="utf-8", newline="\n")
 
 
 def _file_record(path: Path, **facts: Any) -> dict[str, Any]:
@@ -556,8 +561,8 @@ def build(tokenizer_path: Path) -> None:
     )
     system_a_path = TEXT_ROOT / "shared_system_a.txt"
     system_b_path = TEXT_ROOT / "shared_system_b.txt"
-    system_a_path.write_text(system_a, encoding="utf-8")
-    system_b_path.write_text(system_b, encoding="utf-8")
+    system_a_path.write_text(system_a, encoding="utf-8", newline="\n")
+    system_b_path.write_text(system_b, encoding="utf-8", newline="\n")
 
     tools = _client_tools()
     tool_frontier, tool_prompt = _tool_frontier(tokenizer, tools)
