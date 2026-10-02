@@ -750,6 +750,25 @@ configuration nobody was checking.
 > correctly. The sweep now comes from `NINFER_TMA_SWEEP` in the environment. Worth recording because the
 > failure mode was a plausible-looking result, not an error.
 >
+> **How much of the K=6144 evidence transfers to the other eight gates: very little, and now known.**
+> The gates do not share one tile ladder. Compared schedule by schedule:
+>
+> | tile | measured on linear_add K=6144 | used by |
+> |---|---|---|
+> | 128x256x128 (2,4,2,1) split | **yes, identical** | linear_swiglu, attn_input_proj, Bulk of the shape instantiations |
+> | 64x128x128 | (2,4,**3**,1) | others use (2,4,**2**,1) - different `Stages`, a different schedule |
+> | 64x256x128 (2,4,2,1) | no | linear_swiglu, attn_input_proj, n14336 |
+> | 96x256x128 (3,4,2,1) | no | attn_input_proj, n14336 |
+> | 192x128x128 (3,4,2,1) | no | gdn_input_proj |
+> | 128x128x128 split | (2,4,**3**,1) | gdn_input_proj uses (2,4,**2**,1) |
+>
+> So exactly **one tile - the 128x256x128 split Bulk - is literally the same schedule** on the measured
+> path and on linear_swiglu / attn_input_proj / the shapes, and its result transfers **by construction**
+> to those call sites. Every other tile either differs in `Stages` or was never measured, so no other
+> gate inherits the finding. "One measurement, nine gates" was never available: the gates select different
+> ladders. The remaining work is bounded and specific - three unmeasured tile shapes (64x256, 96x256,
+> 192x128) plus the `Stages` variants - not nine independent unknowns.
+>
 > **A harness trap worth recording.** Restoring the perturbed file with `Copy-Item` preserved the
 > backup's older mtime, so ninja judged the source unchanged and **skipped the rebuild** — the test
 > then reported the perturbation's failure against restored source, which read as "the fix didn't work".
