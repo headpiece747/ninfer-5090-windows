@@ -13,7 +13,11 @@ using Bulk      = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2
 } // namespace
 
 std::size_t fp8_attn_input_partial_capacity_bytes(std::int32_t max_tokens) {
-    return max_tokens > 384 ? Bulk::kPartialBytes : 0;
+    // Tracks the ladder's SELECTION band: Bulk is the fall-through at >=289 tokens.
+    // Tracks the ladder: Bulk is the fall-through at >=289 tokens, so 289-384 also selects a split tile
+    // and needs the buffer. Pre-existing mismatch, same defect as linear_swiglu's 193-256 band -- see
+    // that comment for why the threshold follows the SELECTION band and not the engagement band.
+    return max_tokens > 288 ? Bulk::kPartialBytes : 0;
 }
 
 void fp8_attn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& q, Tensor& gate,

@@ -69,8 +69,12 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
 bool uses_a8(std::int32_t, std::int32_t max_tokens) { return max_tokens >= 17; }
 
 std::size_t partial_capacity_bytes(std::int32_t max_tokens) {
-    // Up to three 128-token tiles occupy 168 CTAs and do not need split-K.
-    return max_tokens > 384 ? Bulk::kPartialBytes : 0;
+    // 288, not 384: the ladder's Bulk is the fall-through at >=289 tokens, so 289-384 selects a split
+    // tile and needs the buffer. The old comment here said "up to three 128-token tiles occupy 168 CTAs
+    // and do not need split-K" -- true about occupancy, and beside the point. Whether the tail wave
+    // splits is decided at run time by fp8_tma_split_k_plan; whether a split schedule is SELECTED is
+    // decided here, and the buffer has to exist for the whole selection band.
+    return max_tokens > 288 ? Bulk::kPartialBytes : 0;
 }
 } // namespace
 

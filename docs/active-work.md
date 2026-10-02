@@ -853,10 +853,20 @@ configuration nobody was checking.
 > | linear_swiglu | Bulk at >=193 | >256 | **193-256** |
 > | attn_input_proj | Bulk at >=289 | >384 | **289-384** |
 > | n14336_k5120 | Bulk at >=289 | >384 | **289-384** |
-> | gdn_input_proj | MidBulk at 385-512 | >256 | none |
+> | gdn_input_proj | Bulk at >=193 | >256 | **193-256** |
+> | n16384_k5120 | Bulk at >=193 | >256 | **193-256** |
+> | n34816_k5120 | Bulk at >=193 | >256 | **193-256** |
+> | n5120_k17408 | Small<=128, Mid<=256, Wide<=384, Bulk rest | >64/>128/>256/>384 | none, thresholds match |
 > | n5120_k6144 / linear_add | MidBulk >=193 / Bulk >=769 | >192 / >768 | none, thresholds match |
 >
-> **This is pre-existing in the upstream ladders, not something the port introduced** -- the Windows gate
+> **The first version of this table was WRONG and said gdn_input_proj was clean.** It compared each
+> capacity threshold only against the *explicit* split rung and missed the **fall-through**, which is
+> exactly where `Bulk` is selected on four of these ladders. Re-reading every ladder line by line put the
+> real count at **six of nine routes**, not three.
+>
+> **All six are fixed**: each capacity threshold now equals its own ladder's selection point -- 192 where
+> `Bulk` is the fall-through, 288 where it follows `Tma96x256`. `n5120_k17408`, `n5120_k6144` and
+> `linear_add` were already correct and are unchanged.
 > has simply been masking it. Ungating any of those three routes would inherit it, and the failure would look
 > like a mysterious per-shape crash partway through ungating rather than a threshold mismatch.
 >

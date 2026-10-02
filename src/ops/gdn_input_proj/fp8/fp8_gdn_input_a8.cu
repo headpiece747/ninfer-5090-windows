@@ -13,7 +13,8 @@ using Bulk    = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 
 } // namespace
 
 std::size_t fp8_gdn_input_partial_capacity_bytes(std::int32_t max_tokens) {
-    return max_tokens > 256 ? Bulk::kPartialBytes : 0;
+    // 192, not 256: Bulk is the ladder's fall-through at >=193 tokens, so the whole 193+ selection band needs the buffer. Whether the tail wave actually splits is decided at run time by fp8_tma_split_k_plan; whether a split schedule is SELECTED is decided by the ladder. Sizing for engagement instead of selection leaves 193-256 running a split tile with a null partials. Pre-existing, and it blocked ungating.
+    return max_tokens > 192 ? Bulk::kPartialBytes : 0;
 }
 
 void fp8_gdn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& qkv, Tensor& z,
