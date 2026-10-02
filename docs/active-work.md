@@ -1304,6 +1304,32 @@ causes listed above are not equally live. External research, and one in-tree fac
   arithmetic, which can be faster and can change sampling. This is a hypothesis with a mechanism, not a
   diagnosis.
 
+
+> **A second hypothesis the item did not have, and it is testable with what now exists.**
+> The speed asymmetry may be **arithmetic, not a kernel-selection effect**. Established above: the first
+> request returns *different, shorter* text. If it also terminates after fewer rounds, then a tok/s
+> computed over the whole request rises simply because prefill dominates and decode rounds were removed
+> -- no kernel changed, nothing got faster. That would make the text and speed halves **one cause**,
+> not two.
+>
+> **The discriminator is clean and needs one run.**
+> * If it is arithmetic, **per-round cost is unchanged** between request 1 and request 2 and only the
+>   round count differs.
+> * If it is #80 kernel selection, **per-round cost differs** -- a different `t` selects a different
+>   kernel, hence a different reduction order and a different cost.
+>
+> The bench already reports `spec_rounds` and `spec_acceptance_rate`, and item 5 added per-position
+> Recall@1/Recall@16/path acceptance, so both quantities are available. The #80 hypothesis predicts a
+> *fall* in per-round cost on request 1; the arithmetic hypothesis predicts no change. Do not fold the
+> speed half into the text half until that run says which.
+>
+> **The literature is consistent with the cost being one-time, and it is the reason this is worth
+> testing rather than assuming.** vLLM #23787 measured first prompt 5.69s / second 0.96s / third 0.50s and
+> attributed it to CUDA **lazy module loading** (`cuModuleLoadData` on first launch of each kernel)
+> graph capture and JIT -- then showed a 1-token warm-up call pays it upfront and the first "real"
+> prompt drops to 0.97s. Every documented first-request effect *adds* latency, which is exactly why a
+> first request that is *faster* needs a mechanism that removes work rather than adds warm-up. This
+> port does not call cuBLAS, so the cuBLAS-init share is not available as an explanation.
 **So: the text divergence is not a defect to fix, it is documented engine behaviour** — but it is still
 worth stating explicitly, because the bench compensates for it silently and a reader may remove the
 warmup discard as redundant. **The speed asymmetry is the real open item**, and it is the opposite
