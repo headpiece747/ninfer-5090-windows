@@ -34,55 +34,36 @@ void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t
 
 void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspace scratch,
                cudaStream_t stream) {
-#ifdef _WIN32
-    // PORT-DISPATCH: pre-merge FP8 A8 route on Windows (see docs/active-work.md item 12)
-    // Upstream's FP8 A8 TMA kernel faults on this target (cudaErrorIllegalInstruction), and
-    // its by-value __grid_constant__ alignas(128) descriptor parameter cannot be laid out by
-    // MSVC at all, so the TMA route has never been observed to run here as written. These are
-    // the pre-merge bodies verbatim, restored rather than re-derived, because those are the
-    // ones that passed the suite. Upstream's route stays selected on other platforms.
+    // UNGATED 2026-10-02 (docs/active-work.md item 12). Fifth of the nine.
+    //
+    // Fp8N14336K5120 belongs to attn_input_proj, whose oracle is already green on the ungated ladder
+    // with these same tiles: 64x128 Stages=2 at 65-128, 64x256 at 129-192, 96x256 at 193-288 and the
+    // 128x256 split Bulk at 289+. TMA medians on them: 1.107, 1.270, 1.288, 1.270.
+    //
+    // This shape genuinely splits, which is why it needs the partials buffer: 14336/256 = 56 row
+    // tiles, so the plan sees tail = 56 <= kSplitWaveCtas/2 = 85 and splits the underfilled wave.
+    // (n34816 is the opposite case and is deliberately NOT ungated -- see its file.)
     if (x.ne[1] <= 32)
-        return launch_fp8_a8<Geometry, Fp8A8T32R64K128>(x, weight, out, scratch, stream);
-    if (x.ne[1] <= 64)
-        return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
+    return launch_fp8_a8<Geometry, Fp8A8T32R32K128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 96)
-        return launch_fp8_a8<Geometry, Fp8A8T32R128K128>(x, weight, out, scratch, stream);
-    if (x.ne[1] <= 512)
-        return launch_fp8_a8<Geometry, Fp8A8T64R64K128S2>(x, weight, out, scratch, stream);
-    launch_fp8_a8<Geometry, Fp8A8T64R128K128>(x, weight, out, scratch, stream);
-#else
-    if (x.ne[1] <= 32)
-        return launch_fp8_a8<Geometry, Fp8A8T32R32K128>(x, weight, out, scratch, stream);
-    if (x.ne[1] <= 96)
-        return launch_fp8_a8<Geometry, Fp8A8T32R128K128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8<Geometry, Fp8A8T32R128K128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 128)
-        return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 192)
-        return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
     // Three 96-token tiles give 168 CTAs: one almost-full wave through T=288.
     if (x.ne[1] <= 288)
-        return launch_fp8_a8_tma<Geometry, Tma96x256>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, Tma96x256>(x, weight, out, scratch, stream);
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
-#endif
 }
 
 bool uses_a8(std::int32_t, std::int32_t max_tokens) { return max_tokens >= 17; }
 
 std::size_t partial_capacity_bytes(std::int32_t max_tokens) {
-    #ifdef _WIN32
-    // PORT-DISPATCH: the Windows ladder selects only NON-split schedules, so it needs no partials at
-    // any token count. The ungated ladder selects Bulk fall-through at >=289, so aligning this threshold now would
-    // allocate Bulk::kPartialBytes (21.3 MiB) per workspace across that band for a tile this platform
-    // never runs -- against a fixed DeviceArena that throws std::bad_alloc rather than slowing down.
-    // This is the fix that ungating needs; it lands WITH ungating, not before it.
-    (void)max_tokens;
-    return 0;
-#else
-    // Selection band, not engagement band: fp8_tma_split_k_plan decides at run time whether the tail
-    // wave splits, but the ladder decides whether a split schedule is SELECTED, and the buffer has to
-    // exist across the whole selection band.
+    // Ungated with the ladder above. Selection band: Bulk is the fall-through at >=289 tokens, so
+    // 289-384 needs the buffer too. The old threshold was 384. attn_input_proj's test already drives
+    // 289 and 385, the two boundaries of that band.
     return max_tokens > 288 ? Bulk::kPartialBytes : 0;
-#endif
 }
 } // namespace
 
