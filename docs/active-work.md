@@ -246,25 +246,70 @@ its own — not a reason to revert now.
 outstanding evidence, and is recorded above as its own piece of work rather than as a condition on
 this item. Full evidence: `docs/research/quantization-coverage-evidence.md`.
 
-### 5. Recall@1 / Recall@16 / path-acceptance split
-**Why:** the only diagnostic that discriminates three different root causes, and it needs no new
-kernel. The drafter emits `frame.candidate_ids` and `scores` at
-`src/models/qwen3_5/execution/draft.cpp:351-355`, shape `[16,K,B]` (the frame allocates it as
-`{16, columns - 1, batch}` at `src/models/qwen3_5/program/round_buffers.cpp:203-204`).
-Decompose per position:
-- Recall@1 — the drafter's unary top pick
-- Recall@16 — the target argmax anywhere in the 16
-- path acceptance — what the selector actually commits
+### 5. Recall@1 / Recall@16 / path-acceptance split — **BUILT 2026-10-01, and it refuted this item's premise**
+**The instrument is in the tree** (`611604e0`): `SpeculativeStats` gains `proposed_per_position`,
+`recall1_per_position` and `recall16_per_position`, accumulated in `decode.cpp` beside the
+`accepted_per_position` loop that already existed. The bench CSV gains four columns per position and
+JSON the matching keys. One ~1 KB device-to-host read per round after the existing synchronize; no
+kernel, no Op signature, no numerics changed. `proposed_per_position` is the denominator the other two
+needed — without it the rates would have been reported over an invisible base.
 
-**Triaged 2026-10-01: KEEP — warranted, and now the cheapest item on this list.** No external evidence
-is needed or wanted here: the instrument reads data the drafter already emits, so this is an engineering
-task rather than a question. It is also the only item that discriminates between three *different* root
-causes of the position-1 acceptance collapse rather than tuning one of them, which is why it should not
-be reordered behind the quantization work.
-**Done when:** all three are reported per position on a shipping lane, and they point at one of:
-healthy Recall@16 with collapsing path acceptance (selector); Recall@16 itself collapsing after
-position 1 (backbone or conditioning); or Recall@1 low at position 1 (head or conditioning weak from
-the first column).
+**This item asked for a diagnostic of a position-1 acceptance collapse. There is no collapse.** Measured
+on QUASAR (`nvfp4qat`), `--spec dflash2 --draft-tokens 7 --lm-head-draft -n 256 -r 5`, 515 rounds:
+
+| pos | proposed | Recall@1 | Recall@16 | path acceptance |
+|---|---|---|---|---|
+| 0 | 515 | 51.46% | 75.73% | **53.40%** |
+| 1 | 515 | 41.75% | 67.96% | 33.98% |
+| 3 | 515 | 27.18% | 48.54% | 13.59% |
+| 6 | 510 | 22.55% | 46.08% | 4.90% |
+
+**Path acceptance at position 1 is the HIGHEST of all seven, on both lanes, and declines monotonically
+from there.** The decline with position is real and steep — 53.4% to 4.9% over seven positions — but it
+is not the shape this item was written for, and every one of the three signatures below has to be
+re-read against that:
+
+- *"Recall@1 low at position 1"* — **refuted.** 51.5% on QUASAR, 45.8% on NVIDIA. It is the *highest*
+  Recall@1 of any position, because the drafter's first column has the most context.
+- *"Recall@16 collapsing after position 1"* — **supported.** 75.7% → 46.1% (QUASAR), 78.9% → 46.8%
+  (NVIDIA). Something in the backbone or the conditioning degrades past the first column.
+- *"Healthy Recall@16 with collapsing path acceptance (selector)"* — **supported, and on NVIDIA it is
+  the dominant loss.** At positions 4-6 Recall@16 still sits at 44-47% while path acceptance is 0.71%.
+  **The drafter is finding the right token and the selector is not committing it.** That is a
+  selector-side problem, not a drafter-side one, and it is the opposite of what this item assumed was
+  the interesting case.
+
+**So the instrument did its job by invalidating the question.** The next step is a selector
+investigation using the per-position path-acceptance and Recall@16 series, not more drafter work.
+
+**Two things the instrument did NOT settle, recorded rather than glossed:**
+
+1. **`profiles.py:107` records QUASAR at 55.0% acceptance; this bench measures 21.1%.** They are not
+   the same measurement — `v3_profile_matrix.py` takes acceptance from serving request logs on a domain
+   prompt, while `ninfer_bench` uses the fixed `bench_corpus.ids` at `temperature = 0.0F`. **The two
+   figures must not be quoted side by side until the workloads are matched.** The 48.7-63.0% range
+   recorded elsewhere in this file comes from `profiles.py` and is a serving-path number.
+2. **`src/serve/request_log.cpp` still publishes only `accepted_per_position`**, so the three new
+   counters are invisible on the serving path. Widening it was outside the deliverable and is open.
+
+**Verification:** interleaved A/B, 4 passes each, instrumented vs a build with the read removed, gave
+acceptance `0.211111` on both arms to every digit. A baseline build emits 0/empty for all 28 new
+columns. A negative control that swapped recall@1 and recall@16 in the CSV row made the new test fail
+at all three positions. `path <= recall@16` holds at every position on both lanes, which a mis-indexed
+candidate column would break. Overhead is below this card's ~5% noise floor and is **not** quantified —
+the instrumented arm measured nominally faster, which is noise, not a speedup. Column semantics were read
+rather than assumed: `candidate_ids[c,i,b]` indexes against `target_argmax[i,b]` with no offset
+(`speculative_round.cuh:141,265,505,631,669` and `:179-180,200-203`), and `target_argmax` is written by
+`ops::argmax` (`text.cpp:769`), so it is the true argmax and not a sampled token on either lane.
+
+**Original framing, kept because it is what the instrument answered:** the only diagnostic that
+discriminates three root causes, needing no new kernel. The drafter emits `frame.candidate_ids` and
+`scores` at `draft.cpp:351-355`, shape `[16,K,B]` (allocated as `{16, columns - 1, batch}` at
+`round_buffers.cpp:203-204`). Decompose per position: Recall@1, the drafter's unary top pick;
+Recall@16, the target argmax anywhere in the 16; path acceptance, what the selector actually commits.
+**Done when:** satisfied — all three are reported per position on shipping lanes. What the data then
+says is above.
+
 
 ### 6. Interleaved re-measurement of all eight profiles - **DONE 2026-09-28**
 All eight re-measured in one interleaved window, three rounds, each round visiting every lane in a
