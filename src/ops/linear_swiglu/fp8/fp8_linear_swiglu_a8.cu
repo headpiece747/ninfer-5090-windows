@@ -11,20 +11,15 @@ using Bulk      = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2
 } // namespace
 
 std::size_t fp8_linear_swiglu_partial_capacity_bytes(std::int32_t max_tokens) {
-    #ifdef _WIN32
-    // PORT-DISPATCH: the Windows ladder selects only NON-split schedules, so it needs no partials at
-    // any token count. The ungated ladder selects Bulk fall-through at >=193, so aligning this threshold now would
-    // allocate Bulk::kPartialBytes (21.3 MiB) per workspace across that band for a tile this platform
-    // never runs -- against a fixed DeviceArena that throws std::bad_alloc rather than slowing down.
-    // This is the fix that ungating needs; it lands WITH ungating, not before it.
-    (void)max_tokens;
-    return 0;
-#else
+    // Ungated with the ladder below, so this threshold now applies on every platform and the #ifdef that
+    // suppressed it while the gate was in place is gone -- exactly as intended.
+    //
     // Selection band, not engagement band: fp8_tma_split_k_plan decides at run time whether the tail
     // wave splits, but the ladder decides whether a split schedule is SELECTED, and the buffer has to
-    // exist across the whole selection band.
+    // exist across the whole selection band. The old threshold was 256, which left 193-256 selecting
+    // Bulk with a null partials and the launcher throwing "FP8 split-K requires aligned caller
+    // partials". Pre-existing upstream; the Windows gate had been masking it.
     return max_tokens > 192 ? Bulk::kPartialBytes : 0;
-#endif
 }
 
 void fp8_linear_swiglu_a8_launch(const Tensor& x, const Weight& weight, Tensor& out,
@@ -42,28 +37,27 @@ void fp8_linear_swiglu_a8_launch(const Tensor& x, const Weight& weight, Tensor& 
                                      scratch.partials, SwiGluTokenMajorMmaRows<S>{});
         else
             launch_fp8_a8_mma<S>(operands, output, SwiGluTokenMajorMmaEpilogue{}, stream,
-                                 SwiGluTokenMajorMmaRows<S>{});
+                                 SwiGluTokenMajorMmaRows<S>{}, scratch.partials);
     };
-    // PORT-DISPATCH: pre-merge FP8 A8 dispatch on Windows (docs/active-work.md item 12)
+    // UNGATED 2026-10-02 (docs/active-work.md item 12). This was PORT-DISPATCH-gated on Windows because
+    // upstream's TMA route faulted here with cudaErrorIllegalInstruction. That fault was a descriptor
+    // ABI defect -- alignas(128) on a by-value kernel parameter, which MSVC cannot lay out -- and it is
+    // fixed at alignas(64), which is the width cuda.h asks for. tools/scripts/verify_fp8_tma_route.cmd
+    // reproduces the route end to end, and PyGPUkit #107 reports the same misalignment defect on this
+    // same GPU and OS.
     //
-    // Upstream routed every FP8 A8 path to its TMA kernel, which faults on this target with
-    // cudaErrorIllegalInstruction. A TMA schedule and an MMA schedule are different tile shapes, so
-    // the schedule selection itself has to differ rather than being forwarded at one seam. This is
-    // the pre-merge dispatch verbatim, because that is the one that passed the suite; upstream's
-    // stays selected on other platforms and stays in the tree.
-#ifdef _WIN32
-    if (x.ne[1] <= 16) return launch.template operator()<Fp8A8T16R64K128>();
-    if (x.ne[1] <= 32) return launch.template operator()<Fp8A8T32R128K128>();
-    if (x.ne[1] <= 64) return launch.template operator()<Fp8A8T64R128K128>();
-    if (x.ne[1] <= 96) return launch.template operator()<Fp8A8T32R128K128>();
-    launch.template operator()<Fp8A8T64R128K128>();
-#else
+    // Ungating is per ROUTE and on three pieces of evidence, not on the transport being faster:
+    //   - all three tiles this ladder selects are oracle-checked on both arms, at the tokens they serve
+    //     (64x128 Stages=2, 64x256, and the 128x256 split Bulk);
+    //   - TMA leads on the median at all three -- 1.107, 1.270 and 1.270 -- and the only bands where MMA
+    //     wins on the 64x128 tile are at large token counts, outside this ladder's split-tile region;
+    //   - scratch.partials is allocated for the whole selection band, so no rung can select a split tile
+    //     with a null buffer.
     if (x.ne[1] <= 16) return launch.template operator()<Fp8A8T16R64K128>();
     if (x.ne[1] <= 32) return launch.template operator()<Fp8A8T32R128K128>();
     if (x.ne[1] <= 64) return launch.template operator()<Fp8A8T64R128K256>();
     if (x.ne[1] <= 128) return launch.template operator()<Tma64x128>();
     if (x.ne[1] <= 192) return launch.template operator()<Tma64x256>();
     launch.template operator()<Bulk>();
-#endif
 }
 } // namespace ninfer::ops::detail

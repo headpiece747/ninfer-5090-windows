@@ -37,7 +37,11 @@ int check_negative_gate() {
         weight.qtype, rows, k, ops::LinearPolicy::AllowA8, 1, max_tokens);
     WorkspaceArena workspace(bytes);
     int failures = 0;
-    for (int tokens : {1, 64, 65, 257, 513}) {
+    // 129, 192 and 193 added 2026-10-02 with this route's ungating. They are the only token counts
+    // that select Tma64x256 -- the rung between Tma64x128 and Bulk -- and that reach the Bulk boundary
+    // where the partials buffer starts being allocated. Without them the newly-reachable tiles were
+    // never exercised by this route's own test.
+    for (int tokens : {1, 64, 65, 129, 192, 193, 257, 513}) {
         Tensor input(x.data(), DType::BF16, {k, tokens});
         Tensor output(y.data(), DType::BF16, {half, tokens});
         ops::linear_swiglu(input, weight, output, ops::LinearPolicy::AllowA8, workspace, nullptr);
