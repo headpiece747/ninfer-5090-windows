@@ -46,7 +46,13 @@ REM linear_swiglu / attn_input_proj / the shapes, 96x256 in attn_input_proj, 192
 REM NINFER_FP8_TMA_TILE pins one tile for BOTH arms, so each is checked at the tile it will be measured
 REM at. Without this the oracle only ever saw the default ladder and said nothing about these twins --
 REM the same "passed because it never ran" failure this script exists to catch.
-for %%T in (wide64 wide96 tall192 mid128 midbulk128) do (
+REM midbulk128 is deliberately NOT in this list. It is a split-K tile, and the workspace sizes partials
+REM from the CURRENT invocation's token count, so forcing it at this test's small token counts selects a
+REM split schedule with a null buffer and throws "FP8 split-K requires aligned caller partials". That is
+REM a harness limitation, not a kernel fault, and it was diagnosed as such before linear_add was ungated.
+REM Since ungating, the route's own ladder selects that tile natively at 193-768 tokens where the buffer
+REM exists, so the arm:unset run below covers it -- which is the configuration that actually ships.
+for %%T in (wide64 wide96 tall192 mid128) do (
     for %%A in (tma mma) do (
         set "NINFER_FP8_TMA_TILE=%%T"
         set "NINFER_FP8_TMA_ARM=%%A"

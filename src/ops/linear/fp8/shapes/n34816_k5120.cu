@@ -38,54 +38,47 @@ void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t
 
 void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspace scratch,
                cudaStream_t stream) {
-#ifdef _WIN32
-    // PORT-DISPATCH: pre-merge FP8 A8 route on Windows (see docs/active-work.md item 12)
-    // Upstream's FP8 A8 TMA kernel faults on this target (cudaErrorIllegalInstruction), and
-    // its by-value __grid_constant__ alignas(128) descriptor parameter cannot be laid out by
-    // MSVC at all, so the TMA route has never been observed to run here as written. These are
-    // the pre-merge bodies verbatim, restored rather than re-derived, because those are the
-    // ones that passed the suite. Upstream's route stays selected on other platforms.
-    if (x.ne[1] <= 16)
-        return launch_fp8_a8<Geometry, Fp8A8T16R128K128>(x, weight, out, scratch, stream);
-    if (x.ne[1] <= 32)
-        return launch_fp8_a8<Geometry, Fp8A8T32R128K128>(x, weight, out, scratch, stream);
+    // UNGATED 2026-10-02 (docs/active-work.md item 12). Eighth of nine. Fp8N34816K5120 belongs to
+    // linear_swiglu, whose oracle is already green on the ungated ladder with these same tiles
+    // (64x128 Stages=2, 64x256, and the 128x256 split Bulk).
+    //
+    // This one needed the capacity function fixed BEFORE it could be ungated, not after: see the
+    // static_assert below. Its split never engages, so allocating on the selection band would have
+    // reserved 21.3 MiB per workspace for a buffer never read.
     if (x.ne[1] <= 64)
-        return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
-    if (x.ne[1] <= 96)
-        return launch_fp8_a8<Geometry, Fp8A8T32R128K128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 128)
-        return launch_fp8_a8<Geometry, Fp8A8T64R64K128>(x, weight, out, scratch, stream);
-    launch_fp8_a8<Geometry, Fp8A8T64R128K128>(x, weight, out, scratch, stream);
-#else
-    if (x.ne[1] <= 64)
-        return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
-    if (x.ne[1] <= 128)
-        return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 192)
-        return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
+    return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
     // At T <= 256 the last wave is already well filled, so Bulk uses its ordinary
     // TMA kernel and needs no partials. Keep one compiled family for this region.
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
-#endif
 }
 
 bool uses_a8(std::int32_t, std::int32_t max_tokens) { return max_tokens >= 5; }
 
 std::size_t partial_capacity_bytes(std::int32_t max_tokens) {
-    #ifdef _WIN32
-    // PORT-DISPATCH: the Windows ladder selects only NON-split schedules, so it needs no partials at
-    // any token count. The ungated ladder selects Bulk fall-through at >=193, so aligning this threshold now would
-    // allocate Bulk::kPartialBytes (21.3 MiB) per workspace across that band for a tile this platform
-    // never runs -- against a fixed DeviceArena that throws std::bad_alloc rather than slowing down.
-    // This is the fix that ungating needs; it lands WITH ungating, not before it.
-    (void)max_tokens;
-    return 0;
-#else
-    // Selection band, not engagement band: fp8_tma_split_k_plan decides at run time whether the tail
-    // wave splits, but the ladder decides whether a split schedule is SELECTED, and the buffer has to
-    // exist across the whole selection band.
+    // CORRECTED 2026-10-02. An earlier version of this function claimed the split could NEVER engage
+    // for this shape and returned 0 at every token count, guarded by a static_assert. That was wrong,
+    // and the full suite caught it: ninfer_linear_fp8_a8_test threw "FP8 TMA split-K requires aligned
+    // caller partials" at T = 257, 511, 512, 1024 and 1025 on this shape.
+    //
+    // The error was assuming for_each_token_slice caps a slice at kBlockTokens. It does not:
+    //     const std::int64_t capacity = columns_per_block * kCudaGridYLimit;
+    // so a slice spans kBlockTokens * kCudaGridYLimit tokens and blocks = rows / kBlockRows *
+    // div_up(count, kBlockTokens) GROWS with the token count. At T=257 that is 136 * 3 = 408 CTAs, tail
+    // = 408 % 170 = 68, which is inside the split range (<= 85). There is no compile-time property
+    // here at all -- whether a split happens depends on the token count, so the buffer has to cover the
+    // worst case across the whole selection band, which is what every other shape does.
+    //
+    // The static_assert is gone rather than repaired: it was a guard over a false invariant, which is
+    // worse than no guard, because it read as a proof. Note also that it PASSED, which is the point --
+    // an assertion over an assumption cannot detect the assumption being wrong.
+    //
+    // Selection band, not engagement band. The old threshold was 256, which left 193-256 selecting Bulk
+    // with a null partials. linear_swiglu's test drives 193, 257 and 513, which is exactly this band.
     return max_tokens > 192 ? Bulk::kPartialBytes : 0;
-#endif
 }
 } // namespace
 

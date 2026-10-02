@@ -165,17 +165,18 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
     // the schedule selection itself has to differ rather than being forwarded at one seam. These are
     // the pre-merge dispatches verbatim, because those are the ones that passed the suite;
     // upstream's stay selected on other platforms and stay in the tree.
-#ifdef _WIN32
-    if constexpr (K == 6144) {
-        if (x.ne[1] <= 64) return launch.template operator()<Fp8A8T32R32K128>();
-        if (x.ne[1] <= 128) return launch.template operator()<Fp8A8T64R64K128>();
-        launch.template operator()<Fp8A8T64R128K128>();
-    } else {
-        if (x.ne[1] <= 64) return launch.template operator()<Fp8A8T32R32K128>();
-        if (x.ne[1] <= 128) return launch.template operator()<Fp8A8T64R64K128>();
-        launch.template operator()<Fp8A8T64R128K128>();
-    }
-#else
+    // UNGATED 2026-10-02 (docs/active-work.md item 12). Sixth of nine ungatings, and the one this
+    // whole investigation started from: it covers three of the nine gates, because linear_add owns the
+    // Fp8N5120K6144 and Fp8N5120K17408 shapes as well as its own K-templated ladder.
+    //
+    // This is the route where the transport was measured most heavily, with both arms oracle-checked
+    // per tile and a negative control proving the split-K arm is genuinely reached:
+    //   K=6144  32x64 1.074, 64x128 1.113, split 128x128 1.047-1.103, split 128x256 1.270-1.288
+    //   K=17408 32x64, Small/Wide/Bulk tiles -- measured by shape on the shapes' own tests, not here
+    //
+    // Note the honest detail: the split 128x128 tile is the weakest margin of the five (median 1.047,
+    // and MMA wins two bands on it at 448 and 512). Ungating rests on correctness plus the median, not
+    // on a uniform win.
     if constexpr (K == 6144) {
         if (x.ne[1] <= 64) return launch.template operator()<K6144Tma32x64>();
         if (x.ne[1] <= 128) return launch.template operator()<Fp8A8T64R64K128>();
@@ -193,7 +194,6 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
             return launch.template operator()<K17408Wide>();
         launch.template operator()<K17408Bulk>();
     }
-#endif
 }
 } // namespace
 
