@@ -29,9 +29,16 @@ struct Registration {
 // embedded template differs -- the older releases embed one that predates the effort aliases -- is
 // not transcribed and takes the Jinja path, which is what bounds the cost of a template changing
 // here.
+//
+// RECOMPUTED 2026-10-02, and the old value was wrong rather than merely stale. It hashed the file's
+// CRLF form (01befcc8...) while the committed blob is LF (951dee26...), because core.autocrlf=true on
+// this machine handed the file CRLF bytes when the constant was written. The native fast path was
+// therefore active ONLY on a CRLF worktree and had been silently falling back to Jinja on every LF
+// checkout -- Linux, CI, any fresh clone -- while the test passed here. .gitattributes now pins every
+// text file to LF, so LF is what ships and LF is what this must hash.
 constexpr Sha256Digest kQwen38TemplateDigest{
-    0x01, 0xbe, 0xfc, 0xc8, 0xce, 0x31, 0x8d, 0x03, 0x62, 0x87, 0xa5, 0x0a, 0xcc, 0x4f, 0x66, 0x38,
-    0x9b, 0x6c, 0xb8, 0xd0, 0x2d, 0xb7, 0xb4, 0x98, 0xb8, 0x91, 0xd1, 0x6d, 0xc3, 0x59, 0x09, 0x8c};
+    0x95, 0x1d, 0xee, 0x26, 0x49, 0x74, 0x70, 0x2e, 0xad, 0xec, 0xee, 0x83, 0x36, 0x62, 0x27, 0x99,
+    0x2a, 0x1f, 0x16, 0xab, 0x7c, 0xd0, 0x06, 0x11, 0xbe, 0xc0, 0xf5, 0x50, 0x18, 0xc4, 0x39, 0x85};
 
 constexpr std::array<Registration, 1> kRegistrations{{{kQwen38TemplateDigest}}};
 

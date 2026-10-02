@@ -12,6 +12,17 @@ using Bulk    = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 
 
 } // namespace
 
+// Band boundaries, named once for this file. The ladder below selects on them and
+// fp8_*_partial_capacity_bytes sizes on them, so a band cannot be moved in one place and not
+// the other. The capacity is a worst case over the bands: whether a split engages depends on
+// the token count, so a buffer sized for one selection can still be read by another.
+// The 385-512 window returns to the narrow split tile, which is what makes this ladder
+// non-monotonic and the capacity above a worst case rather than a selection.
+constexpr std::int32_t kBandT64x128Max    = 128;
+constexpr std::int32_t kBandBulkSelectsAt = 192;
+constexpr std::int32_t kBandWideBulkMin   = 384;
+constexpr std::int32_t kBandWideBulkMax   = 512;
+
 std::size_t fp8_gdn_input_partial_capacity_bytes(std::int32_t max_tokens) {
     // Ungated with the ladder below, so this applies on every platform and the #ifdef that suppressed
     // it while the gate was in place is gone.
@@ -19,7 +30,7 @@ std::size_t fp8_gdn_input_partial_capacity_bytes(std::int32_t max_tokens) {
     // Selection band, not engagement band. The old threshold was 256, which left 193-256 selecting a
     // split schedule with a null partials. This route's own test drives 193, 255, 256 and 257, so the
     // band is covered as soon as the gate comes off.
-    return max_tokens > 192 ? Bulk::kPartialBytes : 0;
+    return max_tokens > kBandBulkSelectsAt ? Bulk::kPartialBytes : 0;
 }
 
 void fp8_gdn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& qkv, Tensor& z,
@@ -59,10 +70,11 @@ void fp8_gdn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& qkv,
     // margin of the five, so it is recorded here rather than left to be discovered.
     if (x.ne[1] <= 32) return launch.template operator()<Fp8A8T32R32K128>();
     if (x.ne[1] <= 64) return launch.template operator()<Fp8A8T64R128K256>();
-    if (x.ne[1] <= 128) return launch.template operator()<Tma64x128>();
-    if (x.ne[1] <= 192) return launch.template operator()<Tma192x128>();
+    if (x.ne[1] <= kBandT64x128Max) return launch.template operator()<Tma64x128>();
+    if (x.ne[1] <= kBandBulkSelectsAt) return launch.template operator()<Tma192x128>();
     // Smaller output tiles leave only two full-K tiles to split near the 512-token anchor.
-    if (x.ne[1] > 384 && x.ne[1] <= 512) return launch.template operator()<MidBulk>();
+    if (x.ne[1] > kBandWideBulkMin && x.ne[1] <= kBandWideBulkMax)
+        return launch.template operator()<MidBulk>();
     launch.template operator()<Bulk>();
 }
 } // namespace ninfer::ops::detail

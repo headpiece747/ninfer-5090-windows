@@ -916,6 +916,29 @@ configuration nobody was checking.
 > `(k, max_tokens)` guess. That is precisely the "thread `rows` down and call the same
 > `fp8_tma_split_k_plan`" refactor, and the research says the duplication risk I was worried about is
 > real and is exactly what these two CUTLASS issues are.
+> **THE STRUCTURAL FIX, DONE 2026-10-02.** The spec above was to thread `rows` into
+> `partial_capacity_bytes` so it calls the same split-K plan the launcher calls. That was not
+> implemented, because it would have introduced a second derivation of `tiles`: the plan takes
+> `tiles`, and `tiles` comes from `for_each_token_slice` via `columns_per_block * kCudaGridYLimit`.
+> Re-deriving that is the exact assumption the retracted `static_assert` made. It also solves the
+> wrong half -- the capacity needs the ladder's SELECTION band, not the plan's engagement decision,
+> which is what the existing comments in those functions say in as many words.
+>
+> What was done instead: every band boundary in these ladders is now a named constant, read by both
+> the ladder that selects and the function that sizes. Nine capacity functions across five route
+> families shared thirty-odd numeric literals with the ladders beside them; there are now **zero**
+> numeric band tests left in FP8 A8 selection or sizing anywhere under `src/`.
+>
+> **Sizing semantics are deliberately unchanged.** Two of these ladders are non-monotonic --
+> `n5120_k17408` selects Bulk for 385-512 and returns to Wide for 513-768, and `n16384_k5120` has its
+> own 385-512 branch -- so capacity is a worst case over the bands rather than the size of the band
+> `max_tokens` itself selects. Tightening that needs the arena's lifetime answered first, which is a
+> separate question and was not smuggled in here.
+>
+> Verified: `ninfer_linear_fp8_a8_test`, `ninfer_linear_fp8_a16_test`, `ninfer_linear_add_fp8_test`
+> and `ninfer_linear_swiglu_fp8_test` all green, and the full suite at 135/137 with GATE PASSED.
+
+
 > **THE STRUCTURAL FIX, SPECIFIED RATHER THAN DONE.** Every threshold problem in this item has one
 > cause: `partial_capacity_bytes(max_tokens)` is a static per-shape GUESS about whether a split will
 > engage, while the decision is made at run time by `fp8_tma_split_k_plan`. That mismatch produced six
@@ -1409,6 +1432,35 @@ prints the engine's own `missing component dflash`.
 
 ---
 
+> **THE 261.7 FIGURE IS RETIRED. Measured 2026-10-02 on a serving lane, not the bench.**
+> `tools/bench/first_request_lane.py` runs two arms, one fresh `ninfer-serve` each, eight identical
+> requests per arm, temperature 0, with a SHA-256 of every reply recorded. On the `--no-prefix-reuse`
+> arm -- the clean one, since it has no cache to be cold against -- **there is no first-request
+> effect**: decode varies 0.2% across eight requests (1.2662 s against 1.2639 s), and round count and
+> accepted tokens are identical every time. That is below this card's own noise floor, measured at
+> 0.0-0.3% late-session and 5.8-7.6% early.
+>
+> **The sign is opposite.** Request 1 is the SLOWEST request, not the fastest -- on the reuse arm it
+> reads 1.1104 s against 1.0642 s, with prefill 0.0537 s against 0.0260 s and TTFT 0.0877 s against
+> 0.0366 s. The recorded figure had it 54% FASTER than requests 2-7.
+>
+> Hypothesis #80 is falsified for this workload: `t = 1 + accepted/rounds` is constant within each arm
+> and identical across all eight requests, so there is no per-request variation for token-count-driven
+> kernel selection to explain. The figure was already confounded on output length and warm-up state by
+> vLLM #17472; it is now measured and gone.
+>
+> **Two things this measurement cannot say.** The arms are not comparable to each other: with reuse
+> on, requests 2-8 take the `private_response_replay` path with 39 hit tokens and run 78 rounds
+> against the no-reuse arm's 89, so the ~12% gap between arms is partly replay rather than a cache
+> effect. And the absolute ~197 tok/s is not a lane figure -- 256 fixed output tokens is far too short
+> for steady state -- so it is not comparable to the published 319.2.
+>
+> **A harness failure worth recording.** The first run of that harness put the entire output budget
+> into thinking (`model_thinking_tokens` equal to `completion_tokens` in all sixteen requests), so
+> every reply was empty and the harness still exited 0 printing a tidy table. The identity control
+> could not catch it, because sixteen empty replies are sixteen identical replies. The harness now
+> raises on an empty reply, which is the half that was missing.
+
 ### 14. A lane's first request returns different, shorter text — a serving behaviour, undiagnosed
 **Promoted out of item 6, where it was recorded under a DONE heading and therefore invisible to anyone
 reading the list.** That is the only reason it moved; the content is item 6's, unchanged.
@@ -1649,6 +1701,21 @@ and `prompt_tokens` is an exact-fit contract. The sequence that made it safe:
 `example_prompt_tokens` are identical for all three shared prompts. That is the property every
 published TTFT figure rests on, and it is why this could be done without re-measuring anything.
 `build_fixtures.py --check` passes.
+
+**The native chat renderer has been silently inactive outside a CRLF worktree — FOUND 2026-10-02.**
+`native_render.cpp` identifies the shipped `qwen3_8.jinja` by digest, and its own comment says a
+line-ending change retires the fast path. It needed recomputing, because the constant was wrong rather
+than stale: it hashed the file's CRLF form (`01befcc8`) while the committed blob is LF (`951dee26`),
+`core.autocrlf=true` having handed the file CRLF bytes when the constant was written. So the native
+fast path was active ONLY on a CRLF worktree and fell back to Jinja on every LF checkout — Linux, CI,
+any fresh clone — while `ninfer_qwen3_5_frontend_test` passed here, because here is where the CRLF
+came from. The line-ending normalisation did not cause this and did not corrupt anything; it made a
+defect visible that a byte-exact gate exists to catch.
+
+Consequence to carry: **every published prompt-render and TTFT figure was taken with the Jinja
+fallback**, because the fast path was not actually engaged. Those numbers are not wrong, but they
+carry an overhead the code was written to avoid, and the release notes should say so rather than let
+v1.2.0 ship with the improvement unannounced.
 
 ## Closed — do not reopen
 

@@ -12,6 +12,14 @@ using Bulk      = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2
 
 } // namespace
 
+// Band boundaries, named once for this file. The ladder below selects on them and
+// fp8_*_partial_capacity_bytes sizes on them, so a band cannot be moved in one place and not
+// the other. The capacity is a worst case over the bands: whether a split engages depends on
+// the token count, so a buffer sized for one selection can still be read by another.
+constexpr std::int32_t kBandT64x128Max    = 128;
+constexpr std::int32_t kBandT64x256Max    = 192;
+constexpr std::int32_t kBandBulkSelectsAt = 288;
+
 std::size_t fp8_attn_input_partial_capacity_bytes(std::int32_t max_tokens) {
     // Ungated with the ladder below, so this applies on every platform and the #ifdef that suppressed
     // it while the gate was in place is gone.
@@ -20,7 +28,7 @@ std::size_t fp8_attn_input_partial_capacity_bytes(std::int32_t max_tokens) {
     // wave splits, but the ladder decides whether a split schedule is SELECTED. The old threshold was
     // 384, which left 289-384 selecting Bulk with a null partials. Pre-existing upstream; the gate masked
     // it. This route's test already exercises 289 and 385, the two boundaries of that band.
-    return max_tokens > 288 ? Bulk::kPartialBytes : 0;
+    return max_tokens > kBandBulkSelectsAt ? Bulk::kPartialBytes : 0;
 }
 
 void fp8_attn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& q, Tensor& gate,
@@ -55,10 +63,10 @@ void fp8_attn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& q, 
     //     capture correctness is a separate question from eager correctness, and this route answers it.
     if (x.ne[1] <= 32) return launch.template operator()<Fp8A8T32R32K128>();
     if (x.ne[1] <= 96) return launch.template operator()<Fp8A8T32R128K128>();
-    if (x.ne[1] <= 128) return launch.template operator()<Tma64x128>();
-    if (x.ne[1] <= 192) return launch.template operator()<Tma64x256>();
+    if (x.ne[1] <= kBandT64x128Max) return launch.template operator()<Tma64x128>();
+    if (x.ne[1] <= kBandT64x256Max) return launch.template operator()<Tma64x256>();
     // Three 96-token tiles give 168 CTAs: one almost-full wave through T=288.
-    if (x.ne[1] <= 288) return launch.template operator()<Tma96x256>();
+    if (x.ne[1] <= kBandBulkSelectsAt) return launch.template operator()<Tma96x256>();
     launch.template operator()<Bulk>();
 }
 } // namespace ninfer::ops::detail

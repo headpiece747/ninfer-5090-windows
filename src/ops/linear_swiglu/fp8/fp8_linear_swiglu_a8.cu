@@ -10,6 +10,13 @@ using Tma64x256 = Fp8A8TmaMmaSchedule<64, 256, 128, 2, 4, 2, 1>;
 using Bulk      = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
 } // namespace
 
+// Band boundaries, named once for this file. The ladder below selects on them and
+// fp8_*_partial_capacity_bytes sizes on them, so a band cannot be moved in one place and not
+// the other. The capacity is a worst case over the bands: whether a split engages depends on
+// the token count, so a buffer sized for one selection can still be read by another.
+constexpr std::int32_t kBandT64x128Max    = 128;
+constexpr std::int32_t kBandBulkSelectsAt = 192;
+
 std::size_t fp8_linear_swiglu_partial_capacity_bytes(std::int32_t max_tokens) {
     // Ungated with the ladder below, so this threshold now applies on every platform and the #ifdef that
     // suppressed it while the gate was in place is gone -- exactly as intended.
@@ -19,7 +26,7 @@ std::size_t fp8_linear_swiglu_partial_capacity_bytes(std::int32_t max_tokens) {
     // exist across the whole selection band. The old threshold was 256, which left 193-256 selecting
     // Bulk with a null partials and the launcher throwing "FP8 split-K requires aligned caller
     // partials". Pre-existing upstream; the Windows gate had been masking it.
-    return max_tokens > 192 ? Bulk::kPartialBytes : 0;
+    return max_tokens > kBandBulkSelectsAt ? Bulk::kPartialBytes : 0;
 }
 
 void fp8_linear_swiglu_a8_launch(const Tensor& x, const Weight& weight, Tensor& out,
@@ -56,8 +63,8 @@ void fp8_linear_swiglu_a8_launch(const Tensor& x, const Weight& weight, Tensor& 
     if (x.ne[1] <= 16) return launch.template operator()<Fp8A8T16R64K128>();
     if (x.ne[1] <= 32) return launch.template operator()<Fp8A8T32R128K128>();
     if (x.ne[1] <= 64) return launch.template operator()<Fp8A8T64R128K256>();
-    if (x.ne[1] <= 128) return launch.template operator()<Tma64x128>();
-    if (x.ne[1] <= 192) return launch.template operator()<Tma64x256>();
+    if (x.ne[1] <= kBandT64x128Max) return launch.template operator()<Tma64x128>();
+    if (x.ne[1] <= kBandBulkSelectsAt) return launch.template operator()<Tma64x256>();
     launch.template operator()<Bulk>();
 }
 } // namespace ninfer::ops::detail

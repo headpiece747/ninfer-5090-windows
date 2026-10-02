@@ -32,6 +32,11 @@ void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t
                                                                                stream);
 }
 
+
+// Band boundaries, named once for this file. launch_a8 selects on them and partial_capacity_bytes
+// sizes on them, so a band cannot be moved in one place and not the other.
+constexpr std::int32_t kBandBulkSelectsAt = 288;
+
 void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspace scratch,
                cudaStream_t stream) {
     // UNGATED 2026-10-02 (docs/active-work.md item 12). Fifth of the nine.
@@ -52,7 +57,7 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
     if (x.ne[1] <= 192)
     return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
     // Three 96-token tiles give 168 CTAs: one almost-full wave through T=288.
-    if (x.ne[1] <= 288)
+    if (x.ne[1] <= kBandBulkSelectsAt)
     return launch_fp8_a8_tma<Geometry, Tma96x256>(x, weight, out, scratch, stream);
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
 }
@@ -63,7 +68,7 @@ std::size_t partial_capacity_bytes(std::int32_t max_tokens) {
     // Ungated with the ladder above. Selection band: Bulk is the fall-through at >=289 tokens, so
     // 289-384 needs the buffer too. The old threshold was 384. attn_input_proj's test already drives
     // 289 and 385, the two boundaries of that band.
-    return max_tokens > 288 ? Bulk::kPartialBytes : 0;
+    return max_tokens > kBandBulkSelectsAt ? Bulk::kPartialBytes : 0;
 }
 } // namespace
 

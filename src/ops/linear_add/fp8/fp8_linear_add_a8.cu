@@ -33,6 +33,20 @@ using K17408Wide =
 using K17408Bulk =
     Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
 
+// Band boundaries for the two K-templated ladders below, named once so the ladders and
+// fp8_linear_add_partial_capacity_bytes cannot disagree. The capacity is a worst case over
+// the bands, which matters here because the K=17408 ladder is non-monotonic: it returns to
+// its wide tile for the window above kBandWideBulkMin while the tokens below it fall
+// through to Bulk.
+constexpr std::int32_t kBand32x64Max     = 64;
+constexpr std::int32_t kBandT64x64Max    = 128;
+constexpr std::int32_t kBandT64x128Max   = 192;
+constexpr std::int32_t kBandSmallMax     = 128;
+constexpr std::int32_t kBandMidMax       = 256;
+constexpr std::int32_t kBandWideMax      = 384;
+constexpr std::int32_t kBandWideBulkMin  = 512;
+constexpr std::int32_t kBandMidBulkMax   = 768;
+
 template <int K>
 void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
                     Fp8A8Workspace workspace, cudaStream_t stream) {
@@ -61,19 +75,19 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
     // and MMA wins two bands on it at 448 and 512). Ungating rests on correctness plus the median, not
     // on a uniform win.
     if constexpr (K == 6144) {
-        if (x.ne[1] <= 64) return launch.template operator()<K6144Tma32x64>();
-        if (x.ne[1] <= 128) return launch.template operator()<Fp8A8T64R64K128>();
-        if (x.ne[1] <= 192) return launch.template operator()<K6144Tma64x128>();
+        if (x.ne[1] <= kBand32x64Max) return launch.template operator()<K6144Tma32x64>();
+        if (x.ne[1] <= kBandT64x64Max) return launch.template operator()<Fp8A8T64R64K128>();
+        if (x.ne[1] <= kBandT64x128Max) return launch.template operator()<K6144Tma64x128>();
         // The narrower row tile fills the GPU before the large-tile path reaches a full wave.
-        if (x.ne[1] <= 768) return launch.template operator()<K6144MidBulk>();
+        if (x.ne[1] <= kBandMidBulkMax) return launch.template operator()<K6144MidBulk>();
         launch.template operator()<K6144Bulk>();
     } else {
         const int tokens = x.ne[1];
-        if (tokens <= 64) return launch.template operator()<K17408Tma32x64>();
-        if (tokens <= 128) return launch.template operator()<K17408Small>();
-        if (tokens <= 256) return launch.template operator()<K17408Mid>();
+        if (tokens <= kBand32x64Max) return launch.template operator()<K17408Tma32x64>();
+        if (tokens <= kBandSmallMax) return launch.template operator()<K17408Small>();
+        if (tokens <= kBandMidMax) return launch.template operator()<K17408Mid>();
         // Wider token tiles avoid an extra wave in the gaps between the bulk anchors.
-        if (tokens <= 384 || (tokens > 512 && tokens <= 768))
+        if (tokens <= kBandWideMax || (tokens > kBandWideBulkMin && tokens <= kBandWideMax))
             return launch.template operator()<K17408Wide>();
         launch.template operator()<K17408Bulk>();
     }
@@ -82,13 +96,13 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
 
 std::size_t fp8_linear_add_partial_capacity_bytes(std::int32_t k, std::int32_t max_tokens) {
     if (k == 6144) {
-        if (max_tokens > 768) return K6144Bulk::kPartialBytes;
-        return max_tokens > 192 ? K6144MidBulk::kPartialBytes : 0;
+        if (max_tokens > kBandMidBulkMax) return K6144Bulk::kPartialBytes;
+        return max_tokens > kBandT64x128Max ? K6144MidBulk::kPartialBytes : 0;
     }
-    if (max_tokens > 384) return K17408Bulk::kPartialBytes;
-    if (max_tokens > 256) return K17408Wide::kPartialBytes;
-    if (max_tokens > 128) return K17408Mid::kPartialBytes;
-    return max_tokens > 64 ? K17408Small::kPartialBytes : 0;
+    if (max_tokens > kBandWideMax) return K17408Bulk::kPartialBytes;
+    if (max_tokens > kBandMidMax) return K17408Wide::kPartialBytes;
+    if (max_tokens > kBandSmallMax) return K17408Mid::kPartialBytes;
+    return max_tokens > kBand32x64Max ? K17408Small::kPartialBytes : 0;
 }
 
 void fp8_linear_add_a8_launch(const Tensor& x, const Weight& weight, Tensor& residual,

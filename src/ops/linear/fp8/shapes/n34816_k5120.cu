@@ -36,6 +36,11 @@ void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t
                                                                                stream);
 }
 
+
+// Band boundaries, named once for this file. launch_a8 selects on them and partial_capacity_bytes
+// sizes on them, so a band cannot be moved in one place and not the other.
+constexpr std::int32_t kBandBulkSelectsAt = 192;
+
 void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspace scratch,
                cudaStream_t stream) {
     // UNGATED 2026-10-02 (docs/active-work.md item 12). Eighth of nine. Fp8N34816K5120 belongs to
@@ -49,7 +54,7 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
     return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 128)
     return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
-    if (x.ne[1] <= 192)
+    if (x.ne[1] <= kBandBulkSelectsAt)
     return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
     // At T <= 256 the last wave is already well filled, so Bulk uses its ordinary
     // TMA kernel and needs no partials. Keep one compiled family for this region.
@@ -78,7 +83,7 @@ std::size_t partial_capacity_bytes(std::int32_t max_tokens) {
     //
     // Selection band, not engagement band. The old threshold was 256, which left 193-256 selecting Bulk
     // with a null partials. linear_swiglu's test drives 193, 257 and 513, which is exactly this band.
-    return max_tokens > 192 ? Bulk::kPartialBytes : 0;
+    return max_tokens > kBandBulkSelectsAt ? Bulk::kPartialBytes : 0;
 }
 } // namespace
 

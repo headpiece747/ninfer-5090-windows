@@ -33,6 +33,18 @@ void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t
                                                                                stream);
 }
 
+// Band boundaries, named once for this file. launch_a8 selects on them and partial_capacity_bytes
+// sizes on them, so a band cannot be moved in one place and not the other.
+constexpr std::int32_t kBandT32x64Max = 64;
+constexpr std::int32_t kBandSmallMax  = 128;
+constexpr std::int32_t kBandMidMax    = 256;
+constexpr std::int32_t kBandWideMax   = 384;
+// Above kBandWideMax the ladder falls through to Bulk, except for the window below that returns to
+// Wide. That makes this ladder NON-MONOTONIC, and it is why the capacity above is a worst case over
+// the bands rather than the size of the band max_tokens itself selects: 385-512 runs Bulk and 513-768
+// runs Wide, so a single buffer has to cover whichever one will be selected.
+constexpr std::int32_t kBandBulkMin = 512;
+
 void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspace scratch,
                cudaStream_t stream) {
     // UNGATED 2026-10-02 (docs/active-work.md item 12). Fp8N5120K17408, like Fp8N5120K6144, is
@@ -40,14 +52,14 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
     // ladder with these same tiles. Its partials thresholds were already correct and unconditional:
     // MidBulk at >192 and Bulk at >768 match the ladder's 193-768 and 769+ selection bands exactly.
     const int tokens = x.ne[1];
-    if (tokens <= 64)
+    if (tokens <= kBandT32x64Max)
     return launch_fp8_a8_tma<Geometry, Tma32x64>(x, weight, out, scratch, stream);
-    if (tokens <= 128)
+    if (tokens <= kBandSmallMax)
     return launch_fp8_a8_tma<Geometry, Small>(x, weight, out, scratch, stream);
-    if (tokens <= 256)
+    if (tokens <= kBandMidMax)
     return launch_fp8_a8_tma<Geometry, Mid>(x, weight, out, scratch, stream);
     // Wider token tiles avoid an extra wave in the gaps between the bulk anchors.
-    if (tokens <= 384 || (tokens > 512 && tokens <= 768))
+    if (tokens <= kBandWideMax || (tokens > kBandBulkMin && tokens <= kBandWideMax))
     return launch_fp8_a8_tma<Geometry, Wide>(x, weight, out, scratch, stream);
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
 }
@@ -55,10 +67,10 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
 bool uses_a8(std::int32_t, std::int32_t max_tokens) { return max_tokens >= 17; }
 
 std::size_t partial_capacity_bytes(std::int32_t max_tokens) {
-    if (max_tokens > 384) return Bulk::kPartialBytes;
-    if (max_tokens > 256) return Wide::kPartialBytes;
-    if (max_tokens > 128) return Mid::kPartialBytes;
-    return max_tokens > 64 ? Small::kPartialBytes : 0;
+    if (max_tokens > kBandWideMax) return Bulk::kPartialBytes;
+    if (max_tokens > kBandMidMax) return Wide::kPartialBytes;
+    if (max_tokens > kBandSmallMax) return Mid::kPartialBytes;
+    return max_tokens > kBandT32x64Max ? Small::kPartialBytes : 0;
 }
 
 } // namespace
