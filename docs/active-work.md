@@ -843,6 +843,33 @@ configuration nobody was checking.
 > read twice. The root is now cleared before each run so a missing input reads as missing.
 >
 
+>
+> **UNGATING BLOCKER FOUND: three routes would inherit a latent partials defect.** The partials-capacity
+> thresholds sit *above* the token counts at which the ladder selects a split-K tile, so a split tile runs
+> with `partials == nullptr` and the launcher throws:
+>
+> | route | split tile selected at | partials allocated above | gap |
+> |---|---|---|---|
+> | linear_swiglu | Bulk at >=193 | >256 | **193-256** |
+> | attn_input_proj | Bulk at >=289 | >384 | **289-384** |
+> | n14336_k5120 | Bulk at >=289 | >384 | **289-384** |
+> | gdn_input_proj | MidBulk at 385-512 | >256 | none |
+> | n5120_k6144 / linear_add | MidBulk >=193 / Bulk >=769 | >192 / >768 | none, thresholds match |
+>
+> **This is pre-existing in the upstream ladders, not something the port introduced** -- the Windows gate
+> has simply been masking it. Ungating any of those three routes would inherit it, and the failure would look
+> like a mysterious per-shape crash partway through ungating rather than a threshold mismatch.
+>
+> The *mechanism* is measured, not hypothesised: it is exactly what the forced `midbulk128` tile did --
+> `FP8 TMA split-K requires aligned caller partials`, thrown from `launch_fp8_a8_mma` when
+> `plan.split_ctas` is set and the buffer is null. The token-count ranges above are derived from the
+> capacity functions and ladder thresholds read in each file, and are labelled derived for that reason.
+>
+> **So the order is: fix the thresholds, then ungate.** Lowering each capacity threshold to match its own
+> ladder is the direct fix, at the cost of allocating `Bulk::kPartialBytes` across the gap band. The
+> alternative -- rejecting a split tile when no partials exist -- would silently pick a different schedule
+> from the one the ladder names, which is the class of defect this whole item exists to remove.
+
 > **RESEARCHED: which SM120 TMA failures are real, and which one this tree had.** Third-party
 > reports of "TMA warp-specialized GEMM produces garbage output on SM120" are real, and there are
 > two distinct root causes behind that one symptom. Both are now identified against this tree:

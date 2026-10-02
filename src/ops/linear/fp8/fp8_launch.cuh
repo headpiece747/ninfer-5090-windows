@@ -37,10 +37,15 @@ template <class Geometry, class Schedule>
 void launch_fp8_a8(const Tensor& x, const Weight& w, Tensor& out, Fp8A8Workspace scratch,
                    cudaStream_t stream) {
     launch_fp8_a8_quantize(x, w, scratch, stream);
+    // scratch.partials is forwarded for the same reason launch_fp8_a8_tma forwards it. Harmless for a
+    // non-split schedule -- if constexpr (kSplitWaveCtas > 0) discards the split block, so a null
+    // partials is never read -- and required the moment one of these ladders selects a split-K tile,
+    // which four of them do in their non-Windows arms. Without it, ungating a shape file fails at
+    // runtime with "FP8 split-K requires aligned caller partials" rather than at the call site.
     launch_fp8_a8_mma<Fp8ScheduleInstance<Schedule, Geometry::kInputRows>>(
         fp8_a8_operands(w, scratch, x.ne[1]),
         LinearBf16Output{static_cast<__nv_bfloat16*>(out.data), w.n}, LinearIdentityEpilogue{},
-        stream);
+        stream, Fp8IdentityRows{}, scratch.partials);
 }
 
 template <class Geometry, class Schedule>
