@@ -1,9 +1,10 @@
 #!/bin/sh
-# Nine checks, all seconds: documentation links resolve, documentation citations still point
+# Ten checks, all seconds: documentation links resolve, documentation citations still point
 # inside the files they name, tracked text is byte-preserved UTF-8, the
 # profile tables match the profile module and the generated launchers, the calibration corpus is
 # still the one the artifact's creator used, the set of production functions defaulting a CUDA stream
-# has not widened, no first-party type is declared and never named again, and the converter tests
+# has not widened, no first-party type is declared and never named again, no copy-paste has been
+# added past the recorded baseline, and the converter tests
 # pass. Each has caught a real drift in this repository --
 # a README quoting a digest the pins had moved past, 181 lines of documentation re-encoded by a
 # scripted edit while every other gate still passed, a suite size that had drifted from the baseline,
@@ -71,6 +72,7 @@ gate "calibration corpus" "$PY" tools/release/check_calibration_corpus.py
 gate "stream-default ratchet" "$PY" tools/release/check_production_stream_defaults.py
 gate "rule count" "$PY" tools/release/check_rule_count.py
 gate "dead types" "$PY" tools/release/check_dead_types.py
+gate "new duplication" "$PY" tools/release/check_duplication.py
 echo "pre-commit: converter tests"
 # The doc-link test is named explicitly: tests/release also holds a ctest script that exits at import,
 # so collecting the directory would abort the run instead of adding to it. The calibration-corpus and

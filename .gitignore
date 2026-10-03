@@ -60,6 +60,7 @@ tools/freq_corpus/fixtures/*
 *.swp
 .DS_Store
 profiles/
+.jscpd-report/
 .chatgpt/
 
 # Claude Code personal/local settings (may contain API tokens)
