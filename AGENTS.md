@@ -264,7 +264,7 @@ runner on this machine, and publishing a workflow needs a push.
 | a design with no precedent in this tree | `principle-exhaust-the-design-space` |
 | a claim about another project | `research` |
 | a multi-phase change needing an auditable trail | `show-me-your-work` |
-| a claim you are about to write into a document | stop and read the line you are citing |
+| a claim you are about to write into a document | `claims-gate` (`.opencode/plugins/`) blocks the **edit** on a citation that is provably wrong — missing file, or line past EOF. `node --experimental-strip-types tools/opencode/test_claims_gate.mjs` (14 cases, both directions) |
 
 ### Two rules for correcting a document
 
