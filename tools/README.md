@@ -60,6 +60,7 @@ The rest run when their stage calls for them:
 | Measure the physical HBM read/copy ceiling | [`hbm_bandwidth_probe.cu`](hbm_bandwidth_probe.cu); [build command](#standalone-hbm-probe) |
 | Measure a serving lane's phase split and cache behaviour | [`bench/report_serve_phases.py`](bench/report_serve_phases.py) |
 | Measure `prepared` and TTFT against conversation size | [`bench/warm_lane_sweep.py`](bench/warm_lane_sweep.py) |
+| Decide whether a prefix cache serves a shared prefix, or only exact-request replay | [`bench/check_shared_prefix_reuse.py`](bench/check_shared_prefix_reuse.py) |
 | Decide whether a first request is slower than later identical ones | [`bench/first_request_lane.py`](bench/first_request_lane.py) |
 
 ## Standalone HBM probe

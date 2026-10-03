@@ -1539,12 +1539,42 @@ tokens, so the difference is in the prefill the plan chose rather than in anythi
 falsifies the alternative I reached for first, which was cross-process nondeterminism: the digests
 reproduced exactly every time.
 
-**A separate finding, recorded rather than diagnosed.** A *growing* conversation whose prefix is
-genuinely shared — `conversation(n - 1)` then `conversation(n)`, sharing `n - 1` messages — returned
-`prefix_cache_hit_tokens = 0` and path `root` at 4,727, 20,879 and 42,415 tokens. So on this lane the
-only prefix reuse reachable at all is exact-request replay, not reuse of a shared prefix. Whether that
-is correct for these shapes is a separate question this measurement does not answer, and it is not
-what item 14 was about.
+**A separate finding, now diagnosed 2026-10-02: the cache is not broken, and the zeros have three
+documented causes.** `tools/bench/check_shared_prefix_reuse.py` measures five conditions in one lane,
+each with a control:
+
+| condition | prompt_tok | hit | path |
+|---|---:|---:|---|
+| repeat (control) | 3,282 | 3,275 | `private_response_replay` |
+| grow, unmarked | 3,824 | 0 | `root` |
+| shuffle (negative) | 3,282 | 0 | `root` |
+| grow, marked | 3,824 | **3,817** | `private_response_replay` |
+| two conversations, system prefix declared | 2,773 | 0 | `root` |
+
+A growing conversation carrying an explicit `prompt_cache_breakpoint` **is** served 3,817 of 3,824
+tokens. Three mechanisms produce the zeros, all intended:
+
+1. **`/v1/chat/completions` owns its own write policy.** `openai_common.cpp:177` clears
+   `allow_engine_automatic_shared_prefixes` on every OpenAI request (reason at :175), and
+   `parse_openai_prompt_cache_breakpoint` reads a content **part** — a plain string is not a part. An
+   unmarked request therefore offers no shared-prefix write, and `root` is correct.
+2. **Where a request extends a resident one, replay wins the valuation** at that frontier
+   (`profiles.py:388-392`; ADR-0009's third arm, where the shared candidate is offered and accepted
+   by the Program, and the planner still selects `private_response_replay`).
+3. **The genuinely shared read did not reproduce.** ADR-0009 measured `shared prefix` at 301 of 344
+   tokens. The shape here now matches its recipe — declaration on the system content part, two
+   conversations diverging at the first user turn — and still returns 0, while publication works (the
+   startup line reads `shared 7`). The read is refused at the shortlist key
+   (`resource_manager.h:329`).
+
+**Warm TTFT stays unmeasured, and this is why.** The only shape that reached a cached prefix was
+`private_response_replay`, which returns a stored response and never decodes. The shape that would
+give a real encode-and-decode over a cached prefix — `shared_stable_prefix` — did not reproduce here.
+The three counters that would attribute it (`shared_reuse_candidates`, `shared_reuse_declined`,
+`shared_reuse_key_mismatch`) live in `RuntimeStats` and are reachable through the public
+`Engine::runtime_stats()`, but **no shipped surface emits them**: not `ninfer-serve`'s request log,
+not its operational log. Until one does, ADR-0012's ~22 ms projection cannot be tested from the
+product, and this is the finding rather than a gap in the harness.
 
 **Re-scoped 2026-10-01: this is two separate items, and the text half is answered.** The four candidate
 causes listed above are not equally live. External research, and one in-tree fact, split them:
