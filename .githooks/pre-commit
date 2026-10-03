@@ -73,6 +73,18 @@ gate "stream-default ratchet" "$PY" tools/release/check_production_stream_defaul
 gate "rule count" "$PY" tools/release/check_rule_count.py
 gate "dead types" "$PY" tools/release/check_dead_types.py
 gate "new duplication" "$PY" tools/release/check_duplication.py
+# The two opencode plugins in .opencode/plugins/ resolve @opencode/plugin from a local node_modules,
+# which is deliberately not committed (139 MiB). opencode SKIPS a plugin that fails to load rather than
+# crashing, so a missing install is silent: both plugins sat in the tree through one commit, passing
+# their logic tests and never having run, because those tests stubbed the very package that failed to
+# resolve. Node is not a dependency of this product -- these plugins shape an agent's behaviour and
+# nothing about the shipped engine -- so its absence skips loudly here rather than failing every commit
+# for a C++ contributor, while its presence makes a missing install a hard failure.
+if command -v node >/dev/null 2>&1; then
+    gate "opencode plugin load" node --experimental-strip-types tools/opencode/test_plugin_loads.mjs
+else
+    echo "pre-commit: SKIPPED opencode plugin load -- node not on PATH (npm install --prefix .opencode/plugins)"
+fi
 echo "pre-commit: converter tests"
 # The doc-link test is named explicitly: tests/release also holds a ctest script that exits at import,
 # so collecting the directory would abort the run instead of adding to it. The calibration-corpus and

@@ -61,6 +61,10 @@ tools/freq_corpus/fixtures/*
 .DS_Store
 profiles/
 .jscpd-report/
+# 139 MiB of the opencode plugin SDK. package.json and package-lock.json ARE committed -- without the
+# lockfile the @opencode/plugin version floats and the plugins would break on a reinstall rather than
+# on a change.
+.opencode/plugins/node_modules/
 .chatgpt/
 
 # Claude Code personal/local settings (may contain API tokens)
