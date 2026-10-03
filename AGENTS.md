@@ -266,6 +266,7 @@ runner on this machine, and publishing a workflow needs a push.
 | a claim about another project | `research` |
 | a multi-phase change needing an auditable trail | `show-me-your-work` |
 | a claim you are about to write into a document | `claims-gate` (`.opencode/plugins/`) blocks the **edit** on a citation that is provably wrong — missing file, or line past EOF. `node --experimental-strip-types tools/opencode/test_claims_gate.mjs` (14 cases, both directions) |
+| a rule you keep forgetting rather than one you keep breaking | `rules-inject` re-injects **three** rules on every model call via `session.hook("context")`. Injection is not enforcement — a gate *denies*, and forgetting is not what a denial fixes. `tools/opencode/test_rules_inject.mjs` (17 assertions, **including the ≤3-rule cap**, so "small and followed" cannot quietly become "complete and ignored") |
 
 ### Two rules for correcting a document
 
