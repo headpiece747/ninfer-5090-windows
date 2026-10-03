@@ -65,6 +65,7 @@ gate "FP8 band ladders" "$PY" tools/release/check_fp8_band_ladders.py
 gate "profile consistency" "$PY" tools/release/check_profile_consistency.py
 gate "calibration corpus" "$PY" tools/release/check_calibration_corpus.py
 gate "stream-default ratchet" "$PY" tools/release/check_production_stream_defaults.py
+gate "rule count" "$PY" tools/release/check_rule_count.py
 echo "pre-commit: converter tests"
 # The doc-link test is named explicitly: tests/release also holds a ctest script that exits at import,
 # so collecting the directory would abort the run instead of adding to it. The calibration-corpus and

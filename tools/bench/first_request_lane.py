@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Measure item 14's first-request question on a real serving lane, with prefix reuse as the arm.
 
-The bench cannot answer this. tools/bench/first_request_report.py already reads two ninfer_bench runs
+RESULT 2026-10-02: the transient does not reproduce. At temperature 0.7 with the seed pinned, eight
+identical requests in one lane were byte-identical in both arms, across three separate process
+launches, while the cache engaged on requests 2..8 (private_response_replay, 39 hit tokens). The
+261.7 tok/s figure came from comparing two ninfer_bench RUNS at --warmup 0 against --warmup 1, which
+is a configuration comparison and not a first-request effect; ADR-0002 already covers it. So this
+harness is retained as the instrument that settles it, not because the answer was surprising.
+
+The bench cannot answer the question. tools/bench/first_request_report.py reads two ninfer_bench runs
 and reports no difference (172.31 against 173.65), because the bench drives the Engine directly and
-never has a warm prefix cache to be cold against. The 261.7 tok/s figure came from a serving lane, so
-the serving lane is what has to be measured.
+never has a warm prefix cache to be cold against. The 261.7 figure came from a serving lane, so the
+serving lane is what has to be measured.
 
 The comparison is two arms, one fresh server each, differing in exactly one flag:
 
@@ -14,17 +21,28 @@ The comparison is two arms, one fresh server each, differing in exactly one flag
 Everything else is held fixed, because each of these has been the confound in a version of this
 question:
 
-  - the request body is byte-identical across all N requests, at temperature 0, so the responses must
-    be too. A digest of each response text is recorded: if two responses differ, they are different
-    workloads and their speeds are not comparable. This is the check that would have caught the
-    original figure being read as a first-request effect when the first request was returning
-    different, shorter text.
+  - the request body is byte-identical across all N requests, so the responses must be too. A digest
+    of each response text is recorded: if two responses differ, they are different workloads and their
+    speeds are not comparable. This is the check that would have caught the original figure being read
+    as a first-request effect when the first request was returning different, shorter text.
+  - --temperature and --seed are parameters, not constants. The transient is invisible at
+    temperature 0 and visible at a sampling temperature, so --temperature picks the question. The
+    seed is pinned because an omitted seed is replaced per request with a FRESH RANDOM one
+    (serve_options.h, translate.cpp), which at a sampling temperature makes every request differ for
+    a reason unrelated to the question.
   - max_tokens is fixed, so output length cannot vary. "output length, warm-up state" is the pair
     vLLM #17472 names as controls that a speed comparison has to hold.
   - one server per arm, started fresh and stopped afterwards, so arm two cannot inherit arm one's
-    warm state -- which is the whole thing under test.
+    warm state, which is the whole thing under test.
   - the server's own log is captured to a file. A lane started from a detached process puts its log
     nowhere, and the only evidence of a rejected request is the one line that says nothing.
+
+READ THE TWO ARMS' DIGESTS AGAINST EACH OTHER, not only within one arm. The 2026-10-02 run found the
+two arms produce different text for the same prompt and seed (d9fc0df811cf40f2 against
+df5604c53ea0ae6f), byte-stable across three launches, with both request 1s on path root and zero hit
+tokens. The arms differ in prefix reuse and in the six capacity flags the engine requires with it, so
+the difference is in the prefill the plan chose -- ADR-0002's documented sensitivity, on an axis this
+harness adds.
 
 The verdict logic is deliberately conservative and is stated in the report rather than decided here:
 this script measures and records, and it refuses to attribute a cause. "No difference" is a result.
@@ -46,8 +64,10 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# One fixed prompt, fixed sampling, fixed output budget. Changed only by editing this file, so a run
-# is reproducible from the harness rather than from a shell that was typed once.
+# One fixed prompt, fixed output budget. Sampling is a parameter, not a constant: the first-request
+# transient this harness was written for is invisible at temperature 0 and visible at a sampling
+# temperature, so --temperature selects which question is being asked. A run is reproducible from the
+# harness rather than from a shell that was typed once.
 PROMPT = (
     "Explain how a split-K GEMM decides how many partial results to write, and why the workspace "
     "size has to be derived from the same shape the launcher uses."

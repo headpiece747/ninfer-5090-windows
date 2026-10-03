@@ -9,6 +9,43 @@ for the selected tool. The maintained environment uses Python 3.11.
 
 Python tools are independent of CMake; there is no `NINFER_BUILD_TOOLS` option.
 
+## Release tools
+
+`release/` holds the gates and the packaging pipeline. The six that run on every commit are wired
+into `.githooks/pre-commit`, and [the row for that hook in `AGENTS.md`](../AGENTS.md) is the
+authority for what they cover:
+
+| Tool | Runs |
+|---|---|
+| `check_doc_links.py` | every commit, and again during packaging |
+| `check_text_encoding.py` | every commit |
+| `check_fp8_band_ladders.py` | every commit; its `--self-test` is the control |
+| `check_profile_consistency.py` | every commit, and again during packaging |
+| `check_calibration_corpus.py` | every commit |
+| `check_production_stream_defaults.py` | every commit |
+| `check_rule_count.py` | every commit; keeps `AGENTS.md`'s stated rule count equal to the bullets |
+The rest run when their stage calls for them:
+
+| Tool | Runs |
+|---|---|
+| `check_test_baseline.py` | after a C++ or upstream change, with `NINFER_TEST_ARTIFACT` set |
+| `check_test_mutation.py` | when an Op needs its acceptance argued, named in `src/ops/CMakeLists.txt` |
+| `check_cache_capacity.py` | during packaging |
+| `check_archive_contents.py` | on a built archive; verifies every entry against its `SHA256SUMS` |
+| `check_release_archive.py` | on a built archive; extracts it and runs a launcher from the extraction |
+| `check_host_kv.py` | from `check_profile_consistency.py` |
+| `check_request_logs.py` | when a request log needs checking against its documented fields |
+| `bump_test_baseline.py` | when a test is added and `suite_size` has to follow |
+| `make_launchers_v3.py`, `generate_launcher_env.py` | regenerate launchers; never hand-edit a launcher |
+| `verify_launchers_v3.py` | verify the generated launchers |
+| `package_release.py` | cut and stage a release archive |
+| `verify_shipping_artifacts.py` | re-verify published artifacts against their baselines |
+| `probe_reasoning_effort.py` | map which `reasoning_effort` values the engine accepts |
+| `repro_251.py`, `soak.py`, `compare_artifacts.py`, `per_domain_kl.py`, `test_per_domain_kl.py` | the prefix-state, soak and artifact-comparison instruments, each documented where its findings live |
+
+`profiles.py` is the single source for what ships; `project_map.py` generates
+[`docs/maintainer/project-map.md`](../docs/maintainer/project-map.md).
+
 ## Task index
 
 | Task | Location |
@@ -21,6 +58,9 @@ Python tools are independent of CMake; there is no `NINFER_BUILD_TOOLS` option.
 | Exercise a resident HTTP server | [`smoke/serve_contract.py`](smoke/serve_contract.py) |
 | Exercise thinking preservation through a managed server | [`smoke/serve_thinking_preservation.py`](smoke/serve_thinking_preservation.py) |
 | Measure the physical HBM read/copy ceiling | [`hbm_bandwidth_probe.cu`](hbm_bandwidth_probe.cu); [build command](#standalone-hbm-probe) |
+| Measure a serving lane's phase split and cache behaviour | [`bench/report_serve_phases.py`](bench/report_serve_phases.py) |
+| Measure `prepared` and TTFT against conversation size | [`bench/warm_lane_sweep.py`](bench/warm_lane_sweep.py) |
+| Decide whether a first request is slower than later identical ones | [`bench/first_request_lane.py`](bench/first_request_lane.py) |
 
 ## Standalone HBM probe
 

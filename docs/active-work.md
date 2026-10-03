@@ -336,11 +336,11 @@ tok/s and 56.4 % → 38.2 %, which is the row that was already suspected.
 **What was not changed:** no lane, flag, context, draft depth or artifact. Only the four measured
 fields moved in `profiles.py`, and the launchers were regenerated rather than hand-edited.
 
-**Still open, and it is a real one:** the transient is a genuine first-request behaviour, not a
-measurement artefact — a client's *first* request after a lane starts gets different, shorter text
-from the same seed. It is invisible at temperature 0 (the greedy digest is stable from request 1) and
-visible at the sampling temperature the bench uses. That is a serving behaviour question, not a
-benchmark one, and it is not diagnosed.
+**RESOLVED 2026-10-02, in item 14: this was not a first-request behaviour.** Measured at temperature
+0.7 with the seed pinned, a client's first request is byte-identical to every later one, in both
+prefix-reuse arms and across three process launches. What the original observation compared was two
+bench *runs* at different `--warmup`, which is a configuration comparison — see item 14 and
+[ADR-0002](adr/0002-speculation-not-bit-identical.md).
 
 ### 7. k8v4 KV against the shipped fp8 — **CLOSED 2026-10-01: not warranted here**
 The only thing that would justify a KV size reduction on this product is context, and context is
@@ -1350,10 +1350,9 @@ what a merge produced should not be rewritten to match a later state.
 sm_120a limitation or a defect in upstream's kernel, and telling upstream it faults on a consumer
 Blackwell target is worth doing either way. **This is answered now and neither answer is what it
 predicted:** the cause was neither, and the resolution block at the top of this item records it — the
-`alignas(128)` descriptor, fixed by `a5077adf`. What is still open is only whether to ungate the nine
-> `PORT-DISPATCH` sites. **RESOLVED 2026-10-02: all nine are ungated**, each on its own per-route
-> oracle, with the transport measurement and its methodology recorded above.
-`PORT-DISPATCH` sites.
+`alignas(128)` descriptor, fixed by `a5077adf`. **RESOLVED 2026-10-02: all nine `PORT-DISPATCH`
+> sites are ungated**, each on its own per-route oracle, with the transport measurement and its
+> methodology recorded above. Nothing from this item remains open.
 
 ---
 ---
@@ -1808,8 +1807,16 @@ So what this fix changes is **portability, not performance here**. The constant 
 worktree, so the fast path was off on Linux, CI and any fresh clone, and any figure taken there carried
 Jinja's cost — ADR-0012's 48.3 ms render instead of 5.99 ms. No published figure moves, and **no
 re-measurement is called for**: the measured configuration did not change on the machine that
-measured. ADR-0012's own "projected, not measured" line for end-to-end `prepared` and warm TTFT remains
-open, and that is a pre-existing gap this fix does not close either way.
+measured.
+
+**That projection has since been measured, and it is wrong — see the 2026-10-02 block in
+[ADR-0012](adr/0012-native-render-for-the-registered-template.md).** `prepared` is 12.21 ms at 42,415
+prompt tokens, above the projected ~8 ms for a conversation four times that size, because the
+projection treated a 42 ms render saving as the substance of `prepared` when the render is ~1.4 ms of
+that 12.21 and tokenize, layout and copies dominate. Warm TTFT stays untested, because the lane has no
+cached-prefix-plus-real-decode path to measure: a growing conversation with a genuinely shared prefix
+returned `prefix_cache_hit_tokens = 0`, and the only rows that hit took `private_response_replay`,
+which never decodes.
 
 
 > **THE MEDIANS' CONFIGURATION — one authority for five files that quote them.** `fp8_attn_input_a8.cu`,

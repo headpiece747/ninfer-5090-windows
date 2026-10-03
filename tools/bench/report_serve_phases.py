@@ -35,16 +35,18 @@ MEASURED_RENDER_MS = 5.99
 INTERPRETER_RENDER_MS = 48.3
 
 
-def load(path: Path) -> list[dict[str, Any]]:
+def request_done_records(path: Path) -> list[dict[str, Any]]:
     """Return the request_done records. Fails loudly rather than reporting over an empty set."""
     if not path.is_file():
         print(f"  FAIL: no request log at {path}")
         raise SystemExit(1)
-    done = [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and json.loads(line).get("event") == "request_done"
-    ]
+    done = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("event") == "request_done":
+            done.append(record)
     if not done:
         print(f"  FAIL: {path} has no request_done records, so there is nothing to report")
         raise SystemExit(1)
@@ -62,7 +64,7 @@ def main() -> int:
     )
     arguments = parser.parse_args()
 
-    records = load(arguments.log)
+    records = request_done_records(arguments.log)
     print(f"  {arguments.log.name}: {len(records)} completed request(s)")
     header = (
         f"  {'req':>3} {'prompt':>7} {'hit':>5} {'prep':>8} {'prefill':>8} "

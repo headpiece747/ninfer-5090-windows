@@ -27,17 +27,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
+import subprocess
 import sys
 import urllib.error
 import urllib.request
-import statistics
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from first_request_lane import REPO_ROOT, serve_command, wait_until_ready  # noqa: E402
-
-import subprocess  # noqa: E402
 
 FILLER = "The quick brown fox jumps over the lazy dog. " * 4
 
@@ -112,7 +111,14 @@ def main() -> int:
         for messages in sizes:
             # Seed the cache with the shorter conversation first, so the longer one that follows
             # reuses a real prefix and has to decode its new turn. Reported, not seeded.
-            for attempt, count in ((1, max(1, messages - 1)), (2, messages)):
+            #
+            # `max(1, messages - 1)` clamped to 1, which at messages == 1 sent the SAME body twice
+            # and produced a private_response_replay row that had nothing to do with prefix reuse.
+            # Below 2 there is no shorter conversation, so the seed is skipped rather than faked and
+            # the request is sent once; such a row is then reported as unseeded instead of warm.
+            seed_count = messages - 1
+            plan = [(2, messages)] if seed_count < 1 else [(1, seed_count), (2, messages)]
+            for attempt, count in plan:
                 body = {
                     "model": "qwen3.8-27b-quasar-v3-dflash2-vision",
                     "messages": conversation(count, arguments.chars),

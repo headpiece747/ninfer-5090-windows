@@ -228,11 +228,14 @@ something, and each is named here so it gets used rather than rediscovered.
 
 | situation | tool |
 |---|---|
-| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Six gate scripts (`check_doc_links.py`, `check_text_encoding.py`, `check_fp8_band_ladders.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`), then `pytest tests/convert` plus three named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the seven steps** — it omitted the calibration-corpus gate, the stream-default ratchet, ruff and mypy |
+| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Seven gate scripts (`check_doc_links.py`, `check_text_encoding.py`, `check_fp8_band_ladders.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`, `check_rule_count.py`), then `pytest tests/convert` plus four named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the seven steps** — it omitted the calibration-corpus gate, the stream-default ratchet, the rule count, ruff and mypy |
 | a check that passes here and fails in CI | `tools/scripts/verify_as_ci.cmd` **first**, before forming any hypothesis. It reproduces the runner's conditions — Python 3.11, CI's package set, `NINFER_PYTHON` as a command name, a scratch venv. On 2026-09-25 six serious hypotheses were formed against a failing CI gate without once reproducing the runner's conditions, and five were wrong; the sixth was found in one run of this script |
 | a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` — **with `NINFER_TEST_ARTIFACT` set**: without it the four required real-model tests skip and the gate fails on missing coverage rather than on a regression, which is how it was misread once |
 | anything that could be order- or state-dependent | the suite recipe passes `--schedule-random`; run it twice before believing a fixed order |
 | a device-side memory, race or synchronisation question | `tools/scripts/test_v3_compute_sanitizer.cmd` — memcheck on a small subset; `racecheck`/`initcheck`/`synccheck` and the wider method are in the `cuda-debugging` skill |
+| Measure a serving lane's phase split and whether its prefix cache engaged | `tools/bench/report_serve_phases.py` — reads `request-log-jsonl`, never a wall clock. `prefix_cache_hit_tokens` is the field that says whether a cache effect exists to explain anything |
+| `prepared` and TTFT against conversation size | `tools/bench/warm_lane_sweep.py`. **Seed the prefix with a shorter conversation, not the same one twice** — an identical repeat takes `private_response_replay`, returns a stored response and never decodes, so its TTFT is replay latency |
+| whether a first request is slower than later identical ones | `tools/bench/first_request_lane.py`. `--temperature` picks the question and `--seed` must be pinned, because an omitted seed is replaced per request with a fresh random one |
 | a host-side lifetime question | `tools/scripts/test_v3_asan.cmd` — ASan cannot instrument device code, which is why the two recipes are separate |
 | a kernel's performance | the `ncu-report` skill, records under `profiles/ncu/` and `profiles/nsys/`. **`profiles/ncu/` exists on this machine (`gdn_decode`); `profiles/nsys/` does not, and `profiles/` is gitignored in full, so its absence here is not evidence the layout is wrong — the path is unverifiable from the tree and is kept on the skill's own authority** |
 | a host-side C++ question | `clang-tidy -p build src/text/jinja.cpp` — `.clang-tidy` sets a narrow check set and `build/compile_commands.json` already exists; run it from the Visual Studio environment so the MSVC headers resolve |
@@ -300,6 +303,19 @@ the standalone bench binaries. **This sentence previously said "two build trees"
 first two.** `build-asan` is not new — the sanitizer rule below already runs against it — and
 `build-bench/` exists for the bench; both are listed because a rule that names a directory should say
 which of the four it means.
+
+- **A phase field is only what its own definition covers.** `prepare_seconds` spans the whole frontend,
+  from `prepared.lifetime->started` to just before `submit`, so it includes render, tokenize and
+  layout. Read that before comparing it to a figure derived from one of those terms alone: ADR-0012
+  projected `prepared ≈ 8 ms` by treating a 42 ms render saving as the substance of `prepared`, and
+  measurement put `prepare` at 12.21 ms for a *quarter* of the projected conversation size, rising
+  with the prompt. The render was ~1.4 ms of that 12.21. A projection built by subtracting one term
+  from a total is a claim about the other terms, and it had never been checked against them.
+- **Say which process a number came from.** The same renderer measured 5.99 ms in a fresh process and
+  48.3 ms in a long-lived server on this machine, a 40x gap that is the process, not the input. Two
+  lanes with identical request bodies produced different text for a reason in neither: they differed in
+  cache capacity, which changes the prefill the plan chooses. A harness that does not record its own
+  configuration cannot be compared with one that does, and a repeated run does not test that.
 
 Sixty-four rules, each earned by a failure rather than chosen:
 

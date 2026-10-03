@@ -72,3 +72,6 @@ test_image.png
 
 # CodeGraph index - local to each machine
 .codegraph/
+
+# desloppify scan state - its own tool state, and a 3 MB index per language, not project content
+.desloppify/
