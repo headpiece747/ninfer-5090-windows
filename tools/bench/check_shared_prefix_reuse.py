@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -48,7 +49,12 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from first_request_lane import REPO_ROOT, serve_command, wait_until_ready  # noqa: E402
+from first_request_lane import (  # noqa: E402
+    REPO_ROOT,
+    serve_command,
+    stop_lane,
+    wait_until_ready,
+)
 
 BODY_WORDS = 400
 MESSAGES = 6
@@ -157,6 +163,12 @@ def main() -> int:
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--exe", type=Path, default=REPO_ROOT / "build" / "apps" / "ninfer-serve.exe")
     parser.add_argument("--port", type=int, default=8280)
+    parser.add_argument(
+        "--stats-interval-ms",
+        type=int,
+        default=500,
+        help="throughput record interval; the cache-selection counters ride on it",
+    )
     parser.add_argument("--timeout", type=float, default=900.0)
     parser.add_argument("--log-dir", type=Path, default=REPO_ROOT / "profiles" / "shared_prefix")
     arguments = parser.parse_args()
@@ -168,8 +180,20 @@ def main() -> int:
         request_log.unlink()
 
     command, _ = serve_command(arguments.exe, arguments.artifact, arguments.port, False, request_log)
+    # A throughput record is the ONLY place the context-cache selection counters are written, and it
+    # is emitted either on the --log-stats-interval timer or in the shutdown tail. The tail alone is
+    # not enough in practice: the periodic record keeps the counters available even if the graceful
+    # stop is skipped, and it makes them land mid-run rather than only at the end. Measured without
+    # this flag: 0 throughput records, the counters absent, and a wrong conclusion drawn from it.
+    command += ["--log-stats-interval-ms", str(arguments.stats_interval_ms)]
     handle = server_log.open("wb")
-    process = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(
+        command,
+        stdout=handle,
+        stderr=subprocess.STDOUT,
+        # Its own console process group, so stop_lane's CTRL_BREAK reaches the lane alone.
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+    )
     try:
         if not wait_until_ready(arguments.port, process, arguments.timeout):
             print(f"  FAIL: lane never became ready; see {server_log}")
@@ -213,22 +237,18 @@ def main() -> int:
               f"{error.read().decode('utf-8', 'replace')[:200]}")
         return 1
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=60)
-        except subprocess.TimeoutExpired:
-            process.kill()
+        # stop_lane, not terminate(): the context-cache selection counters this loop exists to read
+        # are flushed in the shutdown throughput record, and TerminateProcess on Windows skips it.
+        stop_lane(process)
         handle.close()
 
     if not request_log.is_file():
         print(f"  FAIL: no request log at {request_log}")
         return 1
-    done = []
-    for line in request_log.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            record = json.loads(line)
-            if record.get("event") == "request_done":
-                done.append(record)
+    json_lines = [
+        json.loads(line) for line in request_log.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    done = [record for record in json_lines if record.get("event") == "request_done"]
     # Nine requests are sent; done[0] is the first repeat (the seed), so the reported rows are
     # 1-indexed positions 2..9. The last two are the two shared conversations.
     if len(done) != 9:
@@ -287,10 +307,42 @@ def main() -> int:
 
     print()
     warm_hit, warm_path = rows[7][2], rows[7][3]
-    if warm_hit == 0 or warm_path != "shared_stable_prefix":
+
+    # The selection counters say WHICH gate refused, which no per-request field can. They are only
+    # on a throughput record, so this is also the check that the lane emitted one at all.
+    throughput = [r for r in json_lines if r.get("event") == "throughput"]
+    if not throughput:
+        print("  The selection counters are absent: no throughput record was written, so this run")
+        print("  cannot say WHY the read was refused. Re-run with a larger --stats-interval-ms.")
+        return 1
+    selections = (throughput[-1].get("context_cache") or {}).get("selections") or {}
+    print()
+    print("  cache selection counters (from the last throughput record):")
+    for name in (
+        "shared_stable_prefix",
+        "shared_reuse_candidates",
+        "shared_reuse_declined",
+        "shared_reuse_key_mismatch",
+    ):
+        print(f"    {name:28s} {selections.get(name, '(absent)')}")
+    print()
+    warm_ok = warm_hit != 0 and warm_path == "shared_stable_prefix"
+    if not warm_ok:
+        if selections.get("shared_reuse_key_mismatch"):
+            print("  ATTRIBUTED: a shared index entry was skipped before planning -- no shortlist key")
+            print("  matched at its frontier (resource_manager.h:329). The incoming prompt does not")
+            print("  hash to the resident prefix there, so the pair above never became a candidate.")
+        elif selections.get("shared_reuse_declined"):
+            print("  ATTRIBUTED: a shared entry reached the plan and the Program refused it.")
+        elif selections.get("shared_reuse_candidates"):
+            print("  ATTRIBUTED: a shared entry reached the plan unrefused, and another path won.")
+        else:
+            print("  ATTRIBUTED: no shared entry reached a reuse plan at all in this run.")
+        print()
         print(f"  WARM TTFT: NOT measurable. The second shared conversation got {warm_hit} hit tokens")
         print(f"  on path {warm_path}.")
         return 1
+
     print("  WARM TTFT IS MEASURABLE. Two different conversations sharing a declared system prefix:")
     print(f"  the second hit {warm_hit} tokens on path {warm_path} -- a cached prefix plus a real")
     print("  encode and decode of its own tail. That is exactly the shape ADR-0012's 'prefill served")

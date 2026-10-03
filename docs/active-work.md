@@ -1567,14 +1567,40 @@ tokens. Three mechanisms produce the zeros, all intended:
    startup line reads `shared 7`). The read is refused at the shortlist key
    (`resource_manager.h:329`).
 
-**Warm TTFT stays unmeasured, and this is why.** The only shape that reached a cached prefix was
-`private_response_replay`, which returns a stored response and never decodes. The shape that would
-give a real encode-and-decode over a cached prefix — `shared_stable_prefix` — did not reproduce here.
-The three counters that would attribute it (`shared_reuse_candidates`, `shared_reuse_declined`,
-`shared_reuse_key_mismatch`) live in `RuntimeStats` and are reachable through the public
-`Engine::runtime_stats()`, but **no shipped surface emits them**: not `ninfer-serve`'s request log,
-not its operational log. Until one does, ADR-0012's ~22 ms projection cannot be tested from the
-product, and this is the finding rather than a gap in the harness.
+**Warm TTFT stays unmeasured, and the reason is now attributed rather than open.** The only shape that
+reached a cached prefix was `private_response_replay`, which returns a stored response and never
+decodes. The shape that gives a real encode-and-decode over a cached prefix — `shared_stable_prefix`
+— did not reproduce, and the cache-selection counters say why:
+
+```
+shared_stable_prefix       0
+shared_reuse_candidates    0
+shared_reuse_declined      0
+shared_reuse_key_mismatch  0
+```
+
+All four zero means **no shared entry ever reached a reuse plan** — not that one was refused at the
+shortlist key, which is what `shared_reuse_key_mismatch` would have shown. So on this lane a
+`SharedStablePrefix` candidate is never even proposed for reuse.
+
+**Two corrections to what I said earlier in this same session, both from the same misreading:**
+
+- The counters are emitted after all. `format_throughput_json` (`src/serve/request_log.cpp:606`)
+  writes them on a **`throughput`** record, and I reported that no shipped surface emits them because
+  my analyzer filtered the log to `request_done` and discarded that record. They need
+  `--log-stats-interval-ms` set (default 5000) or the shutdown tail; without it the log holds none and
+  a reader concludes the opposite. `report_serve_phases.py` now reads the record and **fails loudly**
+  when it is absent, instead of reporting zeros as "not emitted".
+- The startup line `private 8 | shared 7 | anchors 4` is the **configured capacity**
+  (`operational_log.cpp:488-495`), not a count of published prefixes. I read it as evidence that
+  "publication works, so the read is refused". It says nothing about publication. The counters are
+  what measure publication, and they say it did not happen here.
+
+Neither correction changes the conclusion that the cache is not broken: a marked growing conversation
+is still served 3,817 of 3,824 tokens, and all three mechanisms producing the zeros remain intended
+(OpenAI's own write policy; plain string content carrying no marker; replay outbidding shared at the
+whole-prompt frontier). What is left unexplained is only why ADR-0009 measured the shared read being
+served on a lane whose configuration is now verified identical to this one.
 
 **Re-scoped 2026-10-01: this is two separate items, and the text half is answered.** The four candidate
 causes listed above are not equally live. External research, and one in-tree fact, split them:

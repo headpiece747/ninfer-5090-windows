@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import subprocess
 import sys
@@ -36,7 +37,12 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from first_request_lane import REPO_ROOT, serve_command, wait_until_ready  # noqa: E402
+from first_request_lane import (  # noqa: E402
+    REPO_ROOT,
+    serve_command,
+    stop_lane,
+    wait_until_ready,
+)
 
 FILLER = "The quick brown fox jumps over the lazy dog. " * 4
 
@@ -101,7 +107,13 @@ def main() -> int:
 
     print(f"  starting one lane on port {arguments.port}", flush=True)
     handle = server_log.open("wb")
-    process = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(
+        command,
+        stdout=handle,
+        stderr=subprocess.STDOUT,
+        # Its own console process group, so stop_lane's CTRL_BREAK reaches the lane alone.
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+    )
     try:
         if not wait_until_ready(arguments.port, process, arguments.timeout):
             print(f"  FAIL: lane never became ready; see {server_log}")
@@ -139,11 +151,9 @@ def main() -> int:
                     break
             print(f"  {messages:4d} message(s): prefix seeded, then the reported request", flush=True)
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=60)
-        except subprocess.TimeoutExpired:
-            process.kill()
+        # stop_lane, not terminate(): on Windows terminate() kills the process, so the shutdown
+        # throughput record carrying the cache-selection counters is never flushed.
+        stop_lane(process)
         handle.close()
 
     if not request_log.is_file():

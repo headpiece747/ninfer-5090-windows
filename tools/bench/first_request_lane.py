@@ -54,6 +54,7 @@ import argparse
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -128,6 +129,36 @@ def request_body(temperature: float, seed: int) -> dict[str, Any]:
         "enable_thinking": False,
         "stream": False,
     }
+
+
+def stop_lane(process: subprocess.Popen[bytes], timeout_s: float = 30.0) -> None:
+    """Stop a lane so its final `throughput` record is written.
+
+    `Popen.terminate()` sends SIGTERM on POSIX, which the engine handles (`apps/serve/main.cpp:84`
+    registers SIGINT and SIGTERM). On Windows `terminate()` calls TerminateProcess, which kills the
+    process outright, and the shutdown tail record -- the one carrying the context-cache selection
+    counters -- is never flushed. The lane therefore has to be asked, not killed.
+
+    CTRL_BREAK_EVENT is the Windows console signal that reaches a handler registered by
+    `SetConsoleCtrlHandler`, which is what `std::signal` compiles to here. It needs the child in its
+    own process group so the event is not delivered to this shell as well, which is why
+    `creationflags` is set where `serve_command` spawns it. If the graceful stop times out the
+    process is killed anyway, so this cannot hang a harness.
+    """
+    graceful = False
+    if os.name == "nt":
+        try:
+            os.kill(process.pid, signal.CTRL_BREAK_EVENT)
+            graceful = True
+        except (OSError, ValueError):
+            graceful = False
+    if not graceful:
+        process.terminate()
+    try:
+        process.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=timeout_s)
 
 
 def serve_command(
@@ -233,7 +264,13 @@ def run_arm(
     print(f"  [{label}] starting on port {port} (log: {log_path.name})", flush=True)
     with log_path.open("wb") as stream:
         process = subprocess.Popen(  # noqa: S603
-            command, stdout=stream, stderr=subprocess.STDOUT, env={**os.environ}
+            command,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            env={**os.environ},
+            # Its own console process group, so stop_lane's CTRL_BREAK reaches the lane and not this
+            # shell. Without it the event goes to the whole group and the harness takes the break too.
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
         )
 
     samples: list[dict[str, Any]] = []
@@ -272,12 +309,7 @@ def run_arm(
                 flush=True,
             )
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=30)
+        stop_lane(process)
 
     return {
         "arm": label,

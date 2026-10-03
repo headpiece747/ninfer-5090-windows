@@ -35,6 +35,40 @@ MEASURED_RENDER_MS = 5.99
 INTERPRETER_RENDER_MS = 48.3
 
 
+def cache_selection_counters(path: Path) -> dict[str, Any]:
+    """Return the context-cache selection counters from the LAST throughput record.
+
+    These live on a `throughput` event, not on `request_done`, which is why an earlier version of
+    this script reported that no shipped surface emitted them: it filtered the log to
+    `request_done` and then reported the counters as absent. They were there the whole time, on a
+    record this script was discarding.
+
+    `format_throughput_json` (src/serve/request_log.cpp) writes them as deltas against the previous
+    record, and the final one is written at shutdown. So the lane has to be stopped gracefully for
+    them to exist at all -- TerminateProcess skips that write.
+
+    Fails loudly if there is no throughput record, because reporting zero counters as "none were
+    emitted" is the specific wrong answer this function exists to stop.
+    """
+    if not path.is_file():
+        print(f"  FAIL: no request log at {path}")
+        raise SystemExit(1)
+    latest: dict[str, Any] | None = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("event") == "throughput":
+            latest = record
+    if latest is None:
+        print(f"  FAIL: {path.name} holds no throughput record, so the cache-selection counters are")
+        print("  not in it. The lane was probably killed rather than stopped gracefully, or")
+        print("  --log-stats-interval-ms is 0.")
+        raise SystemExit(1)
+    selections = (latest.get("context_cache") or {}).get("selections") or {}
+    return selections
+
+
 def request_done_records(path: Path) -> list[dict[str, Any]]:
     """Return the request_done records. Fails loudly rather than reporting over an empty set."""
     if not path.is_file():
@@ -103,6 +137,30 @@ def main() -> int:
     print(f"  prompt_tokens, warm    : {sorted({r['result']['prompt_tokens'] for r in warm})}")
     print(f"  completion_tokens      : {sorted(tokens)}")
     print(f"  prefix_cache_hit_tokens: warm min {min(hits)}, max {max(hits)}")
+    print()
+
+    # The selection counters, which say WHY a request took the path it took. ADR-0009's three:
+    # a candidate that reached the plan, one the Program refused, one skipped at the shortlist key.
+    selections = cache_selection_counters(arguments.log)
+    watched = (
+        "shared_stable_prefix",
+        "shared_reuse_candidates",
+        "shared_reuse_declined",
+        "shared_reuse_key_mismatch",
+    )
+    print("  cache selection counters (deltas, from the last throughput record):")
+    for name in watched:
+        print(f"    {name:28s} {selections.get(name, '(absent)')}")
+    print()
+    if selections.get("shared_reuse_key_mismatch"):
+        print("  A shared index entry was SKIPPED before planning because no shortlist key matched at")
+        print("  its frontier -- the incoming prompt did not hash to the resident prefix there.")
+    elif selections.get("shared_reuse_declined"):
+        print("  A shared entry reached the plan and the Program REFUSED it.")
+    elif selections.get("shared_reuse_candidates"):
+        print("  A shared entry reached the plan and was not refused; another path won the valuation.")
+    else:
+        print("  No shared entry reached a reuse plan in this run.")
     print()
 
     # The cache question, answered by the field rather than inferred from a latency difference.
