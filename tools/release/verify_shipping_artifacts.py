@@ -71,7 +71,7 @@ ARTIFACTS: dict[str, tuple[str, float, Path, bool]] = {
     "qwen3_8_27b_nvfp4nvidia.v3.ninfer": ("NVIDIA ModelOpt", 4.911188, MODELS, True),
     "qwen3_8_27b_nvfp4swift15.v3.ninfer": ("Swift 1.5", 5.000654, MODELS, True),
     "qwen3_8_27b_nvfp4swift.v3.ninfer": ("Swift 1.0", 4.936397, SUPERSEDED, False),
-    "qwen3_8_27b_nvfp4.v3.ninfer": ("retired nvfp4", 4.901690, MODELS, False),
+    "qwen3_8_27b_nvfp4.v3.ninfer": ("retired nvfp4", 4.901690, SUPERSEDED, False),
 }
 
 # The recipe each artifact was built by, for the structural verifier's own cross-check. The Swift

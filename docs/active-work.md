@@ -1959,6 +1959,13 @@ Each of these was investigated and settled. They look like open work and are not
   `is_causal: true` and an absent key each raise. Three existing fixtures omitted the key and were
   the evidence that nothing covered this: the converter suite was green against configs that would
   now be refused. Not a shipping lane; the defect was that it was silent.
-- `C:\AI\models\qwen3_8_27b_nvfp4.v3.ninfer` sits beside the four shipping artifacts, is not a
+- ~~`C:\AI\models\qwen3_8_27b_nvfp4.v3.ninfer` sits beside the four shipping artifacts, is not a
   shipping lane, and reads acceptably by filename. It cost a full session of benchmarking before
-  `profiles.py` was checked.
+  `profiles.py` was checked.~~ — **MOVED 2026-10-03.** It is *not* a leftover: `v3_profile_matrix.py`
+  probes it deliberately for the ceiling figures and `verify_shipping_artifacts.py` carries the
+  recorded perplexity against it (4.901690), so deleting it would have broken both. The hazard was
+  never the file, it was the filename. It now lives at
+  `C:\AI\models\_superseded\qwen3_8_27b_nvfp4.v3.ninfer`, beside the nine artifacts already retired
+  the same way — including `qwen3_8_27b_nvfp4swift.v3.ninfer`, whose own comment says "a superseded
+  build under a live filename is a measurement waiting to go wrong". `C:\AI\models` now holds only
+  the five shipping lanes.

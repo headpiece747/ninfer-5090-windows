@@ -43,6 +43,7 @@ from profiles import PROFILES, QUASAR, NVFP4FULL, SWIFT15, NVIDIA, INVARIANT_FLA
 
 EXE = Path(__file__).resolve().parents[2] / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
+SUPERSEDED = MODELS / "_superseded"
 ROOT_OUT = Path(__file__).resolve().parents[2] / "out"
 OUT = Path(r"C:\AI\bench")
 PORT = 8095
@@ -55,7 +56,11 @@ CURRENT_MODEL_ID = ""  # the engine enforces --model-id, so requests must match 
 # so it is the one filename that has to stay literal here.
 ARTS = {
     "quasar": QUASAR,
-    "ninfer": "qwen3_8_27b_nvfp4.v3.ninfer",
+    # The earlier nvfp4 image, retired from the shipping table and kept under _superseded because
+    # every ceiling figure below is quoted against it. It moved there on 2026-10-03: sitting in
+    # C:\AI\models beside the shipping lanes, its filename read as canonical and cost a full
+    # benchmarking session before profiles.py was checked.
+    "ninfer": str(SUPERSEDED / "qwen3_8_27b_nvfp4.v3.ninfer"),
     # cometkim's fuller-NVFP4 profile: 18.07 GiB, NVFP4 DFlash2 module, upstream-shaped
     # draft bindings (no fused query_key_value), 17.03 GiB device weights with DFlash2.
     "nvfp4full": NVFP4FULL,
@@ -77,7 +82,6 @@ ARTS = {
 # differs solely in how the dflash2 component is encoded. It lives in _superseded rather than beside
 # the shipping image, because a superseded build under a live filename is a measurement waiting to go
 # wrong -- a harness resolving "the Swift artifact" by name would silently pick the wrong one.
-SUPERSEDED = Path(r"C:\AI\models\_superseded")
 ARTS["swift15q8"] = str(SUPERSEDED / "qwen3_8_27b_nvfp4swift15_q8draft.v3.ninfer")
 ARTS["swift"] = str(SUPERSEDED / "qwen3_8_27b_nvfp4swift.v3.ninfer")
 # NVFP4-full with its nine BF16 exception parents encoded to NVFP4. Kept addressable because it is
