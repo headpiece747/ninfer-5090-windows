@@ -131,7 +131,31 @@ recorded ninety passing runs followed by none.
 - **Projected, not measured**: `prepared` ≈ 8 ms and warm TTFT ≈ 22 ms. Those follow from the render
   figure and the field log's split, and the end-to-end path has not been timed with the new renderer.
 
-### The end-to-end projection, measured 2026-10-02: the `prepared` half is refuted
+### The end-to-end projection, measured 2026-10-02, and warm TTFT now exists
+
+Getting to a warm measurement required finding that **`/v1/chat/completions` cannot declare a shared
+prefix at all.** Its parser can only set a cache boundary on a content **part**
+(`openai_chat_request.cpp:352`), which becomes a `MessagePartBoundary` marker — and the renderer
+leaves that location, and `LeadingInstructionBoundary`, unresolved by design (`native_render.cpp:629-631`,
+"the same answer the Jinja path gives when the layout cannot place them"). No frontier, so no shared
+prefix is ever written. The `/v1/messages` route sets the boundary on the **message**
+(`anthropic_messages_request.cpp:266`), which resolves to a `MessageBoundary` and is served.
+`tools/bench/check_shared_prefix_reuse.py` is the instrument, and it exits 0 when the warm path is
+reached and 2 when its own control cannot see a hit.
+
+| | prompt tokens | prefix reused | `prepare` | TTFT | path |
+|---|---:|---:|---:|---:|---|
+| cold | 8,080 | 0 | 3.52 ms | 710.92 ms | `root` |
+| warm | 8,079 | 8,054 | 3.89 ms | 159.71 ms | `shared_stable_prefix` |
+
+Read those for what they are. `prepare` at **3.89 ms** is the native renderer preparing 8k tokens: the
+same order as this ADR's projected ~8 ms, so **consistent with, not a confirmation of**, a projection
+written for a ~172k-token conversation this artifact cannot reach. The 4.5x TTFT gap between the two
+rows is the reusable prefix working, and it is the first measurement here of a warm request whose
+prefill came from cache with a real decode behind it — every earlier "warm" figure on this ADR's
+subject was `private_response_replay`, which returns a stored response and never decodes.
+
+**The `prepared` ≈ 8 ms projection is refuted**, separately and by a different measurement.
 
 `tools/bench/warm_lane_sweep.py`, one lane, the native path active, the engine's own
 `request-log-jsonl` fields (`timings_seconds.prepare`, `result.prompt_tokens`):
@@ -151,14 +175,18 @@ because it treated the render saving as the substance of `prepared`: at 42k toke
 roughly 1.4 ms of the 12.21 ms, so tokenize, layout and copies dominate, and those scale with the
 prompt rather than shrinking with it.
 
-**The warm TTFT half could not be tested at all, and the reason is a result.** A growing
-conversation whose prefix is genuinely shared — `conversation(n - 1)` then `conversation(n)`, sharing
-`n - 1` messages — returned `prefix_cache_hit_tokens = 0` and path `root` at every size tried
-(4,727 / 20,879 / 42,415 tokens). The only rows that did hit took `private_response_replay`, which
-returns a stored response and never decodes, so its TTFT is replay latency rather than TTFT. On
-this lane, on this workload, there is no cached-prefix-plus-real-decode path to measure, so
-"warm TTFT ≈ 22 ms" remains untested rather than confirmed. Its own precondition is the thing that
-is missing.
+**SUPERSEDED 2026-10-02 by the table above — warm TTFT is now measured.** Kept because each sentence
+cost a wrong conclusion. A growing conversation on `/v1/chat/completions` returned
+`prefix_cache_hit_tokens = 0` and path `root` at every size tried (4,727 / 20,879 / 42,415 tokens), and
+the shared read was reported as "refused at the shortlist key". Both were harness and protocol facts,
+not cache behaviour: the OpenAI route cannot write a shared prefix (see above), and the shortlist-key
+guess was made before the counters were readable. The only rows that hit here took
+`private_response_replay`, which returns a stored response and never decodes — so every earlier "warm"
+figure on this ADR's subject was replay latency.
+
+At 8k tokens warm TTFT measures 159.71 ms. The projection's ~22 ms is for a ~172k-token conversation,
+which this artifact cannot hold (about 117k), so that half remains untested at the size it was written
+for rather than confirmed or refuted. The `prepared` ≈ 8 ms half is separately refuted, below.
 
 Also measured here, re-deriving the precondition above after the renderer's digest was corrected:
 `CompiledChatTemplate::render` over a 229-message, 689,748-byte conversation takes **5.59 ms**
