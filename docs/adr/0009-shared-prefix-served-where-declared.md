@@ -136,6 +136,38 @@ this ADR's 2026-09-22 `shared_stable_prefix 1` is not reproduced on demand — *
 counters needed to test it ride on a throughput record this product's lane does not write (see
 [ADR-0012](0012-native-render-for-the-registered-template.md)).
 
+**A second, configuration-level candidate is open upstream and worth reading before attributing any
+missing shared hit to valuation.** `gh issue view 270 --repo Neroued/ninfer`: `max_shared_prefixes`
+defaults to `max(max_concurrency, 4)` while a single request may present up to **7** candidates (4
+explicit + 3 engine-automatic), so at low concurrency the catalog can fill from one or two requests'
+own candidates; an entry carrying `DefaultAutomatic` evidence "can never evict to make room", and once
+the catalog is full, requests *"permanently stop getting shared-prefix cache hits and silently
+re-prefill their entire prompt on every call, with no error or degradation signal."* That is a
+mechanism this ADR's counters cannot distinguish from the valuation rule above, because it suppresses
+the candidate before any of them is incremented.
+
+**It does not apply to this measurement, and the code says why rather than the run merely failing to
+reproduce it.** `max_shared_prefixes` defaults to `max(concurrency, 4)`
+(`model_instance.cpp:115-116`, `kMaximumExplicitPromptCacheMarkers` = 4), while the 7-candidate
+ceiling is `4 explicit + 3 engine-automatic` (`frontend.cpp:495`). Those 3 are gated on
+`allow_engine_automatic_shared_prefixes`, and **both serving protocols force it false** —
+`openai_common.cpp:177` and `anthropic_messages_request.cpp:980`. So on either protocol a request
+presents at most 4 candidates against a catalog of at least 4, and the catalog cannot be undersized
+relative to one request's own candidates. The bug is real and unfixed upstream; it needs a route that
+leaves the flag true.
+
+**`prompt_cache_key` is accepted and discarded, and that is a plausible contributor where replay wins.**
+OpenAI documents it as a *routing and matching* input: "Requests are routed based on the initial
+prompt prefix. When you provide `prompt_cache_key`, it is combined with the prefix hash, allowing you
+to influence routing", and for its current model families it is required "to use the more reliable
+matching for both implicit and explicit caching". This port validates it as a string hint
+(`openai_common.cpp:68`) and then states in `docs/serving.md:358` that it "is not an Engine session key
+or prefix identity". Two sessions sharing a byte-identical declared prefix therefore match only by
+token digest, and — per `repeated` above — a session-keyed client never accumulates a second reuse
+domain, so nothing is ever `repeated`. That is a coherent mechanism for a shared candidate losing
+without the counters moving. **Untested here**: it predicts that an explicit boundary plus a stable
+`prompt_cache_key` changes the OpenAI arm's outcome, which is a run this ADR has not done.
+
 **`EngineObserved` is in neither bucket.** The frontend's full-prompt automatic boundary
 (`frontend.cpp:541-543`) carries `EngineObserved`, and the admission test at
 `resource_manager.h:1885-1897` builds `declared` from `ExplicitBoundary`/`RequestedAutomatic` and

@@ -243,9 +243,34 @@ something, and each is named here so it gets used rather than rediscovered.
 | Python tooling, before committing it | `ruff check tools tests` and `mypy tools/release tools/convert tests` — both clean, both enforced by the hook, so a new finding is a regression rather than a cost |
 | a lingering suspicion of flakiness | `ctest --test-dir build-test --repeat until-fail:5` |
 | what upstream already decided, or whether a symptom is known | the upstream tracker: `gh issue list --repo Neroued/ninfer --search <term>` — this project's reference corpus |
+| **an unfamiliar subsystem, a wrong belief about the code, or a claim that a fix works** | **a skill — see [Skills](#skills-and-when-to-reach-for-one) below. Every row above is a project CLI, and on 2026-10-03 a session used CLIs exclusively, loaded no skill at all, and then asserted two claims about code it had not read** — one of them (`chat_template.cpp:452-472`) sitting in its own first search result |
 
 Not installed deliberately: CI. GitHub-hosted runners have no GPU, so the suite needs a self-hosted
 runner on this machine, and publishing a workflow needs a push.
+
+### Skills, and when to reach for one
+
+A skill is a tool. The table above is made of project CLIs, and that is why a session could read it,
+follow it completely, and never once load a skill: nothing in the table pointed at one. Skills are
+model-invoked — reachable without being asked — which means nothing will surface them at the moment a
+claim needs checking unless the check is written down here.
+
+**Before the first edit of a task, name the skill you loaded, or say that none applied.** One line, in
+the working conversation. It is the only point at which the question is cheap, because after that
+edit the answer is already committed to.
+
+| situation | skill |
+|---|---|
+| a C++/CUDA change on its way in | `cpp-cuda-review` — this repo's own review gate. Grades blast radius, not line count: a one-line change in admission outranks a 300-line rename |
+| a hard bug, or a belief about the code that might be wrong | `diagnosing-bugs` — phase 1 is a red-capable loop, and "I have read the code" is not one. It asks for ranked falsifiable hypotheses before instrumenting |
+| before claiming a fix works | `principle-prove-it-works` — check the real thing, not a proxy, a self-report, or "it compiles" |
+| "how does X work", or an unfamiliar subsystem | `how` — spawns parallel explorers per seam and reconciles them. This is what found a control that was comparing an implementation with itself |
+| `AGENTS.md` or an ADR may have gone stale after a change | `rules-check-drift` — finds claims the change made false, and proposes the smallest edit that restores them |
+| a design with no precedent in this tree | `principle-exhaust-the-design-space` — build two or three and compare, before committing to one |
+| a claim about another project | `research` — primary sources, cited. A feature request's premise is frequently wrong, and the decisive fact is usually in a commit rather than a headline |
+| a multi-phase change needing an auditable trail | `show-me-your-work` — one row per decision, with the evidence and the result |
+
+A skill is a tool, and reaching for one is never the expensive choice. Load it, read it, apply it.
 
 ## Reference navigation
 

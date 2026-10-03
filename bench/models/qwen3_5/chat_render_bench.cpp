@@ -410,7 +410,7 @@ std::vector<ninfer::PromptCacheMarker> cache_marker_corpus(
 // route mapping a source offset against a region that begins at the trimmed text coincide by
 // construction. A part that begins with whitespace separates them, and an ordinary user message may
 // begin with whitespace, so the case is built here rather than left to a fixture nobody writes.
-void report_trimmed_part_case(std::string_view source,
+bool report_trimmed_part_case(std::string_view source,
                               const nlohmann::ordered_json& special_tokens) {
     const fi::CompiledChatTemplate jinja = fi::CompiledChatTemplate::resolve(
         std::string(source) + "{#trimmed-part-oracle#}", "trimmed-part-oracle", special_tokens);
@@ -437,13 +437,14 @@ void report_trimmed_part_case(std::string_view source,
     std::cout << "trimmed part jinja  : " << show(expected.cache_boundaries) << "\n";
     std::cout << "trimmed part native : " << show(actual.cache_boundaries) << "\n";
     std::cout << "trimmed part        : " << (same ? "identical" : "DIFFERS") << "\n";
+    return same;
 }
 
 // The differential loop ADR-0012 is built against. Its control -- the Jinja render compared with
 // itself -- validates the instrument before any comparison means anything, and what it reports is the
 // first byte that differs, so a native renderer can be built against an exact target rather than a
 // reading of the template.
-void report_native_comparison(const fi::CompiledChatTemplate& compiled,
+bool report_native_comparison(const fi::CompiledChatTemplate& compiled,
                               const std::vector<fi::ChatMessage>& messages,
                               const fi::ChatRenderOptions& render_options,
                               const ninfer::PreparationControl& control, std::string_view source,
@@ -483,12 +484,22 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
               << " (oracle against itself); "
               << (control_probe ? "detects a difference" : "DETECTS NOTHING (broken instrument)")
               << "\n";
+    // A gate verdict, accumulated from every comparison below. It starts at the controls: a broken
+    // instrument means every later "identical" below is worthless, so that alone fails the run.
+    bool parity = control_offset.has_value() == false && control_probe.has_value();
 
     const fi::Sha256Digest digest = fi::sha256(source);
     const bool registered         = fi::native_render_supported(digest);
     std::cout << "native registered   : " << (registered ? "yes" : "no") << " (template digest "
               << fi::sha256_hex(digest) << ")\n";
-    if (!registered) { return; }
+    if (!registered) {
+        // A parity gate that passes because the native path has retired is a control agreeing for a
+        // structural reason, not a clean result: the whole comparison silently stops existing. The
+        // digest is covered by `test_registered_template_digest_matches_file`, but a gate whose
+        // subject can vanish must say so here rather than report parity it never checked.
+        std::cout << "native parity       : NOT CHECKED (template digest is unregistered)\n";
+        return false;
+    }
 
     const fi::RenderedChat native = fi::render_native(messages, marked);
     const auto offset             = first_difference(jinja.text, native.text);
@@ -540,29 +551,32 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
             std::cout << "native   native : " << (rhs.size() > 240 ? rhs.substr(0, 240) : rhs)
                       << "\n";
         }
+        return lhs == rhs;
     };
-    report("literal_spans", spans(jinja.literal_spans), spans(native.literal_spans));
+    parity &= report("literal_spans", spans(jinja.literal_spans), spans(native.literal_spans));
     if (spans(jinja.literal_spans) != spans(native.literal_spans)) {
         std::cout << "native   jinja  full: " << spans(jinja.literal_spans) << "\n";
         std::cout << "native   native full: " << spans(native.literal_spans) << "\n";
     }
-    report("message_boundaries", boundaries(jinja.message_boundaries),
-           boundaries(native.message_boundaries));
-    report("cache_boundaries", boundaries(jinja.cache_boundaries),
-           boundaries(native.cache_boundaries));
-    report("starts_in_reasoning",
-           jinja.starts_in_reasoning ? "true" : "false",
-           native.starts_in_reasoning ? "true" : "false");
-    report("rewrite_execution_boundaries",
-           boundaries({jinja.rewrite_execution_boundaries.begin(),
-                      jinja.rewrite_execution_boundaries.end()}),
-           boundaries({native.rewrite_execution_boundaries.begin(),
-                      native.rewrite_execution_boundaries.end()}));
-    report("media_placeholders", std::to_string(jinja.media_placeholders.size()),
-           std::to_string(native.media_placeholders.size()));
-    report("rewrite_checkpoint",
-           jinja.rewrite_checkpoint ? std::to_string(jinja.rewrite_checkpoint->offset) : "none",
-           native.rewrite_checkpoint ? std::to_string(native.rewrite_checkpoint->offset) : "none");
+    parity &= report("message_boundaries", boundaries(jinja.message_boundaries),
+                     boundaries(native.message_boundaries));
+    parity &= report("cache_boundaries", boundaries(jinja.cache_boundaries),
+                     boundaries(native.cache_boundaries));
+    parity &= report("starts_in_reasoning",
+                     jinja.starts_in_reasoning ? "true" : "false",
+                     native.starts_in_reasoning ? "true" : "false");
+    parity &= report("rewrite_execution_boundaries",
+                     boundaries({jinja.rewrite_execution_boundaries.begin(),
+                                jinja.rewrite_execution_boundaries.end()}),
+                     boundaries({native.rewrite_execution_boundaries.begin(),
+                                native.rewrite_execution_boundaries.end()}));
+    parity &= report("media_placeholders", std::to_string(jinja.media_placeholders.size()),
+                     std::to_string(native.media_placeholders.size()));
+    parity &= report("rewrite_checkpoint",
+                     jinja.rewrite_checkpoint ? std::to_string(jinja.rewrite_checkpoint->offset)
+                                              : "none",
+                     native.rewrite_checkpoint ? std::to_string(native.rewrite_checkpoint->offset)
+                                               : "none");
 
     // The arms above compare the default effort only, which leaves the client aliases -- the one
     // place the two implementations carry independent logic -- uncompared. `none` is the engine's
@@ -593,7 +607,10 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
                   << (arm_offset ? "differs at byte " + std::to_string(*arm_offset)
                                  : std::string("identical"))
                   << "\n";
+        if (arm_offset) { parity = false; }
     }
+    std::cout << "native parity       : " << (parity ? "PASS" : "FAIL") << "\n";
+    return parity;
 }
 
 int main(int argc, char** argv) {
@@ -701,8 +718,15 @@ int main(int argc, char** argv) {
         std::cout << "cancel probe        " << (options.cancel_probe ? "on" : "off") << "\n";
         std::cout << "noise threads       " << options.noise_threads << "\n";
         if (options.native) {
-            report_native_comparison(compiled, build_conversation(options, options.sweep.front()),
-                                     render_options, control, source, special_tokens);
+            // The differential loop is a gate, not a report: a divergence, a broken control, or a
+            // retired native path all fail the run, because the suite compared only 2 of the 9
+            // `RenderedChat` fields and this compares the rest.
+            if (!report_native_comparison(compiled, build_conversation(options, options.sweep.front()),
+                                          render_options, control, source, special_tokens)) {
+                stop_noise();
+                std::cerr << "native parity FAILED against the Jinja oracle\n";
+                return 1;
+            }
         }
         std::cout << "\n";
         std::cout << "messages   bytes   render ms   ms/message   boundaries   text bytes   "

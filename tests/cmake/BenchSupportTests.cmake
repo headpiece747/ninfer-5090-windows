@@ -19,3 +19,20 @@ target_include_directories(ninfer_context_cost_measure_test PRIVATE
   ${PROJECT_SOURCE_DIR}/bench/context_cost)
 
 add_test(NAME ninfer_context_cost_measure_test COMMAND ninfer_context_cost_measure_test)
+
+# The native renderer is a second implementation of one serialization, and it was compared only by a
+# bench in no gate: seven `RenderedChat` fields had no coverage at all, and the reasoning-effort arms
+# compared the native renderer with itself while reporting agreement. The suite compares 2 of the 9
+# fields; these two entries run the differential oracle for the rest and fail the suite on any
+# divergence, on a broken control, or on a retired native path. They need no FFmpeg runtime: this bench
+# has no media-library link dependency (the dflash bench does, which is a separate recipe's problem).
+# The media arm is separate because it is the only corpus carrying a multi-part user turn, which is
+# where a part boundary sits between other parts rather than at the end of the content.
+add_test(NAME ninfer_chat_render_native_parity_test
+         COMMAND ninfer_qwen3_5_chat_render_bench
+                 --template "${PROJECT_SOURCE_DIR}/tools/chat_templates/qwen3_8.jinja"
+                 --native --sweep 5 --quiet)
+add_test(NAME ninfer_chat_render_native_parity_media_test
+         COMMAND ninfer_qwen3_5_chat_render_bench
+                 --template "${PROJECT_SOURCE_DIR}/tools/chat_templates/qwen3_8.jinja"
+                 --native --media --sweep 6 --quiet)

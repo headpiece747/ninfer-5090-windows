@@ -1,6 +1,6 @@
 {
-  "recorded": "2026-09-30",
-  "suite_size": 137,
+  "recorded": "2026-10-03",
+  "suite_size": 139,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -27,6 +27,11 @@
       "date": "2026-09-30",
       "count": 1,
       "note": "ninfer_topk_record_test: the top-k scoring record's SHA-256 token digest pinned against hashlib and its byte layout pinned against tools/release/per_domain_kl.py's reader"
+    },
+    {
+      "date": "2026-10-03",
+      "count": 2,
+      "note": "ninfer_chat_render_native_parity_test and ninfer_chat_render_native_parity_media_test: the native renderer is a second implementation of one serialization and the differential oracle that compares it was in no gate, no .githooks entry and no ctest registration, so seven RenderedChat fields had zero coverage and the seven reasoning-effort arms compared the native renderer with itself while reporting agreement. The suite compared 2 of the 9 fields (text and cache_boundaries). These two entries run the oracle and fail the suite on any divergence, on a broken control, or on a retired native path. Host-only and needing no artifact and no FFmpeg runtime, measured at 0.06s and 0.03s, so required_tests and optional_tests are unchanged. Falsified before registration: with the renderer reverted to the pre-fix revision both entries FAIL on cache_boundaries and the suite exits 8; with the fix both PASS and it exits 0."
     }
   ]
 }

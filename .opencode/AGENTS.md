@@ -15,7 +15,14 @@ Before a code question or a change, check these in order and say which were used
 3. **Agents** - delegate parallel search or research (`explore`, `general`) instead of doing it
    serially in the main thread.
 4. **Internet** - do upstream's tracker, maintainer notes, or a primary source own the answer?
-   `gh issue view <n> --repo Neroued/ninfer` works and is authenticated.
+   `gh issue view <n> --repo Neroued/ninfer` works and is authenticated. Four open shared-prefix
+   issues are already known and one query finds them: `#142` (sibling sessions miss a shared prefix
+   without `prompt_cache_breakpoint`), `#236` (mass eviction, 38.5% repeat reuse), `#251` (reuse
+   stops once the checkpoint budget is exercised), `#270` (`max_shared_prefixes` defaults below one
+   request's own candidate ceiling — but only reachable when engine-automatic candidates are enabled,
+   which both serving protocols force off, so it is real and does not apply to a `/v1/chat/completions`
+   or `/v1/messages` arm). Read them before attributing a missing shared hit to the valuation rule. Also `git grep <symbol> upstream/dev`
+   reads upstream source at any ref, which is cheaper and more current than any generated summary.
 5. **Plugins / hooks** - anything already loaded that answers this?
 
 Manual grep/Read is for what codegraph does not index (docs, configs, logs) or to confirm one
