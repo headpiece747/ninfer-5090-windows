@@ -599,6 +599,10 @@ configuration nobody was checking.
 >   forks: three Windows ports build and run this exact route on sm_120a and all three keep the
 >   rank-2 descriptor and `cp.async.bulk.tensor.2d`.
 >
+> **RESOLVED 2026-10-02 — this no longer holds.** All nine `PORT-DISPATCH` gates are lifted, each
+> on its own per-route oracle, so shipping configurations HAVE changed. What follows is the
+> position as it stood when the gates were still closed.
+>
 > **What is still open is the second half:** the nine `PORT-DISPATCH` gates are untouched, so no
 > shipping configuration has changed and no lane is faster. **And the case for ungating them is now
 > stronger than the case against it**, on evidence rather than on the throughput figure that first
@@ -975,6 +979,14 @@ configuration nobody was checking.
 > `partial_capacity_bytes` and calling the *same* `fp8_tma_split_k_plan` the launcher calls would make the
 > two agree by construction rather than by six hand-matched thresholds.
 >
+> **Superseded 2026-10-02 — and done differently.** The structural fix landed, but not in the shape
+> this paragraph describes: rather than threading `rows` down to re-derive `tiles` (which would
+> have introduced a second derivation of the thing the retracted `static_assert` got wrong), every
+> band boundary is now a named constant read by both the ladder that selects and the function that
+> sizes. Sizing semantics are unchanged. `tools/release/check_fp8_band_ladders.py` enforces it, with
+> a self-test. The block below is the original decision and is kept as the record of why that
+> shape was rejected.
+>
 > **Not done here, deliberately.** It changes the `Fp8LinearShape` signature and every plan function, and it
 > is a new piece of architecture rather than a bug fix - it deserves its own verification cycle, not a
 > rushed one at the end of a release. The current thresholds are CORRECT for all seven ungated routes,
@@ -1338,6 +1350,8 @@ sm_120a limitation or a defect in upstream's kernel, and telling upstream it fau
 Blackwell target is worth doing either way. **This is answered now and neither answer is what it
 predicted:** the cause was neither, and the resolution block at the top of this item records it — the
 `alignas(128)` descriptor, fixed by `a5077adf`. What is still open is only whether to ungate the nine
+> `PORT-DISPATCH` sites. **RESOLVED 2026-10-02: all nine are ungated**, each on its own per-route
+> oracle, with the transport measurement and its methodology recorded above.
 `PORT-DISPATCH` sites.
 
 ---
@@ -1595,6 +1609,9 @@ causes listed above are not equally live. External research, and one in-tree fac
 >    per measurement, because that is the only boundary where "first request" and "cold" coincide -- the
 >    engine has initialised, but the lane's caches and per-request state have not.
 > 2. If it does not reproduce there, the figure is retired as unverified rather than left standing.
+>    **EXECUTED 2026-10-02: it did not reproduce, and the figure is retired.** No first-request
+>    effect exists on the clean arm — decode varies 0.2% across eight requests — and request 1 is
+>    the SLOWEST request, the opposite sign to the recorded figure.
 > 3. The part of item 14 that survives either way is the text half, which was observed on that same serving
 >    path and has a named mechanism.
 >
@@ -1609,7 +1626,9 @@ causes listed above are not equally live. External research, and one in-tree fac
 > all. So the recorded number needs its provenance checked against the SERVING lane, where a real
 > client's first request hits a cold lane -- which is a different instrument with a different reset
 > boundary. Until that is done the 261.7 should be treated as unverified, not as an engine fact and not
-> as disproved.
+> as disproved. **RESOLVED 2026-10-02: measured on a serving lane and retired.** The serving-lane
+> measurement above supersedes this caveat; the 261.7 is disproved as a first-request effect, not
+> left standing.
 >
 > This is the "harness error reported as a product defect" pattern the project's own review skill names.
 > The first half of this item -- the text divergence -- is unaffected: it was observed on the serving
