@@ -47,17 +47,23 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
     // linear_swiglu, whose oracle is already green on the ungated ladder with these same tiles
     // (64x128 Stages=2, 64x256, and the 128x256 split Bulk).
     //
-    // This one needed the capacity function fixed BEFORE it could be ungated, not after: see the
-    // static_assert below. Its split never engages, so allocating on the selection band would have
-    // reserved 21.3 MiB per workspace for a buffer never read.
+    // This one needed the capacity function fixed BEFORE it could be ungated, not after. An earlier
+    // version of this function claimed the split could never engage and returned 0 at every token
+    // count, guarded by a static_assert; the full suite caught it, and the assert is gone rather than
+    // repaired -- see partial_capacity_bytes below for why it was wrong. Allocating on the selection
+    // band reserves 21.3 MiB per workspace, and that reservation is what keeps the route correct: at
+    // these token counts the split CAN engage, so a buffer that is never read and one that is needed
+    // are not the same claim.
     if (x.ne[1] <= 64)
-    return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
+        return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 128)
-    return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= kBandBulkSelectsAt)
-    return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
-    // At T <= 256 the last wave is already well filled, so Bulk uses its ordinary
-    // TMA kernel and needs no partials. Keep one compiled family for this region.
+        return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
+    // At T <= 256 the last wave is already well filled, so Bulk's row tile is worth keeping as one
+    // compiled family for this region. Whether that selection SPLITS is a run-time decision the
+    // capacity function has to cover either way -- fp8_split_k_plan can engage it at these token
+    // counts -- so the buffer is allocated for the whole band, not because this rung needs partials.
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
 }
 

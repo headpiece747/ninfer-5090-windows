@@ -44,21 +44,22 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
     // Fp8N14336K5120 belongs to attn_input_proj, whose oracle is already green on the ungated ladder
     // with these same tiles: 64x128 Stages=2 at 65-128, 64x256 at 129-192, 96x256 at 193-288 and the
     // 128x256 split Bulk at 289+. TMA medians on them: 1.107, 1.270, 1.288, 1.270.
+    // Workload, metric and harness: docs/active-work.md item 12, the median tile table.
     //
     // This shape genuinely splits, which is why it needs the partials buffer: 14336/256 = 56 row
     // tiles, so the plan sees tail = 56 <= kSplitWaveCtas/2 = 85 and splits the underfilled wave.
     // (n34816 is the opposite case and is deliberately NOT ungated -- see its file.)
     if (x.ne[1] <= 32)
-    return launch_fp8_a8<Geometry, Fp8A8T32R32K128>(x, weight, out, scratch, stream);
+        return launch_fp8_a8<Geometry, Fp8A8T32R32K128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 96)
-    return launch_fp8_a8<Geometry, Fp8A8T32R128K128>(x, weight, out, scratch, stream);
+        return launch_fp8_a8<Geometry, Fp8A8T32R128K128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 128)
-    return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 192)
-    return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Tma64x256>(x, weight, out, scratch, stream);
     // Three 96-token tiles give 168 CTAs: one almost-full wave through T=288.
     if (x.ne[1] <= kBandBulkSelectsAt)
-    return launch_fp8_a8_tma<Geometry, Tma96x256>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Tma96x256>(x, weight, out, scratch, stream);
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
 }
 

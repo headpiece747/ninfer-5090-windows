@@ -1,5 +1,5 @@
 #!/bin/sh
-# Six checks, all seconds: documentation links resolve, tracked text is byte-preserved UTF-8, the
+# Seven checks, all seconds: documentation links resolve, tracked text is byte-preserved UTF-8, the
 # profile tables match the profile module and the generated launchers, the calibration corpus is
 # still the one the artifact's creator used, the set of production functions defaulting a CUDA stream
 # has not widened, and the converter tests pass. Each has caught a real drift in this repository --
@@ -61,6 +61,7 @@ gate() {
 
 gate "documentation links" "$PY" tools/release/check_doc_links.py
 gate "text encoding" "$PY" tools/release/check_text_encoding.py
+gate "FP8 band ladders" "$PY" tools/release/check_fp8_band_ladders.py
 gate "profile consistency" "$PY" tools/release/check_profile_consistency.py
 gate "calibration corpus" "$PY" tools/release/check_calibration_corpus.py
 gate "stream-default ratchet" "$PY" tools/release/check_production_stream_defaults.py

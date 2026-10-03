@@ -28,6 +28,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "release"))
 
+# Anchored on __file__ rather than the process working directory. Two assertions below name real
+# repository files, and a bare relative path makes them pass or fail with wherever pytest was invoked
+# from -- which is a gate that agrees for the wrong reason.
+REPO = Path(__file__).resolve().parents[2]
+
 from check_text_encoding import (  # noqa: E402
     MOJIBAKE_SEQUENCES,
     build_reverse_table,
@@ -63,14 +68,17 @@ def _corrupt(text: str, generations: int) -> str:
 
 
 def test_correct_prose_carries_no_marker() -> None:
+    """Em dashes and curly quotes are what the sequences are built from, so correct text must not read as corruption."""
     assert count_markers(f"a {EM_DASH} b and the {RIGHT_QUOTE} character\n") == 0
 
 
 def test_one_generation_of_corruption_is_detected() -> None:
+    """One Get-Content/WriteAllLines round trip is the shape the fault actually took."""
     assert count_markers(_corrupt(f"a {EM_DASH} b\n", 1)) > 0
 
 
 def test_three_generations_of_corruption_are_detected() -> None:
+    """docs/active-work.md was three generations deep, which is why the repair iterates."""
     # This is docs/active-work.md as it stood: seven reversals were needed, and the first repair
     # attempt stalled at 181 lines because a string-level inverse cannot encode a line containing a
     # character outside cp1252.
@@ -78,12 +86,14 @@ def test_three_generations_of_corruption_are_detected() -> None:
 
 
 def test_ascii_only_text_is_not_mistaken_for_corruption() -> None:
+    """A round trip over pure ASCII is a genuine no-op, so flagging it would flag the editing."""
     # The control for the two cases above: a round trip over pure ASCII is a genuine no-op, so a
     # detector that flagged it would be flagging the act of editing rather than the damage.
     assert count_markers(_corrupt("a dash\n", 3)) == 0
 
 
 def test_repair_restores_the_original_exactly() -> None:
+    """Byte identity, not resemblance: the corruption is a bijection and the repair is its inverse."""
     original = f"a {EM_DASH} b, the {RIGHT_QUOTE} quote, and a section § too\n"
     for generations in (1, 2, 3):
         fixed, passes = repair(_corrupt(original, generations), TABLE)
@@ -92,12 +102,14 @@ def test_repair_restores_the_original_exactly() -> None:
 
 
 def test_repair_preserves_a_legitimate_section_sign() -> None:
+    """U+00A7 reverses to the bare byte 0xa7, which is what stopped a whole-stream decode."""
     # The case that stops a whole-stream decode: U+00A7 reverses to the bare byte 0xa7.
     original = f"values § 3.5 {EM_DASH} done\n"
     assert repair(_corrupt(original, 1), TABLE)[0] == original
 
 
 def test_repair_does_not_damage_text_that_is_already_correct() -> None:
+    """Applying the inverse to correct text would corrupt it, so the repair must be a no-op here."""
     original = f"a {EM_DASH} b\n"
     fixed, passes = repair(original, TABLE)
     assert fixed == original
@@ -105,6 +117,7 @@ def test_repair_does_not_damage_text_that_is_already_correct() -> None:
 
 
 def test_repair_stops_at_zero_markers_rather_than_running_to_a_stable_text() -> None:
+    """The section sign is what a further pass would destroy, so its survival is the proof."""
     # A section sign is what a further pass would destroy, so its survival is the proof that the
     # repair stopped on the marker count instead of on byte-stability.
     original = f"§ {EM_DASH} {RIGHT_QUOTE}\n"
@@ -113,30 +126,35 @@ def test_repair_stops_at_zero_markers_rather_than_running_to_a_stable_text() -> 
 
 
 def test_a_byte_order_mark_is_reported(tmp_path: Path) -> None:
+    """Set-Content -Encoding utf8 under PowerShell 5.1 writes one."""
     path = tmp_path / "launcher.cmake"
     path.write_bytes(b"\xef\xbb\xbf" + b"target_sources(ninfer PRIVATE a.cpp)\n")
     assert "byte-order mark" in describe(path)
 
 
 def test_a_file_that_is_not_utf8_is_reported(tmp_path: Path) -> None:
+    """And the report has to keep the BOM and CRLF verdicts it had already reached."""
     path = tmp_path / "latin1.txt"
     path.write_bytes(b"caf\xe9 au lait\n")
     assert "not valid UTF-8" in describe(path)
 
 
 def test_a_corrupt_file_is_reported(tmp_path: Path) -> None:
+    """The failure path must actually fail, or the gate is decoration."""
     path = tmp_path / "notes.md"
     path.write_bytes(_corrupt(f"a {EM_DASH} b\n", 2).encode("utf-8"))
     assert "mojibake" in describe(path)
 
 
 def test_a_clean_file_reports_nothing(tmp_path: Path) -> None:
+    """The other direction: a clean file must be silent, or the gate is noise."""
     path = tmp_path / "notes.md"
     path.write_bytes(f"a {EM_DASH} b\n".encode())
     assert describe(path) == ""
 
 
 def test_a_crlf_file_that_should_be_lf_is_flagged(tmp_path: Path) -> None:
+    """The worktree was 70 files CRLF against 16 LF, decided by whichever tool wrote each one."""
     # The worktree was 70 files CRLF against 16 LF before this rule, decided by whichever tool last
     # wrote each file. It is invisible in a diff, because git normalises both sides.
     path = tmp_path / "notes.md"
@@ -145,6 +163,7 @@ def test_a_crlf_file_that_should_be_lf_is_flagged(tmp_path: Path) -> None:
 
 
 def test_an_lf_batch_file_is_flagged(tmp_path: Path) -> None:
+    """The converse, with two gates behind it that read generated launchers byte for byte."""
     # The converse, and the one with two real gates behind it: check_profile_consistency compares
     # each generated launcher against the table's render and parses QUASAR_ARGS out of launcher_env.
     path = tmp_path / "launcher.cmd"
@@ -156,6 +175,7 @@ def test_an_lf_batch_file_is_flagged(tmp_path: Path) -> None:
 
 
 def test_a_file_with_no_line_ending_is_not_flagged(tmp_path: Path) -> None:
+    """A single-line batch file legitimately has no terminator."""
     # A single-line batch file legitimately has no terminator at all; requiring CRLF of it would be
     # a check that fails on correct input.
     path = tmp_path / "tiny.cmd"
@@ -166,10 +186,11 @@ def test_a_file_with_no_line_ending_is_not_flagged(tmp_path: Path) -> None:
 def test_the_digest_pinned_corpus_inputs_are_reached_by_the_line_ending_rule(
     tmp_path: Path,
 ) -> None:
+    """The TTFT manifest digests these, which is how a worktree CRLF made the corpus unusable once."""
     # Named because a line ending is not cosmetic there: the TTFT manifest digests these files and
     # the corpus gate compares those digests, which is how a worktree CRLF once made the corpus
     # unusable. The real fixture must be clean, and a CRLF copy of it must be reported.
-    real = Path("bench/fixtures/ttft/text/rotation_55k_0.json")
+    real = REPO / "bench/fixtures/ttft/text/rotation_55k_0.json"
     assert describe(real) == ""
 
     copy = tmp_path / "rotation_55k_0.json"
@@ -178,12 +199,13 @@ def test_the_digest_pinned_corpus_inputs_are_reached_by_the_line_ending_rule(
 
 
 def test_a_c1_control_in_a_corpus_fixture_is_flagged(tmp_path: Path) -> None:
+    """The corpus exemption is gone with its cause, so a C1 control there is reported too."""
     # The TTFT prompts used to carry U+0097 from a generator bug, and this gate exempted
     # bench/fixtures/ and examples/ from the C1 rule so it would not fire on them. The corpus has
     # been regenerated from its seed and the exemption is gone, so this asserts both halves: the real
     # fixtures carry no C1 control, and one that does is reported even under a corpus path. That is
     # the guard against the exemption being quietly re-added, and against the defect returning.
-    fixture = Path("bench/fixtures/ttft/text/rotation_55k_0.json")
+    fixture = REPO / "bench/fixtures/ttft/text/rotation_55k_0.json"
     text = fixture.read_bytes().decode("utf-8")
     assert not any(0x80 <= ord(char) <= 0x9F for char in text), "a fixture regressed to a C1 control"
     assert describe(fixture) == ""
@@ -197,6 +219,7 @@ def test_a_c1_control_in_a_corpus_fixture_is_flagged(tmp_path: Path) -> None:
 
 
 def test_the_sequences_are_the_ones_the_documents_actually_carried() -> None:
+    """Spelled out from the repaired files, so a change to the table cannot agree with itself."""
     # Spelled out from the two repaired files rather than from the encoder's own table, so a change
     # to the table alone cannot make this test agree with itself.
     assert "\u00e2\u20ac" in MOJIBAKE_SEQUENCES  # docs/active-work.md
@@ -204,4 +227,5 @@ def test_the_sequences_are_the_ones_the_documents_actually_carried() -> None:
 
 
 def test_to_text_prefers_valid_utf8_over_a_lone_byte() -> None:
+    """Preferring the longest valid sequence is what lets mojibake and correct text share a file."""
     assert to_text("é §".encode("utf-8")) == "é §"

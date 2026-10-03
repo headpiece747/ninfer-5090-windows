@@ -2,9 +2,6 @@
 #include "ops/linear/fp8/fp8_template_launch.cuh"
 #include "ops/linear/fp8/fp8_instances.cuh"
 
-#include <cstdlib>
-#include <string_view>
-
 namespace ninfer::ops::detail {
 namespace {
 // This Op admits dense, even-width BF16 residuals. Adjacent MMA rows share one load.
@@ -38,7 +35,7 @@ using K17408Bulk =
 // the bands, which matters here because the K=17408 ladder is non-monotonic: it returns to
 // its wide tile for the window above kBandWideBulkMin while the tokens below it fall
 // through to Bulk.
-constexpr std::int32_t kBand32x64Max     = 64;
+constexpr std::int32_t kBandT32x64Max     = 64;
 constexpr std::int32_t kBandT64x64Max    = 128;
 constexpr std::int32_t kBandT64x128Max   = 192;
 constexpr std::int32_t kBandSmallMax     = 128;
@@ -46,6 +43,12 @@ constexpr std::int32_t kBandMidMax       = 256;
 constexpr std::int32_t kBandWideMax      = 384;
 constexpr std::int32_t kBandWideBulkMin  = 512;
 constexpr std::int32_t kBandMidBulkMax   = 768;
+// The upper bound of the K=17408 returning window. It is numerically kBandMidBulkMax and is still a
+// distinct name: kBandMidBulkMax describes the K=6144 MidBulk band's upper bound, and reusing it here
+// would couple two independent ladders through a name that says otherwise -- the same hazard as the
+// dead clause this refactor has already produced once, where kBandWideMax (384) was used where 768
+// was meant.
+constexpr std::int32_t kBandWideReturnMax = 768;
 
 template <int K>
 void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
@@ -71,11 +74,13 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
     //   K=6144  32x64 1.074, 64x128 1.113, split 128x128 1.047-1.103, split 128x256 1.270-1.288
     //   K=17408 32x64, Small/Wide/Bulk tiles -- measured by shape on the shapes' own tests, not here
     //
+    // Workload, metric and harness: docs/active-work.md item 12, the median tile table.
+    //
     // Note the honest detail: the split 128x128 tile is the weakest margin of the five (median 1.047,
     // and MMA wins two bands on it at 448 and 512). Ungating rests on correctness plus the median, not
     // on a uniform win.
     if constexpr (K == 6144) {
-        if (x.ne[1] <= kBand32x64Max) return launch.template operator()<K6144Tma32x64>();
+        if (x.ne[1] <= kBandT32x64Max) return launch.template operator()<K6144Tma32x64>();
         if (x.ne[1] <= kBandT64x64Max) return launch.template operator()<Fp8A8T64R64K128>();
         if (x.ne[1] <= kBandT64x128Max) return launch.template operator()<K6144Tma64x128>();
         // The narrower row tile fills the GPU before the large-tile path reaches a full wave.
@@ -83,11 +88,11 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
         launch.template operator()<K6144Bulk>();
     } else {
         const int tokens = x.ne[1];
-        if (tokens <= kBand32x64Max) return launch.template operator()<K17408Tma32x64>();
+        if (tokens <= kBandT32x64Max) return launch.template operator()<K17408Tma32x64>();
         if (tokens <= kBandSmallMax) return launch.template operator()<K17408Small>();
         if (tokens <= kBandMidMax) return launch.template operator()<K17408Mid>();
         // Wider token tiles avoid an extra wave in the gaps between the bulk anchors.
-        if (tokens <= kBandWideMax || (tokens > kBandWideBulkMin && tokens <= kBandWideMax))
+        if (tokens <= kBandWideMax || (tokens > kBandWideBulkMin && tokens <= kBandWideReturnMax))
             return launch.template operator()<K17408Wide>();
         launch.template operator()<K17408Bulk>();
     }
@@ -102,7 +107,7 @@ std::size_t fp8_linear_add_partial_capacity_bytes(std::int32_t k, std::int32_t m
     if (max_tokens > kBandWideMax) return K17408Bulk::kPartialBytes;
     if (max_tokens > kBandMidMax) return K17408Wide::kPartialBytes;
     if (max_tokens > kBandSmallMax) return K17408Mid::kPartialBytes;
-    return max_tokens > kBand32x64Max ? K17408Small::kPartialBytes : 0;
+    return max_tokens > kBandT32x64Max ? K17408Small::kPartialBytes : 0;
 }
 
 void fp8_linear_add_a8_launch(const Tensor& x, const Weight& weight, Tensor& residual,

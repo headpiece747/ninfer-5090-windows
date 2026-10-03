@@ -857,8 +857,12 @@ configuration nobody was checking.
 > measurement tool that silently measures nothing, which is the exact failure mode this item spent its
 > length fighting. Their numbers are preserved above with the methodology that produced them.
 >
-> **Kept:** `tools/scripts/verify_fp8_tma_route.cmd`, which exercises the production TMA route end to end
-> and reads none of the removed selectors. That is a live check, not a spent measurement.
+> **Withdrawn too, 2026-10-02.** `tools/scripts/verify_fp8_tma_route.cmd` and the
+> `flip_fp8_tma_gates.ps1` it drives are gone as well. The flip script asserted that exactly nine
+> `PORT-DISPATCH` gates existed and threw otherwise; all nine are lifted, so it threw before touching a
+> line and the verifier could only ever exit 2. That is a spent measurement left reachable — the same
+> fault as the harness above, one file over, and it was cited from a source comment as ungating evidence.
+> The figure it took is recorded here; the tool that could not run is not.
 >
 > Note the over-deletion this nearly caused: the first pass also removed the `K6144MidBulk` and
 > `K6144Bulk` aliases, which are PRODUCTION ladder tiles rather than twins. Caught by checking which
@@ -924,10 +928,14 @@ configuration nobody was checking.
 > wrong half -- the capacity needs the ladder's SELECTION band, not the plan's engagement decision,
 > which is what the existing comments in those functions say in as many words.
 >
-> What was done instead: every band boundary in these ladders is now a named constant, read by both
-> the ladder that selects and the function that sizes. Nine capacity functions across five route
-> families shared thirty-odd numeric literals with the ladders beside them; there are now **zero**
-> numeric band tests left in FP8 A8 selection or sizing anywhere under `src/`.
+> What was done instead: every band boundary that a ladder and its sizing function **share** is now a
+> named constant, read by both. Nine capacity functions across five route families shared thirty-odd
+> numeric literals with the ladders beside them; none of those shared literals is a bare number now.
+> **Correction:** an earlier revision of this note claimed "zero numeric band tests left in FP8 A8
+> selection or sizing anywhere under `src/`". That was false — fifteen remained, all in ladder-only
+> positions that no capacity function reads, so the refactor had not removed them and the claim
+> overstated it. The non-monotonic windows have since been named too, because those are the ones that
+> matter (see below).
 >
 > **Sizing semantics are deliberately unchanged.** Two of these ladders are non-monotonic --
 > `n5120_k17408` selects Bulk for 385-512 and returns to Wide for 513-768, and `n16384_k5120` has its
@@ -937,6 +945,21 @@ configuration nobody was checking.
 >
 > Verified: `ninfer_linear_fp8_a8_test`, `ninfer_linear_fp8_a16_test`, `ninfer_linear_add_fp8_test`
 > and `ninfer_linear_swiglu_fp8_test` all green, and the full suite at 135/137 with GATE PASSED.
+>
+> **AND THE REFACTOR ITSELF SHIPPED A REGRESSION, which the green suite could not see.** Two of the
+> ladders are non-monotonic — they return to a wide tile for a window above the point they passed it —
+> and the bound on that window is now a named constant. The first version of this refactor substituted
+> `kBandWideMax` (384) where the bound was 768, which made `tokens > 512 && tokens <= 384` false for
+> every token count: `n5120_k17408.cu` and `fp8_linear_add_a8.cu` both sent tokens 513-768 to `Bulk`
+> instead of `Wide`. Nothing failed, because both tiles are numerically correct and differ only in
+> speed, and no oracle in this tree asserts *which tile* a token count selects.
+>
+> Two lessons, both paid for here. A green suite is evidence about values, not about selection, and a
+> rename that appears semantically neutral is where a wrong constant hides. The check that catches it
+> is to resolve every branch of every ladder to its numeric meaning and compare that against the
+> pre-refactor source — and that check has to have a control, because the first version of it
+> substituted `tokens` for `0` before evaluating, so every condition read `0 <= 64`, the first branch
+> always won, and it reported the buggy tree as identical to the good one.
 
 
 > **THE STRUCTURAL FIX, SPECIFIED RATHER THAN DONE.** Every threshold problem in this item has one
@@ -1726,6 +1749,39 @@ Jinja's cost — ADR-0012's 48.3 ms render instead of 5.99 ms. No published figu
 re-measurement is called for**: the measured configuration did not change on the machine that
 measured. ADR-0012's own "projected, not measured" line for end-to-end `prepared` and warm TTFT remains
 open, and that is a pre-existing gap this fix does not close either way.
+
+
+> **THE MEDIANS' CONFIGURATION — one authority for five files that quote them.** `fp8_attn_input_a8.cu`,
+> `fp8_gdn_input_a8.cu`, `n14336_k5120.cu`, `fp8_linear_add_a8.cu` and `fp8_linear_swiglu_a8.cu` each
+> quote a subset of these figures. None of them carries the configuration, and the harness that took
+> them — `tools/bench/tma_ab.cmd` — was withdrawn with the gates it flipped, so nothing in the repository
+> can regenerate or refute them today. They are recorded here instead, once, with everything needed to
+> judge them.
+>
+> | | |
+> |---|---|
+> | Machine | RTX 5090, sm_120a, CUDA 13.3, MSVC 14.51 |
+> | Quantity | median over token bands of (MMA arm time / TMA arm time). **Above 1.0 means TMA is faster.** |
+> | Method | both arms pinned to the *same* tile via `NINFER_FP8_TMA_ARM=tma\|mma`, one binary, arms interleaved |
+> | Why interleaved | this card's clocks drift up to ~9% between windows, so measuring A then B measures the window |
+> | Oracle | each tile qualified on both arms against the route's own naive-FP32 oracle, at the tokens it selects |
+> | Negative control | a token count where the split-K arm is not reached, to prove the arm is genuinely taken |
+> | Harness | **withdrawn** with `bec8951e` — it toggled nine `PORT-DISPATCH` gates and there are none left |
+>
+> | tile | median | note |
+> |---|--:|---|
+> | 64x128 Stages=2 | **1.107** | |
+> | 64x256 | **1.270** | MMA wins the 768 band |
+> | 96x256 | **1.288** | the strongest of the five |
+> | 192x128 | **1.241** | |
+> | split 128x128 | **1.047** | the thinnest margin of the five; MMA wins 448 and 512 |
+> | split 128x256 | **1.270** | |
+> | 32x64 | 1.074 | |
+>
+> Ungating rests on **correctness plus the median, never on "TMA is faster"**: TMA leads the median on
+> all five measured tiles and loses three bands (448 and 512 on the split 128x128, 768 on 64x128). The
+> margin is largest where the machine is underfilled, which is prefill. Anyone re-measuring should
+> reproduce the method row, not just the number.
 
 ## Closed — do not reopen
 

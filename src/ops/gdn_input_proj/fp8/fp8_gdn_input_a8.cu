@@ -10,18 +10,17 @@ using Tma192x128 = Fp8A8TmaMmaSchedule<192, 128, 128, 3, 4, 2, 1>;
 using MidBulk = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 2, 1>, 170, 4, 8>;
 using Bulk    = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
 
-} // namespace
-
-// Band boundaries, named once for this file. The ladder below selects on them and
-// fp8_*_partial_capacity_bytes sizes on them, so a band cannot be moved in one place and not
-// the other. The capacity is a worst case over the bands: whether a split engages depends on
-// the token count, so a buffer sized for one selection can still be read by another.
+// Band boundaries, named once for this file: the ladder below selects on them and
+// fp8_*_partial_capacity_bytes sizes on them, so neither can move alone. The capacity is a worst case
+// over the bands, since whether a split engages depends on the token count.
 // The 385-512 window returns to the narrow split tile, which is what makes this ladder
 // non-monotonic and the capacity above a worst case rather than a selection.
 constexpr std::int32_t kBandT64x128Max    = 128;
 constexpr std::int32_t kBandBulkSelectsAt = 192;
 constexpr std::int32_t kBandWideBulkMin   = 384;
 constexpr std::int32_t kBandWideBulkMax   = 512;
+} // namespace
+
 
 std::size_t fp8_gdn_input_partial_capacity_bytes(std::int32_t max_tokens) {
     // Ungated with the ladder below, so this applies on every platform and the #ifdef that suppressed
@@ -48,14 +47,7 @@ void fp8_gdn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& qkv,
             launch_fp8_a8_mma<S>(operands, output, LinearIdentityEpilogue{}, stream,
                              Fp8IdentityRows{}, workspace.partials);
     };
-    // PORT-DISPATCH: pre-merge FP8 A8 dispatch on Windows (docs/active-work.md item 12)
-    //
-    // Upstream routed every FP8 A8 path to its TMA kernel, which faults on this target with
-    // cudaErrorIllegalInstruction. A TMA schedule and an MMA schedule are different tile shapes, so
-    // the schedule selection itself has to differ rather than being forwarded at one seam. This is
-    // the pre-merge dispatch verbatim, because that is the one that passed the suite; upstream's
-    // stays selected on other platforms and stays in the tree.
-// UNGATED 2026-10-02 (docs/active-work.md item 12). Third of the nine, and the one that closes the
+    // UNGATED 2026-10-02 (docs/active-work.md item 12). Third of the nine, and the one that closes the
     // oracle gap on the split 128x128 Stages=2 tile.
     //
     // That tile previously had NO oracle coverage anywhere, which blocked this route and
@@ -68,6 +60,7 @@ void fp8_gdn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& qkv,
     // 128x128 Stages=2 (1.047), and the 128x256 split Bulk (1.270). TMA leads every median. Note the
     // 128x128 tile is the one where MMA wins two bands (448 and 512) -- 1.047 median is the thinnest
     // margin of the five, so it is recorded here rather than left to be discovered.
+    // Workload, metric and harness: docs/active-work.md item 12, the median tile table.
     if (x.ne[1] <= 32) return launch.template operator()<Fp8A8T32R32K128>();
     if (x.ne[1] <= 64) return launch.template operator()<Fp8A8T64R128K256>();
     if (x.ne[1] <= kBandT64x128Max) return launch.template operator()<Tma64x128>();

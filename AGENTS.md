@@ -171,7 +171,7 @@ Choose the affected checks, rather than running this table as a checklist:
 
 | Change | Typical evidence |
 |---|---|
-| Documentation | affected links/references and `git diff --check` |
+| Documentation | affected links/references, `git diff --check`, and `tools/release/check_text_encoding.py` |
 | C++ runtime/API | affected build targets and behavioral tests |
 | Python tooling | Python 3.11 `py_compile` and affected tests |
 | Artifact framing/binding/conversion | affected contract tests; real artifact when semantics require it |
@@ -228,7 +228,7 @@ something, and each is named here so it gets used rather than rediscovered.
 
 | situation | tool |
 |---|---|
-| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Four gate scripts (`check_doc_links.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`), then `pytest tests/convert` plus three named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the seven steps** — it omitted the calibration-corpus gate, the stream-default ratchet, ruff and mypy |
+| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Six gate scripts (`check_doc_links.py`, `check_text_encoding.py`, `check_fp8_band_ladders.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`), then `pytest tests/convert` plus three named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the seven steps** — it omitted the calibration-corpus gate, the stream-default ratchet, ruff and mypy |
 | a check that passes here and fails in CI | `tools/scripts/verify_as_ci.cmd` **first**, before forming any hypothesis. It reproduces the runner's conditions — Python 3.11, CI's package set, `NINFER_PYTHON` as a command name, a scratch venv. On 2026-09-25 six serious hypotheses were formed against a failing CI gate without once reproducing the runner's conditions, and five were wrong; the sixth was found in one run of this script |
 | a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` — **with `NINFER_TEST_ARTIFACT` set**: without it the four required real-model tests skip and the gate fails on missing coverage rather than on a regression, which is how it was misread once |
 | anything that could be order- or state-dependent | the suite recipe passes `--schedule-random`; run it twice before believing a fixed order |
@@ -301,7 +301,7 @@ first two.** `build-asan` is not new — the sanitizer rule below already runs a
 `build-bench/` exists for the bench; both are listed because a rule that names a directory should say
 which of the four it means.
 
-Sixty-one rules, each earned by a failure rather than chosen:
+Sixty-four rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
@@ -320,6 +320,23 @@ Sixty-one rules, each earned by a failure rather than chosen:
   pointer gave it away. Likewise, do not swallow a command's output with `| Out-Null` when its
   success is the thing you are checking.
 
+- **The checkout must not decide the bytes a comparison sees.** `.gitattributes` pins every
+  tracked text file to LF except `*.bat` and `*.cmd`, which are CRLF by definition. A
+  generator that digests a file must write it platform-independently (`Path.write_text`
+  translates `\n` to the platform separator by default): `build_fixtures.py` once digested
+  CRLF bytes on Windows, so 18 of 26 TTFT digests described bytes no LF checkout produces and
+  the corpus gate passed here and failed everywhere else.
+- **A test that hashes a file certifies the checkout, not the file.**
+  `native_render.cpp` held the shipped chat template's digest in the CRLF form while the
+  committed blob is LF, so the native fast path was active only on a CRLF worktree and fell
+  back to Jinja on Linux, CI and any fresh clone -- while its test passed here, because here is
+  where the CRLF came from. Hash what ships.
+- **A selection ladder and the function that sizes its buffers must read the same named
+  constants.** Naming the boundaries removes a drift class; it introduces one, because a bound
+  substituted with the wrong constant compiles and stays correct in value. `n5120_k17408.cu`
+  and `fp8_linear_add_a8.cu` shipped `tokens > 512 && tokens <= 384` -- false for every token
+  count -- sending 513-768 to `Bulk` instead of `Wide`. **No oracle here asserts which tile a
+  token count selects**, so the suite stayed green.
 - **Reach for the indexed tool before a manual search.** `.codegraph/` exists here, so a code
   question ("where is X", "who calls X", "how does X work") goes to `codegraph_explore` before
   `grep`, `glob` or `Read`: one call returns the verbatim source, the call path and the blast
@@ -657,7 +674,7 @@ Sixty-one rules, each earned by a failure rather than chosen:
   "for now" becomes advertised surface the product cannot honour, and a document naming flags the
   binary rejects is worse than no document.
 - **A scripted edit's verification must use the file's real consumer, not a convenient parser.**
-  Windows PowerShell 5.1's `Set-Content -Encoding utf8` writes a **BOM**. A scripted edit to
+  Windows PowerShell 5.1's `Set-Content -Encoding utf8` writes a **BOM**, and `Get-Content` **decodes with the console codepage**, so a `Get-Content`/`WriteAllLines` round trip re-encodes every byte at or above 0x80 and the damage compounds with each pass. 181 lines of `docs/active-work.md` were lost to that and **no gate noticed**, because the corruption is confined to prose. `tools/release/check_text_encoding.py` now fails on it. A scripted edit to
   `test_baseline.json` was checked with `ConvertFrom-Json`, which accepts a BOM, and passed; the gate
   then failed on `json.load`, which does not, with "Unexpected UTF-8 BOM". Checking a file with the
   same tool family that wrote it verifies almost nothing. Write through

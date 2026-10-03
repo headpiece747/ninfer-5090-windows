@@ -8,14 +8,13 @@ namespace {
 using Tma64x128 = Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 2, 1>;
 using Tma64x256 = Fp8A8TmaMmaSchedule<64, 256, 128, 2, 4, 2, 1>;
 using Bulk      = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
-} // namespace
-
-// Band boundaries, named once for this file. The ladder below selects on them and
-// fp8_*_partial_capacity_bytes sizes on them, so a band cannot be moved in one place and not
-// the other. The capacity is a worst case over the bands: whether a split engages depends on
-// the token count, so a buffer sized for one selection can still be read by another.
+// Band boundaries, named once for this file: the ladder below selects on them and
+// fp8_*_partial_capacity_bytes sizes on them, so neither can move alone. The capacity is a worst case
+// over the bands, since whether a split engages depends on the token count.
 constexpr std::int32_t kBandT64x128Max    = 128;
 constexpr std::int32_t kBandBulkSelectsAt = 192;
+} // namespace
+
 
 std::size_t fp8_linear_swiglu_partial_capacity_bytes(std::int32_t max_tokens) {
     // Ungated with the ladder below, so this threshold now applies on every platform and the #ifdef that
@@ -49,9 +48,11 @@ void fp8_linear_swiglu_a8_launch(const Tensor& x, const Weight& weight, Tensor& 
     // UNGATED 2026-10-02 (docs/active-work.md item 12). This was PORT-DISPATCH-gated on Windows because
     // upstream's TMA route faulted here with cudaErrorIllegalInstruction. That fault was a descriptor
     // ABI defect -- alignas(128) on a by-value kernel parameter, which MSVC cannot lay out -- and it is
-    // fixed at alignas(64), which is the width cuda.h asks for. tools/scripts/verify_fp8_tma_route.cmd
-    // reproduces the route end to end, and PyGPUkit #107 reports the same misalignment defect on this
-    // same GPU and OS.
+    // fixed at alignas(64), which is the width cuda.h asks for. The harness that demonstrated this end
+    // to end is withdrawn with the gates it flipped: it toggled nine PORT-DISPATCH gates, and there are
+    // none left, so it could only ever exit non-zero while presenting as a live check. The measurement it
+    // took is recorded in docs/active-work.md item 12. PyGPUkit #107 reports the same misalignment
+    // defect on this same GPU and OS.
     //
     // Ungating is per ROUTE and on three pieces of evidence, not on the transport being faster:
     //   - all three tiles this ladder selects are oracle-checked on both arms, at the tokens they serve
@@ -60,6 +61,11 @@ void fp8_linear_swiglu_a8_launch(const Tensor& x, const Weight& weight, Tensor& 
     //     wins on the 64x128 tile are at large token counts, outside this ladder's split-tile region;
     //   - scratch.partials is allocated for the whole selection band, so no rung can select a split tile
     //     with a null buffer.
+    //
+    // Workload, metric and harness for the medians above, and the single authority for every figure
+    // quoted in this file: the median tile table at docs/active-work.md item 12. They appear here
+    // without configuration because the harness that took them was withdrawn with the gates it
+    // flipped, so that table is the only place that carries what they mean.
     if (x.ne[1] <= 16) return launch.template operator()<Fp8A8T16R64K128>();
     if (x.ne[1] <= 32) return launch.template operator()<Fp8A8T32R128K128>();
     if (x.ne[1] <= 64) return launch.template operator()<Fp8A8T64R128K256>();

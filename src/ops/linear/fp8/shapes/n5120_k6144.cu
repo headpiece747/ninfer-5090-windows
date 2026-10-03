@@ -49,14 +49,14 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
     // ladder with these same tiles. Its partials thresholds were already correct and unconditional:
     // MidBulk at >192 and Bulk at >768 match the ladder's 193-768 and 769+ selection bands exactly.
     if (x.ne[1] <= kBandT32x64Max)
-    return launch_fp8_a8_tma<Geometry, Tma32x64>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Tma32x64>(x, weight, out, scratch, stream);
     if (x.ne[1] <= kBandT64x64Max)
-    return launch_fp8_a8<Geometry, Fp8A8T64R64K128>(x, weight, out, scratch, stream);
+        return launch_fp8_a8<Geometry, Fp8A8T64R64K128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= kBandT64x128Max)
-    return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
     // The narrower row tile fills the GPU before the large-tile path reaches a full wave.
     if (x.ne[1] <= kBandMidBulkMax)
-    return launch_fp8_a8_tma<Geometry, MidBulk>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, MidBulk>(x, weight, out, scratch, stream);
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
 }
 

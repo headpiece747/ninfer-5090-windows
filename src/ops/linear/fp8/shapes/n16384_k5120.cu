@@ -37,6 +37,12 @@ void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t
 // Band boundaries, named once for this file. launch_a8 selects on them and partial_capacity_bytes
 // sizes on them, so a band cannot be moved in one place and not the other.
 constexpr std::int32_t kBandBulkSelectsAt = 192;
+// The 385-512 window returns to the narrow split tile after the ladder has already passed it, which
+// makes this ladder NON-MONOTONIC. Named separately, and deliberately not derived from
+// kBandBulkSelectsAt: two sibling files had a band bound substituted with the wrong named constant and
+// produced a clause that is false for every token count, and this is that clause's shape.
+constexpr std::int32_t kBandWideBulkMin = 384;
+constexpr std::int32_t kBandWideBulkMax = 512;
 
 void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspace scratch,
                cudaStream_t stream) {
@@ -45,16 +51,16 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
     // the ungated gdn ladder -- every tile here (64x128 Stages=2, 192x128, split 128x128 Stages=2, split
     // 128x256) is the same tile that route exercises at 65-192, 193-384, 385-512 and 513+.
     if (x.ne[1] <= 32)
-    return launch_fp8_a8<Geometry, Fp8A8T32R32K128>(x, weight, out, scratch, stream);
+        return launch_fp8_a8<Geometry, Fp8A8T32R32K128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 64)
-    return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
+        return launch_fp8_a8<Geometry, Fp8A8T64R128K256>(x, weight, out, scratch, stream);
     if (x.ne[1] <= 128)
-    return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Tma64x128>(x, weight, out, scratch, stream);
     if (x.ne[1] <= kBandBulkSelectsAt)
-    return launch_fp8_a8_tma<Geometry, Tma192x128>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Tma192x128>(x, weight, out, scratch, stream);
     // Smaller output tiles leave only two full-K tiles to split near the 512-token anchor.
-    if (x.ne[1] > 384 && x.ne[1] <= 512)
-    return launch_fp8_a8_tma<Geometry, MidBulk>(x, weight, out, scratch, stream);
+    if (x.ne[1] > kBandWideBulkMin && x.ne[1] <= kBandWideBulkMax)
+        return launch_fp8_a8_tma<Geometry, MidBulk>(x, weight, out, scratch, stream);
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
 }
 

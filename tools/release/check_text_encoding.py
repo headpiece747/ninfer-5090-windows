@@ -54,9 +54,17 @@ C1_RANGE: tuple[int, int] = (0x80, 0x9F)
 
 # Only these are read. A .ninfer, .zip or .png has bytes at or above 0x80 by construction, and
 # scanning it would report every file in the repository as corrupt.
+#
+# `.bat` and `.jinja` were both missing when this gate first landed, and both matter. `.bat` is the
+# half of the CRLF rule below that no file could reach, so all 13 tracked launchers went unread while
+# the rule sat there looking enforced. `.jinja` is the two chat templates: those are PROMPTS, and
+# mojibake in a prompt is a functional defect rather than a cosmetic one -- the exact fault this gate
+# exists to catch, in the one place it cannot afford to miss.
 TEXT_SUFFIXES: frozenset[str] = frozenset(
     {
+        ".bat",
         ".c",
+        ".dot",
         ".cc",
         ".cfg",
         ".cmd",
@@ -67,19 +75,41 @@ TEXT_SUFFIXES: frozenset[str] = frozenset(
         ".h",
         ".hpp",
         ".ini",
+        ".jinja",
         ".json",
+        ".jsonl",
         ".md",
         ".ps1",
         ".py",
+        ".rst",
         ".sh",
+        ".svg",
         ".toml",
+        ".tsv",
         ".txt",
         ".yml",
         ".yaml",
     }
 )
 
-NAME_ONLY = frozenset({"CMakeLists.txt", "LICENSE", "NOTICE", "README.md", "RELEASE_NOTES.md"})
+# Files this gate reads that carry no suffix, or whose suffix is not descriptive. CMakeLists.txt,
+# README.md and RELEASE_NOTES.md were listed here when this landed and could never match, because
+# `.txt` and `.md` are in TEXT_SUFFIXES above; they are listed by their suffix instead, so editing this
+# set has an effect on every entry in it.
+NAME_ONLY = frozenset(
+    {
+        ".clang-format",
+        ".clang-tidy",
+        ".clangd",
+        ".dockerignore",
+        ".gitattributes",
+        ".gitignore",
+        "Dockerfile",
+        "LICENSE",
+        "NOTICE",
+        "pre-commit",
+    }
+)
 
 # .gitattributes pins every tracked text file to LF except these, which are CRLF by definition and
 # which two gates read byte for byte. The rule here restates the attribute rather than deriving it,
@@ -237,7 +267,12 @@ def describe(path: Path) -> str:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as error:
-        return f"{path}: not valid UTF-8 at byte {error.start}"
+        # Report what was already found alongside the decode failure. Returning here instead would
+        # drop a BOM verdict and a CRLF verdict for a file that has both, and --repair strips the BOM
+        # on a different path than the one that reports it, so the two would disagree about the same
+        # file.
+        findings.append(f"not valid UTF-8 at byte {error.start}")
+        return f"{path}: {'; '.join(findings)}"
     if count_markers(text):
         found = sorted({sequence for sequence in MOJIBAKE_SEQUENCES if sequence in text})
         controls = sum(1 for char in text if C1_RANGE[0] <= ord(char) <= C1_RANGE[1])
@@ -277,21 +312,26 @@ def repair_files(files: list[Path]) -> int:
         except UnicodeDecodeError as error:
             print(f"  SKIP  {path}: not valid UTF-8 at byte {error.start}")
             continue
+        # One FIXED line per file, whatever combination of faults it had. Counting the BOM and the
+        # markers separately reported the same file twice and inflated `files repaired`, and writing
+        # twice meant the second write could disagree with the first.
+        notes: list[str] = []
+        payload = raw
         if had_bom:
-            path.write_bytes(raw)
-            changed += 1
-            print(f"  FIXED {path}: byte-order mark removed")
-        if not count_markers(text):
+            notes.append("byte-order mark removed")
+        if count_markers(text):
+            try:
+                fixed, passes = repair(text, table)
+            except ValueError as error:
+                print(f"  SKIP  {path}: {error}")
+                continue
+            notes.append(f"{passes} generation(s) reversed, {count_markers(fixed)} markers left")
+            payload = fixed.encode("utf-8")
+        if not notes:
             continue
-        try:
-            fixed, passes = repair(text, table)
-        except ValueError as error:
-            print(f"  SKIP  {path}: {error}")
-            continue
-        remaining = count_markers(fixed)
-        path.write_bytes(fixed.encode("utf-8"))
+        path.write_bytes(payload)
         changed += 1
-        print(f"  FIXED {path}: {passes} generation(s) reversed, {remaining} markers left")
+        print(f"  FIXED {path}: {', '.join(notes)}")
     print(f"  files repaired: {changed}")
     if changed:
         print("  Review the diff before committing: this reverses bytes, it does not know the prose.")

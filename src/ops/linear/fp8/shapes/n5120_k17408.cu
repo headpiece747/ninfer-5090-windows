@@ -43,7 +43,13 @@ constexpr std::int32_t kBandWideMax   = 384;
 // Wide. That makes this ladder NON-MONOTONIC, and it is why the capacity above is a worst case over
 // the bands rather than the size of the band max_tokens itself selects: 385-512 runs Bulk and 513-768
 // runs Wide, so a single buffer has to cover whichever one will be selected.
-constexpr std::int32_t kBandBulkMin = 512;
+constexpr std::int32_t kBandBulkMin       = 512;
+// The upper bound of that returning window, and it is NOT kBandWideMax. Naming them separately is
+// load-bearing: an earlier revision of this refactor reused kBandWideMax here and produced
+// `tokens > 512 && tokens <= 384`, which is false for every token count, so 513-768 silently fell
+// through to Bulk and lost the wide tile. The suite stayed green because both tiles are correct and
+// differ only in speed.
+constexpr std::int32_t kBandWideReturnMax = 768;
 
 void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspace scratch,
                cudaStream_t stream) {
@@ -53,14 +59,14 @@ void launch_a8(const Tensor& x, const Weight& weight, Tensor& out, Fp8A8Workspac
     // MidBulk at >192 and Bulk at >768 match the ladder's 193-768 and 769+ selection bands exactly.
     const int tokens = x.ne[1];
     if (tokens <= kBandT32x64Max)
-    return launch_fp8_a8_tma<Geometry, Tma32x64>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Tma32x64>(x, weight, out, scratch, stream);
     if (tokens <= kBandSmallMax)
-    return launch_fp8_a8_tma<Geometry, Small>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Small>(x, weight, out, scratch, stream);
     if (tokens <= kBandMidMax)
-    return launch_fp8_a8_tma<Geometry, Mid>(x, weight, out, scratch, stream);
+        return launch_fp8_a8_tma<Geometry, Mid>(x, weight, out, scratch, stream);
     // Wider token tiles avoid an extra wave in the gaps between the bulk anchors.
-    if (tokens <= kBandWideMax || (tokens > kBandBulkMin && tokens <= kBandWideMax))
-    return launch_fp8_a8_tma<Geometry, Wide>(x, weight, out, scratch, stream);
+    if (tokens <= kBandWideMax || (tokens > kBandBulkMin && tokens <= kBandWideReturnMax))
+        return launch_fp8_a8_tma<Geometry, Wide>(x, weight, out, scratch, stream);
     launch_fp8_a8_tma<Geometry, Bulk>(x, weight, out, scratch, stream);
 }
 
