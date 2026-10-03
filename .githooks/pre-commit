@@ -1,14 +1,15 @@
 #!/bin/sh
-# Eight checks, all seconds: documentation links resolve, documentation citations still point
+# Nine checks, all seconds: documentation links resolve, documentation citations still point
 # inside the files they name, tracked text is byte-preserved UTF-8, the
 # profile tables match the profile module and the generated launchers, the calibration corpus is
 # still the one the artifact's creator used, the set of production functions defaulting a CUDA stream
-# has not widened, and the converter tests pass. Each has caught a real drift in this repository --
+# has not widened, no first-party type is declared and never named again, and the converter tests
+# pass. Each has caught a real drift in this repository --
 # a README quoting a digest the pins had moved past, 181 lines of documentation re-encoded by a
 # scripted edit while every other gate still passed, a suite size that had drifted from the baseline,
 # a recipe defect, a block scale that one of its three carriers had moved without the others, a KV
-# block-table publish left unordered against the compute stream, and a `file:line` citation pointing
-# past the end of a 124-line file -- and before this hook existed,
+# block-table publish left unordered against the compute stream, a declared type nothing could reach --
+# and before this hook existed,
 # nothing ran them automatically.
 #
 # Deliberately not here: the C++ suite (minutes, and it needs the GPU), the baseline gate (it runs
@@ -69,6 +70,7 @@ gate "profile consistency" "$PY" tools/release/check_profile_consistency.py
 gate "calibration corpus" "$PY" tools/release/check_calibration_corpus.py
 gate "stream-default ratchet" "$PY" tools/release/check_production_stream_defaults.py
 gate "rule count" "$PY" tools/release/check_rule_count.py
+gate "dead types" "$PY" tools/release/check_dead_types.py
 echo "pre-commit: converter tests"
 # The doc-link test is named explicitly: tests/release also holds a ctest script that exits at import,
 # so collecting the directory would abort the run instead of adding to it. The calibration-corpus and
