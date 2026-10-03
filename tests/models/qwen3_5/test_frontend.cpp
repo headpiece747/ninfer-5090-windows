@@ -2427,6 +2427,133 @@ int test_registered_template_media() {
     return failures;
 }
 
+// The registered template takes the native renderer, so the cache markers it has to resolve must be
+// covered through *that* path. The suite's existing `MessagePartBoundary` marker is set against a
+// fixture template, whose digest is unregistered and therefore renders through Jinja -- so a native
+// renderer that resolved no cache marker at all, which is what shipped, passed the suite. This
+// compares the two renderers on a multi-part user turn: the shape `/v1/chat/completions` sends when
+// it places a `prompt_cache_breakpoint` on a content part, and the only case where a part boundary
+// sits between other parts rather than at the end of the content.
+int test_registered_template_cache_markers() {
+    const std::string source = reasoning_effort_template_source();
+    const fi::CompiledChatTemplate native = fi::CompiledChatTemplate::resolve(source);
+    // A trailing comment changes the digest and emits nothing, so the same source renders through the
+    // interpreter. That is the oracle here: resolving the registered source twice would compare the
+    // native path against itself, which is the mistake this differential loop was built to catch.
+    const fi::CompiledChatTemplate jinja =
+        fi::CompiledChatTemplate::resolve(source + "{#cache-marker-oracle#}");
+    std::vector<fi::ChatMessage> messages{
+        chat_message(ninfer::ChatRole::System, "You are a coding agent."),
+        chat_message(ninfer::ChatRole::User, "look at this")};
+    fi::MediaData media;
+    media.media_type  = "image/png";
+    media.source_name = "test";
+    media.bytes       = {0x89, 0x50, 0x4e, 0x47};
+    messages[1].parts.push_back(fi::ChatPart::image(std::move(media)));
+    messages[1].parts.push_back(fi::ChatPart::text_part(" and answer this"));
+    enum Index : std::size_t {
+        kAfterFirst = 0,
+        kAfterUser,
+        kLeadingInstruction,
+        kSystemPart,
+        kUserTextPart,
+        kImagePart,
+        kUserTailPart,
+        kMarkerCount,
+    };
+    std::vector<ninfer::PromptCacheMarker> declared{
+        {.after_message_count = 1},
+        {.after_message_count = 2},
+        {.location                 = ninfer::PromptCacheMarkerLocation::LeadingInstructionBoundary,
+         .leading_instruction_bytes = 7},
+        {.after_message_count      = 1,
+         .location                 = ninfer::PromptCacheMarkerLocation::MessagePartBoundary,
+         .after_message_part_count = 1},
+        {.after_message_count      = 2,
+         .location                 = ninfer::PromptCacheMarkerLocation::MessagePartBoundary,
+         .after_message_part_count = 1},
+        {.after_message_count      = 2,
+         .location                 = ninfer::PromptCacheMarkerLocation::MessagePartBoundary,
+         .after_message_part_count = 2},
+        {.after_message_count      = 2,
+         .location                 = ninfer::PromptCacheMarkerLocation::MessagePartBoundary,
+         .after_message_part_count = 3},
+    };
+    fi::ChatRenderOptions options;
+    options.cache_markers = declared;
+    const fi::RenderedChat expected = jinja.render(messages, options);
+    const fi::RenderedChat actual   = native.render(messages, options);
+    int failures                    = 0;
+    failures += check(expected.text == actual.text,
+                      "the registered template rendered different text from its own oracle");
+    if (expected.cache_boundaries.size() != kMarkerCount ||
+        actual.cache_boundaries.size() != kMarkerCount) {
+        std::cerr << "cache boundary count: jinja " << expected.cache_boundaries.size() << ", native "
+                  << actual.cache_boundaries.size() << "\n";
+        return failures + check(false, "a renderer returned the wrong number of cache boundaries");
+    }
+    const auto show = [](const std::vector<std::optional<std::size_t>>& values) {
+        std::string out;
+        for (const auto& value : values) {
+            out += value ? std::to_string(*value) : std::string("none");
+            out += ",";
+        }
+        return out;
+    };
+    if (expected.cache_boundaries != actual.cache_boundaries) {
+        std::cerr << "cache boundaries jinja  : " << show(expected.cache_boundaries) << "\n"
+                  << "cache boundaries native : " << show(actual.cache_boundaries) << "\n";
+    }
+    failures += check(expected.cache_boundaries == actual.cache_boundaries,
+                      "the native renderer resolved a cache marker differently from the Jinja path");
+    // Agreement is only evidence if something was resolved. Each of these is a marker the native path
+    // used to leave unset, and the image part is the one a shipped `/v1/chat/completions` request
+    // sends, so each is named rather than counted.
+    const std::pair<Index, const char*> required[] = {
+        {kAfterFirst, "the frontier after the leading instruction"},
+        {kAfterUser, "the frontier after the user turn"},
+        {kLeadingInstruction, "the leading instruction's own byte count"},
+        {kImagePart, "the media part's frontier"},
+        {kUserTailPart, "the frontier after the part following the media part"},
+    };
+    for (const auto& [index, label] : required) {
+        failures += check(actual.cache_boundaries[index].has_value(),
+                          std::string("the native renderer left ").append(label).c_str());
+    }
+
+    // The same comparison for a part that begins with whitespace. The native renderer translates a
+    // part frontier by subtracting the leading strip, and the Jinja route maps a source offset
+    // against a region that begins at the trimmed text, so this is where the two conventions could
+    // differ -- and an ordinary user message may begin with whitespace. Measured on the differential
+    // oracle at two strip lengths (3 and 6 bytes, spaces and mixed): the two agree exactly, so the
+    // conventions coincide rather than merely going unexercised.
+    const auto compare = [&](const std::vector<fi::ChatMessage>& conversation, const char* what,
+                            Index must_resolve) {
+        fi::ChatRenderOptions marked;
+        marked.cache_markers = declared;
+        const fi::RenderedChat want = jinja.render(conversation, marked);
+        const fi::RenderedChat have = native.render(conversation, marked);
+        if (want.cache_boundaries != have.cache_boundaries || want.text != have.text) {
+            std::cerr << what << " jinja  : " << show(want.cache_boundaries) << "\n"
+                      << what << " native : " << show(have.cache_boundaries) << "\n";
+        }
+        failures += check(want.cache_boundaries == have.cache_boundaries && want.text == have.text,
+                          what);
+        // Agreement between two renderers that both declined to resolve is not agreement, so the case
+        // requires the marker to have resolved on both sides.
+        failures += check(want.cache_boundaries[must_resolve].has_value() &&
+                              have.cache_boundaries[must_resolve].has_value(),
+                          std::string(what).append(" (its own marker did not resolve)").c_str());
+    };
+    fi::ChatMessage stripped;
+    stripped.role = ninfer::ChatRole::User;
+    stripped.parts.push_back(fi::ChatPart::text_part("\n\n\t   six stripped bytes, then a second part"));
+    stripped.parts.push_back(fi::ChatPart::text_part("\t   a third part with its own lead"));
+    compare({stripped}, "a whitespace-prefixed part resolved differently from the Jinja path",
+            kSystemPart);
+    return failures;
+}
+
 int main() {
     const FrontendResources owned = resources();
     const Frontend frontend       = make_frontend(owned);
@@ -2454,6 +2581,7 @@ int main() {
     failures += test_media_token_ids_come_from_tokenizer();
     failures += test_template_media_contract();
     failures += test_registered_template_media();
+    failures += test_registered_template_cache_markers();
     failures += test_image_resize_rejection_policy();
     failures += test_explicit_leading_instruction_cache_boundary();
     failures += test_media_admission_uses_aggregate_resources(frontend);

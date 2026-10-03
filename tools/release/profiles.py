@@ -389,7 +389,12 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # before a plan is asked; one whose prompt matches is offered the candidate and loses the
     # selection to private_response_replay. A declared boundary
     # (prompt_cache_breakpoint: {mode:"explicit"}) is published and served: two sessions sharing a
-    # system message reused 301 of 344 tokens as `shared prefix`. So a shared owner is not "never
+    # system message reused 301 of 344 tokens as `shared prefix`. That was measured 2026-09-22, on the
+    # Jinja path: the native renderer landed 2026-09-23 and left MessagePartBoundary and
+    # LeadingInstructionBoundary unset, which took the declared-boundary arm off /v1/chat/completions
+    # for the interval 2026-09-23..2026-10-03. ADR-0012 recorded that as a design choice; it was a
+    # divergence from the Jinja path, and both locations resolve again as of 2026-10-03. So a shared
+    # owner is not "never
     # retained" -- shared_reuse_candidates counts the index entry reaching the plan -- and the
     # degradation below is real but not the cause. Three counters in RuntimeStats carry the decision:
     # shared_reuse_candidates, shared_reuse_declined, shared_reuse_key_mismatch.

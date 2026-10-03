@@ -202,16 +202,18 @@ def anthropic_body(
     """The same two-conversation shape on /v1/messages, with cache_control on the SYSTEM block.
 
     The discriminator for a real defect, not a harness one. On the OpenAI route a declared breakpoint
-    lands on a content PART, and the marker that produces -- MessagePartBoundary -- resolves to no
-    frontier at all: native_render.cpp:629-631 leaves `LeadingInstructionBoundary` and
-    `MessagePartBoundary` unset, and so does the Jinja path by design ("the same answer the Jinja path
-    gives when the layout cannot place them"). The OpenAI parser can set cache_boundary_after only on
-    a content part (openai_chat_request.cpp:352), so on that protocol a declared boundary never reaches
-    a frontier.
+    lands on a content PART, which produces a MessagePartBoundary marker. That location used to
+    resolve to no frontier at all -- native_render.cpp left MessagePartBoundary and
+    LeadingInstructionBoundary unset, a divergence from the Jinja path that ADR-0012 originally
+    recorded as "by design" and that was corrected on 2026-10-03, when the native renderer began
+    recording per-part end offsets and resolving both locations. The OpenAI parser can still set
+    cache_boundary_after only on a content part (openai_chat_request.cpp:352), so if an OpenAI arm
+    still reports zero hit tokens while this one hits, the cause is no longer the marker location and
+    is downstream of the renderer.
 
     The Anthropic parser sets it on the MESSAGE (anthropic_messages_request.cpp:266, 332), which
-    produces MessageBoundary -- and that location does resolve. If this arm hits and the OpenAI one
-    does not, the cause is located in the marker location rather than in the cache.
+    produces MessageBoundary -- and that location resolves. If this arm hits and the OpenAI one does
+    not, the cause is located in the marker location rather than in the cache.
     """
     system = {
         "type": "text",
@@ -455,10 +457,13 @@ def main() -> int:
     print("  DISCRIMINATOR: the same shape on /v1/messages (declaration on the system MESSAGE) got")
     print(f"  {anthropic_hit} hit tokens on path {anthropic_path}.")
     if anthropic_hit != 0:
-        print("  So the cache serves a shared prefix when the declaration resolves to a frontier,")
-        print("  and the OpenAI arms fail because parse_openai_prompt_cache_breakpoint can only set")
-        print("  the boundary on a content PART -- MessagePartBoundary -- which native_render.cpp:629")
-        print("  leaves unset by design, so no frontier exists to write at.")
+        print("  So the cache serves a shared prefix when the declaration resolves to a frontier.")
+        print("  The OpenAI arms are no longer explained by the marker location: the native renderer")
+        print("  has resolved MessagePartBoundary since 2026-10-03 (ADR-0012's correction), and the")
+        print("  differential oracle pins that against the Jinja path. Read an OpenAI arm's PATH, not")
+        print("  just its hit count: reuse through private_response_replay is ADR-0009's second")
+        print("  mechanism -- the shared candidate is available and loses the valuation -- and it is")
+        print("  not a failure of the marker to resolve.")
     else:
         print("  So it is not the marker location either: both protocols decline. The cause is below")
         print("  the frontend, and the counters are the next place to look.")
@@ -502,10 +507,10 @@ def main() -> int:
     print("  ADR-0012's 'prefill served from cache' names.")
     print()
     print("  For warm_lane_sweep.py, two things follow and both were the wrong way round before:")
-    print("    - the declaration must resolve to a frontier, so on /v1/chat/completions it has to be")
-    print("      carried by a MESSAGE, which the OpenAI parser cannot do; a content part resolves to")
-    print("      MessagePartBoundary, which the renderer leaves unset. Use /v1/messages, or accept")
-    print("      that the OpenAI route has no declared shared prefix at all.")
+    print("    - the declaration must resolve to a frontier, and both a MESSAGE and a content PART resolve")
+    print("      as of 2026-10-03. That is necessary, not sufficient, and not observable on the OpenAI")
+    print("      arm: private_response_replay dominates it, so a reuse number there says nothing about")
+    print("      whether a shared candidate was published. Only a shared_stable_prefix path does.")
     print("    - the two requests must be DIFFERENT conversations. Seeding with a shorter version of")
     print("      the same one takes private_response_replay, which never decodes.")
     return 0

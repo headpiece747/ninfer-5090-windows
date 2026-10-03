@@ -105,3 +105,40 @@ Two sessions went into the shared path: one on a harness that could not produce 
 adding the counters that split the space. Without this record the next reader repeats both, and the
 four mechanisms that look plausible — the degradation, the pools, the retention weight, the structural
 credit — are already measured out.
+
+## Sharpened 2026-10-03, from the code rather than from a run
+
+Three things in the rule above are less firm than the prose implies, and each was found by reading
+`resource_manager.h` while chasing an unreproduced version of this ADR's own measurement.
+
+**`shared_reuse_declined` is not a cost verdict.** It is incremented only when
+`program.inspect_admission(..., shared_source, ...)` returns `nullopt`
+(`resource_manager.h:384`), which is an *exactness* failure — missing state, KV or identity,
+`!base.allow_prefix_reuse`, `!prompt.identity.reusable`, or `prefix_matches` failing on token
+identity. The cost comparison this ADR calls "shared publication must be strictly better than the
+private-only baseline" happens later, in `FoldedCost::key()`
+(`materialization_planner.h:798-813`), and **is not counted at all**. So this ADR's own evidence
+(`shared_reuse_candidates 1`, `shared_reuse_declined 0`) proves the *publication-eligibility* and
+*offer* stages succeeded; it does not measure the "response replay already serves the same tokens more
+cheaply" claim, which is a statement about the selection stage. Reading those two counters as a cost
+verdict is the inference this paragraph exists to prevent.
+
+**`repeated` counts reuse domains, not requests, and the two cases invert.**
+`matching_reuse_domains` (`resource_manager.h:1515-1534`) deduplicates by `ReuseDomainId`. A client
+that repeats one prompt fifty times **under a session key** contributes a single domain forever, so
+`>= 2` never fires and the candidate rides on surplus or declared credit only. The same client
+**without** a session key gets a domain derived from `publication_order`
+(`resource_manager.h:1461-1465`), which is fresh per request, so the *second* request satisfies
+`repeated`. Both `demand_mask` and `repeated` are read over the **last 32 committed admissions**
+(`demand_window_`, capacity 32), not over the current request. This is the largest single source of
+run-to-run difference in whether a shared candidate is projected at all, and the most likely reason
+this ADR's 2026-09-22 `shared_stable_prefix 1` is not reproduced on demand — **unconfirmed**; the
+counters needed to test it ride on a throughput record this product's lane does not write (see
+[ADR-0012](0012-native-render-for-the-registered-template.md)).
+
+**`EngineObserved` is in neither bucket.** The frontend's full-prompt automatic boundary
+(`frontend.cpp:541-543`) carries `EngineObserved`, and the admission test at
+`resource_manager.h:1885-1897` builds `declared` from `ExplicitBoundary`/`RequestedAutomatic` and
+`surplus` from `DefaultAutomatic`/`EngineStructural` — omitting it. So "automatic candidates ride on
+surplus" is true for `DefaultAutomatic` and `EngineStructural` and **false** for `EngineObserved`,
+which is admissible only via `repeated`.

@@ -376,6 +376,69 @@ std::size_t total_bytes(const std::vector<fi::ChatMessage>& messages) {
 
 } // namespace
 
+// One marker of every location kind the conversation can express. Without them `cache_boundaries` is
+// empty in *both* arms, so the field comparison below reports "identical" because there was nothing
+// to compare -- the same shape as a control that agrees for a structural reason. This is the corpus
+// that makes the two kinds needing a source offset observable at all: the leading instruction's byte
+// count, and one marker per part of the first few messages.
+std::vector<ninfer::PromptCacheMarker> cache_marker_corpus(
+    const std::vector<fi::ChatMessage>& messages, std::size_t tool_count) {
+    std::vector<ninfer::PromptCacheMarker> markers;
+    markers.push_back({.after_message_count = 1});
+    if (messages.size() > 1) { markers.push_back({.after_message_count = 2}); }
+    if (tool_count > 0) {
+        markers.push_back({.location      = ninfer::PromptCacheMarkerLocation::ToolBoundary,
+                           .after_tool_count = 1});
+    }
+    markers.push_back({.location                   = ninfer::PromptCacheMarkerLocation::
+                           LeadingInstructionBoundary,
+                       .leading_instruction_bytes = 12});
+    constexpr std::size_t kMarkedMessages = 4;
+    for (std::size_t m = 0; m < messages.size() && m < kMarkedMessages; ++m) {
+        for (std::size_t p = 0; p < messages[m].parts.size(); ++p) {
+            markers.push_back({.after_message_count      = static_cast<std::uint32_t>(m + 1),
+                               .location                 = ninfer::PromptCacheMarkerLocation::
+                                   MessagePartBoundary,
+                               .after_message_part_count = static_cast<std::uint32_t>(p + 1)});
+        }
+    }
+    return markers;
+}
+
+// The one input shape where the two translations of a part frontier can disagree. Every other corpus
+// message has an empty leading strip, where the native renderer subtracting that strip and the Jinja
+// route mapping a source offset against a region that begins at the trimmed text coincide by
+// construction. A part that begins with whitespace separates them, and an ordinary user message may
+// begin with whitespace, so the case is built here rather than left to a fixture nobody writes.
+void report_trimmed_part_case(std::string_view source,
+                              const nlohmann::ordered_json& special_tokens) {
+    const fi::CompiledChatTemplate jinja = fi::CompiledChatTemplate::resolve(
+        std::string(source) + "{#trimmed-part-oracle#}", "trimmed-part-oracle", special_tokens);
+    const fi::CompiledChatTemplate native = fi::CompiledChatTemplate::resolve(std::string(source));
+    fi::ChatMessage user;
+    user.role = ninfer::ChatRole::User;
+    user.parts.push_back(fi::ChatPart::text_part("\n\n\t   six stripped bytes, then a second part"));
+    user.parts.push_back(fi::ChatPart::text_part("\t   a third part with its own lead"));
+    const std::vector<fi::ChatMessage> messages{user};
+    fi::ChatRenderOptions options;
+    options.cache_markers          = cache_marker_corpus(messages, 0);
+    const fi::RenderedChat expected = jinja.render(messages, options);
+    const fi::RenderedChat actual   = native.render(messages, options);
+    const auto show = [](const std::vector<std::optional<std::size_t>>& values) {
+        std::string out;
+        for (const auto& value : values) {
+            out += value ? std::to_string(*value) : std::string("none");
+            out += ",";
+        }
+        return out;
+    };
+    const bool same = expected.text == actual.text &&
+                      expected.cache_boundaries == actual.cache_boundaries;
+    std::cout << "trimmed part jinja  : " << show(expected.cache_boundaries) << "\n";
+    std::cout << "trimmed part native : " << show(actual.cache_boundaries) << "\n";
+    std::cout << "trimmed part        : " << (same ? "identical" : "DIFFERS") << "\n";
+}
+
 // The differential loop ADR-0012 is built against. Its control -- the Jinja render compared with
 // itself -- validates the instrument before any comparison means anything, and what it reports is the
 // first byte that differs, so a native renderer can be built against an exact target rather than a
@@ -400,15 +463,19 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
     // is the interpreter and the comparison is real.
     const fi::CompiledChatTemplate oracle = fi::CompiledChatTemplate::resolve(
         std::string(source) + "{#differential-oracle#}", "jinja-oracle", special_tokens);
-    const fi::RenderedChat jinja = oracle.render(messages, render_options, control);
-    const fi::RenderedChat self  = oracle.render(messages, render_options, control);
+    // The compared renders carry the marker corpus; the timing arms keep the caller's options.
+    fi::ChatRenderOptions marked = render_options;
+    marked.cache_markers =
+        cache_marker_corpus(messages, render_options.tool_jsons.size());
+    const fi::RenderedChat jinja = oracle.render(messages, marked, control);
+    const fi::RenderedChat self  = oracle.render(messages, marked, control);
     const auto control_offset    = first_difference(jinja.text, self.text);
     // A control that cannot fail validates nothing: comparing a render with itself is a tautology.
     // This one compares the oracle against a source with a literal the template will emit, so a
     // comparison that reports "identical" is a broken instrument rather than a clean result.
     const fi::CompiledChatTemplate mutated = fi::CompiledChatTemplate::resolve(
         std::string(source) + "differential-control", "jinja-control", special_tokens);
-    const fi::RenderedChat changed = mutated.render(messages, render_options, control);
+    const fi::RenderedChat changed = mutated.render(messages, marked, control);
     const auto control_probe       = first_difference(jinja.text, changed.text);
     std::cout << "native control      : "
               << (control_offset ? "differs at byte " + std::to_string(*control_offset)
@@ -423,7 +490,7 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
               << fi::sha256_hex(digest) << ")\n";
     if (!registered) { return; }
 
-    const fi::RenderedChat native = fi::render_native(messages, render_options);
+    const fi::RenderedChat native = fi::render_native(messages, marked);
     const auto offset             = first_difference(jinja.text, native.text);
     std::cout << "native compare      : "
               << (offset ? "differs at byte " + std::to_string(*offset)
@@ -448,6 +515,7 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
     // Text identity is necessary and not sufficient: a renderer that produced the same bytes with
     // different boundaries would pass a text-only check and then hand the engine a wrong frontier.
     // Every field `RenderedChat` carries is compared here.
+    report_trimmed_part_case(source, special_tokens);
     const auto spans = [](const std::vector<ninfer::text::ByteSpan>& values) {
         std::string out;
         for (const ninfer::text::ByteSpan& span : values) {
@@ -498,7 +566,11 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
 
     // The arms above compare the default effort only, which leaves the client aliases -- the one
     // place the two implementations carry independent logic -- uncompared. `none` is the engine's
-    // arm (thinking already false); the other six arrive as themselves.
+    // arm (thinking already false); the other six arrive as themselves. The Jinja side is `oracle`,
+    // NOT `compiled`: `compiled` is the registered source, so `compiled.render` dispatches to
+    // `render_native` (chat_template.cpp:164) and these seven arms would compare native with itself
+    // -- a control that agrees for a structural reason, printing `identical` for every arm no matter
+    // what either implementation did.
     struct EffortArm {
         ninfer::ReasoningEffort effort;
         bool thinking;
@@ -513,7 +585,7 @@ void report_native_comparison(const fi::CompiledChatTemplate& compiled,
         fi::ChatRenderOptions options = render_options;
         options.reasoning_effort      = arm.effort;
         options.enable_thinking       = arm.thinking;
-        const fi::RenderedChat arm_jinja  = compiled.render(messages, options, control);
+        const fi::RenderedChat arm_jinja  = oracle.render(messages, options, control);
         const fi::RenderedChat arm_native = fi::render_native(messages, options);
         const auto arm_offset             = first_difference(arm_jinja.text, arm_native.text);
         std::cout << "native effort       : " << ninfer::reasoning_effort_name(arm.effort)

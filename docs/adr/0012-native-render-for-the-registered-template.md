@@ -133,15 +133,100 @@ recorded ninety passing runs followed by none.
 
 ### The end-to-end projection, measured 2026-10-02, and warm TTFT now exists
 
-Getting to a warm measurement required finding that **`/v1/chat/completions` cannot declare a shared
+Getting to a warm measurement required finding that **`/v1/chat/completions` could not declare a shared
 prefix at all.** Its parser can only set a cache boundary on a content **part**
 (`openai_chat_request.cpp:352`), which becomes a `MessagePartBoundary` marker — and the renderer
-leaves that location, and `LeadingInstructionBoundary`, unresolved by design (`native_render.cpp:629-631`,
-"the same answer the Jinja path gives when the layout cannot place them"). No frontier, so no shared
-prefix is ever written. The `/v1/messages` route sets the boundary on the **message**
-(`anthropic_messages_request.cpp:266`), which resolves to a `MessageBoundary` and is served.
+leaves that location, and `LeadingInstructionBoundary`, unresolved (`native_render.cpp`, the cache
+marker switch). No frontier, so no shared prefix was ever written on that protocol. The
+`/v1/messages` route sets the boundary on the **message** (`anthropic_messages_request.cpp:266`),
+which resolves to a `MessageBoundary` and is served.
 `tools/bench/check_shared_prefix_reuse.py` is the instrument, and it exits 0 when the warm path is
 reached and 2 when its own control cannot see a hit.
+
+**CORRECTED 2026-10-03 — the two unresolved locations were a divergence from the Jinja path, not a
+design choice, and the sentence above originally said "by design".** That justification quoted this
+ADR's own code comment, which asserted the native answer was *"the same answer the Jinja path gives
+when the layout cannot place them"*. Jinja resolves both locations: `MessagePartBoundary` from
+`origin.part_ends` / `part_tags` / `part_media` and `LeadingInstructionBoundary` from
+`source_boundary` (`chat_template.cpp:440-472`). The native renderer recorded only per-message
+offsets, had no per-part data to resolve against, and so left both unset. This is the ADR's stated
+risk — *"two implementations of one serialization"* — landing as a silent, protocol-visible
+difference, on a boundary this ADR's own warm measurement depended on.
+
+The window is bounded by this ADR's own dates: the native renderer landed 2026-09-23 (`06d7843e`), and
+ADR-0009's declared-boundary measurement (`301` of `344` tokens reused as `shared prefix`) was
+2026-09-22, on Jinja. So the renderer diverged from the path ADR-0009 had measured, and the
+divergence is closed below.
+
+**What closing it did *not* do is restore ADR-0009's end-to-end result** — see the measurement below.
+The fix is renderer parity, not a serving change.
+
+Fixed 2026-10-03: `native_render.cpp` records each content part's end offset while emitting and
+resolves both locations from it. Verified as a **renderer-level** result — the differential oracle
+(`bench/models/qwen3_5/chat_render_bench.cpp`) now carries a marker corpus covering all four
+locations, so `cache_boundaries` is non-empty in both arms for the first time, and the native and
+Jinja renders agree on every marker including the media part's; `test_frontend.cpp`'s
+`test_registered_template_cache_markers` pins the same comparison through the registered template. The
+oracle previously compared an **empty** `cache_boundaries` in both arms and reported "identical",
+which is why a renderer resolving no marker at all passed it.
+
+**Measured 2026-10-03, and the answer is that the fix is renderer-correct but end-to-end inert.**
+`tools/bench/check_shared_prefix_reuse.py`, against `qwen3_8_27b_nvfp4qat.v3.ninfer` with the app tree
+rebuilt to carry the change, read:
+
+| arm | prompt tokens | hit | path |
+|---|---:|---:|---|
+| `repeat` (control) | 3282 | 3275 | `private_response_replay` |
+| `grow` (unmarked) | 3824 | 0 | `root` |
+| `shuffle` (negative) | 3282 | 0 | `root` |
+| `marked grow` | 3824 | 3817 | `private_response_replay` |
+| `marked diverge` | 3284 | 0 | `root` |
+| `anthropic B` (warm) | 8079 | 8054 | `shared_stable_prefix` |
+
+**The same instrument was then run with this change reverted and both trees rebuilt. Every row is
+byte-identical.** So the 3817 reuse on the OpenAI marked arm is `private_response_replay`, which was
+already available and does not depend on the cache-boundary marker — a `prompt_cache_breakpoint`
+governs *shared publication*, not replay. The instrument therefore cannot distinguish "a shared
+candidate was published" from "none was", because replay dominates that arm.
+
+Two consequences, both recorded because the first one corrects this ADR and the second corrects the
+correction:
+
+- **The OpenAI declared-boundary arm still does not reach `shared_stable_prefix`.** It reuses through
+  replay. That is ADR-0009's second mechanism — the shared candidate is available and loses the
+  valuation — and not the marker location. The `/v1/messages` arm is the only one that reaches
+  `shared_stable_prefix`, through `MessageBoundary`, which the native renderer already resolved before
+  this change.
+- **ADR-0009's 2026-09-22 measurement of `shared_stable_prefix 1` on a declared OpenAI boundary is
+  therefore not reproduced today, and this fix did not restore it.** What was restored is renderer
+  parity with the Jinja path. Whether ADR-0009's result depended on the run's cache state — ADR-0009
+  records that admission rides on surplus capacity or repetition, both of which are history-dependent
+  — is **unresolved**, and is a separate question from the renderer divergence fixed here.
+
+The three `shared_reuse_*` counters would decide it, and this instrument cannot read them: the lane
+is killed rather than retired, so the engine's shutdown-tail throughput record is never written and
+the last record on disk predates the final request. Measured at both `--stats-interval-ms 500` and
+`100`. Read carelessly that stale record reports `shared_stable_prefix=1`, which belongs to a
+*previous* run's Anthropic arm.
+
+**The oracle's reasoning-effort arms compared the native renderer with itself until 2026-10-03.** The
+Jinja side called `compiled.render(...)`, where `compiled` is the *registered* source, so `render`
+dispatched to `render_native` (`chat_template.cpp:164`) — the same function the other side called
+directly. All seven arms printed `identical` regardless of what either implementation did, and "all
+seven effort arms identical" was reported as evidence before this was found. The arms now use the
+Jinja `oracle`; all seven still agree, and the corrected comparison was falsified per-arm (corrupting
+the `minimal` alias alone moves only that arm, reporting a difference at byte 46). **The verdict
+survived; the evidence for it had not existed.**
+
+**The oracle is not a gate.** `chat_render_bench` appears in no script under `tools/`, no
+`.githooks/` entry, and no ctest registration — it is run by hand with `--native`. What the suite
+gates is `test_registered_template_cache_markers`, which compares **2 of the 9 `RenderedChat`
+fields** (`text` and `cache_boundaries`). There is no `operator==` on `RenderedChat` and no field
+count, so **a tenth field would compile clean and fail nothing** — the bench's field list is a
+hand-written sequence of `report(...)` calls and the test names two fields explicitly. Two fields are
+compared at reduced granularity even in the bench: `media_placeholders` by `size()` only, and
+`rewrite_checkpoint` by `offset` only, so a divergent `kind` passes everywhere. Closing that needs a
+structural change (a field-count assertion, or a defaulted `operator==`), not another careful pass.
 
 | | prompt tokens | prefix reused | `prepare` | TTFT | path |
 |---|---:|---:|---:|---:|---|

@@ -197,7 +197,8 @@ std::string join(const std::vector<ContentSegment>& segments) {
 std::vector<ContentSegment> render_content(const ChatMessage& message, bool is_instruction,
                                            bool add_vision_id, std::size_t& image_count,
                                            std::size_t& video_count,
-                                           std::vector<MediaUse>* uses = nullptr) {
+                                           std::vector<MediaUse>* uses = nullptr,
+                                           std::vector<std::size_t>* part_ends = nullptr) {
     std::vector<ContentSegment> out;
     std::size_t length = 0;
     const auto add_template = [&](std::string_view bytes) {
@@ -218,9 +219,17 @@ std::vector<ContentSegment> render_content(const ChatMessage& message, bool is_i
         }
         length += bytes.size();
     };
+    // Where each part's own bytes end inside this content string, which is what the Jinja route's
+    // `origin.part_ends` records while it builds the template context (chat_template.cpp:203-221). A
+    // media part ends past its `<|vision_end|>`, the same frontier Jinja takes from `part_media`'s
+    // placeholder plus that closing tag, so one list answers both part kinds.
+    const auto end_part = [&] {
+        if (part_ends != nullptr) { part_ends->push_back(length); }
+    };
     for (const ChatPart& part : message.parts) {
         if (part.kind == ChatPartKind::Text) {
             add_input(part.text);
+            end_part();
             continue;
         }
         const bool image = part.kind == ChatPartKind::Image;
@@ -243,6 +252,7 @@ std::vector<ContentSegment> render_content(const ChatMessage& message, bool is_i
         if (uses != nullptr) {
             uses->push_back({image ? Modality::Image : Modality::Video, pad_offset});
         }
+        end_part();
     }
     return out;
 }
@@ -329,6 +339,36 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
     // One entry per tool definition, in request order, so a ToolBoundary marker can resolve to a
     // rendered frontier rather than a source offset.
     std::vector<std::size_t> tool_ends;
+    // Each message's per-part frontiers in rendered offsets, and the leading instruction's own content
+    // start and length, so the two marker kinds that need a source offset resolve here rather than
+    // staying unset. The translation is the one `record_media` already applies to a pad: an offset
+    // inside `render_content`'s own string, less whatever the leading strip removed, measured from
+    // where the trimmed content landed.
+    std::vector<std::vector<std::optional<std::size_t>>> part_frontiers(messages.size());
+    std::optional<std::size_t> leading_content_start;
+    std::size_t leading_content_size = 0;
+    // A part whose end or whose explicit byte count fell outside the trimmed content is left
+    // unresolved rather than clamped, because the Jinja route reports no boundary for an offset its
+    // content region does not cover either.
+    const auto record_part_frontiers = [&](std::vector<std::optional<std::size_t>>& out,
+                                           std::size_t content_start, std::size_t lead,
+                                           std::string_view content,
+                                           const std::vector<std::size_t>& ends) {
+        for (const std::size_t end : ends) {
+            out.push_back(end < lead || end - lead > content.size()
+                              ? std::nullopt
+                              : std::optional<std::size_t>(content_start + end - lead));
+        }
+    };
+    // The leading instruction is emitted in the preamble rather than in the loop below, so its own
+    // frontiers are recorded here; every other message records its part frontiers in `emit_content`.
+    const auto record_leading_content = [&](std::size_t content_start, std::size_t lead,
+                                            std::string_view content,
+                                            const std::vector<std::size_t>& ends) {
+        leading_content_start = content_start;
+        leading_content_size   = content.size();
+        record_part_frontiers(part_frontiers[0], content_start, lead, content, ends);
+    };
     const auto append_input = [&](std::string_view bytes) {
         if (bytes.empty()) { return; }
         input_spans.push_back({text.size(), text.size() + bytes.size()});
@@ -351,20 +391,33 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
         text += kToolsBlockEnd;
         text += kToolsReminder;
         if (instruction(messages.front().role)) {
-            const std::string content = trim_whitespace(
-                join(render_content(messages.front(), true, false, image_count, video_count)));
-            if (!content.empty()) { text += "\n\n"; append_input(content); }
+            std::vector<std::size_t> ends;
+            const std::string raw = join(
+                render_content(messages.front(), true, false, image_count, video_count, nullptr,
+                               &ends));
+            const std::string content = trim_whitespace(raw);
+            if (!content.empty()) {
+                text += "\n\n";
+                const std::size_t content_start = text.size();
+                append_input(content);
+                record_leading_content(content_start, raw.find(content), content, ends);
+            }
         }
         text += kImEnd;
         text += "\n";
     } else if (instruction(messages.front().role)) {
-        const std::string content =
-            trim_whitespace(join(render_content(messages.front(), true, false, image_count, video_count)));
+        std::vector<std::size_t> ends;
+        const std::string raw =
+            join(render_content(messages.front(), true, false, image_count, video_count, nullptr,
+                                &ends));
+        const std::string content = trim_whitespace(raw);
         if (!content.empty()) {
             text += kImStart;
             text += "system\n";
             if (!reasoning_instructions.empty()) { text += reasoning_instructions; text += "\n\n"; }
+            const std::size_t content_start = text.size();
             append_input(content);
+            record_leading_content(content_start, raw.find(content), content, ends);
             text += kImEnd;
             text += "\n";
         } else if (!reasoning_instructions.empty()) {
@@ -388,9 +441,10 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
         const bool first = i == 0;
         const bool last  = i + 1 == messages.size();
         std::vector<MediaUse> uses;
+        std::vector<std::size_t> ends;
         const std::vector<ContentSegment> segments = render_content(
             message, instruction(message.role), options.add_vision_id, image_count, video_count,
-            &uses);
+            &uses, &ends);
         const std::string raw     = join(segments);
         const std::string content = trim_whitespace(raw);
         // `trim_whitespace` strips both ends, so a placeholder's offset inside `content` is its
@@ -436,6 +490,7 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
                 left -= bytes.size();
             }
             record_media(content_start);
+            record_part_frontiers(part_frontiers[i], content_start, media_lead, content, ends);
         };
         if (instruction(message.role)) {
             if (!first) {
@@ -607,10 +662,11 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
     }
 
     // Cache markers resolve to a rendered frontier by location kind, as the Jinja path resolves them:
-    // a message boundary is that message's frontier, and a tool boundary is where the definition at
-    // that index ends. The two kinds that need a source offset against a region's mapping -- a leading
-    // instruction boundary and a message-part boundary -- stay absent, the same answer the Jinja path
-    // gives when the layout cannot place them.
+    // a message boundary is that message's frontier, a tool boundary is where the definition at that
+    // index ends, and the two kinds that need a source offset against a region's mapping are answered
+    // from the per-part and leading-instruction frontiers recorded while the content was emitted. The
+    // Jinja route resolves both from `origin.part_ends`/`part_tags`/`part_media` and
+    // `source_boundary`; leaving them unset here was a divergence from it, not a shared answer.
     result.cache_boundaries.resize(options.cache_markers.size());
     for (std::size_t i = 0; i < options.cache_markers.size(); ++i) {
         const PromptCacheMarker& marker = options.cache_markers[i];
@@ -626,7 +682,21 @@ RenderedChat render_native(const std::vector<ChatMessage>& messages,
             }
             break;
         case PromptCacheMarkerLocation::LeadingInstructionBoundary:
+            // `leading_instruction_bytes` counts into the untrimmed message, so it is translated the
+            // same way a part frontier is: less the leading strip, from where the content landed.
+            if (leading_content_start && marker.leading_instruction_bytes <= leading_content_size) {
+                result.cache_boundaries[i] =
+                    *leading_content_start + marker.leading_instruction_bytes;
+            }
+            break;
         case PromptCacheMarkerLocation::MessagePartBoundary:
+            if (marker.after_message_count > 0 &&
+                marker.after_message_count <= part_frontiers.size() &&
+                marker.after_message_part_count > 0) {
+                const auto& frontiers = part_frontiers[marker.after_message_count - 1];
+                const std::size_t part = marker.after_message_part_count - 1;
+                if (part < frontiers.size()) { result.cache_boundaries[i] = frontiers[part]; }
+            }
             break;
         }
     }
