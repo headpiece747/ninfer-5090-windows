@@ -27,7 +27,8 @@ open). As of 2026-10-01 the only items with work outstanding are:
   established and the fix has landed; ungating is a separate performance decision. See the
   `RESOLVED` block at the top of item 12.
 - **item 14, speed half** — the first request being *faster*, which nothing in the literature
-  explains. The text half is answered (prefix caching, documented engine behaviour).
+  explains. The text half is answered: it is ADR-0002's documented cross-configuration sensitivity,
+  not a first-request effect, and the original comparison was two bench runs rather than two requests.
 
 Everything else below is closed, answered or negative, and is kept because the reasoning is the
 durable part. The header date was `2026-09-28` until 2026-10-01, when it was corrected: the file's
@@ -1498,7 +1499,7 @@ prints the engine's own `missing component dflash`.
 > could not catch it, because sixteen empty replies are sixteen identical replies. The harness now
 > raises on an empty reply, which is the half that was missing.
 
-### 14. A lane's first request returns different, shorter text — a serving behaviour, undiagnosed
+### 14. A lane's first request returns different, shorter text — **RESOLVED 2026-10-02: not a first-request effect**
 **Promoted out of item 6, where it was recorded under a DONE heading and therefore invisible to anyone
 reading the list.** That is the only reason it moved; the content is item 6's, unchanged.
 
@@ -1514,10 +1515,48 @@ is a correct fix for the *measurement*. It is explicitly not a fix for the behav
 gets different, shorter first-turn text. Fixing the harness and fixing the engine are two different jobs
 and only the first has been done.
 
+**MEASURED 2026-10-02: the transient as described does not reproduce, and the description was wrong
+about what it compared.** At the temperature this item says it is visible at — 0.7, with the seed
+pinned so that any divergence is the engine and not the sampler — eight identical requests in one lane
+were byte-identical in both the prefix-reuse and the `--no-prefix-reuse` arm, and repeated across
+three separate process launches with the same digests each time. The cache did engage: requests 2..8
+took `private_response_replay` with 39 hit tokens, and the text was still identical, because replay
+returns what request 1 computed.
+
+The observation came from comparing **two separate bench runs**, `--warmup 0` against `--warmup 1`
+(`tools/bench/first_request_loop.cmd`), not requests inside one lane. Those are two configurations,
+and [ADR-0002](adr/0002-speculation-not-bit-identical.md) already records that different prefill and
+kernel paths deterministically change sampled output — "a near-tie can flip and the continuation
+diverges" — with the explicit consequence that "a user comparing output across profiles will see
+differences, which is correct". So this is that documented behaviour read as a first-request effect,
+not a first-request effect.
+
+Measured here as a control on that reading, because it is the same mechanism from another side: the
+two arms above differ only in prefix reuse and the six capacity flags the engine requires with it,
+and for the **same prompt, seed and temperature** they produce different text — `d9fc0df811cf40f2`
+against `df5604c53ea0ae6f` — byte-stable across three process launches. Cache-capacity configuration
+is therefore another axis on ADR-0002's axis, and both request 1s are path `root` with zero hit
+tokens, so the difference is in the prefill the plan chose rather than in anything cached. That also
+falsifies the alternative I reached for first, which was cross-process nondeterminism: the digests
+reproduced exactly every time.
+
+**A separate finding, recorded rather than diagnosed.** A *growing* conversation whose prefix is
+genuinely shared — `conversation(n - 1)` then `conversation(n)`, sharing `n - 1` messages — returned
+`prefix_cache_hit_tokens = 0` and path `root` at 4,727, 20,879 and 42,415 tokens. So on this lane the
+only prefix reuse reachable at all is exact-request replay, not reuse of a shared prefix. Whether that
+is correct for these shapes is a separate question this measurement does not answer, and it is not
+what item 14 was about.
+
 **Re-scoped 2026-10-01: this is two separate items, and the text half is answered.** The four candidate
 causes listed above are not equally live. External research, and one in-tree fact, split them:
 
-* **The *text* difference is a known, engine-wide behaviour with a named mechanism: prefix caching.**
+* **CORRECTED 2026-10-02: not prefix caching.** This bullet named prefix caching as the mechanism. It is
+  not: measured at temperature 0.7 with a pinned seed, the cache engaged on requests 2..8
+  (`private_response_replay`, 39 hit tokens) and the text was byte-identical to request 1's, because
+  replay returns what request 1 computed. The real mechanism is [ADR-0002](adr/0002-speculation-not-bit-identical.md)'s —
+  a different prefill or kernel path deterministically flips a sampling near-tie — and the original
+  observation reached it by comparing two bench runs rather than two requests. The bullet is kept so
+  the attribution that was acted on is visible alongside its refutation.
   SGLang's own FAQ states two identical requests can differ even at temperature 0 and names prefix
   caching as a distinct cause of the indeterminism. vLLM **#40896** (open) is this item's question
   verbatim — run 1 returns A, runs 2..N return B≠A, restart returns to A, and
@@ -1633,6 +1672,9 @@ causes listed above are not equally live. External research, and one in-tree fac
 > This is the "harness error reported as a product defect" pattern the project's own review skill names.
 > The first half of this item -- the text divergence -- is unaffected: it was observed on the serving
 > path, it has a named mechanism (prefix caching), and item 5's instrument measures it directly.
+> **Both halves of that sentence are wrong, measured 2026-10-02.** Prefix caching is not the mechanism:
+> the cache engaged and the text stayed byte-identical. And item 5 measures recall/acceptance on fixed
+> ids, not serving-lane output, so it never measured this. Corrected above.
 > **RESEARCHED AGAIN, and the answer is that there is no documented mechanism -- which is the finding.**
 > Searching specifically for a first request that is FASTER returns the standard TTFT-vs-TPOT framing and
 > nothing else. Every published first-request effect -- lazy module loading, graph capture, JIT,

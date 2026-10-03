@@ -87,12 +87,19 @@ def without_context_capacity(args: list[str]) -> tuple[list[str], list[str]]:
     return kept, removed
 
 
-def request_body() -> dict[str, Any]:
+def request_body(temperature: float, seed: int) -> dict[str, Any]:
     return {
         "model": "qwen3.8-27b-quasar-v3-dflash2-vision",
         "messages": [{"role": "user", "content": PROMPT}],
         "max_tokens": MAX_TOKENS,
-        "temperature": 0.0,
+        # Temperature and seed are parameters rather than constants because the two questions this
+        # harness answers need different settings. The first-request TRANSIENT is invisible at
+        # temperature 0 -- the greedy digest is stable from request 1 -- and visible at the sampling
+        # temperature the bench uses, so reproducing it at all requires sampling. The seed is pinned so
+        # that any divergence between requests is the cache and not the sampler: without it, a sampling
+        # temperature makes every request differ for a reason that has nothing to do with the question.
+        "temperature": temperature,
+        "seed": seed,
         # Without this the whole output budget goes to thinking: the first run of this harness put
         # 256 model_thinking_tokens against 256 completion_tokens in every request of both arms, so
         # content came back empty and the reply digest was the SHA-256 of the empty string in all
@@ -159,9 +166,9 @@ def wait_until_ready(port: int, process: subprocess.Popen[bytes], timeout_s: flo
     return False
 
 
-def post_completion(port: int, timeout_s: float) -> tuple[float, str, int]:
+def post_completion(port: int, timeout_s: float, temperature: float, seed: int) -> tuple[float, str, int]:
     """Send one request; return elapsed seconds, the reply text, and its token count."""
-    body = json.dumps(request_body()).encode("utf-8")
+    body = json.dumps(request_body(temperature, seed)).encode("utf-8")
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}/v1/chat/completions",
         data=body,
@@ -179,7 +186,16 @@ def post_completion(port: int, timeout_s: float) -> tuple[float, str, int]:
     return elapsed, text, completion
 
 
-def run_arm(exe: Path, artifact: Path, port: int, no_reuse: bool, repeats: int, log_dir: Path) -> dict[str, Any]:
+def run_arm(
+    exe: Path,
+    artifact: Path,
+    port: int,
+    no_reuse: bool,
+    repeats: int,
+    log_dir: Path,
+    temperature: float,
+    seed: int,
+) -> dict[str, Any]:
     """Start a fresh lane, send `repeats` identical requests, stop the lane, return the record."""
     label = "no-reuse" if no_reuse else "reuse"
     log_path = log_dir / f"first_request_{label}.log"
@@ -206,7 +222,7 @@ def run_arm(exe: Path, artifact: Path, port: int, no_reuse: bool, repeats: int, 
             raise RuntimeError(f"[{label}] the lane never became ready; see {log_path}")
         print(f"  [{label}] ready; sending {repeats} identical requests", flush=True)
         for index in range(repeats):
-            elapsed, text, completion = post_completion(port, timeout_s=600.0)
+            elapsed, text, completion = post_completion(port, 600.0, temperature, seed)
             # An empty reply is a failed measurement, not a slow one. The identity control below
             # cannot catch it on its own: every response being identically empty passes it, which is
             # exactly what happened in the first run of this harness.
@@ -261,6 +277,8 @@ def main() -> int:
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--exe", type=Path, default=REPO_ROOT / "build" / "apps" / "ninfer-serve.exe")
     parser.add_argument("--repeats", type=int, default=8)
+    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--base-port", type=int, default=8186)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--log-dir", type=Path, default=REPO_ROOT / "profiles" / "first_request")
@@ -285,6 +303,8 @@ def main() -> int:
         "exe": str(args.exe),
         "repeats": args.repeats,
         "max_tokens": MAX_TOKENS,
+        "temperature": args.temperature,
+        "seed": args.seed,
         "prompt_sha256_16": hashlib.sha256(PROMPT.encode("utf-8")).hexdigest()[:16],
         "arms": [],
     }
@@ -301,6 +321,8 @@ def main() -> int:
                 no_reuse=(name == "no-reuse"),
                 repeats=args.repeats,
                 log_dir=args.log_dir,
+                temperature=args.temperature,
+                seed=args.seed,
             )
         )
 

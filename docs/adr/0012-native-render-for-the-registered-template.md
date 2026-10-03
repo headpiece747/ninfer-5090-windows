@@ -130,6 +130,41 @@ recorded ninety passing runs followed by none.
   and varies only the path.
 - **Projected, not measured**: `prepared` ≈ 8 ms and warm TTFT ≈ 22 ms. Those follow from the render
   figure and the field log's split, and the end-to-end path has not been timed with the new renderer.
+
+### The end-to-end projection, measured 2026-10-02: the `prepared` half is refuted
+
+`tools/bench/warm_lane_sweep.py`, one lane, the native path active, the engine's own
+`request-log-jsonl` fields (`timings_seconds.prepare`, `result.prompt_tokens`):
+
+| prompt tokens | `prepare` (ms) |
+|---:|---:|
+| 18 | 0.10 |
+| 4,727 | 1.48 |
+| 20,879 | 7.71 |
+| 42,415 | 12.21 |
+
+**The projection is wrong, not merely untested.** It puts `prepared` at ≈8 ms for a ~172k-token
+conversation; measurement has it at 12.21 ms for 42,415 tokens, already above the projected value at
+a quarter of the projected size, and still rising. Extrapolating the measured near-linear trend
+gives ≈49 ms at ~172k tokens, against a projected ≈8 ms -- roughly 6x. The derivation failed
+because it treated the render saving as the substance of `prepared`: at 42k tokens the render is
+roughly 1.4 ms of the 12.21 ms, so tokenize, layout and copies dominate, and those scale with the
+prompt rather than shrinking with it.
+
+**The warm TTFT half could not be tested at all, and the reason is a result.** A growing
+conversation whose prefix is genuinely shared — `conversation(n - 1)` then `conversation(n)`, sharing
+`n - 1` messages — returned `prefix_cache_hit_tokens = 0` and path `root` at every size tried
+(4,727 / 20,879 / 42,415 tokens). The only rows that did hit took `private_response_replay`, which
+returns a stored response and never decodes, so its TTFT is replay latency rather than TTFT. On
+this lane, on this workload, there is no cached-prefix-plus-real-decode path to measure, so
+"warm TTFT ≈ 22 ms" remains untested rather than confirmed. Its own precondition is the thing that
+is missing.
+
+Also measured here, re-deriving the precondition above after the renderer's digest was corrected:
+`CompiledChatTemplate::render` over a 229-message, 689,748-byte conversation takes **5.59 ms**
+(`ninfer_qwen3_5_chat_render_bench --sweep 32,64,128,229`), against the 5.99 ms recorded on
+2026-09-23 for the same shape. The render half of this ADR stands; only the end-to-end projection
+fails.
 - The boundary machinery simplifies: no `prefix()` probe and no marker parsing to establish what the
   renderer knows, which is where the second half of the win comes from.
 - `--chat-template` overrides and every unrecognised artifact continue through Jinja unchanged. Both
