@@ -1361,7 +1361,7 @@ predicted:** the cause was neither, and the resolution block at the top of this 
 **2026-09-29, after the `d44ab584` merge. The suite is green at 133/135; the two failures are
 `dflash_real` and `moe_real`, which fail by construction because this product ships no `dflash`
 component and no 35B-A3B MoE checkpoint. `check_test_baseline.py` GATE PASSED.**
-*(A dated record of that day's run, not the current size: the suite is **137** now —
+*(A dated record of that day's run, not the current size: the suite is **139** now —
 `tools/release/test_baseline.json` `suite_size`, corroborated by `ctest --test-dir build-test -N`.
 The current known failures are the same two.)*
 
