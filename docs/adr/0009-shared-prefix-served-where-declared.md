@@ -79,8 +79,18 @@ Accepted: keep both behaviours.
 - The engine's structural boundaries stay disabled for OpenAI requests. Enabling them would publish
   shared prefixes that the valuation must then either refuse or pay for against a private path that
   already wins.
-- An undeclared automatic candidate keeps its surplus-only admission. It is not promoted above a
-  private candidate at the same frontier.
+- An undeclared automatic candidate keeps its surplus-only admission **in the shared-candidate
+  projection**. It is not promoted above a private candidate at the same frontier. This is the
+  projection's rule, and it is worth being exact about the boundary, because the *capture-time*
+  standing is decided separately and this ADR originally read as though it covered both: the shipped
+  launchers set `--context-cache-policy rolling` (`profiles.py:260`), under which
+  `pressure_evidence` — and therefore standing to replace a resident — is granted to every
+  candidate regardless of evidence (`resource_manager.h:659-678`), and only the fold then decides.
+  `rolling` was adopted for the private frontier, where a conversation's newest checkpoint would
+  otherwise pin (`profiles.py:348-356`); it was never evaluated against the shared rule, so **the
+  shared path's behaviour under `rolling` is a consequence nobody has measured.** Read the triad as
+  describing the projection, and treat capture-time standing as an open question rather than a
+  settled one.
 - The three counters are permanent. `shared_stable_prefix_selections` alone cannot distinguish "the
   runtime never offered a shared prefix" from "it offered one and the planner chose otherwise", and
   that distinction is what this record cost the most to establish.
