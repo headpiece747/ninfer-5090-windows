@@ -493,7 +493,7 @@ Three findings bound how far that concern can be taken:
 was an item.
 
 1. **The derivation matches NVIDIA's own schema, stated in their source.** The exported divisor is
-   `amax / 448` at an FP8 site and `amax / 2688` at an NVFP4 one (ModelOpt `config.py:684`). Our
+   `amax / 448` at an FP8 site and `amax / 2688` at an NVFP4 one (ModelOpt's `config.py`, line 684). Our
    `FULL_RANGE = 2688.0` **is** that constant, and the two branches of the `_activation_divisor` probe
    agree by construction because 6 is the conversion between them. This is no longer an inference from
    a docstring.
@@ -832,7 +832,7 @@ configuration nobody was checking.
 > **Two structural limits, both measured rather than argued:**
 >
 > 1. **The split 128x128 tile cannot be measured below 193 tokens.** `allocate_fp8_a8_workspace` sizes
->    partials from the *current* invocation's token count (`fp8_linear_add_a8.cu:215`), and
+>    partials from the *current* invocation's token count (`fp8_linear_add_a8.cu:117`), and
 >    `fp8_linear_add_partial_capacity_bytes` returns **0** for `max_tokens <= 192` — correctly, because
 >    the real ladder never places a split tile there. Forcing one makes the launcher throw
 >    `FP8 TMA split-K requires aligned caller partials`. So that tile's evidence covers 193-1025 only.

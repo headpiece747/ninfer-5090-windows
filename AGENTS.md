@@ -228,7 +228,8 @@ something, and each is named here so it gets used rather than rediscovered.
 
 | situation | tool |
 |---|---|
-| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. Seven gate scripts (`check_doc_links.py`, `check_text_encoding.py`, `check_fp8_band_ladders.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`, `check_rule_count.py`), then `pytest tests/convert` plus four named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the seven steps** — it omitted the calibration-corpus gate, the stream-default ratchet, the rule count, ruff and mypy |
+| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. **Eight** gate scripts (`check_doc_links.py`, `check_doc_citations.py`, `check_text_encoding.py`, `check_fp8_band_ladders.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`, `check_rule_count.py`), then `pytest tests/convert` plus four named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the eight steps** — it omitted the calibration-corpus gate, the stream-default ratchet, the rule count, the citation gate, ruff and mypy |
+| a document cites `file.ext:LINE` | `check_doc_citations.py` gates the resolvable ones; it names a citation pointing past the end of a file that exists, and only *reports* one naming no tracked file, because `docs/research/` cites other projects by construction and a gate that cannot tell an external reference from a dead one is guessing |
 | a check that passes here and fails in CI | `tools/scripts/verify_as_ci.cmd` **first**, before forming any hypothesis. It reproduces the runner's conditions — Python 3.11, CI's package set, `NINFER_PYTHON` as a command name, a scratch venv. On 2026-09-25 six serious hypotheses were formed against a failing CI gate without once reproducing the runner's conditions, and five were wrong; the sixth was found in one run of this script |
 | a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` — **with `NINFER_TEST_ARTIFACT` set**: without it the four required real-model tests skip and the gate fails on missing coverage rather than on a regression, which is how it was misread once |
 | anything that could be order- or state-dependent | the suite recipe passes `--schedule-random`; run it twice before believing a fixed order |
@@ -271,6 +272,22 @@ edit the answer is already committed to.
 | a multi-phase change needing an auditable trail | `show-me-your-work` — one row per decision, with the evidence and the result |
 
 A skill is a tool, and reaching for one is never the expensive choice. Load it, read it, apply it.
+
+### Two rules for correcting a document
+
+**A document's invariant that the code breaks is a suspected bug in the code.** When an ADR, a
+comment or a rule says a thing must hold and the code does not hold it, do not edit the document to
+match the code. That buries the defect under an updated lie, and the lie is now wrong in a way that
+looks deliberate. Report it as a suspected code bug and change neither side until it is settled. The
+live example: `native_render.cpp`'s comment claimed leaving a cache marker unresolved was *"the same
+answer the Jinja path gives"*, which the Jinja path's own source contradicted — and the comment had
+been read as a settled design decision rather than as a bug report.
+
+**Never confirm a document claim without the evidence in hand, and say what you checked.** "Looks
+right" and "I read it earlier" are not acks. Open the cited `file:line`, name what you found there,
+and if the claim is behavioural rather than textual, run it. An ack given without reading is
+structurally worthless because nothing distinguishes it from one that was read, and a claim that
+cannot be settled by reading is a claim that needs a test or a run — say which.
 
 ## Reference navigation
 

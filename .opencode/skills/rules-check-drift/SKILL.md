@@ -5,12 +5,29 @@ description: "Check whether your rules file (CLAUDE.md or AGENTS.md) still match
 
 # rules-check-drift: keep your rules file true, not longer
 
-> **Project adaptation (ModernWigiDash/OpenCode):** this repo's rules-file set is
-> `.opencode/AGENTS.md` + `.opencode/rules/dotnet-rules.md` (steering rules) and
-> `CONTEXT.md` (architecture map + glossary. State-shaped entries like test
-> counts and project lists must match the codebase). The global
-> `~/.config/opencode/AGENTS.md` is out of scope. Use the last release tag as the
-> diff range on a clean tree: `v<last>..HEAD`.
+> **Project adaptation (NInfer).** The rules set is **`AGENTS.md`** at the root (the product rules:
+> 64 earned rule bullets, the tooling table, the skills table, the two document-correction rules) plus
+> **`.opencode/AGENTS.md`** (skills policy, the five-source tooling discipline, the third-party
+> skill-vendoring policy). Both are in scope, and so is **`CONTEXT.md`** (architecture map and
+> glossary — its state-shaped entries, like test counts, must match the codebase). **`docs/adr/*.md`
+> is also in scope here**, which the generic instructions below exclude: an ADR is a decision record
+> this repository actively cites from code comments, so a false claim in one is read as a design
+> decision rather than as a record. The global `~/.config/opencode/AGENTS.md` is **out of scope** —
+> it is the user's, not the project's.
+>
+> **The mechanical half already exists here; do not rebuild it.** `tools/release/` carries five
+> gates that answer the parts of this skill a script can answer, and they run in
+> `.githooks/pre-commit`:
+> `check_doc_links.py` (links and anchors), **`check_doc_citations.py` (every `file.ext:LINE`
+> citation still points inside the file it names — added 2026-10-03 after two stale citations sent
+> a reader to the wrong place in one session)**, `check_text_encoding.py`,
+> `check_profile_consistency.py`, and `check_rule_count.py`. Run them first; this skill covers what
+> they cannot: whether a rule is *still true*, whether a *consequence* changed, and whether a
+> *decision's rationale* has been overtaken by the code.
+>
+> Diff range: `git diff HEAD` for uncommitted work, otherwise `git log --oneline HEAD..upstream/dev`
+> to see what upstream moved — this repository merges `Neroued/ninfer` into `dev` and its ADRs are
+> rewritten when a decision is superseded, never edited in place without saying so.
 
 Your rules file, **`CLAUDE.md`** or **`AGENTS.md`**, is a **steering document, not documentation**: your ground
 rules, your conventions, and a current **map of where things live**. Its only failure mode that matters is being
@@ -22,24 +39,29 @@ rules file against what just changed and proposes the **smallest** edit that kee
 
 ## Input
 - `$ARGUMENTS`: optional diff range. Default: uncommitted + staged (`git diff HEAD`); fall back to `main...HEAD`.
-- **Scope: the project's rules file(s).** `CLAUDE.md` and/or `AGENTS.md`, the root file + any package-level
-  ones. (If `CLAUDE.md` is just a `@AGENTS.md` import, check `AGENTS.md`.) Ignore README, `docs/`, and `.claude/`
-  agent/command/skill files. This skill exists to keep the *rules* honest, nothing else.
+- **Scope: the project's rules file(s).** `AGENTS.md` at the root **and** `.opencode/AGENTS.md`, plus
+  `CONTEXT.md` for state-shaped entries and `docs/adr/*.md` for decisions this repository cites from
+  code. Everything else under `docs/` is documentation of the product, not rules, and is out of
+  scope. This skill exists to keep the *rules and decisions* honest, nothing else.
 
 ## Process
 
 ### 0. Run the deterministic pre-pass
-`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ref-check.ps1`
-(from the repo root). It checks the backtick-quoted path references in
-CONTEXT.md, .opencode/AGENTS.md, .opencode/rules/dotnet-rules.md, and
-docs/agents/*.md against the tree and exits 1 on any stale reference. It is
-the cheap half of the map-drift check: a missing file is a now-false map entry
-by definition, so every hit it prints goes straight into the Fix table below
-with the minimal fix (point the reference at the file's new path, or move the
-file back). It is also the house pre-pass because ctxlint's stale-file-ref
-rule resolves against the context file's own directory and misreports every
-root-relative reference in `.opencode/AGENTS.md` (the base-path model does not
-fit this layout; see the script header).
+The generic pre-pass (`scripts/ref-check.ps1`) is **not part of this repository** and must not be
+invoked here. This project's equivalent already runs on every commit:
+
+```
+C:/vllm-env/Scripts/python.exe tools/release/check_doc_links.py
+C:/vllm-env/Scripts/python.exe tools/release/check_doc_citations.py
+C:/vllm-env/Scripts/python.exe tools/release/check_text_encoding.py
+C:/vllm-env/Scripts/python.exe tools/release/check_profile_consistency.py
+C:/vllm-env/Scripts/python.exe tools/release/check_rule_count.py
+```
+
+A citation the gates already reject is not a finding for the table below — it is a broken
+mechanical check, so fix that first and say so. Everything the gates cannot see is what this skill
+is for: a rule whose *wording* is still true but whose *effect* is no longer what it was, a
+consequence that has since been measured, or a rationale that the code has overtaken.
 
 ### 1. See what changed
 `git diff <range>` + `git status`. Note: moved/renamed/removed files, new modules, changed conventions,
