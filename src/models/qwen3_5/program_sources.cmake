@@ -20,7 +20,6 @@ target_sources(ninfer_model_runtime PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/program/prefill.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/program/planning/request_plan.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/program/speculative/mtp.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/program/speculative/prompt_lookup.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/program/speculative/target_verification.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/program/round_buffers.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/program/prefix_identity.cpp"

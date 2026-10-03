@@ -14,7 +14,6 @@
 #include "models/qwen3_5/frontend/prepared_prompt.h"
 
 #include "models/qwen3_5/program/planning/startup.h"
-#include "models/qwen3_5/program/speculative/prompt_lookup.h"
 #include "models/qwen3_5/program/storage/draft_context.h"
 #include "models/qwen3_5/program/storage/host_kv_store.h"
 #include "models/qwen3_5/program/storage/kv_store.h"
@@ -369,7 +368,6 @@ struct SequenceState {
     // copy from it is committed. Per-sequence on purpose. A shared table would let one request's
     // confidence answer another's, and the cross-request retention the source design measured is not
     // where the value was. Allocates lazily, so an engine with copy drafting off pays nothing.
-    qwen3_5::PromptLookup prompt_lookup;
     std::array<TokenId, qwen3_5::kMtpDecodeMaximumDrafts> mtp_drafts{};
     std::uint32_t mtp_draft_count = 0;
     bool tail_hidden_valid        = false;
@@ -584,7 +582,6 @@ public:
     // Widest verify window a copy round may use; zero when copy drafting is off. The round picks
     // between draft_window and this per round, and the second is only reachable when the pool
     // produced a copy worth the width.
-    const NgramOptions ngram;
     const SpeculativeBackend speculative_backend;
     const KvCacheStorage kv_storage;
     const ProposalHead proposal_head;

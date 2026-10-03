@@ -76,55 +76,16 @@ int main() {
                   }),
                   "CLI accepted an unsupported DFlash2 draft count");
     }
-    // Copy drafting supplements a neural drafter, so it needs one, and the copy width is bounded by
-    // the round's column domain (ninfer::product::kNgramMaximumDraftTokens) rather than the source
-    // fork's 1..63. The bound is asserted at both ends: 15 must be accepted and 16 must not, because
-    // a cap that only rejects the far end would pass a test that never tried the edge.
-    //
-    // The lookup's own parameters are deliberately absent: window lengths are fixed at {8,4,2} and
-    // the tables allocate lazily per sequence, so there is no match length and no pool size to
-    // configure. A flag for either would be a knob with nothing behind it.
-    const ninfer::cli::Options chained =
-        parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--spec", "dflash2",
-               "--draft-tokens", "7", "--ngram", "chain", "--ngram-max", "15", "--ngram-min", "1"});
-    failures += check(chained.speculative.ngram.mode == ninfer::NgramDraftMode::Chain &&
-                          chained.speculative.ngram.max_drafts == 15 &&
-                          chained.speculative.ngram.min_drafts == 1,
-                      "CLI did not preserve the n-gram copy configuration");
-    failures += check(
-        rejects([] {
-            (void)parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--ngram", "chain"});
-        }),
-        "CLI accepted n-gram copy drafting without a neural drafter");
-    failures += check(
-        rejects([] {
-            (void)parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--spec", "dflash2",
-                         "--draft-tokens", "7", "--ngram", "sideways"});
-        }),
-        "CLI accepted an unknown n-gram draft mode");
-    for (const auto k : {16U, 20U, 63U}) {
+    // The copy-drafting flags are withdrawn, and a withdrawn flag must be refused rather than
+    // ignored. A removed option that still parses is advertised surface the product cannot honour,
+    // which is the failure this direction asserts. `--ngram chain` validated, constrained the
+    // backend, entered the Program, and produced no drafting at all, so accepting it was the defect.
+    for (const auto* flag : {"--ngram", "--ngram-max", "--ngram-min", "--ngram-n",
+                             "--ngram-pool-mib"}) {
         failures += check(
             rejects([&] {
                 (void)parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--spec", "dflash2",
-                             "--draft-tokens", "7", "--ngram", "chain", "--ngram-max",
-                             std::to_string(k)});
-            }),
-            "CLI accepted an n-gram copy width past the round's column domain");
-    }
-    failures += check(
-        rejects([] {
-            (void)parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--spec", "dflash2",
-                         "--draft-tokens", "7", "--ngram", "chain", "--ngram-max", "15", "--ngram-min",
-                         "16"});
-        }),
-        "CLI accepted an n-gram minimum copy above the copy width");
-    // The withdrawn flags must be refused rather than ignored. A removed option that still parses is
-    // advertised surface the product cannot honour, which is the failure this direction asserts.
-    for (const auto* flag : {"--ngram-n", "--ngram-pool-mib"}) {
-        failures += check(
-            rejects([&] {
-                (void)parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--spec", "dflash2",
-                             "--draft-tokens", "7", "--ngram", "chain", flag, "8"});
+                             "--draft-tokens", "7", flag, "chain"});
             }),
             "CLI still accepts a withdrawn ngram option");
     }
@@ -141,10 +102,12 @@ int main() {
         check(help.find("nvfp4") != std::string::npos && help.find("k8v4") != std::string::npos,
               "CLI help omits a production KV storage mode");
     // A flag the product accepts but does not advertise is a half-landed option, and one the help
-    // advertises but does not accept is worse. Both directions are asserted for the ngram set.
+    // advertises but does not accept is worse. The ngram set is now withdrawn, so the direction that
+    // matters for it is the second: help must not mention an option that no longer exists. The
+    // first direction stays covered by --log-level below.
     for (const auto* flag : {"--ngram", "--ngram-max", "--ngram-min"}) {
-        failures += check(help.find(flag) != std::string::npos,
-                          "CLI help omits an accepted ngram option");
+        failures += check(help.find(flag) == std::string::npos,
+                          "CLI help still advertises a withdrawn ngram option");
     }
     const ninfer::cli::Options logging =
         parse({"ninfer-cli", "model.ninfer", "--prompt", "hello", "--log-level", "debug"});

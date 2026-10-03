@@ -208,6 +208,7 @@ def test_draft_query_context_and_dynamic_weights_keep_their_uses(
         "max_position_embeddings": 128,
         "layer_types": ["sliding_attention"],
         "sliding_window": 32,
+        "is_causal": False,
         "dflash_config": {
             "target_layer_ids": [1, 0],
             "mask_token_id": 7,
@@ -365,6 +366,7 @@ def test_rope_aliases_preserve_supported_parameters_and_reject_changed_mathemati
         "use_sliding_window": True,
         "max_window_layers": 5,
         "sliding_window": 32,
+        "is_causal": False,
         "rope_scaling": {"type": "default", "rope_theta": 500_000},
         "dflash_config": {"target_layer_ids": [1], "mask_token_id": 7},
     }
@@ -380,6 +382,18 @@ def test_rope_aliases_preserve_supported_parameters_and_reject_changed_mathemati
     assert draft_config(draft, target, "dflash")["layer_types"] == draft["layer_types"]
     draft["rope_scaling"] = {"rope_type": "linear", "factor": 2, "rope_theta": 500_000}
     with pytest.raises(ValueError, match="rope_type"):
+        draft_config(draft, target, "dflash")
+    # `is_causal` must be stated, not assumed. The runtime applies one causality to the whole draft
+    # stack, so an absent key leaves the converter guessing a uniformity it cannot verify -- and
+    # DFlash v1's published config omits it while describing mixed per-layer causality.
+    draft["rope_scaling"] = {"type": "default", "rope_theta": 500_000}
+    draft["is_causal"] = False
+    draft_config(draft, target, "dflash")
+    draft["is_causal"] = True
+    with pytest.raises(ValueError, match="is_causal"):
+        draft_config(draft, target, "dflash")
+    del draft["is_causal"]
+    with pytest.raises(ValueError, match="is_causal"):
         draft_config(draft, target, "dflash")
 
 

@@ -8,13 +8,6 @@
 
 namespace ninfer::product {
 
-// A copy-proposal round runs at the target's own verification width, which the engine provisions to
-// kDFlashDecodeMaximumDrafts (15) columns. A copy round shares that width rather than widening
-// it, so a copy proposal longer than the round is truncated rather than served at a wider one.
-// Round cost and acceptance both vary with the draft width, and not smoothly: see
-// ngram_selection.h, which records the measurements.
-inline constexpr std::uint32_t kNgramMaximumDraftTokens = 15;
-
 [[nodiscard]] inline SpeculativeBackend parse_speculative_backend(std::string_view value) {
     if (value == "mtp") { return SpeculativeBackend::Mtp; }
     if (value == "dflash") { return SpeculativeBackend::DFlash; }
@@ -37,27 +30,6 @@ inline constexpr std::uint32_t kNgramMaximumDraftTokens = 15;
 }
 
 inline void validate_speculative_cli_options(const SpeculativeOptions& options) {
-    // Copy drafting supplements a neural drafter; it is not a drafter itself. This layer validates
-    // the option's own domain. The model layer owns the policy that decides whether a copy is worth
-    // a round, and that policy reads no width this layer has to keep in step with.
-    if (options.ngram.mode != NgramDraftMode::Off) {
-        if (options.ngram.mode != NgramDraftMode::Chain) {
-            throw std::invalid_argument("unknown n-gram draft mode");
-        }
-        // Only the masked-draft route is wired. The MTP route proposes on the host, so it could
-        // chain onto a proposal the way the source design does, but that path is not built here and
-        // accepting the flag would advertise a combination that does nothing.
-        if (options.backend != SpeculativeBackend::DFlash &&
-            options.backend != SpeculativeBackend::DFlash2) {
-            throw std::invalid_argument("n-gram copy drafting requires --spec dflash|dflash2");
-        }
-        if (options.ngram.max_drafts == 0 || options.ngram.max_drafts > kNgramMaximumDraftTokens) {
-            throw std::invalid_argument("n-gram copy width must be in [1,15]");
-        }
-        if (options.ngram.min_drafts == 0 || options.ngram.min_drafts > options.ngram.max_drafts) {
-            throw std::invalid_argument("n-gram minimum copy must be in [1,copy width]");
-        }
-    }
     switch (options.backend) {
     case SpeculativeBackend::None:
         if (options.draft_tokens != 0 || options.proposal_head != ProposalHead::Full) {

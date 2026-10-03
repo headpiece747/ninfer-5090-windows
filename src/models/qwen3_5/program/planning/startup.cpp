@@ -4,7 +4,6 @@
 #include "models/qwen3_5/execution/mtp.h"
 #include "models/qwen3_5/program/planning/graph_profiles.h"
 #include "models/qwen3_5/program/round_buffers.h"
-#include "models/qwen3_5/program/speculative/ngram_selection.h"
 #include "models/qwen3_5/program/internal.h"
 #include "models/qwen3_5/program/planning/startup.h"
 #include "models/qwen3_5/execution/vision.h"
@@ -830,7 +829,6 @@ std::unique_ptr<SequencePlanImpl> build_sequence_candidate(const SequencePlannin
     impl->max_concurrency      = inputs.max_concurrency;
     impl->prefill_chunk        = inputs.prefill_chunk;
     impl->draft_window         = inputs.draft_window;
-    impl->ngram                = inputs.ngram;
     impl->speculative_backend  = inputs.speculative_backend;
     impl->proposal_head        = inputs.proposal_head;
     impl->features             = inputs.features;
@@ -896,20 +894,12 @@ std::unique_ptr<qwen3_5::detail::SequencePlannerImpl>
 make_sequence_planner_impl(const execution::Parameters& parameters, DeviceContext& device,
                            const EngineOptions& options) {
     validate_target_options(parameters, device, options);
-    // A copy round runs at the round's own width, so the plan provisions nothing extra for it: the
-    // frame, the graph family and the GDN record are already sized from draft_window. All that is
-    // checked here is that the route is one that can carry a copy proposal.
-    if (options.speculative.ngram.mode != NgramDraftMode::Off &&
-        !is_masked_draft_backend(options.speculative.backend)) {
-        throw std::invalid_argument("n-gram copy drafting is not available on this backend");
-    }
     SequencePlanningInputs inputs{
         .parameters           = &parameters,
         .capacity             = options.max_context,
         .max_concurrency      = options.max_concurrency,
         .prefill_chunk        = std::min(options.prefill_chunk, options.max_context),
         .draft_window         = options.speculative.draft_tokens,
-        .ngram                = options.speculative.ngram,
         .speculative_backend  = options.speculative.backend,
         .kv_storage           = options.kv_cache,
         .proposal_head        = options.speculative.proposal_head,

@@ -418,21 +418,6 @@ BenchOptions parse_args(int argc, char** argv) {
             options.speculative.draft_tokens = parse_u32(value("--draft-tokens"), "draft-tokens");
         } else if (arg == "--lm-head-draft") {
             options.speculative.proposal_head = ProposalHead::Optimized;
-        } else if (arg == "--ngram-mode") {
-            const std::string selected = value("--ngram-mode");
-            if (selected == "off") {
-                options.speculative.ngram.mode = NgramDraftMode::Off;
-            } else if (selected == "chain") {
-                options.speculative.ngram.mode = NgramDraftMode::Chain;
-            } else {
-                throw std::invalid_argument("--ngram-mode must be off or chain");
-            }
-        } else if (arg == "--ngram-max-drafts") {
-            options.speculative.ngram.max_drafts =
-                parse_u32(value("--ngram-max-drafts"), "ngram-max-drafts");
-        } else if (arg == "--ngram-min-drafts") {
-            options.speculative.ngram.min_drafts =
-                parse_u32(value("--ngram-min-drafts"), "ngram-min-drafts");
         } else if (arg == "--device") {
             options.device = parse_nonnegative(value("--device"), "device");
         } else if (arg == "--no-cuda-graph") {

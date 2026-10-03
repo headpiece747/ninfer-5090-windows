@@ -415,10 +415,11 @@ combination was tried against different LLMs and did not work out. That settles 
 below, the break-even arithmetic and the "measure `p` of the copied token" framing are all moot, and
 the verify-tree integration is not going to be built.
 
-Retained only because `PromptLookup` (`c0da270e`) is in the tree with no caller, and
-`prompt_lookup.h:33` says so in as many words — `NOT YET WIRED`. That dead surface is now a
-**withdrawal candidate on its own terms**: it is a ported component whose consumer will not exist.
-Do not read this row as an argument for finishing it.
+Retained only because `PromptLookup` was in the tree with no caller — it said so in as many words,
+`NOT YET WIRED`, and it was a ported component whose consumer will not exist. **That withdrawal
+happened 2026-10-03**: `prompt_lookup.{h,cpp}` and `ninfer_prompt_lookup_test` are gone, along with
+the `--ngram` surface that would have consumed them (see "Also worth doing, small"). Do not read this
+row as an argument for finishing it.
 
 **Why it was once open:** `PromptLookup` is ported and tested (`c0da270e`); the integration is not built. It needs
 `candidate_selector_tree`, `speculative_accept_tree_drafts`, `speculative_compact_columns`, tree-aware
@@ -578,7 +579,7 @@ is, and accept-always is correct. A control that passes for a structural reason 
 multi-token case is where the accept rule actually has arithmetic to get wrong, and it was the one
 configuration nobody was checking.
 
-### 12. Upstream's 14 commits are merged; the FP8 A8 TMA route is held back on Windows only
+### 12. Upstream's 14 commits are merged; the FP8 A8 TMA route is held back on Windows only - **RESOLVED 2026-10-01 (`a5077adf`)**
 
 > **RESOLVED 2026-10-01 (`a5077adf`) — CAUSE ESTABLISHED, FIX LANDED, NINE GATES STILL IN PLACE.**
 > Everything below this line describes the investigation as it stood *before* that commit and is kept
@@ -1357,7 +1358,7 @@ predicted:** the cause was neither, and the resolution block at the top of this 
 ---
 ---
 
-### 13. Test-suite review: one real coverage gap found and closed, and two of my own claims were wrong
+### 13. Test-suite review: one real coverage gap found and closed, and two of my own claims were wrong - **CLOSED 2026-09-29**
 **2026-09-29, after the `d44ab584` merge. The suite is green at 133/135; the two failures are
 `dflash_real` and `moe_real`, which fail by construction because this product ships no `dflash`
 component and no 35B-A3B MoE checkpoint. `check_test_baseline.py` GATE PASSED.**
@@ -1933,27 +1934,31 @@ Each of these was investigated and settled. They look like open work and are not
 
 ## Also worth doing, small
 
-- `--ngram chain` is accepted, validated against the backend, carried into `Program`, and produces
-  nothing: `ngram_drafted_tokens` and `ngram_accepted_tokens` are declared at
-  `include/ninfer/types.h:786-787` and written nowhere — `git grep` finds them at their declaration
-  and nowhere else in the tree — and `impl->ngram`
-  (`src/models/qwen3_5/program/planning/startup.cpp:833`) is only ever stored: it lands in
-  `ProgramImpl::ngram` (`src/models/qwen3_5/program/program_impl.h:587`, initialised at
-  `program_impl.cpp:47`) and nothing reads it. **It does not reserve
-  288 MiB** — that allowance went with `ngram_policy.h` in `8c7242e6`, and
-  `src/models/qwen3_5/program/planning/startup.cpp:899-901` now says a copy round runs at the round's
-  own width and provisions nothing extra. **This is now a withdrawal
-  item, not a build item.** An earlier revision of this file pointed at item 9 for the fix ("the flag
-  is the switch `PromptLookup` needs"); item 9 is closed, so that reasoning no longer holds. What
-  remains is that a shipped flag validates, enters the program and produces nothing, and
-  `prompt_lookup.h` is a tested component with no caller. Either is a surface this project does not
-  otherwise keep.
+- ~~`--ngram chain` is accepted, validated against the backend, carried into `Program`, and produces
+  nothing~~ — **WITHDRAWN 2026-10-03.** The whole surface is gone: `NgramDraftMode`, `NgramOptions`,
+  `SpeculativeOptions::ngram`, the two `ngram_*_tokens` counters that were declared and written
+  nowhere, `kNgramMaximumDraftTokens`, both CLI parsers (`apps/cli/options.cpp` and the bench
+  harness's separately-named `--ngram-mode|-max-drafts|-min-drafts`), the startup branch that
+  rejected the flag on a non-masked-draft backend, the `ProgramImpl` members, and
+  `prompt_lookup.{h,cpp}` with `ninfer_prompt_lookup_test`. No shipped launcher passed the flag, so
+  nothing in this product's own configuration depended on it. What made it worth removing rather
+  than leaving: `--ngram chain` was *worse* than inert — it validated, it constrained the backend, and
+  it entered the Program, so a user setting it got a real restriction and no drafting. Its own
+  validation comment said "accepting the flag would advertise a combination that does nothing", and
+  the code did exactly that. `ninfer_ngram_selection_test` and `ninfer_ngram_graph_planning_test` are
+  untouched: the masked-draft copy *selection* decision is live and has its own consumer.
 - ~~`tools/release/check_doc_links.py` does not skip fenced code blocks~~ — done in `46ec0c5b`, with
   seven tests, six of which fail against the previous body.
 - DFlash **v1**'s published config has no `is_causal` key, so the reference gives it five causal and
   one non-causal draft layer. Our converter's `_fixed` check only raises when the key is *present*
-  and the runtime never reads it, so a converted v1 drafter silently gets a uniformly non-causal
-  block. Not a shipping lane; a real defect.
+  and the runtime never reads it, so a converted v1 drafter silently got a uniformly non-causal
+  block. **FIXED 2026-10-03.** `_fixed` grew a `required` flag and the draft config now demands
+  `is_causal` be stated: the runtime applies one causality to the whole draft stack, so a config
+  that omits the key leaves the converter assuming a uniformity it cannot verify, and a config this
+  layer cannot represent is refused rather than converted. Both directions are pinned —
+  `is_causal: true` and an absent key each raise. Three existing fixtures omitted the key and were
+  the evidence that nothing covered this: the converter suite was green against configs that would
+  now be refused. Not a shipping lane; the defect was that it was silent.
 - `C:\AI\models\qwen3_8_27b_nvfp4.v3.ninfer` sits beside the four shipping artifacts, is not a
   shipping lane, and reads acceptably by filename. It cost a full session of benchmarking before
   `profiles.py` was checked.

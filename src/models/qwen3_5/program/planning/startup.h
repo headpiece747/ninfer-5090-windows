@@ -75,9 +75,6 @@ struct SequencePlanningInputs {
     std::uint32_t max_concurrency           = 1;
     std::uint32_t prefill_chunk             = 0;
     std::uint32_t draft_window              = 0;
-    // Copy drafting. `ngram.mode` off leaves the plan exactly as it was; enabling it adds the pool and
-    // nothing else, because a copy round runs at the round's own width. Fixed at startup.
-    NgramOptions ngram                      = {};
     SpeculativeBackend speculative_backend  = SpeculativeBackend::None;
     KvCacheStorage kv_storage               = KvCacheStorage::BFloat16;
     ProposalHead proposal_head              = ProposalHead::Full;
@@ -101,7 +98,6 @@ struct SequencePlanImpl {
     std::uint32_t max_concurrency           = 1;
     std::uint32_t prefill_chunk             = 0;
     std::uint32_t draft_window              = 0;
-    NgramOptions ngram                      = {};
     SpeculativeBackend speculative_backend  = SpeculativeBackend::None;
     KvCacheStorage kv_storage               = KvCacheStorage::BFloat16;
     ProposalHead proposal_head              = ProposalHead::Full;

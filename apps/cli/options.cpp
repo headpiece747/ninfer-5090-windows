@@ -87,7 +87,6 @@ std::string usage_text(const char* argv0) {
            "       [--kv-dtype bf16|int8|fp8|nvfp4|k8v4] [--spec mtp|dflash|dflash2 --draft-tokens "
            "N]\n"
            "       [--lm-head-draft]\n"
-           "       [--ngram off|chain] [--ngram-max N] [--ngram-min N]\n"
            "       [--temperature F] [--top-p F] [--top-k N] [--min-p F]\n"
            "       [--presence-penalty F] [--frequency-penalty F] [--seed N] [--greedy]\n"
            "       [--stop-token-id N]... [--stop <text>]... [--reasoning-stop <text>]...\n"
@@ -152,19 +151,6 @@ Options parse_options(int argc, char** argv) {
             options.speculative.draft_tokens = parse_u32(value(arg), "draft-tokens");
         } else if (arg == "--lm-head-draft") {
             options.speculative.proposal_head = ProposalHead::Optimized;
-        } else if (arg == "--ngram") {
-            const std::string mode = value(arg);
-            if (mode == "off") {
-                options.speculative.ngram.mode = NgramDraftMode::Off;
-            } else if (mode == "chain") {
-                options.speculative.ngram.mode = NgramDraftMode::Chain;
-            } else {
-                throw std::invalid_argument("--ngram must be off or chain, got: " + mode);
-            }
-        } else if (arg == "--ngram-max") {
-            options.speculative.ngram.max_drafts = parse_u32(value(arg), "ngram-max");
-        } else if (arg == "--ngram-min") {
-            options.speculative.ngram.min_drafts = parse_u32(value(arg), "ngram-min");
         } else if (arg == "--raw-output") {
             options.raw_output = true;
         } else if (arg == "--print-token-ids") {

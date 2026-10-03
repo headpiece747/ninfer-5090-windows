@@ -1,6 +1,6 @@
 {
   "recorded": "2026-10-03",
-  "suite_size": 139,
+  "suite_size": 138,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -32,6 +32,11 @@
       "date": "2026-10-03",
       "count": 2,
       "note": "ninfer_chat_render_native_parity_test and ninfer_chat_render_native_parity_media_test: the native renderer is a second implementation of one serialization and the differential oracle that compares it was in no gate, no .githooks entry and no ctest registration, so seven RenderedChat fields had zero coverage and the seven reasoning-effort arms compared the native renderer with itself while reporting agreement. The suite compared 2 of the 9 fields (text and cache_boundaries). These two entries run the oracle and fail the suite on any divergence, on a broken control, or on a retired native path. Host-only and needing no artifact and no FFmpeg runtime, measured at 0.06s and 0.03s, so required_tests and optional_tests are unchanged. Falsified before registration: with the renderer reverted to the pre-fix revision both entries FAIL on cache_boundaries and the suite exits 8; with the fix both PASS and it exits 0."
+    },
+    {
+      "date": "2026-10-03",
+      "count": -1,
+      "note": "ninfer_prompt_lookup_test removed with the copy-drafting surface it tested. --ngram chain validated, constrained the backend to masked-draft, entered the Program, and produced no drafting at all: NgramDraftMode/NgramOptions/SpeculativeOptions::ngram, two counters declared and written nowhere, kNgramMaximumDraftTokens, TWO CLI parsers (apps/cli/options.cpp and the bench harness, which spelled the flags differently), the startup branch that refused the flag on other backends, the ProgramImpl members, and prompt_lookup.{h,cpp} are all gone. No shipped launcher passed any of them. The surviving ngram tests -- ninfer_ngram_selection_test and ninfer_ngram_graph_planning_test -- cover the masked-draft copy SELECTION decision, which is live and untouched, so this is a withdrawal and not a coverage loss. ninfer_cli_options_test keeps coverage in both directions: the withdrawn flags are now asserted REFUSED by the parser and ABSENT from the help text, which is the stronger of the two directions its own comment called worse. Host-only; required_tests and optional_tests are unchanged."
     }
   ]
 }

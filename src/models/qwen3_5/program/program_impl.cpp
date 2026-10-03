@@ -44,7 +44,6 @@ ProgramImpl::ProgramImpl(const execution::Parameters& parameters_in, const Seque
       continuation_capacity(normalized_private_capacity(plan.context_cache)),
       shared_prefix_capacity(plan.context_cache.max_shared_prefixes.value_or(0)),
       prefill_chunk(plan.prefill_chunk), draft_window(plan.draft_window),
-      ngram(plan.ngram),
       speculative_backend(plan.speculative_backend), kv_storage(plan.kv_storage),
       proposal_head(plan.proposal_head), vision_enabled(plan.features.vision),
       use_cuda_graph(plan.use_cuda_graph), causal_scoring(plan.causal_scoring),
@@ -167,10 +166,6 @@ ProgramImpl::ProgramImpl(const execution::Parameters& parameters_in, const Seque
         replay_fold.has_value() != replay_records.has_value()) {
         throw std::logic_error("ReplaySSM records do not match the sequence plan");
     }
-    // Copy drafting keeps no engine-level state: each sequence owns a PromptLookup over its own
-    // committed ledger, and it allocates lazily on first use. So there is nothing to size here and
-    // nothing to check against the plan -- which is why the startup budget and the invariant that
-    // guarded it are both gone with the shared pool they sized.
     if (plan.persistent.dflash) {
         CyclicKVCache* local = state_images->dflash_local();
         if (local == nullptr) {

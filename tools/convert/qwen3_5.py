@@ -43,11 +43,13 @@ def _f32(value, name):
     return result
 
 
-def _fixed(config, key, value, label):
-    if key in config and (
-        config[key] != value
-        or isinstance(value, bool)
-        and type(config[key]) is not bool
+def _fixed(config, key, value, label, required: bool = False):
+    if key not in config:
+        if required:
+            raise ValueError(f"{label}.{key}: required and absent, expected {value!r}")
+        return
+    if config[key] != value or (
+        isinstance(value, bool) and type(config[key]) is not bool
     ):
         raise ValueError(f"{label}.{key}: expected {value!r}, got {config[key]!r}")
 
@@ -224,7 +226,12 @@ def draft_config(raw: dict, target: dict, backend: str) -> dict:
     _fixed(raw, "model_type", "qwen3", backend)
     _fixed(raw, "hidden_act", "silu", backend)
     _fixed(raw, "attention_bias", False, backend)
-    _fixed(raw, "is_causal", False, backend)
+    # `is_causal` is REQUIRED here, not merely checked when present. The runtime applies one
+    # causality to the whole draft stack, so a checkpoint that omits the key leaves the converter
+    # assuming a uniformity it cannot verify: DFlash v1's published config omits it and describes
+    # five causal draft layers against one non-causal, so the assumption produces a silently wrong
+    # drafter. A config this layer cannot represent is refused rather than converted.
+    _fixed(raw, "is_causal", False, backend, required=True)
     for key, value in (
         ("hidden_size", target["hidden_size"]),
         ("vocab_size", target["vocab_size"]),

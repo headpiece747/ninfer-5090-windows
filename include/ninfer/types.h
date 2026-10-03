@@ -106,32 +106,11 @@ enum class SpeculativeBackend : std::uint8_t {
     DFlash2,
 };
 
-enum class NgramDraftMode : std::uint8_t {
-    Off,
-    Chain,
-};
-
-// Copy drafting chained onto a neural drafter's proposal, in the style of llama.cpp ngram-mod.
-// The pool maps the hash of an n-token window to the token that most recently followed it, so a
-// draft needs no draft model; greedy verification keeps the round lossless, and a wrong entry
-// costs only width. A copy round runs at the round's own width, so a round without a usable copy
-// keeps the neural proposal and costs exactly what it costs today.
-struct NgramOptions {
-    NgramDraftMode mode = NgramDraftMode::Off;
-    // Longest copy the pool may propose, in drafts. Bounded above by the round's column domain; a
-    // proposal longer than the round's width is truncated to it, because a round verifies exactly
-    // draft_window drafts and there is no second layout to verify more.
-    std::uint32_t max_drafts = 0;
-    // A copy shorter than this is dropped in favour of the neural round.
-    std::uint32_t min_drafts = 1;
-};
-
 struct SpeculativeOptions {
     SpeculativeBackend backend = SpeculativeBackend::None;
     // Startup-fixed K: MTP 1..5; DFlash and DFlash2 1..15 (query width K+1).
     std::uint32_t draft_tokens = 0;
     ProposalHead proposal_head = ProposalHead::Full;
-    NgramOptions ngram;
 };
 
 enum class StartupPhase : std::uint8_t {
@@ -791,12 +770,6 @@ struct SpeculativeStats {
     std::vector<std::uint64_t> proposed_per_position;
     std::vector<std::uint64_t> recall1_per_position;
     std::vector<std::uint64_t> recall16_per_position;
-    // Copy drafting: how many drafts came from the copy pool rather than the draft model, and how
-    // many of those were committed. A copy round runs at the same width as a neural one, so there is
-    // no per-width field and no count of rounds that paid a wider window; the width is the request's
-    // ordinary draft window either way.
-    std::uint64_t ngram_drafted_tokens  = 0;
-    std::uint64_t ngram_accepted_tokens = 0;
 };
 
 struct ThinkingBudgetStats {
