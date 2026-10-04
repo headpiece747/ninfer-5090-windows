@@ -27,8 +27,8 @@ and renumbering them would break every cross-reference to it. Each heading carri
   are now closed.** (a) ~~`profiles.py` records QUASAR at 55.0% acceptance while the bench measures
   21.1%; they are not the same measurement~~ — **closed 2026-10-04**: not a workload mismatch at all,
   but a **drafter-width mismatch**. 21.1% is `--draft-tokens 4` exactly; `profiles.py` records width 7,
-  where the bench measures 49.1%. Acceptance on this artifact swings 9.0–59.3% across widths 1–15 and
-  is non-monotonic, so the figures were never in conflict. See `:310`. (b)
+  where the bench measures 40.9%. Acceptance on this artifact swings 8.3-59.3% across widths 1-15
+  and is non-monotonic, so the figures were never in conflict. See `:310`. (b)
   ~~`request_log.cpp` publishes only `accepted_per_position`~~ — **closed 2026-10-04**; the three
   drafter-recall counters now reach the serving path. See `:320`.
 - **item 12** — **nothing remains open.** All nine `PORT-DISPATCH` gates were ungated 2026-10-02,
@@ -328,19 +328,26 @@ investigation using the per-position path-acceptance and Recall@16 series, not m
    confirms the deterministic pass is correctly unaffected by the knob.
 
    What actually explains it is `--draft-tokens`. Acceptance on this artifact is **strongly and
-   non-monotonically width-dependent**, so a figure quoted without its width is close to meaningless:
+   non-monotonically width-dependent**, so a figure quoted without its width is close to meaningless.
+   All fifteen measured in one sweep at one configuration (`-n 384 -r 1`, QUASAR, `--prefill-chunk
+   8192`, same corpus):
 
    | width | 1 | 2 | 3 | **4** | 5 | 6 | **7** | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
    |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-   | acceptance % | 56.3 | 59.3 | 25.3 | **21.1** | 14.4 | 13.2 | **49.1** | 26.1 | 23.2 | 22.0 | 20.3 | 18.6 | 17.4 | 9.0 | 10.4 |
+   | acceptance % | 54.4 | 59.3 | 23.9 | **21.1** | 14.4 | 13.2 | **40.9** | 26.1 | 23.2 | 22.0 | 20.3 | 18.6 | 17.4 | 9.0 | 8.3 |
 
-   **21.1 % is draft width 4 exactly.** `profiles.py` records QUASAR at `draft=7`, where the bench
-   measures **49.1 %**. The two figures were never in conflict; they were two widths of the same
+   **21.1 % is draft width 4 exactly.** `profiles.py` records QUASAR at `draft=7`, where the same
+   sweep reads **40.9 %**. The two figures were never in conflict; they were two widths of the same
    drafter, quoted without the width that distinguishes them.
 
+   **The first version of this row mixed two configurations** — widths 1/3/7/15 came from an earlier
+   `-n 512` run and the rest from `-n 384`, which is how width 7 first appeared as 49.1 %. Re-measured
+   as one sweep it is 40.9 %. The finding is unaffected, since 21.1 % at width 4 reproduces in both,
+   but the other fourteen figures were not comparable to each other and are now.
+
    The 48.7–63.0 % range recorded elsewhere in this file comes from `profiles.py` and is a
-   serving-path number at the shipped width — consistent with the bench's 49.1 % at that same width,
-   and not to be compared against any other width.
+   serving-path number at the shipped width on a domain prompt — a different corpus and a different
+   route from the row above, so it is not to be compared against it.
 
    **This needed an instrument that did not exist**, so `v3_profile_matrix.py profile` now takes
    `--sampling {default,zero,none}` and records what it applied in `sampling_applied`. The default is
