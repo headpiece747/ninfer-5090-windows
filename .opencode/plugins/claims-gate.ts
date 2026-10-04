@@ -67,24 +67,36 @@ function lineCount(path: string): number {
   return n
 }
 
-/** Citations that are provably wrong: the file is missing, or LINE is past EOF. */
-function brokenCitations(text: string, base: string): string[] {
+/** Citations that are provably wrong: the file is missing, or LINE is past EOF.
+ *
+ *  Resolution is tried against BOTH the document's own directory and the repository root, because
+ *  documents here cite repository-relative paths (`src/ops/foo.cu:215`) while sitting in `docs/`.
+ *  Resolving only against the document's directory would deny every such citation; resolving only
+ *  against the root would miss a document citing its own siblings. A citation is accepted if EITHER
+ *  base resolves it -- which is what check_doc_citations.py already does for the committed tree, and
+ *  the two must agree, or the hook denies what the gate allows.
+ */
+function brokenCitations(text: string, docDir: string, repoRoot: string): string[] {
   const bad: string[] = []
   CITE.lastIndex = 0
   for (const m of text.matchAll(CITE)) {
     const raw = String(m[1])
     const line = Number(m[2])
     if (raw.includes(EXTERNAL)) continue
-    const abs = isAbsolute(raw) ? raw : resolve(base, raw)
-    let total: number
-    try {
-      if (!existsSync(abs)) {
-        bad.push(`${raw}:${line} -- no such file`)
-        continue
+    const candidates = isAbsolute(raw) ? [raw] : [resolve(docDir, raw), resolve(repoRoot, raw)]
+    let total: number | null = null
+    for (const abs of candidates) {
+      try {
+        if (!existsSync(abs)) continue
+        total = lineCount(abs)
+        break
+      } catch {
+        continue // unreadable: try the next base rather than guess
       }
-      total = lineCount(abs)
-    } catch {
-      continue // unreadable: fail open rather than guess
+    }
+    if (total === null) {
+      bad.push(`${raw}:${line} -- no such file`)
+      continue
     }
     if (line > total) bad.push(`${raw}:${line} -- file has ${total} lines`)
   }
@@ -128,52 +140,71 @@ export default {
     const repo = ctx.location?.directory ?? process.cwd()
     log(`SETUP repo=${repo}`)
 
-    // Observe only. This hook CANNOT block -- the guide says it inspects or replaces input -- so it is
-    // here to record the vocabulary that actually arrives, which is what makes the gate's field
-    // assumptions checkable instead of believed.
-    let observed = 0
-    await ctx.tool.hook("execute.before", (event) => {
-      if (observed++ < 50) {
-        log(`TOOL tool=${event.tool} keys=${Object.keys((event.input ?? {}) as object).join(",")}`)
-      }
-    })
-
-    // The one blocking hook. `deny` here is the only way this plugin stops anything.
-    await ctx.permission.hook("evaluate", (event) => {
+    // THE ENFORCEMENT POINT. Two earlier designs got this wrong and were wrong in the same way.
+    //
+    // v1 hooked `ctx.permission.hook("evaluate")` and set `event.effect = "deny"`. It has a 14-case
+    // test suite, and it has never once refused anything, because permission evaluation is the
+    // PERMISSION path: external_directory, doom_loop, and rules that resolve to ask. An edit inside
+    // the workspace defaults to allow and never routes there. Every PERM line the plugin ever logged
+    // came from an edit to the global config directory -- outside the workspace, which is the one
+    // case it does see.
+    //
+    // v2 hooked this one and only logged. The guide's own text -- "Inspect or replace tool input" --
+    // reads as observe-only, and that reading is what produced a gate that observed.
+    //
+    // It is not observe-only. Throwing from `tool.execute.before` ABORTS the tool call. That is the
+    // documented host behaviour, and it is how a third-party enforcement plugin (adlc, pinned against
+    // the plugin SDK with a live-deny regression script) blocks tool use; upstream issue #37164 states
+    // the same limit from the other side -- a hook can "only silently allow or throw a hard denial".
+    // There is no effect field because throwing IS the denial.
+    //
+    // This hook fires for EVERY tool call, which the log now proves: TOOL lines appear for every
+    // shell, write and read this session performs, including the in-workspace ones the permission
+    // path never saw.
+    await ctx.tool.hook("execute.before", (event: any) => {
       try {
-        const meta = (event.metadata ?? {}) as Record<string, unknown>
-        const blob = `${(event.resources ?? []).join(" ")}\n${JSON.stringify(meta)}`
+        if (!event || typeof event.tool !== "string") return
+        const input = (event.input ?? {}) as Record<string, unknown>
 
-        // Gate 2 -- shell command shape. Checked first because it needs no path resolution.
-        const cmd = typeof meta.command === "string" ? meta.command : blob
-        const shellProblem = reencodingCommand(cmd)
-        if (shellProblem) {
-          log(`DENY shell: ${shellProblem}`)
-          event.effect = "deny"
-          event.message = `claims-gate: ${shellProblem}`
+        // Gate 2 -- the PowerShell re-encoding shape. Checked first: it needs no path resolution.
+        if (event.tool === "shell" || event.tool === "bash") {
+          const problem = reencodingCommand(typeof input.command === "string" ? input.command : "")
+          if (problem) {
+            log(`DENY shell: ${problem}`)
+            throw new Error(`claims-gate: ${problem}`)
+          }
           return
         }
 
-        // Gate 1 -- provably wrong citation in a Markdown edit.
-        const md = (event.resources ?? []).find((r) => r.toLowerCase().endsWith(".md"))
-        if (!md) return
-        const mdAbs = isAbsolute(md) ? md : resolve(repo, md)
-        if (!existsSync(mdAbs)) return
+        // Gate 1 -- a provably wrong citation in a Markdown edit.
+        if (event.tool !== "write" && event.tool !== "edit" && event.tool !== "patch") return
+        const target =
+          (typeof input.path === "string" && input.path) ||
+          (typeof input.filePath === "string" && input.filePath) ||
+          ""
+        if (!target.toLowerCase().endsWith(".md")) return
 
-        const incoming = payloadOf(meta.content ?? meta.newString ?? meta.input ?? meta)
+        const mdAbs = isAbsolute(target) ? target : resolve(repo, target)
+        if (!existsSync(mdAbs)) return // a new file cannot cite an existing line range wrongly
+
+        const incoming = payloadOf(input)
         if (!incoming) return
 
-        const bad = brokenCitations(incoming, dirname(mdAbs))
+        const bad = brokenCitations(incoming, dirname(mdAbs), repo)
         if (bad.length) {
           log(`DENY cite: ${bad.join(" ; ")}`)
-          event.effect = "deny"
-          event.message =
-            `claims-gate: citation(s) in this edit are provably wrong -- ${bad.join("; ")}. ` +
-            `Open the line and read it before writing it down, or drop the citation.`
+          throw new Error(
+            `claims-gate: refused -- ${bad.join("; ")}. ` +
+              `Open the line and read it before writing it down, or drop the citation.`,
+          )
         }
       } catch (err) {
+        // Re-throw our own denial; swallow anything else. A check that throws on its own bug would
+        // break the tool it is protecting, which is worse than not checking.
+        if (err instanceof Error && err.message.startsWith("claims-gate:")) throw err
         log(`ERROR (allowed, failing open): ${String(err)}`)
       }
     })
-  },
+
+    },
 }
