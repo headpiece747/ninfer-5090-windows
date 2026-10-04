@@ -2,15 +2,20 @@
 //
 //   node --experimental-strip-types tools/opencode/test_claims_gate.mjs
 //
-// Drives BOTH enforcement paths. The plugin registers a `tool.execute.before` hook AND a
-// `ctx.tool.transform` wrapper, because the hook's throw was MEASURED not to abort a call: with the
-// plugin loaded at 00:09:23Z, a Markdown write carrying a past-EOF citation was still created. A
-// harness that tested only the hook would have been green on a gate that does nothing.
+// Drives the ONE enforcement path the plugin registers: the `tool.execute.before` hook with a
+// throw. There is deliberately no second path to drive.
 //
-// Every previous version of this harness drove the plugin's own interface rather than the host's.
-// Each was fully green and each gate refused nothing, so the rule encoded here is: assert the
-// DENIAL SIGNAL, on the real input shape the host sends (`write` -> {path, content},
-// `shell` -> {command}), and exercise every path the plugin registers.
+// The plugin previously also wrapped write/edit/patch/shell via `ctx.tool.transform`. It was removed
+// because the hook alone already denies, confirmed live -- a Markdown write citing line 999999 of a
+// 706-line file was refused while a write citing line 42 was created, and no BLOCK line was ever
+// logged because the hook throws before execute is reached. Two mechanisms for one rule is harder to
+// reason about than one, and the redundancy came from a misread allow as a swallowed deny rather than
+// from caution. The `transform` stub below exists only to ASSERT the plugin does not use it again.
+//
+// Also encodes the earlier lesson: every version of this harness drove the plugin's own interface
+// rather than the host's, each was fully green, and each gate refused nothing. So the suite asserts
+// the DENIAL SIGNAL on the real input shapes the host sends (`write` -> {path, content},
+// `shell` -> {command}), and covers a Markdown file that does not exist yet.
 
 import { pathToFileURL } from "node:url"
 import { readFileSync, existsSync } from "node:fs"
@@ -22,28 +27,7 @@ const plugin = mod.default ?? mod
 
 let hook = null
 const registered = []
-// A stand-in for the real tool editor: enough surface for the plugin to wrap, and enough to prove
-// the wrapper is what performs the denial rather than the hook.
-const WRAPPED = {}
-const editor = {
-  get: (id) => (WRAPPED[id] ? { id, execute: WRAPPED[id] } : undefined),
-  update: (id, mutate) => {
-    const holder = { execute: WRAPPED[id] }
-    mutate(holder)
-    WRAPPED[id] = holder.execute
-  },
-  add: () => {},
-  remove: () => {},
-}
-
-// A per-call counter, so "the original ran" is distinguishable from "the wrapper returned a literal
-// that happens to look like the original's output". The first version of this assertion compared a
-// string that the stub and the wrapper both produced, and it stayed GREEN when the wrapper stopped
-// calling through entirely -- a control that agreed for a structural reason.
-let seq = 0
-for (const id of ["write", "edit", "patch", "shell"]) {
-  WRAPPED[id] = async () => ({ content: `ORIGINAL ${id}`, seq: ++seq })
-}
+let transformCalls = 0
 
 const ctx = {
   location: { directory: REPO },
@@ -53,9 +37,8 @@ const ctx = {
       if (name === "execute.before") hook = cb
       return { dispose() {} }
     },
-    transform: async (cb) => {
-      registered.push("transform")
-      cb(editor)
+    transform: async () => {
+      transformCalls++
       return { dispose() {} }
     },
   },
@@ -72,31 +55,9 @@ const ctx = {
 await plugin.setup(ctx)
 
 if (typeof hook !== "function") throw new Error("tool.execute.before was never registered")
-if (!registered.includes("transform")) throw new Error("ctx.tool.transform was never called")
-for (const id of ["write", "edit", "patch", "shell"]) {
-  if (typeof WRAPPED[id] !== "function") throw new Error(`${id} was never wrapped`)
-}
 
 let pass = 0
 let fail = 0
-
-async function viaHook(tool, input) {
-  try {
-    await hook({ tool, input, sessionID: "t", agent: "build", id: "c1" })
-    return null
-  } catch (err) {
-    return err
-  }
-}
-
-async function viaTransform(tool, input) {
-  try {
-    const out = await WRAPPED[tool](input, {})
-    return { ran: true, out }
-  } catch (err) {
-    return err
-  }
-}
 
 function check(name, got, wantDeny) {
   const denied = got instanceof Error
@@ -107,10 +68,24 @@ function check(name, got, wantDeny) {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name} -> ${detail}${ok ? "" : ` (wanted ${wantDeny ? "deny" : "allow"})`}`)
 }
 
-// ---- registration: the wrong layer stays dead ----
+async function call(tool, input) {
+  try {
+    await hook({ tool, input, sessionID: "t", agent: "build", id: "c1" })
+    return null
+  } catch (err) {
+    return err
+  }
+}
+
+// ---- one mechanism, one layer ----
 check(
-  "no permission hook is registered",
+  "no permission hook is registered (wrong layer)",
   registered.filter((r) => r.startsWith("permission")).length === 0 ? null : new Error("re-added"),
+  false,
+)
+check(
+  "ctx.tool.transform is NOT used (redundant second mechanism)",
+  transformCalls === 0 ? null : new Error(`transform called ${transformCalls}x`),
   false,
 )
 
@@ -136,48 +111,22 @@ const NEW_MISSING = { path: NEW_MD, content: "see src/ops/not_a_real_file.cu:12"
 const NEW_GOOD = { path: NEW_MD, content: `see ${CPP}:42` }
 const assertNewAbsent = !existsSync(NEW_MD)
 
-for (const [pathName, call] of [
-  ["hook", viaHook],
-  ["transform", viaTransform],
-]) {
-  console.log(`\n-- via ${pathName} --`)
-  await check("deny  citation past EOF", await call("write", BAD), true)
-  await check("deny  citation to a missing file", await call("write", MISSING), true)
-  // The case that shipped a gate which allowed a fabricated citation in a brand-new document.
-  await check("deny  past EOF in a NEW markdown file", assertNewAbsent ? await call("write", NEW_BAD) : new Error("precondition: file exists"), true)
-  await check("deny  missing file in a NEW markdown file", assertNewAbsent ? await call("write", NEW_MISSING) : new Error("precondition: file exists"), true)
-  await check("deny  Set-Content -Encoding utf8", await call("shell", BOMS), true)
-  await check("deny  Get-Content | Set-Content", await call("shell", { command: "(Get-Content a.md) | Set-Content b.md" }), true)
-  await check("allow repo-relative citation in range", await call("write", GOOD), false)
-  await check("allow in-range citation in a NEW markdown file", await call("write", NEW_GOOD), false)
-  await check("allow no citation", await call("write", { path: AGENTS, content: "plain prose" }), false)
-  await check("allow external citation (docs/research)", await call("write", { path: resolve(REPO, "docs/research/x.md"), content: "see vllm/scheduler.py:900" }), false)
-  await check("allow non-markdown file", await call("write", { path: resolve(REPO, "zz.cpp"), content: "see x.cpp:999999" }), false)
-  await check("allow safe WriteAllText", await call("shell", { command: "[System.IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($false)))" }), false)
-  await check("allow ordinary git", await call("shell", { command: "git log --oneline -1" }), false)
-  // `read` is deliberately NOT wrapped -- a citation check has nothing to say about reading a file,
-  // and wrapping every tool would widen the blast radius for nothing. Asserted rather than assumed.
-  await check("transform does not wrap a read-only tool", WRAPPED.read === undefined ? null : new Error("read was wrapped"), false)
-}
-
-// ---- the transform must actually reach the original on an allowed call ----
-// `seq` increments ONLY inside the original, so an increment of exactly 1 proves the original
-// function ran, and a wrapper returning a hand-built literal would leave it unchanged. The
-// comparison is RELATIVE: earlier cases in the transform section already called through, so an
-// absolute `seq === 1` is wrong -- it was, and it failed for exactly that reason.
-const before = seq
-const allowed = await viaTransform("write", GOOD)
-check(
-  "transform calls through to the ORIGINAL on an allowed write",
-  allowed.out?.seq === before + 1 ? null : new Error(`original not invoked (seq ${before} -> ${allowed.out?.seq})`),
-  false,
-)
-const allowed2 = await viaTransform("write", GOOD)
-check(
-  "and again -- the original is invoked per call, not memoised",
-  allowed2.out?.seq === before + 2 ? null : new Error(`seq=${allowed2.out?.seq}`),
-  false,
-)
+console.log("\n-- the one path --")
+await check("deny  citation past EOF", await call("write", BAD), true)
+await check("deny  citation to a missing file", await call("write", MISSING), true)
+// The case that shipped a gate which allowed a fabricated citation in a brand-new document.
+await check("deny  past EOF in a NEW markdown file", assertNewAbsent ? await call("write", NEW_BAD) : new Error("precondition: file exists"), true)
+await check("deny  missing file in a NEW markdown file", assertNewAbsent ? await call("write", NEW_MISSING) : new Error("precondition: file exists"), true)
+await check("deny  Set-Content -Encoding utf8", await call("shell", BOMS), true)
+await check("deny  Get-Content | Set-Content", await call("shell", { command: "(Get-Content a.md) | Set-Content b.md" }), true)
+await check("allow repo-relative citation in range", await call("write", GOOD), false)
+await check("allow in-range citation in a NEW markdown file", await call("write", NEW_GOOD), false)
+await check("allow no citation", await call("write", { path: AGENTS, content: "plain prose" }), false)
+await check("allow external citation (target under docs/research)", await call("write", { path: resolve(REPO, "docs/research/x.md"), content: "see vllm/scheduler.py:900" }), false)
+await check("allow non-markdown file", await call("write", { path: resolve(REPO, "zz.cpp"), content: "see x.cpp:999999" }), false)
+await check("allow safe WriteAllText", await call("shell", { command: "[System.IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($false)))" }), false)
+await check("allow ordinary git", await call("shell", { command: "git log --oneline -1" }), false)
+await check("allow a read-only tool", await call("read", { path: AGENTS }), false)
 
 // ---- fail open: a check that throws on its own bug would break the tool it protects ----
 const hostile = [

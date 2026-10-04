@@ -24,30 +24,42 @@
 // not assert before reading" is not enforceable by any plugin.
 //
 // ------------------------------------------------------------------------------
-// THREE ENFORCEMENT ATTEMPTS, and only the third is known to reach the tool. Read this before
-// changing any of it -- each earlier version had a full green harness and refused nothing.
+// FOUR ENFORCEMENT ATTEMPTS. Read this before changing any of it -- each earlier version had a full
+// green harness and refused nothing.
 //
 //   1. `ctx.permission.hook("evaluate")` with `effect = "deny"`. WRONG LAYER. That hook sits on the
 //      PERMISSION path -- external_directory, doom_loop, ask-resolved rules. An edit inside the
 //      workspace defaults to allow and never routes there, so the files this gate protects are
-//      exactly the files it never sees. Every PERM line it logged came from an edit to the global
-//      config directory, outside the workspace, the one case it does reach.
+//      exactly the files it never sees.
 //
-//   2. The same hook, fixed to read the payload shape the host actually sends
-//      (`{files:[{file, patch}]}`). Still the wrong layer, so still inert for in-workspace edits.
+//   2. The same hook, reading the payload shape the host actually sends (`{files:[{file, patch}]}`).
+//      Still the wrong layer.
 //
-//   3. `tool.execute.before` with a throw. Primary sources say a thrown error ABORTS the call --
-//      adlc, pinned against the plugin SDK, states it as documented host behaviour, and upstream
-//      issue #37164 says a hook can "only silently allow or throw a hard denial". MEASURED HERE AND
-//      IT DID NOT ABORT: with claims-gate.ts loaded at 00:09:23Z and the throw present, a Markdown
-//      write carrying a past-EOF citation was still created. Both of those sources describe the V1
-//      plugin API (`@opencode-ai/plugin`, whose hook signature is `(input, output)`); the V2 callback
-//      is `(event) => void`, with no output parameter and no documented abort-on-throw. The claim was
-//      carried over across a major version boundary without being re-checked.
+//   3. A `ctx.tool.transform` wrapper replacing write/edit/patch/shell, added because I had concluded
+//      that a throw from `tool.execute.before` does not abort a call. THAT CONCLUSION WAS WRONG, and
+//      it is recorded here because the mistake is the instructive part. The evidence was a live probe
+//      that was created while the plugin logged `TOOL write -> allow` -- an ALLOW, not a swallowed
+//      denial. The check itself was returning allow because of a separate bug (below), so the throw
+//      path had never been exercised. I read an allow as a swallowed deny and built a second
+//      mechanism to compensate. Once the real bug was fixed, the hook alone denied the write, and no
+//      BLOCK line was ever logged because the hook throws before execute is reached.
 //
-// So the throw stays -- it is correct, and it costs nothing -- and the enforcement that does not
-// depend on hook semantics is the tool TRANSFORM below, which replaces the tool's own execute. That
-// cannot be swallowed by hook semantics: the write simply never happens.
+//   So: two mechanisms, one of them redundant, and the redundancy came from a misattribution rather
+//   than from caution. Removed. A gate that enforces the same rule twice at two layers is harder to
+//   reason about than one that enforces it once.
+//
+// The mechanism is `tool.execute.before` with a throw, and it is confirmed end to end in the running
+// service: a Markdown write citing `native_render.cpp:999999` (the file has 706 lines) was refused
+// and not created, while a write citing line 42 was created.
+//
+//   4. Not an attempt -- a bug in all of the above. `if (!existsSync(target)) return null`, commented
+//      "a new file cannot cite an existing line range wrongly". False: a new file can cite an existing
+//      file wrongly, and that is the easiest case. It disabled the gate for every newly created
+//      Markdown file, which is why three live probes in a row were allowed, and why the evidence for
+//      attempt 3 above looked the way it did.
+//
+// WHAT THIS CANNOT DO: nothing observes what the agent SAYS. No hook covers assistant prose, so "do
+// not assert before reading" is not enforceable by any plugin.
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs"
 import { dirname, isAbsolute, resolve } from "node:path"
@@ -204,10 +216,13 @@ export default {
     const repo = ctx?.location?.directory ?? process.cwd()
     log(`SETUP repo=${repo}`)
 
-    // Path A -- the hook. Kept because the throw is correct per primary sources, and because an
-    // explicit `TOOL` line here is the only positive evidence that the hook fired at all. Without
-    // it, "hook did not fire" and "hook fired and was swallowed" are indistinguishable -- which is
-    // exactly how the previous version spent a session.
+    // THE MECHANISM. One hook, one rule, one place. A thrown error here aborts the tool call, which
+    // is confirmed end to end in the running service rather than inferred.
+    //
+    // The explicit TOOL line is load-bearing. An earlier version logged only on denial, which left
+    // "hook did not fire" and "hook fired and was swallowed" indistinguishable -- and that is how a
+    // whole session was spent diagnosing a transport that was working. A positive line per call is
+    // what turned attempt 4 above from a mystery into one line of reading.
     await ctx.tool.hook("execute.before", (event: any) => {
       try {
         if (!event || typeof event.tool !== "string") return
@@ -223,32 +238,6 @@ export default {
       }
     })
 
-    // Path B -- the transform. This is the enforcement that does not rely on hook-throw semantics:
-    // the wrapped execute returns the denial instead of calling the original, so the write does not
-    // happen. Unregistering or disabling the plugin restores the original tool, which is the same
-    // escape hatch every plugin override has.
-    await ctx.tool.transform((editor: any) => {
-      for (const id of ["write", "edit", "patch", "shell"]) {
-        const existing = editor.get(id)
-        if (!existing || typeof existing.execute !== "function") {
-          log(`NOTE tool "${id}" not present at transform time; not wrapped`)
-          continue
-        }
-        const original = existing.execute
-        editor.update(id, (tool: any) => {
-          tool.execute = async (input: any, toolCtx: any) => {
-            const reason = checkCall(id, input, repo)
-            if (reason) {
-              log(`BLOCK ${id}: ${reason}`)
-              throw new Error(`claims-gate: refused -- ${reason}`)
-            }
-            log(`ALLOW ${id} (transform)`)
-            return original(input, toolCtx)
-          }
-        })
-      }
-    })
-
-    log("SETUP complete: hook + transform registered")
+    log("SETUP complete: execute.before hook registered")
   },
 }
