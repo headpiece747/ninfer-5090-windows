@@ -34,7 +34,12 @@
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs"
 import { dirname, isAbsolute, resolve } from "node:path"
-import { Plugin } from "@opencode/plugin"
+// NO `import { Plugin } from "@opencode/plugin"` -- see rules-inject.ts, whose header explains why in
+// full. Short version: the opencode service resolves that package only inside the global config
+// directory, so a plugin in this repository is SKIPPED with a "Cannot find package" warning that
+// nothing else reports, and installing the package locally did not fix it across a restart.
+
+const ID = "ninfer.claims-gate"
 
 const LOG = "C:/Users/tobia/AppData/Local/Temp/opencode/claims-gate.log"
 
@@ -116,10 +121,10 @@ function payloadOf(input: unknown): string {
   return out
 }
 
-export default Plugin.define({
-  id: "ninfer.claims-gate",
+export default {
+  id: ID,
 
-  async setup(ctx) {
+  async setup(ctx: any) {
     const repo = ctx.location?.directory ?? process.cwd()
     log(`SETUP repo=${repo}`)
 
@@ -171,4 +176,4 @@ export default Plugin.define({
       }
     })
   },
-})
+}

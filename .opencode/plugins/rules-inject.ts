@@ -34,7 +34,25 @@
 // is asserted by tools/opencode/test_rules_inject.mjs. If a rule earns its place it replaces one,
 // rather than joining the list.
 
-import { Plugin } from "@opencode/plugin"
+// NO `import { Plugin } from "@opencode/plugin"`, and that is deliberate.
+//
+// It was there first, and it is the reason this plugin never ran. The opencode service resolves that
+// package only inside the global config directory -- where thinking-guard.ts lives and loads fine -- so
+// a plugin in this repository fails with:
+//
+//   WARN failed to load plugin cause="... Cannot find package '@opencode/plugin' imported from ..."
+//
+// and opencode SKIPS it rather than crashing, so the failure is silent. Installing the package into
+// .opencode/plugins/node_modules fixed it for `node` and NOT for the service, across a restart, with
+// an identical package (2.0.11, same exports map) sitting in both places.
+//
+// The import is optional. `Plugin.define({ id, setup })` is a typing and ergonomics helper over a
+// plain object, and the default export is that object. So the plugins declare their shape directly.
+// The cost is losing `Plugin.define`'s type-checking, which is what `test_plugin_loads.mjs` and the two
+// decision harnesses are for -- and they now cover the thing that actually broke, which they did not.
+
+export type RulesInjectPlugin = { id: string; setup: (ctx: any) => Promise<void> | void }
+export const ID = "ninfer.rules-inject"
 
 // Keep this short. Every line here is paid for on every model request.
 const RULES: string[] = [
@@ -48,10 +66,11 @@ const HEADER =
   "for attention. They are not enforcement: they cannot be forgotten, and they can still be " +
   "disobeyed."
 
-export default Plugin.define({
-  id: "ninfer.rules-inject",
+// The plugin object, declared inline rather than through Plugin.define -- see the header.
+export default {
+  id: ID,
 
-  async setup(ctx) {
+  async setup(ctx: any) {
     await ctx.session.hook("context", (event) => {
       try {
         // Guard the shape rather than trusting it: a throw inside `context` would land on every
@@ -64,4 +83,4 @@ export default Plugin.define({
       }
     })
   },
-})
+}
