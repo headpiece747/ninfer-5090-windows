@@ -68,6 +68,29 @@ model-index:
 
 # Qwen3.8-27B QUASAR QAT NVFP4 for NInfer
 
+> ## ⚠️ Superseded — do not download from this card
+>
+> **This card describes a prebuilt artifact this port no longer ships or uses.** It is kept as the
+> version-controlled source of the card published under that account, and as a record of how the
+> QUASAR line was first built.
+>
+> **What ships today is built locally.** Every `.ninfer` artifact this port ships is produced by this
+> port's own converter — `converter: ninfer-v3` in each artifact's `.conversion.json` — from the
+> Hugging Face **source** checkpoints. No `.ninfer` file is downloaded prebuilt, and `download_model.py`
+> fetches sources, not artifacts.
+>
+> To get the QUASAR line, fetch the sources and convert:
+>
+> | what | where |
+> |---|---|
+> | QAT weights | [QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4](https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4) |
+> | BF16 base | [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) |
+> | DFlash2 draft | [z-lab/Qwen3.8-27B-DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2) |
+> | fetch them | `download_model.py`, into `C:\AI\models\hf-src\` |
+>
+> The `hf download` command further down this page installs bytes that are **not** what the launchers
+> here expect. See `README.md` for the current artifact table.
+
 This model card is the version-controlled source for [cometkim/Qwen3.8-27B-nvfp4qat-NInfer](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer).
 
 The repository contains a QAT-sourced NVFP4 weight profile of [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) in the native [NInfer](https://github.com/Neroued/ninfer) `.ninfer` artifact format, with the [z-lab/Qwen3.8-27B-DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2) block-diffusion speculative drafter embedded in the same image. The artifact is intended only for NInfer engines with [cometkim/ninfer](https://github.com/cometkim/ninfer) patches; it is not a Transformers checkpoint, Safetensors distribution, or GGUF file.

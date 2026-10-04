@@ -551,9 +551,14 @@ Sixty-four rules, each earned by a failure rather than chosen:
 - **Three remotes exist, and only one is upstream.** `upstream` is `Neroued/ninfer`, the project this
   port follows: it is what AGENTS means by upstream, and what `gh issue list --repo Neroued/ninfer`
   queries. `origin` is `headpiece747/ninfer-5090-windows`, this port's own published repository, which is
-  where `dev` goes. `cometkim/ninfer` is a third-party fork that supplied the NVFP4 artifacts; it is not
+  where `dev` goes. `cometkim/ninfer` is a third-party fork that earlier supplied the NVFP4 artifacts; it is not
   upstream, and fetching it answers no question about being current. On 2026-09-25 a "current with
   upstream" claim was checked against `cometkim` and reported as if it were the real thing.
+  **As of 2026-10-04 it is not a dependency either**: every `.ninfer` artifact this port ships is built
+  locally by its own converter from upstream Hugging Face source checkpoints (`converter: ninfer-v3`
+  in each artifact's `.conversion.json`), and `download_model.py` fetches those sources rather than any
+  prebuilt artifact. `NOTICE` records what came through that fork, which is attribution, not a
+  dependency.
 
   Ask the question of the right remote, and ask it of each branch by name, because "nothing returned" is
   how both mistakes happened: a local ref that is not fetched, or a branch name that does not exist on

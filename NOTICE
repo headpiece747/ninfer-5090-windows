@@ -17,6 +17,13 @@ This product includes software developed by:
   The v3 artifact line, the DFlash2 integration, the profile measurement tooling and the
   context-cache reclaim this tree carries. Apache License 2.0.
 
+  SCOPE, as of 2026-10-04: this is ATTRIBUTION for work that came through that fork, not a
+  dependency. Nothing is fetched from or required at runtime. In particular, no artifact this product
+  ships is downloaded prebuilt from that fork or from its Hugging Face account -- every shipped
+  `.ninfer` is built locally by this port's converter from the upstream Hugging Face source
+  checkpoints, and `download_model.py` fetches those sources. See README.md for the current artifact
+  table and the sources each line is built from.
+
 This product contains modifications developed by headpiece747 to support:
 - Native Windows 11 MSVC compilation (Visual Studio 2022/2026 + CUDA 13.3)
 - Windows C-runtime compatibility patches (random number generation, thread-safe time, /FS compiler flags)

@@ -13,9 +13,12 @@ without a runtime profile flag. Common framing is defined in
 [`storage-layouts.md`](storage-layouts.md), and model mathematics and state behavior in
 [`qwen3_5-model.md`](qwen3_5-model.md).
 
-The converter modules, recipes and calibration inputs this reference names belong to the fork that
-publishes these artifacts (`cometkim/ninfer`). This tree carries the artifact contract, not that
-toolchain.
+The converter modules, recipes and calibration inputs this reference names were originally owned by a
+third-party fork that published these artifacts (`cometkim/ninfer`). **As of 2026-10-04 that is
+attribution, not a dependency**: every shipped artifact is built locally by this port's own converter
+(`converter: ninfer-v3` in each `.conversion.json`) from the upstream Hugging Face source checkpoints,
+and `download_model.py` fetches those sources. This tree carries the artifact contract, and the
+toolchain that produces it.
 
 The registered line also defines a `groupwise-int` peer and a plain `nvfp4` profile, documented
 here because the engine implements them. This port ships, pins and measures only the two v3 fork

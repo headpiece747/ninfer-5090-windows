@@ -1,5 +1,20 @@
 # ADR-0004: Four vision-only profiles, and one artifact we do not control
 
+**Status:** accepted — premise superseded 2026-10-04, see the note below
+
+> **Superseded in part, 2026-10-04.** The premise that the NVFP4-full artifact was "published by
+> cometkim, not by us or upstream" no longer holds: this port now **builds that artifact itself**, from
+> the upstream [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4) source
+> weights, with its own converter (`converter: ninfer-v3` in the artifact's `.conversion.json`). There
+> is no longer an artifact we do not control on that lane, and `download_model.py` no longer fetches
+> any prebuilt artifact.
+>
+> **What still stands:** four vision-only profiles at the native context, two spec routes. That is
+> unchanged, and the measurement in Context below is unaffected — it compared artifacts, not sources.
+>
+> The text below is left as written because an ADR records what was decided and why at the time. Read
+> it with this note, not without it.
+
 **Status:** accepted
 
 ## Context
