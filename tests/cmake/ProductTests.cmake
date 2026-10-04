@@ -65,6 +65,10 @@ ninfer_add_test(ninfer_request_log_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_request_log.cpp"
   LIBRARIES ninfer_serve)
 
+ninfer_add_test(ninfer_metrics_test
+  SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_metrics.cpp"
+  LIBRARIES ninfer_serve)
+
 ninfer_add_test(ninfer_http_error_handler_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_http_error_handler.cpp"
   LIBRARIES ninfer_serve)

@@ -20,7 +20,7 @@ class logger;
 
 namespace ninfer::serve {
 
-inline constexpr int kRequestLogSchemaVersion        = 23;
+inline constexpr int kRequestLogSchemaVersion        = 24;
 inline constexpr const char* kRequestLogArtifactType = "ninfer_serve_request_log";
 
 struct ServerLogEnvironment {
@@ -46,6 +46,11 @@ std::string format_server_start_json(
 std::string format_request_start_json(const std::string& server_instance_id,
                                       std::uint64_t timestamp_unix_ms,
                                       const RequestLogContext& context);
+std::string
+format_request_scheduling_json(const std::string& server_instance_id,
+                               std::uint64_t timestamp_unix_ms, std::uint64_t request_id,
+                               const std::string& http_request_id,
+                               const ninfer::GenerationSchedulingObservation& observation);
 std::string format_request_rejected_json(const std::string& server_instance_id,
                                          std::uint64_t timestamp_unix_ms,
                                          const RequestRejectionLogContext& context);
@@ -84,6 +89,8 @@ public:
                             const std::string& public_model_id, const ninfer::LoadSummary& load,
                             const ninfer::MemorySummary& memory);
     void write_request_start(const RequestLogContext& context);
+    void write_request_scheduling(std::uint64_t request_id, const std::string& http_request_id,
+                                  const ninfer::GenerationSchedulingObservation& observation);
     void write_request_rejected(const RequestRejectionLogContext& context);
     void write_request_done(const RequestLogContext& context, const GenerationOutcome& outcome);
     void write_request_error(const RequestLogContext& context, const std::string& message);

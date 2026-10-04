@@ -56,6 +56,7 @@ selected for this process.
 | Method and path | Behavior |
 |---|---|
 | `GET /health` | Engine readiness |
+| `GET /metrics` | Prometheus counters, gauges and latency histograms |
 | `GET /v1/models` | configured OpenAI model alias and effective `max_model_len` |
 | `GET /v1/models/{id}` | lookup of the configured alias and effective `max_model_len` |
 | `POST /v1/chat/completions` | OpenAI-style chat generation |
@@ -155,9 +156,9 @@ server-error codes. Failures in the normalized prompt contract use `invalid_prom
 and availability failures retain their dedicated codes. Internal invariant failures are not
 relabeled as client input errors.
 
-The request `model` must equal the public model ID: the artifact `identity.model_id` by default, or
-the explicit `--model-id` override. Reasoning is returned separately as `reasoning_content`; answer
-text remains in `content`.
+The request `model` must equal the public model ID: the artifact `metadata.name` by default
+(falling back to its architecture name when absent), or the explicit `--model-id` override.
+Reasoning is returned separately as `reasoning_content`; answer text remains in `content`.
 
 Across Chat Completions, Responses, and Anthropic Messages, a direct top-level tool-parameter
 `type`, or an `anyOf`/`oneOf` composed entirely of explicit primitive types, guides conversion of
@@ -833,6 +834,48 @@ request bodies, credentials, or arbitrary client error messages.
 If a tool marker is returned to text because its structure or tool identity cannot be represented,
 Serve emits one warning with only the failure classification, never the generated markup.
 
+## Live metrics
+
+`GET /metrics` serves Prometheus text format 0.0.4 on the same port. It follows the server's
+API-key authentication and works independently of `--request-log-jsonl` and
+`--log-stats-interval-ms`. Engine failure leaves the endpoint readable with
+`ninfer_engine_ready 0`. Counters start after startup warmup and reset when the server restarts.
+
+```bash
+curl http://127.0.0.1:8080/metrics
+```
+
+| Metrics | Meaning |
+|---|---|
+| `ninfer_model_info`, `ninfer_max_concurrency`, `ninfer_max_context_tokens` | Model/backend identity and startup limits |
+| `ninfer_requests_running`, `waiting`, `paused`, `prefilling`, `decode_ready`, `replaying`, `materializing` | Current Engine gauges; prefill/decode/replay are subsets of resident requests |
+| `ninfer_prompt_tokens_total`, `ninfer_prompt_tokens_cached_total` | Full input and reused tokens counted once on initial binding |
+| `ninfer_prefill_tokens_total`, `ninfer_replayed_tokens_total` | Actual initial prefill and separate recovery recomputation |
+| `ninfer_generation_tokens_total`, `ninfer_decode_tokens_total` | All committed outputs, or decode/control outputs excluding the first token; include thinking and injected control tokens |
+| `ninfer_spec_decode_{rounds,draft_tokens,accepted_tokens,fallback_steps}_total` | Live native speculative work, including MTP and DFlash/DFlash2 |
+| `ninfer_{preemptions,snapshot_restores,replay_restores}_total` | Pressure pauses and recovery routes |
+| `ninfer_device_kv_{used,capacity}_pages`, `ninfer_device_state_{used,capacity}_slots` | Physical Main KV and StateImage occupancy; retained history also occupies these pools |
+| `ninfer_host_context_{used,reserved,capacity,peak}_bytes` | Unified Host backing; reserved bytes are already included in used bytes |
+| `ninfer_context_transfer_bytes_total{resource,direction}` | Actual State/Main KV/backend KV payload transfers |
+| `ninfer_host_work_seconds_total{phase}`, `ninfer_device_wait_seconds_total` | Instrumented worker wall time; device wait is not CUDA kernel time |
+| `ninfer_requests_total{outcome}`, `ninfer_response_failures_total` | Generation attempts entering preparation and subsequent response failures; protocol/model validation failures and token-count requests are excluded |
+| `ninfer_time_to_first_token_seconds` | Histogram updated once at the first committed token, including preparation, queueing and binding |
+| `ninfer_request_duration_seconds`, `ninfer_request_queue_seconds` | Histograms for settled generation outcomes, including cancellation; exceptional failures have separate counts |
+
+Histograms expose `_bucket`, `_sum` and `_count`. Metrics have bounded labels; they do not retain
+request IDs or request text. Rates are calculated by the consumer, for example:
+
+```promql
+rate(ninfer_generation_tokens_total[1m])
+
+rate(ninfer_spec_decode_accepted_tokens_total[1m])
+/ rate(ninfer_spec_decode_draft_tokens_total[1m])
+```
+
+The handler copies published snapshots and formats them outside the Engine worker. Scraping does
+not reset counters or initiate device work. Detailed per-request records remain available through
+the JSONL log. Monitoring tools with engine-specific metric names need an NInfer adapter.
+
 ## Structured request log
 
 `--request-log-jsonl FILE` enables the machine-readable measurement log. The server opens `FILE`
@@ -840,7 +883,7 @@ in append mode and flushes every event, so successive model or MTP blocks may sh
 file. The parent directory must already exist. Failure to open the file aborts startup; the log path
 is also rejected if it resolves to the model artifact.
 
-Every line is one `ninfer_serve_request_log` schema-v23 JSON object. All events carry
+Every line is one `ninfer_serve_request_log` schema-v24 JSON object. All events carry
 `timestamp_unix_ms` and a process-unique `server_instance_id`; request IDs are monotonic only within
 that server instance. Successful request-start records include request-scoped acquisition,
 media-preprocessing wall/work, tokenizer, cache hit/miss/single-flight, and payload-size fields;
@@ -852,6 +895,7 @@ they do not infer request behavior from process-global counter deltas.
 | `request_start` | protocol, resolved sampler and seed, requested reasoning effort, actual initial thinking mode and optional budget, Responses semantic-change flag, output budget, stream/message/tool shape |
 | `request_rejected` | parsed request shape, requested reasoning effort, media-item count, `phase: "prepare"`, and the exact HTTP status/type/code/parameter/message for a synchronous preparation rejection |
 | `request_done` | finish reason, prompt/completion/cache/computed-prefill tokens, prefix reuse path, tool-call parse diagnostics, preemption/recovery counters, thinking-budget application counters, unrounded request-stage seconds, per-request Engine Host exposure, and complete speculative-decoding counters |
+| `request_scheduling` | request identity, pause/restore/recovery transitions, Snapshot revocation, Engine observation time and cumulative global/request work counters |
 | `request_error` | the resolved request configuration and the generation, cancellation, or pre-outcome transport terminal message |
 | `throughput` | interval token/decode/context-cache pressure counter deltas, authoritative worker Host-work deltas, current scheduler/resource gauges, and decode-round batch statistics |
 
@@ -870,6 +914,21 @@ as full-precision JSON numbers. Its `speculative` object contains `backend`, `dr
 derived downstream from raw token counts and seconds instead of rounded stderr strings.
 `generation.scheduling` records preemptions, snapshot/replay restores, replayed tokens, paused time
 and request-owned transfer bytes. Replay rebuilds committed state without adding new output usage.
+
+`request_scheduling` records `pause_started`, `paused`, `restore_started`, `restored`,
+`replay_complete`, `recovery_complete`, `snapshot_revoked`, and a `terminal` boundary for preempted
+requests. `preemption_index` identifies each pause cycle; `route` is `snapshot`, `replay`, or `null`
+while pause preparation has not yet selected the saved representation. `steady_ns` is captured on
+the Engine worker, and `elapsed_ns` starts at Engine submission; JSONL writes happen on the request
+consumer thread. Compare `steady_ns` rather than delivery order across requests. `restored` ends
+binding; `recovery_complete` marks the first fresh committed unit or normal terminal progress,
+not merely rebuilding the old frontier. Cancellation can end the cycle without that event.
+
+Each event's `progress` carries global and request-owned prefill, decode/control and replay token
+counters. Between two boundaries, subtract the request delta from the global delta to measure
+other requests' completed work. In particular, `restored` to `replay_complete` establishes whether
+other work advanced during Replay without relying on periodic scheduler gauges. Events are enabled
+only with request logging and add no per-token records.
 
 For `server_start.memory`, `workspace.capacity_bytes` is the only physical workspace allocation.
 When Vision is enabled, `vision_workspace` reports the aggregate prompt and maximum-item token
@@ -959,10 +1018,11 @@ deadline. Fresh requests enter in FIFO order with a bounded bypass allowance whe
 cannot fit. There is no admission ETA or unbounded overflow queue.
 
 Input memory is bounded by the outstanding-request count and the per-request
-`--max-request-mib` limit. Media requests additionally share one preparation permit, so a waiting
-media request retains the same cancellation and timeout deadline. Model output is bounded by the
-same finite request count and each request's effective output-token limit; output callbacks and
-network serialization run outside the GPU executor and do not delay formation of the next batch.
+`--max-request-mib` limit. Media preparation uses a shared permit pool sized from `--media-live-mib`
+and the maximum supported prepared-payload size per request. Waiting media requests retain the same
+cancellation and timeout deadline. Model output is bounded by the same finite request count and
+each request's effective output-token limit; output callbacks and network serialization run
+outside the GPU executor and do not delay formation of the next batch.
 
 `--max-context` is each sequence's logical ceiling. `--kv-capacity` fixes the shared Main Text KV
 pool used by active requests and retained prefixes. `auto` accounts for the complete enabled runtime
