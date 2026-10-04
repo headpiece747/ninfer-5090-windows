@@ -171,10 +171,21 @@ function reencodingCommand(cmd: string): string | null {
   return null
 }
 
-/** The incoming payload, from whichever key the tool used. */
+/**
+ * The incoming payload, from whichever key the tool used.
+ *
+ * `oldString` is deliberately NOT validated. It is the text being replaced, not text being written,
+ * and including it made the gate refuse the one edit that fixes a bad citation: an edit whose
+ * `newString` drops `profiles.py:107` still carried `:107` in its `oldString`, so the gate reported
+ * the citation the author was removing. The failure is silent in the dangerous direction -- it looks
+ * like the gate protecting a document when it is protecting a string that is about to stop existing,
+ * and the author's only way past it is to write the file some other way, which is worse.
+ *
+ * A whole-file `write` is unaffected: its `content` is the only payload it has.
+ */
 function payloadOf(input: Record<string, unknown>): string {
   let out = ""
-  for (const k of ["content", "newString", "oldString", "patch", "fileText"]) {
+  for (const k of ["content", "newString", "patch", "fileText"]) {
     const v = input[k]
     if (typeof v === "string") out += `\n${v}`
   }

@@ -23,12 +23,14 @@ and renumbering them would break every cross-reference to it. Each heading carri
 
 **As of 2026-10-04 the work outstanding is:**
 
-- **item 5, residue** — the instrument is built and it refuted the item's premise. **Two things it did
-  not settle remain open.** (a) `profiles.py` records QUASAR at 55.0% acceptance while the bench
-  measures 21.1%; they are not the same measurement, and **the two figures must not be quoted side by
-  side until the workloads are matched**. (b) ~~`request_log.cpp` publishes only
-  `accepted_per_position`~~ — **closed 2026-10-04**; the three drafter-recall counters now reach the
-  serving path. See `:314`.
+- **item 5, residue** — the instrument is built and it refuted the item's premise. **Both residue items
+  are now closed.** (a) ~~`profiles.py` records QUASAR at 55.0% acceptance while the bench measures
+  21.1%; they are not the same measurement~~ — **closed 2026-10-04**: not a workload mismatch at all,
+  but a **drafter-width mismatch**. 21.1% is `--draft-tokens 4` exactly; `profiles.py` records width 7,
+  where the bench measures 49.1%. Acceptance on this artifact swings 9.0–59.3% across widths 1–15 and
+  is non-monotonic, so the figures were never in conflict. See `:310`. (b)
+  ~~`request_log.cpp` publishes only `accepted_per_position`~~ — **closed 2026-10-04**; the three
+  drafter-recall counters now reach the serving path. See `:320`.
 - **item 12** — **nothing remains open.** All nine `PORT-DISPATCH` gates were ungated 2026-10-02,
   each on its own per-route oracle; every affected file carries `UNGATED 2026-10-02`. The bullet
   below this line read "ungating is a separate performance decision" until 2026-10-04, which the
@@ -307,11 +309,43 @@ investigation using the per-position path-acceptance and Recall@16 series, not m
 
 **Two things the instrument did NOT settle, recorded rather than glossed:**
 
-1. **`profiles.py:107` records QUASAR at 55.0% acceptance; this bench measures 21.1%.** They are not
-   the same measurement — `v3_profile_matrix.py` takes acceptance from serving request logs on a domain
-   prompt, while `ninfer_bench` uses the fixed `bench_corpus.ids` at `temperature = 0.0F`. **The two
-   figures must not be quoted side by side until the workloads are matched.** The 48.7-63.0% range
-   recorded elsewhere in this file comes from `profiles.py` and is a serving-path number.
+1. **RESOLVED 2026-10-04. `tools/release/profiles.py:109` records QUASAR at 55.0% acceptance; the bench
+   figure quoted beside it, 21.1%, is the same engine at a different drafter width.** This was recorded
+   as a workload mismatch needing the workloads matched before the two figures could be compared. That
+   diagnosis was wrong, and so was the reason given for it — `temperature` is not the cause.
+
+   The bench has **no sampling flags at all** and cannot be moved off greedy, which is what made
+   temperature look like the explanation. It is measurable, not inferential: running the QUASAR
+   DFlash2 lane twice through the serving path, minutes apart, differing only in sampling, gives
+
+   | sampling | acceptance | decode |
+   |---|---:|---:|
+   | model card's thinking set (temp 1.0 / top_p 0.95 / top_k 20) | **55.0 %** | 311.8 tok/s |
+   | `--temperature 0` (greedy) | **66.5 %** | 363.0 tok/s |
+
+   so temperature moves acceptance *up* by 11.5 points when it goes to zero. It cannot produce a
+   21.1 % reading, and the digest is byte-identical across the two runs (`7627eae2208ddf0e`), which
+   confirms the deterministic pass is correctly unaffected by the knob.
+
+   What actually explains it is `--draft-tokens`. Acceptance on this artifact is **strongly and
+   non-monotonically width-dependent**, so a figure quoted without its width is close to meaningless:
+
+   | width | 1 | 2 | 3 | **4** | 5 | 6 | **7** | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
+   |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+   | acceptance % | 56.3 | 59.3 | 25.3 | **21.1** | 14.4 | 13.2 | **49.1** | 26.1 | 23.2 | 22.0 | 20.3 | 18.6 | 17.4 | 9.0 | 10.4 |
+
+   **21.1 % is draft width 4 exactly.** `profiles.py` records QUASAR at `draft=7`, where the bench
+   measures **49.1 %**. The two figures were never in conflict; they were two widths of the same
+   drafter, quoted without the width that distinguishes them.
+
+   The 48.7–63.0 % range recorded elsewhere in this file comes from `profiles.py` and is a
+   serving-path number at the shipped width — consistent with the bench's 49.1 % at that same width,
+   and not to be compared against any other width.
+
+   **This needed an instrument that did not exist**, so `v3_profile_matrix.py profile` now takes
+   `--sampling {default,zero,none}` and records what it applied in `sampling_applied`. The default is
+   unchanged, so every existing record still means what it meant; the knob exists so this question is
+   answerable in one run next time rather than by hand.
 2. **`src/serve/request_log.cpp` still publishes only `accepted_per_position`**, so the three new
    counters are invisible on the serving path. Widening it was outside the deliverable and is open.
    **DONE 2026-10-04.** `proposed_per_position`, `recall1_per_position` and `recall16_per_position`

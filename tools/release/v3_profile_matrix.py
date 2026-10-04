@@ -386,13 +386,22 @@ def run_once_gen(prompt: str, max_tokens: int, sampling: str = "default") -> tup
 
 
 def measure_decode(runs: int = 3, jsonl: Path | None = None, greedy: bool = False,
-                   domain: str = DEFAULT_DOMAIN, sampling_label: str = "documented") -> dict:
+                   domain: str = DEFAULT_DOMAIN, sampling_label: str = "documented",
+                   sampling: str = "default") -> dict:
     """A probe, one discarded full-length warmup, `runs` realistic decode runs, one deterministic pass.
 
     Acceptance is taken only from the realistic runs: the deterministic pass uses
     temperature 0, which inflates draft acceptance and would flatter every depth
     equally. The digest comes from that deterministic pass and is what proves spec
     decoding is output-preserving across depths.
+
+    `sampling` selects the configuration the MEASURED runs use, and it is recorded in
+    `sampling_applied` so a record cannot be read without it. It exists because acceptance is
+    not comparable across sampling settings: `default` is the model card's thinking set
+    (temp 1.0 / top_p 0.95 / top_k 20) and `zero` pins temperature 0, and the two differ by
+    tens of acceptance points on the same lane. profiles.py's 55.0% and ninfer_bench's 21.1%
+    were this discrepancy. The default is unchanged, so every existing record still means what
+    it meant.
 
     The discarded warmup is not optional. The first full-length decode after a server start is a
     transient: it returns faster than every later identical request and different, shorter text,
@@ -405,11 +414,11 @@ def measure_decode(runs: int = 3, jsonl: Path | None = None, greedy: bool = Fals
     ct, dt, _ = run_once_gen(PROBE_PROMPT, 16, "default")
     warmup = ct / dt if dt else 0.0
     prompt = domain_prompt(domain)
-    run_once_gen(prompt, DECODE_TOKENS, "default")
+    run_once_gen(prompt, DECODE_TOKENS, sampling)
 
     rates = []
     for _ in range(runs):
-        ct, dt, _ = run_once_gen(prompt, DECODE_TOKENS, "default")
+        ct, dt, _ = run_once_gen(prompt, DECODE_TOKENS, sampling)
         rates.append(ct / dt if dt else 0.0)
 
     out = {
@@ -421,6 +430,7 @@ def measure_decode(runs: int = 3, jsonl: Path | None = None, greedy: bool = Fals
         # round by more than a factor of two and the sampling moves acceptance by tens of points.
         "domain": domain,
         "sampling": sampling_label,
+        "sampling_applied": sampling,
     }
 
     if jsonl is not None:
@@ -621,7 +631,7 @@ def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = Fa
                 max_context: int = 0, measure: bool = True, greedy: bool = False,
                 lm_head: bool = True, profile: dict | None = None,
                 slots: str | None = None, kv_dtype: str = "fp8",
-                domain: str = DEFAULT_DOMAIN) -> dict:
+                domain: str = DEFAULT_DOMAIN, sampling: str = "default") -> dict:
     if profile is None:
         tag = (f"{art}-v3-{spec}-d{draft}{'-vision' if vision else ''}-ctx{max_context}"
                f"{'' if lm_head else '-nolmh'}")
@@ -667,7 +677,7 @@ def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = Fa
 
     if ready and measure:
         try:
-            record.update(measure_decode(jsonl=jsonl, greedy=greedy, domain=domain))
+            record.update(measure_decode(jsonl=jsonl, greedy=greedy, domain=domain, sampling=sampling))
         except urllib.error.HTTPError as e:
             record["measure_error"] = f"HTTP {e.code} {e.read().decode('utf-8', 'replace')[:150]}"
         except Exception as e:  # noqa: BLE001
@@ -894,14 +904,17 @@ def mode_verify(art: str, spec: str, draft: int, vision: bool, max_context: int,
 
 
 def mode_profile(name: str, slots: str | None = None,
-                 domain: str = DEFAULT_DOMAIN) -> None:
+                 domain: str = DEFAULT_DOMAIN, sampling: str = "default") -> None:
     """Measure one shipped profile exactly as its launcher starts it.
 
     `slots` overrides the profile's --device-state-slots so the value can be chosen from a record;
     the default is still whatever the profile table ships. `domain` is the workload the decode figure
-    is taken on, and it is recorded alongside the figure.
+    is taken on, and it is recorded alongside the figure. `sampling` is the configuration those runs
+    use; it defaults to the model card's set and is recorded too, because acceptance is not
+    comparable across it.
     """
-    rec = run_profile(profile=by_file(name), measure=True, slots=slots, domain=domain)
+    rec = run_profile(profile=by_file(name), measure=True, slots=slots, domain=domain,
+                      sampling=sampling)
     show(rec)
     for line in rec.get("spec_lines", [])[-4:]:
         print(f"           | {line[:150]}")
@@ -937,6 +950,13 @@ def main() -> int:
                     help="profile mode: the workload to measure on, repeatable, default the one "
                          "domain the table was measured on. Recorded in every result, because a "
                          "decode figure without its workload is not interpretable -- see DOMAINS.")
+    ap.add_argument("--sampling", choices=["default", "zero", "none"], default="default",
+                    help="profile mode: the sampling the MEASURED decode runs use. 'default' is "
+                         "the model card's thinking set (temp 1.0 / top_p 0.95 / top_k 20); 'zero' "
+                         "pins temperature 0; 'none' sends no sampling fields at all, which is the "
+                         "only way the server's --greedy flag governs. Recorded in every result, "
+                         "because acceptance is NOT comparable across these -- temperature alone "
+                         "moves it by tens of points on the same lane.")
     ap.add_argument("--rounds", type=int, default=2,
                     help="widths mode: interleaved passes over every configuration, each rotated "
                          "so no configuration keeps a position. One round cannot show a width's "
@@ -999,7 +1019,7 @@ def main() -> int:
     elif args.mode == "profile":
         for name in (args.files or [p["file"] for p in PROFILES]):
             for domain in (args.domains or [DEFAULT_DOMAIN]):
-                mode_profile(name, slots=args.slots, domain=domain)
+                mode_profile(name, slots=args.slots, domain=domain, sampling=args.sampling)
     else:
         spec = (args.specs or ["mtp"])[0]
         mode_verify((args.arts or ["quasar"])[0], spec,

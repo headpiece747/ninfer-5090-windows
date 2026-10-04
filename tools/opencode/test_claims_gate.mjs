@@ -128,6 +128,24 @@ await check("allow safe WriteAllText", await call("shell", { command: "[System.I
 await check("allow ordinary git", await call("shell", { command: "git log --oneline -1" }), false)
 await check("allow a read-only tool", await call("read", { path: AGENTS }), false)
 
+// ---- the edit that removes a bad citation must be allowed ----
+// payloadOf used to concatenate `oldString` as well as `newString`, so an edit whose newString
+// dropped a stale `profiles.py:107` was refused for carrying that citation in the text it was
+// replacing. Live on 2026-10-04: four attempts to correct one stale line number, all refused by
+// the string being removed. `oldString` is no longer validated; these two cases pin that, and the
+// second one is the control -- without it, "allow" here could pass because nothing is checked.
+const EDIT_FIXES = {
+  path: DOC,
+  oldString: `see ${CPP}:${CPP_LINES + 5000}`,
+  newString: `see ${CPP}:42`,
+}
+await check("allow an edit that REMOVES a past-EOF citation", await call("edit", EDIT_FIXES), false)
+await check(
+  "deny  an edit that ADDS a past-EOF citation (control)",
+  await call("edit", { path: DOC, oldString: "plain prose", newString: `see ${CPP}:${CPP_LINES + 5000}` }),
+  true,
+)
+
 // ---- fail open: a check that throws on its own bug would break the tool it protects ----
 const hostile = [
   { tool: "write" },
