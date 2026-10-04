@@ -58,8 +58,46 @@ measurement reaches. **That is the open part, and it is a search problem, not a 
 
 **Docs:** `docs/research/issue5-deferred-findings.md`
 
-**Disposition:** No fix needed for this port's shipped configuration. The test loop exists for
-future investigation if the port ever ships `--max-concurrency > 1`.
+**Disposition: the premise "we only ship concurrency 1" is FALSE, so this is not closed. It is an
+exposed upstream defect on a flag this port accepts.**
+
+Read 2026-10-04: upstream issue **#339, still OPEN**, which this entry had been paraphrasing without
+ever citing. `--max-concurrency` is validated to **`[1,8]`** (`src/serve/serve_options.cpp:361-362`,
+`throw std::invalid_argument("--max-concurrency must be in [1,8]")`) against
+`kMaximumConcurrency = 8` (`include/ninfer/types.h:20`), and AGENTS.md's own product section says
+"startup-fixed concurrency of one to eight requests". All eight shipped launchers pass
+`--max-concurrency 1`, but `ninfer-serve` is a CLI: **a user can pass 2 through 8 today**, and the
+reporter's flags are the README quickstart's.
+
+The defect site is in this tree, named by the reporter and verified present:
+`checked_resource_difference()` at `src/models/qwen3_5/program/context_work.cpp:214`, whose guard at
+line **222** throws `"Qwen3.5 resource subtraction underflow"` when any resource class is subtracted by
+more than the pool holds. It has **16 call sites** across `planning/pressure.cpp`,
+`transactions/capture.cpp` and `transactions/materialization.cpp`. The reporter states these files are
+byte-identical to upstream, so this is reported against upstream and **unfixed there** — it is not
+something this port introduced and not something shipping at concurrency 1 hides.
+
+**What the test does and does not cover, now that the trigger is known.** The reporter's control is
+explicit: `--max-concurrency 1`, all-day continuous use, **0 occurrences**; 9 occurrences at
+`--max-concurrency 2`. `tests/models/qwen3_5/test_engine_issue5_race.cpp` sets `kConcurrency = 3`
+(line 53) — above the reporter's 2 — with `device_state_slots = 2`, `max_shared_prefixes = 7` and
+`max_private_continuations = 8`, which do mirror the reporter. It reports `ok`. So the loop drives the
+right configuration and still does not reproduce, and the difference that remains is `kPreChunk = 2048`
+against the reporter's `--prefill-chunk 8192` and the reporter's 60k–70k in-flight prompts against the
+test's 14,379.
+
+**Red-capability is therefore still unproven, and the mutation target is now named rather than
+searched for:** force `checked_resource_difference` to underflow (subtract more than the pool holds) and
+confirm the test reports `RESOURCE SUBTRACTION UNDERFLOW REPRODUCED` rather than `ok`. The test already
+has the detection path — it string-matches `underflow`/`subtraction` on the failure and returns 1 — so
+what is unproven is that the loop can *reach* the throw, not that it would notice. That is a strictly
+smaller question than the one this entry carried, and it is answerable in one build.
+
+**Disposition: OPEN, and no longer describable as "no fix needed for this port's shipped
+configuration."** Shipping `--max-concurrency 1` in the launchers limits blast radius; it does not make
+the flag unreachable, and a user who passes 2 gets a wedged engine that stays down until restart. The
+correct fixes are upstream (#339 is the venue) and, locally, deciding whether this port should reject
+or loudly warn on `--max-concurrency > 1` until upstream lands a fix.
 
 ---
 
@@ -220,6 +258,21 @@ super-linear fit to a series that changes kernel is not a fit to anything.
 error as the two acceptance figures in `docs/active-work.md` item 1. The bench numbers remain valid for
 the bench route at bf16 KV; this number is valid for the shipping route at fp8 KV. Neither is
 extrapolatable to the other, and this paragraph previously invited exactly that.
+
+**Is the bf16-KV gap worth closing? No, and the reason is a reachability fact rather than a preference.**
+`--kv-dtype` accepts `bf16|int8|fp8|nvfp4|k8v4` (`src/serve/serve_options.cpp:82`), so bf16 KV is a
+legal user choice, but **all nine shipped launchers pass `--kv-dtype fp8`** — `launcher_env.bat` and
+the eight profile `.bat` files — and `docs/active-work.md:453` already records that every profile ships
+fp8. So bf16 is reachable but not shipped, and the bf16-KV route at native context would answer a
+question about a configuration no lane uses. Measured on the route that ships is the right scope for a
+TDR budget; the bf16 number would be a second budget for a second product. **Recorded as closed by
+reachability, not deferred** — reopening it means a lane ships bf16 KV, which is a product change and
+not a measurement gap.
+
+This also retires the corpus limitation as a reason to care. `bench/fixtures/bench_corpus.ids` cannot
+reach native context, and that stopped mattering the moment the serving route could: the lane served
+258,490 tokens with no corpus involved. The corpus bound was a property of the instrument, not of the
+engine.
 
 The 2 s TDR question is answered on the route that ships: **43.10 ms, 2.2% of budget.** Whether the
 bf16-KV bench route would behave differently at native context is untested and now needs its own
