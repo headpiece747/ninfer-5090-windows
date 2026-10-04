@@ -50,7 +50,13 @@ REM
 REM Verdict: an MSVC AddressSanitizer runtime bootstrap defect on this toolchain, deterministic for
 REM this binary and not fixable from this repository -- it wants reporting upstream. Kept in the
 REM subset rather than dropped: a verification list that hides a failing member is worse than one
-REM that names it and says why. The other five pass.
+REM that names it and says why. The other three pass.
+REM
+REM Two members of the earlier five are gone, not skipped: ninfer_admission_policy_test and
+REM ninfer_materialization_budget_test were deleted with the admission-policy and materialization-
+REM budget subsystems in the 2026-10-04 upstream context-cache rewrite (tests/test_admission_policy.cpp
+REM and tests/test_materialization_budget.cpp no longer exist), so naming them made --target fail
+REM against a target CMake no longer defines. Their coverage went with the features they tested.
 REM ONLINE, 2026-09-21 -- and searching should have been step one, not an afterthought. The class is
 REM known: "ASan Interception Failure (Crash) on Windows 11 24H2"
 REM (developercommunity.microsoft.com/t/11061273) reports the same shape -- a crash inside the
@@ -79,7 +85,7 @@ REM ninfer_context_cost_test cannot start under ASan on this machine. It exits 0
 REM it imports, api-ms-win-crt-filesystem-l1-1-0.dll, does not resolve for this build, while the same
 REM test passes in the normal build (build-test). Its ASan coverage is therefore absent, and saying so
 REM is the point of this note.
-set "TESTS=ninfer_resource_manager_test ninfer_artifact_reader_test ninfer_admission_policy_test ninfer_kv_capacity_test ninfer_materialization_budget_test"
+set "TESTS=ninfer_resource_manager_test ninfer_artifact_reader_test ninfer_kv_capacity_test"
 set "ASAN_SKIPPED=ninfer_context_cost_test"
 
 echo === CONFIGURE (AddressSanitizer) ===

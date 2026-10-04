@@ -357,10 +357,12 @@ Sixty-four rules, each earned by a failure rather than chosen:
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
   minutes before its timeout. `tools/scripts/test_v3_asan.cmd` names its host-only tests for
   exactly that reason and says so in its header. The recipe's scope is part of the recipe.
-  **This rule said "six"; the recipe sets `TESTS` to five**
-  (`ninfer_resource_manager_test`, `ninfer_artifact_reader_test`, `ninfer_admission_policy_test`,
-  `ninfer_kv_capacity_test`, `ninfer_materialization_budget_test`) **and separately skips a sixth,
-  `ninfer_context_cost_test`, as a diagnosed 2026-09-20 failure.** Five run, six are named.
+  **This rule said "six", then "five"; the recipe sets `TESTS` to three**
+  (`ninfer_resource_manager_test`, `ninfer_artifact_reader_test`, `ninfer_kv_capacity_test`)
+  **and separately skips `ninfer_context_cost_test`, as a diagnosed 2026-09-20 failure.** Three run,
+  four are named. It said five until 2026-10-04, when the upstream context-cache rewrite deleted
+  `ninfer_admission_policy_test` and `ninfer_materialization_budget_test` along with the subsystems
+  they tested; the recipe still named them, so its `--target` list could not build.
 - **Check before you package, not after.** A package built before its review has to be re-cut and
   re-packaged: this session's was, three times, because a code review and the sanitizer run both
   landed afterwards. "The archive is cheap to regenerate" is the reason to check first, not to

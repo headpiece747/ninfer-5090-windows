@@ -37,7 +37,10 @@ if DESCRIPTION:
     payload.setdefault("added", []).append(
         {"date": RECORDED, "count": ADDED, "note": DESCRIPTION})
 
-BASELINE.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+# newline="\n" is load-bearing: Path.write_text otherwise translates "\n" to the platform separator,
+# so running this on Windows writes CRLF into a file .gitattributes pins to LF, and the
+# check_text_encoding gate then rejects the very file this tool exists to update.
+BASELINE.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
 # Re-read with the consumer rather than trusting the write.
 verified = json.loads(BASELINE.read_text(encoding="utf-8"))
 print(f"suite_size {before} -> {verified['suite_size']}, recorded {verified['recorded']}, "

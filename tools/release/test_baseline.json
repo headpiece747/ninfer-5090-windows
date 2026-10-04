@@ -1,6 +1,6 @@
 {
-  "recorded": "2026-10-03",
-  "suite_size": 138,
+  "recorded": "2026-10-04",
+  "suite_size": 142,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -37,6 +37,11 @@
       "date": "2026-10-03",
       "count": -1,
       "note": "ninfer_prompt_lookup_test removed with the copy-drafting surface it tested. --ngram chain validated, constrained the backend to masked-draft, entered the Program, and produced no drafting at all: NgramDraftMode/NgramOptions/SpeculativeOptions::ngram, two counters declared and written nowhere, kNgramMaximumDraftTokens, TWO CLI parsers (apps/cli/options.cpp and the bench harness, which spelled the flags differently), the startup branch that refused the flag on other backends, the ProgramImpl members, and prompt_lookup.{h,cpp} are all gone. No shipped launcher passed any of them. The surviving ngram tests -- ninfer_ngram_selection_test and ninfer_ngram_graph_planning_test -- cover the masked-draft copy SELECTION decision, which is live and untouched, so this is a withdrawal and not a coverage loss. ninfer_cli_options_test keeps coverage in both directions: the withdrawn flags are now asserted REFUSED by the parser and ABSENT from the help text, which is the stronger of the two directions its own comment called worse. Host-only; required_tests and optional_tests are unchanged."
+    },
+    {
+      "date": "2026-10-04",
+      "count": 4,
+      "note": "upstream context-cache rewrite: 6 added (host_context_arena, metrics, scheduler, qwen3_5_native_transactions, qwen3_5_preemption_real, qwen3_5_agent_continuation_real), 2 deleted with their subsystems (admission_policy, materialization_budget)"
     }
   ]
 }
