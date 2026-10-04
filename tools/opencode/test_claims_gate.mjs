@@ -13,7 +13,7 @@
 // `shell` -> {command}), and exercise every path the plugin registers.
 
 import { pathToFileURL } from "node:url"
-import { readFileSync } from "node:fs"
+import { readFileSync, existsSync } from "node:fs"
 import { resolve } from "node:path"
 
 const REPO = "C:\\AI\\ninfer-v3-windows"
@@ -125,6 +125,17 @@ const GOOD = { path: DOC, content: `see ${CPP}:42` }
 const MISSING = { path: AGENTS, content: "as shown in src/ops/not_a_real_file.cu:12" }
 const BOMS = { command: "Set-Content -Path AGENTS.md -Value $t -Encoding utf8" }
 
+// A Markdown file that DOES NOT EXIST YET. This case exists because the live probe was exactly
+// this -- a brand-new .md carrying a fabricated citation -- and the plugin allowed it. It had
+// `if (!existsSync(target)) return null` under the comment "a new file cannot cite an existing line
+// range wrongly", which is false and disabled the gate for every newly created document. Every other
+// case used an existing file, so 33 green assertions never touched it.
+const NEW_MD = resolve(REPO, "zz-new-document-that-does-not-exist-yet.md")
+const NEW_BAD = { path: NEW_MD, content: `see ${CPP}:999999` }
+const NEW_MISSING = { path: NEW_MD, content: "see src/ops/not_a_real_file.cu:12" }
+const NEW_GOOD = { path: NEW_MD, content: `see ${CPP}:42` }
+const assertNewAbsent = !existsSync(NEW_MD)
+
 for (const [pathName, call] of [
   ["hook", viaHook],
   ["transform", viaTransform],
@@ -132,9 +143,13 @@ for (const [pathName, call] of [
   console.log(`\n-- via ${pathName} --`)
   await check("deny  citation past EOF", await call("write", BAD), true)
   await check("deny  citation to a missing file", await call("write", MISSING), true)
+  // The case that shipped a gate which allowed a fabricated citation in a brand-new document.
+  await check("deny  past EOF in a NEW markdown file", assertNewAbsent ? await call("write", NEW_BAD) : new Error("precondition: file exists"), true)
+  await check("deny  missing file in a NEW markdown file", assertNewAbsent ? await call("write", NEW_MISSING) : new Error("precondition: file exists"), true)
   await check("deny  Set-Content -Encoding utf8", await call("shell", BOMS), true)
   await check("deny  Get-Content | Set-Content", await call("shell", { command: "(Get-Content a.md) | Set-Content b.md" }), true)
   await check("allow repo-relative citation in range", await call("write", GOOD), false)
+  await check("allow in-range citation in a NEW markdown file", await call("write", NEW_GOOD), false)
   await check("allow no citation", await call("write", { path: AGENTS, content: "plain prose" }), false)
   await check("allow external citation (docs/research)", await call("write", { path: resolve(REPO, "docs/research/x.md"), content: "see vllm/scheduler.py:900" }), false)
   await check("allow non-markdown file", await call("write", { path: resolve(REPO, "zz.cpp"), content: "see x.cpp:999999" }), false)

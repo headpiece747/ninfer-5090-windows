@@ -55,8 +55,15 @@ import { dirname, isAbsolute, resolve } from "node:path"
 const ID = "ninfer.claims-gate"
 const LOG = "C:/Users/tobia/AppData/Local/Temp/opencode/claims-gate.log"
 
-// docs/research/ cites other projects by design, so a path there is an external reference rather than
-// a dead one. check_doc_citations.py skips the same directory.
+// docs/research/ cites other projects by construction, so a document under it is exempt. The test is
+// on the TARGET DOCUMENT's path, not on the citation text: an earlier version skipped citations
+// containing "docs/research/", which never matches, because such a citation names some OTHER
+// project's file (`vllm/project/vllm/core/scheduler.py:900`). check_doc_citations.py keys on the
+// document, and the two must agree.
+function isExternalDocument(target: string, repo: string): boolean {
+  const abs = isAbsolute(target) ? target : resolve(repo, target)
+  return abs.replace(/\\/g, "/").includes(EXTERNAL)
+}
 const EXTERNAL = "docs/research/"
 
 const CITE =
@@ -93,7 +100,6 @@ function brokenCitations(text: string, docDir: string, repoRoot: string): string
   for (const m of text.matchAll(CITE)) {
     const raw = String(m[1])
     const line = Number(m[2])
-    if (raw.includes(EXTERNAL)) continue
     const candidates = isAbsolute(raw) ? [raw] : [resolve(docDir, raw), resolve(repoRoot, raw)]
     let total: number | null = null
     for (const abs of candidates) {
@@ -162,9 +168,18 @@ function checkCall(tool: string, input: unknown, repo: string): string | null {
       (typeof args.filePath === "string" && args.filePath) ||
       ""
     if (!target.toLowerCase().endsWith(".md")) return null
+    if (isExternalDocument(target, repo)) return null
 
+    // The target's existence is deliberately NOT checked, and an earlier version checked it with
+    // `if (!existsSync(mdAbs)) return null` under the comment "a new file cannot cite an existing
+    // line range wrongly". That comment is false, and it disabled the gate for every NEWLY CREATED
+    // Markdown file -- which is exactly where a fabricated citation is most likely, and exactly
+    // what the live probe was. It survived because every harness case used an existing file.
+    //
+    // Citation validity depends only on whether the CITED file exists and is long enough, and on
+    // the target's directory for resolving a relative path. A file that does not exist yet has a
+    // perfectly good dirname.
     const mdAbs = isAbsolute(target) ? target : resolve(repo, target)
-    if (!existsSync(mdAbs)) return null // a new file cannot cite an existing line range wrongly
 
     const incoming = payloadOf(args)
     if (!incoming) return null
