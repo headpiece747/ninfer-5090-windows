@@ -92,8 +92,8 @@ GPU residency is frozen when the Engine starts:
 - Vision is disabled by default, omitting its weights and Vision-specific unified-workspace extent;
 - `--vision` loads the weights, expands the one Program workspace for Vision encode/handoff, and
   enables image/video input.
-- the one-request CLI uses root-only context mode, so it does not reserve an extra Device
-  checkpoint StateImage or capture a continuation that no later request could consume.
+- the one-request CLI disables cross-request history and Host context backing, so it does not
+  reserve an extra Device checkpoint StateImage or retain continuations.
 
 The complete `.ninfer` inventory is still validated. These choices are not lazy loading: an Engine
 started without Vision rejects media and cannot enable Vision later. DFlash/DFlash2 and Vision may

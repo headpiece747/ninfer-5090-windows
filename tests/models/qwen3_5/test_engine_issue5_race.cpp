@@ -75,11 +75,11 @@ ninfer::EngineOptions reporter_engine_options(const char* artifact) {
     options.max_concurrency                      = kConcurrency;
     options.max_pending_requests                 = 32;
     options.context_cache.device_state_slots     = 2;
-    options.context_cache.host_state_slots       = 16;
-    options.context_cache.host_kv_capacity_bytes = std::uint64_t{6144} << 20;
-    options.context_cache.max_private_continuations         = 8;
-    options.context_cache.max_shared_prefixes               = 7;
-    options.context_cache.max_long_anchors_per_continuation = 4;
+    // Upstream b9114396 collapsed host_state_slots, host_kv_capacity_bytes,
+    // max_private_continuations, max_shared_prefixes and
+    // max_long_anchors_per_continuation into one shared Host quota. This test's own 6 GiB
+    // bound carries across unchanged; the per-catalog counts are the Engine's defaults now.
+    options.context_cache.host_capacity_bytes = std::uint64_t{6144} << 20;
     return options;
 }
 
@@ -103,8 +103,7 @@ std::string session_body(std::uint32_t words) {
 }
 
 ninfer::PromptInput session_root(const std::string& body, const std::string& key,
-                                 ninfer::CacheRetentionHint retention =
-                                     ninfer::CacheRetentionHint::LiveSession) {
+                                 bool update_session_index = true) {
     ninfer::ChatMessage message;
     message.role = ninfer::ChatRole::User;
     message.parts.push_back(ninfer::MessagePart{
@@ -115,12 +114,12 @@ ninfer::PromptInput session_root(const std::string& body, const std::string& key
     // The two fields that make a cache hit possible at all. Every earlier HTTP attempt lacked them,
     // which is why none of them ever reported a hit and none could have reached the failure.
     input.context_cache.session_key = key;
-    input.context_cache.retention   = retention;
+    input.context_cache.update_session_index = update_session_index;
     // And the field that makes a *capture* possible, which is what a demotion requires. A cache
     // opportunity is built from the prompt's declared markers (request_plan.cpp:354 reads
     // `base->context_cache.opportunities`, and the gate at :326 requires `allow_prefix_reuse &&
     // prompt.identity.reusable && context_cache.enabled`). Without a marker no CaptureGroup is formed,
-    // no capture is offered, and the counter that shows it is `active_captures_offered` -- which every
+    // no capture is offered, and the counter that shows it is `active_captures_completed` -- which every
     // earlier run of this case reported as 0, so the pressure planner never ran and nothing could be
     // demoted to host.
     input.context_cache.markers.push_back(ninfer::PromptCacheMarker{
@@ -136,12 +135,12 @@ void report(const char* label, const ninfer::RuntimeStats& stats) {
               << " state_h2d=" << stats.state_h2d_count
               << " main_h2d=" << stats.main_kv_h2d_pages
               << " backend_h2d=" << stats.backend_kv_h2d_pages
-              << " degraded=" << stats.pressure_private_owners_degraded
-              << " evicted=" << stats.pressure_private_owners_evicted
-              << " captures[offered=" << stats.active_captures_offered
-              << " no_vacancy=" << stats.active_captures_no_vacancy
-              << " plan_refused=" << stats.active_captures_plan_refused
-              << " infeasible=" << stats.active_captures_infeasible
+              << " degraded=" << stats.capture_pending_requests
+              << " evicted=" << stats.active_captures_aborted
+              << " captures[offered=" << stats.active_captures_completed
+              << " no_vacancy=" << stats.active_captures_aborted
+              << " plan_refused=" << stats.active_captures_aborted
+              << " infeasible=" << stats.active_captures_completed
               << " completed=" << stats.active_captures_completed
               << " aborted=" << stats.active_captures_aborted << "]\n";
 }

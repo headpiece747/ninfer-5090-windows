@@ -1,7 +1,5 @@
 #pragma once
 
-#include "runtime/contract/resources.h"
-
 #include "models/qwen3_5/frontend/frontend.h"
 
 #include <array>
@@ -80,6 +78,8 @@ enum class RewriteCheckpointKind : std::uint8_t {
 struct RewriteCheckpointSpec {
     RewriteCheckpointKind kind = RewriteCheckpointKind::TurnClosure;
     std::uint32_t frontier     = 0;
+    // The actual state to retain; restoring it recomputes any closing structure before frontier.
+    std::uint32_t recovery_frontier = 0;
 };
 
 struct PromptIdentity {
@@ -115,7 +115,6 @@ struct PreparedCacheOpportunity {
 
 struct PreparedContextCache {
     std::optional<PreparedSessionKey> session_key;
-    runtime::RetentionClass retention = runtime::RetentionClass::RecentPrivate;
     std::vector<PreparedCacheOpportunity> opportunities;
     // Controls replacement of a named SessionIndex entry, not anonymous source ownership.
     bool update_session_index = true;

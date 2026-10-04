@@ -405,13 +405,14 @@ bool exact_vision_frontier(std::uint32_t frontier, std::span<const VisionItem> i
     return true;
 }
 
-PreparedContextCache prepare_context_cache(
-    ContextCacheHints hints, std::size_t message_count,
-    std::span<const std::optional<std::uint32_t>> message_boundaries,
-    std::span<const PromptCacheMarker> rendered_markers,
-    std::span<const std::optional<std::uint32_t>> cache_boundaries,
-    std::span<const VisionItem> vision_items, std::optional<std::size_t> engine_tool_marker_index,
-    std::optional<std::uint32_t> leading_boundary, std::uint32_t full_prompt_frontier) {
+PreparedContextCache
+prepare_context_cache(ContextCacheHints hints, std::size_t message_count,
+                      std::span<const std::optional<std::uint32_t>> message_boundaries,
+                      std::span<const PromptCacheMarker> rendered_markers,
+                      std::span<const std::optional<std::uint32_t>> cache_boundaries,
+                      std::span<const VisionItem> vision_items,
+                      std::optional<std::size_t> engine_tool_marker_index,
+                      std::optional<std::uint32_t> leading_boundary) {
     if (hints.markers.size() > kMaximumExplicitPromptCacheMarkers) {
         throw std::invalid_argument("PromptInput supports at most four explicit cache markers");
     }
@@ -428,23 +429,6 @@ PreparedContextCache prepare_context_cache(
         key.size = static_cast<std::uint16_t>(hints.session_key->size());
         std::copy(hints.session_key->begin(), hints.session_key->end(), key.bytes.begin());
         out.session_key = key;
-    }
-    switch (hints.retention) {
-    case CacheRetentionHint::Default:
-        out.retention = out.session_key ? runtime::RetentionClass::LiveSession
-                                        : runtime::RetentionClass::RecentPrivate;
-        break;
-    case CacheRetentionHint::LiveSession:
-        if (!out.session_key) {
-            throw std::invalid_argument("LiveSession retention requires a session_key");
-        }
-        out.retention = runtime::RetentionClass::LiveSession;
-        break;
-    case CacheRetentionHint::Disposable:
-        out.retention = runtime::RetentionClass::Disposable;
-        break;
-    default:
-        throw std::invalid_argument("context cache retention hint is invalid");
     }
     out.update_session_index = hints.update_session_index;
 
@@ -512,14 +496,7 @@ PreparedContextCache prepare_context_cache(
 
     for (std::size_t index = 0; index < hints.markers.size(); ++index) {
         const PromptCacheMarker marker = hints.markers[index];
-        std::optional<std::uint32_t> resolved;
-        if (marker.location == PromptCacheMarkerLocation::MessageBoundary) {
-            if (marker.after_message_count < message_boundaries.size()) {
-                resolved = message_boundaries[marker.after_message_count];
-            }
-        } else {
-            if (index < cache_boundaries.size()) { resolved = cache_boundaries[index]; }
-        }
+        const auto resolved            = cache_boundaries[index];
         if (!resolved) { continue; }
         add_opportunity(marker.kind, marker.evidence, *resolved, static_cast<std::uint32_t>(index));
     }
@@ -538,9 +515,6 @@ PreparedContextCache prepare_context_cache(
                             SharedCandidateEvidence::EngineStructural,
                             *message_boundaries[*leading_boundary], engine_order++);
         }
-        add_opportunity(PromptCacheMarkerKind::SharedStablePrefix,
-                        SharedCandidateEvidence::EngineObserved, full_prompt_frontier,
-                        engine_order);
     }
     return out;
 }
@@ -667,11 +641,6 @@ PromptPreparationStats PreparedPrompt::preparation_stats() const noexcept {
         .media_preprocess_seconds      = stats.media_preprocess_seconds,
         .media_preprocess_work_seconds = stats.media_preprocess_work_seconds,
         .tokenize_seconds              = stats.tokenize_seconds,
-        .render_seconds                = stats.render_seconds,
-        .context_cache_seconds         = stats.context_cache_seconds,
-        .convert_seconds               = stats.convert_seconds,
-        .contract_seconds              = stats.contract_seconds,
-        .positions_seconds             = stats.positions_seconds,
         .media_items                   = stats.media_items,
         .media_bytes                   = stats.media_bytes,
         .raw_patches                   = stats.raw_patches,
@@ -729,11 +698,8 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
     std::vector<ChatRole> message_roles;
     message_roles.reserve(input.messages.size());
     for (const ChatMessage& message : input.messages) { message_roles.push_back(message.role); }
-    const auto contract_started = Clock::now();
     const auto tool_call_output =
         fi::build_tool_call_output_contract(options.tool_jsons, !options.tool_jsons.empty());
-    const double contract_seconds =
-        std::chrono::duration<double>(Clock::now() - contract_started).count();
     const std::optional<std::uint32_t> leading_boundary =
         leading_instruction_boundary(message_roles);
     std::vector<PromptCacheMarker> rendered_markers = cache_hints.markers;
@@ -748,22 +714,17 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
         });
     }
     const std::size_t message_count       = input.messages.size();
-    const auto convert_started            = Clock::now();
     std::vector<fi::ChatMessage> messages = convert_messages(std::move(input.messages));
     const bool has_media =
         std::any_of(messages.begin(), messages.end(),
                     [](const fi::ChatMessage& message) { return message.has_media(); });
-    const double convert_seconds =
-        std::chrono::duration<double>(Clock::now() - convert_started).count();
     if (has_media && !impl_->vision_enabled) {
         throw std::invalid_argument("Vision is disabled for this Engine");
     }
 
-    auto prepared                   = std::make_unique<PreparedPromptData>();
-    PreparedPromptData& result      = *prepared;
-    result.tool_call_output         = tool_call_output;
-    result.prepare.contract_seconds = contract_seconds;
-    result.prepare.convert_seconds  = convert_seconds;
+    auto prepared              = std::make_unique<PreparedPromptData>();
+    PreparedPromptData& result = *prepared;
+    result.tool_call_output    = tool_call_output;
     std::vector<std::optional<std::uint32_t>> message_boundaries;
     std::vector<std::optional<std::uint32_t>> cache_boundaries;
     if (has_media) {
@@ -806,11 +767,8 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
         message_boundaries = std::move(processed.message_boundaries);
         cache_boundaries   = std::move(processed.cache_boundaries);
     } else {
-        const auto render_started       = Clock::now();
         const fi::RenderedChat rendered = impl_->chat_template.render(
             messages, render_options(options, rendered_markers), control);
-        result.prepare.render_seconds =
-            std::chrono::duration<double>(Clock::now() - render_started).count();
         result.starts_in_reasoning  = rendered.starts_in_reasoning;
         const auto tokenize_started = Clock::now();
         fi::EncodedChat encoded     = fi::encode_rendered_chat(
@@ -825,22 +783,15 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
         result.identity.rewrite_checkpoint = encoded.rewrite_checkpoint;
         result.identity.rewrite_execution_frontiers =
             std::move(encoded.rewrite_execution_frontiers);
-        message_boundaries           = std::move(encoded.message_boundaries);
-        cache_boundaries             = std::move(encoded.cache_boundaries);
-        const auto positions_started = Clock::now();
+        message_boundaries = std::move(encoded.message_boundaries);
+        cache_boundaries   = std::move(encoded.cache_boundaries);
         assign_text_positions(result);
-        result.prepare.positions_seconds =
-            std::chrono::duration<double>(Clock::now() - positions_started).count();
     }
     (void)checked_token_count(result.token_ids.size());
-    result.identity.reusable         = true;
-    const auto context_cache_started = Clock::now();
-    result.context_cache             = prepare_context_cache(
+    result.identity.reusable = true;
+    result.context_cache     = prepare_context_cache(
         std::move(cache_hints), message_count, message_boundaries, rendered_markers,
-        cache_boundaries, result.vision_items, engine_tool_marker_index, leading_boundary,
-        checked_token_count(result.token_ids.size()));
-    result.prepare.context_cache_seconds =
-        std::chrono::duration<double>(Clock::now() - context_cache_started).count();
+        cache_boundaries, result.vision_items, engine_tool_marker_index, leading_boundary);
     result.prepare.seconds = std::chrono::duration<double>(Clock::now() - start).count();
     return PreparedPrompt(std::move(prepared));
 }
@@ -911,7 +862,6 @@ PreparedPrompt Frontend::prepare_tokens(std::vector<TokenId> token_ids,
     result.token_ids           = std::move(token_ids);
     assign_text_positions(result);
     result.identity.reusable                  = allow_prefix_identity;
-    result.context_cache.retention            = runtime::RetentionClass::RecentPrivate;
     result.context_cache.update_session_index = false;
     result.prepare.seconds = std::chrono::duration<double>(Clock::now() - start).count();
     return PreparedPrompt(std::move(prepared));

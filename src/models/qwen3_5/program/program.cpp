@@ -37,6 +37,10 @@ std::size_t SequencePlan::workspace_capacity_bytes() const noexcept {
     return impl_ != nullptr ? impl_->workspace.capacity : 0;
 }
 
+std::size_t SequencePlan::host_capacity_bytes() const noexcept {
+    return impl_ ? impl_->context_cache.host_capacity_bytes.value_or(0) : 0;
+}
+
 SequencePlanner::SequencePlanner(std::unique_ptr<detail::SequencePlannerImpl> impl) noexcept
     : impl_(std::move(impl)) {}
 
@@ -56,7 +60,7 @@ SequencePlan SequencePlanner::finalize(std::uint32_t main_page_groups) && {
     return SequencePlan(detail::finalize_sequence_plan_impl(std::move(impl_), main_page_groups));
 }
 
-RequestBasePlan::RequestBasePlan(std::unique_ptr<detail::RequestBasePlanImpl> impl) noexcept
+RequestBasePlan::RequestBasePlan(std::shared_ptr<detail::RequestBasePlanImpl> impl) noexcept
     : impl_(std::move(impl)) {}
 
 RequestBasePlan::RequestBasePlan(RequestBasePlan&&) noexcept = default;
@@ -75,6 +79,15 @@ const PreparedContextCache& RequestBasePlan::context_cache() const noexcept {
     return impl_ != nullptr ? impl_->context_cache : empty;
 }
 
+std::vector<std::uint32_t> RequestBasePlan::capture_frontiers() const {
+    std::vector<std::uint32_t> frontiers;
+    if (impl_) {
+        frontiers.reserve(impl_->capture_groups.size());
+        for (const auto& group : impl_->capture_groups) { frontiers.push_back(group.frontier); }
+    }
+    return frontiers;
+}
+
 std::optional<PrefixShortlistKey>
 RequestBasePlan::prefix_shortlist_key(std::uint32_t frontier) const noexcept {
     if (impl_ == nullptr || frontier == 0 || frontier > impl_->prefix_digests.size()) {
@@ -87,393 +100,206 @@ RequestBasePlan::prefix_shortlist_key(std::uint32_t frontier) const noexcept {
     };
 }
 
-std::optional<runtime::PrefillWork>
-RequestBasePlan::shared_candidate_rebuild_work(std::uint32_t frontier) const noexcept {
-    if (impl_ == nullptr) { return std::nullopt; }
-    const auto found = std::find_if(impl_->shared_candidates.begin(),
-                                    impl_->shared_candidates.end(), [&](const auto& candidate) {
-                                        return candidate.frontier == frontier && candidate.identity;
-                                    });
-    return found == impl_->shared_candidates.end()
-               ? std::nullopt
-               : std::optional<runtime::PrefillWork>(found->identity->rebuild_work);
-}
-
-PressurePlanningSession::PressurePlanningSession(
-    std::unique_ptr<detail::PressurePlanningSessionImpl> impl) noexcept
+ResumeState::ResumeState(std::unique_ptr<detail::ResumeStateImpl> impl) noexcept
     : impl_(std::move(impl)) {}
 
-PressurePlanningSession::PressurePlanningSession(PressurePlanningSession&&) noexcept = default;
+ResumeState::ResumeState(ResumeState&&) noexcept            = default;
+ResumeState& ResumeState::operator=(ResumeState&&) noexcept = default;
+ResumeState::~ResumeState()                                 = default;
 
-PressurePlanningSession&
-PressurePlanningSession::operator=(PressurePlanningSession&&) noexcept = default;
+bool ResumeState::has_snapshot() const noexcept { return impl_ && impl_->snapshot.has_value(); }
 
-PressurePlanningSession::~PressurePlanningSession() = default;
-
-CapturePressurePlanningSession::CapturePressurePlanningSession(
-    CapturePressurePlanningSession&&) noexcept = default;
-
-CapturePressurePlanningSession&
-CapturePressurePlanningSession::operator=(CapturePressurePlanningSession&&) noexcept = default;
-
-CapturePressurePlanningSession::~CapturePressurePlanningSession() = default;
-
-PressureTargetHandle
-PressurePlanningSession::identity_target(runtime::PlanningCandidateId candidate) const {
-    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
-    return impl_->identity_target(candidate);
+std::optional<CheckpointHandle> ResumeState::snapshot_handle() const noexcept {
+    return impl_ ? impl_->snapshot : std::nullopt;
 }
 
-PressureTargetHandle
-PressurePlanningSession::root_maximal_target(runtime::PlanningCandidateId root_candidate) {
-    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
-    return impl_->root_maximal_target(root_candidate);
-}
-
-PressureTargetHandle
-PressurePlanningSession::maximal_target(runtime::PlanningCandidateId candidate) {
-    return impl_->maximal_target(candidate);
-}
-
-PressureConstructionCursor PressurePlanningSession::begin_construction(PressureTargetHandle target,
-                                                                       bool restore) {
-    return impl_->begin_construction(target, restore);
-}
-
-runtime::PressureConstructionStep
-PressurePlanningSession::next_construction_option(PressureConstructionCursor& cursor) {
-    return impl_->next_construction_option(cursor);
-}
-
-void PressurePlanningSession::choose_construction(PressureConstructionCursor& cursor,
-                                                  runtime::PressureConstructionOptionId option) {
-    impl_->choose_construction(cursor, option);
-}
-
-std::optional<PressureTargetHandle>
-PressurePlanningSession::construction_target(const PressureConstructionCursor& cursor) {
-    return impl_->construction_target(cursor);
-}
-
-runtime::PressureTargetGuidance PressurePlanningSession::guidance(PressureTargetHandle target) {
-    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
-    return impl_->guidance(target);
-}
-
-AssessedPressureTarget PressurePlanningSession::assess(PressureTargetHandle target) {
-    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
-    return impl_->assess(target);
-}
-
-PreparedPressureExpansion PressurePlanningSession::prepare_expansion(PressureTargetHandle parent,
-                                                                     std::uint32_t maximum_owners) {
-    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
-    return impl_->prepare_expansion(parent, maximum_owners);
-}
-
-PressureExpansionView
-PressurePlanningSession::commit_expansion(PreparedPressureExpansion&& prepared) {
-    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
-    return impl_->commit_expansion(std::move(prepared));
-}
-
-void PressurePlanningSession::discard_expansion(PreparedPressureExpansion&& prepared) noexcept {
-    if (impl_ != nullptr) { impl_->discard_expansion(std::move(prepared)); }
-}
-
-runtime::PrefillWork PressurePlanningSession::shared_capture_split_prefill_work(
-    const AssessedPressureTarget& assessed, const PreparedPrompt& prompt,
-    std::span<const std::uint32_t> frontiers) const {
-    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
-    return impl_->shared_capture_split_prefill_work(assessed, PreparedPromptAccess::view(prompt),
-                                                    frontiers);
-}
-
-std::optional<ResourcePlan> PressurePlanningSession::seal(AssessedPressureTarget&& assessed,
-                                                          const PreparedPrompt& prompt,
-                                                          runtime::FinalScheduleIntent intent) {
-    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
-    std::optional<AdmissionCandidate> sealed =
-        impl_->seal(std::move(assessed), PreparedPromptAccess::view(prompt), intent);
-    if (!sealed) { return std::nullopt; }
-    const bool needs_transfer = sealed->impl_->needs_transfer;
-    return ResourcePlan(std::move(*sealed), impl_->resource_revision, needs_transfer);
-}
-
-std::optional<CapturePressurePlan>
-PressurePlanningSession::seal_capture(AssessedPressureTarget&& assessed) {
-    if (impl_ == nullptr) { throw std::logic_error("pressure planning session is empty"); }
-    std::optional<CapturePressureCandidate> sealed = impl_->seal_capture(std::move(assessed));
-    if (!sealed) { return std::nullopt; }
-    return CapturePressurePlan(std::move(*sealed), impl_->resource_revision);
-}
-
-PressureTargetHandle CapturePressurePlanningSession::identity_target() const {
-    if (!candidate_.impl_) { throw std::logic_error("capture pressure candidate is empty"); }
-    return session_.identity_target(candidate_id());
-}
-
-runtime::PressureTargetGuidance
-CapturePressurePlanningSession::guidance(PressureTargetHandle target) {
-    return session_.guidance(target);
-}
-
-AssessedPressureTarget CapturePressurePlanningSession::assess(PressureTargetHandle target) {
-    return session_.assess(target);
-}
-
-PreparedPressureExpansion
-CapturePressurePlanningSession::prepare_expansion(PressureTargetHandle parent) {
-    return session_.prepare_expansion(parent);
-}
-
-PressureExpansionView
-CapturePressurePlanningSession::commit_expansion(PreparedPressureExpansion&& prepared) {
-    return session_.commit_expansion(std::move(prepared));
-}
-
-void CapturePressurePlanningSession::discard_expansion(
-    PreparedPressureExpansion&& prepared) noexcept {
-    session_.discard_expansion(std::move(prepared));
-}
-
-std::optional<CapturePressurePlan>
-CapturePressurePlanningSession::seal(AssessedPressureTarget&& assessed) {
-    return session_.seal_capture(std::move(assessed));
-}
+std::uint32_t ResumeState::frontier() const noexcept { return impl_ ? impl_->frontier : 0; }
 
 Program::Program(std::unique_ptr<detail::ProgramImpl> impl) noexcept : impl_(std::move(impl)) {}
 
 Program::~Program() noexcept = default;
 
-RequestBasePlan Program::plan_request(const PreparedPrompt& prompt,
+RequestBasePlan Program::plan_request(PreparedPrompt&& prompt,
                                       const runtime::ResolvedExecutionOptions& options) {
-    return impl_->plan_request(PreparedPromptAccess::view(prompt), options);
+    return impl_->plan_request(PreparedPromptAccess::take(std::move(prompt)), options);
 }
 
-std::vector<float> Program::causal_score(PreparedPrompt&& prompt, std::uint32_t first_target) {
-    return impl_->causal_score(PreparedPromptAccess::take(std::move(prompt)), first_target);
+std::vector<float> Program::causal_score(PreparedPrompt&& prompt, std::uint32_t target) {
+    return impl_->causal_score(PreparedPromptAccess::take(std::move(prompt)), target);
 }
 
+// Port forwarder: upstream b9114396 has no top-k causal scoring at all. ProgramImpl's
+// causal_score_topk is the port's instrument for per-domain KL against a reference that cannot
+// be resident on this machine (Qwen3.8-27B is 51.75 GiB of BF16 against a 31.85 GiB card).
 CausalTopk Program::causal_score_topk(PreparedPrompt&& prompt, std::uint32_t first_target,
-                                       std::int32_t k) {
-    return impl_->causal_score_topk(PreparedPromptAccess::take(std::move(prompt)), first_target, k);
+                                      std::int32_t k) {
+    return impl_->causal_score_topk(PreparedPromptAccess::take(std::move(prompt)), first_target,
+                                     k);
 }
 
-std::optional<AdmissionCandidate> Program::inspect_admission(
-    const PreparedPrompt& prompt, const RequestBasePlan& base, runtime::LaneId destination,
-    const ContinuationHandle* source, const SharedPrefixHandle* shared_source,
-    std::optional<runtime::CheckpointRef> checkpoint, bool must_retain_private_source) {
-    return impl_->inspect_admission(PreparedPromptAccess::view(prompt), base, destination, source,
-                                    shared_source, checkpoint, must_retain_private_source);
+std::optional<SourceCandidate>
+Program::inspect_source(const RequestBasePlan& base, std::optional<CheckpointHandle> checkpoint,
+                        bool consume_private,
+                        std::span<const CheckpointHandle> private_points) const {
+    return impl_->inspect_source(base, checkpoint, consume_private, private_points);
 }
 
-std::optional<ResourcePlan> Program::seal_identity(const AdmissionCandidate& admission,
-                                                   const PreparedPrompt& prompt,
-                                                   runtime::FinalScheduleIntent intent) {
-    std::optional<AdmissionCandidate> sealed = impl_->seal_materialization(
-        admission, PreparedPromptAccess::view(prompt), {}, {}, {}, {}, {}, {});
-    if (!sealed) { return std::nullopt; }
-    impl_->select_shared_captures(*sealed, PreparedPromptAccess::view(prompt),
-                                  intent.shared_capture_frontiers);
-    if (impl_->revalidate_materialization(*sealed, PreparedPromptAccess::view(prompt)) !=
-        runtime::PreflightStatus::Ready) {
-        return std::nullopt;
-    }
-    const bool needs_transfer = sealed->impl_->needs_transfer;
-    return ResourcePlan(std::move(*sealed), impl_->resource_revision(), needs_transfer);
+PrefixShortlistKey Program::checkpoint_key(CheckpointHandle h, std::uint32_t f) const {
+    return impl_->checkpoint_key(h, f);
 }
 
-PressurePlanningSession
-Program::begin_pressure_planning(std::span<const AdmissionCandidate* const> candidates,
-                                 std::span<const runtime::PlanningCandidateId> candidate_ids,
-                                 std::span<const ContinuationHandle* const> private_owners,
-                                 std::span<const runtime::PlanningOwnerId> private_owner_ids,
-                                 std::span<const SharedPrefixHandle* const> shared_owners,
-                                 std::span<const runtime::PlanningOwnerId> shared_owner_ids) {
-    using SessionImpl = detail::PressurePlanningSessionImpl;
-    std::vector<SessionImpl::PhysicalCandidateBinding> physical_candidates;
-    physical_candidates.reserve(candidates.size());
-    for (const AdmissionCandidate* candidate : candidates) {
-        if (candidate == nullptr || candidate->impl_ == nullptr) {
-            throw std::invalid_argument("pressure planning candidate is empty");
-        }
-        physical_candidates.push_back(SessionImpl::PhysicalCandidateBinding{
-            .state     = candidate->impl_.get(),
-            .admission = candidate->impl_.get(),
-        });
-    }
-    return PressurePlanningSession(std::make_unique<detail::PressurePlanningSessionImpl>(
-        *impl_, physical_candidates, candidate_ids, private_owners, private_owner_ids,
-        shared_owners, shared_owner_ids));
+runtime::ContextResourceUsage
+Program::checkpoint_footprint(std::span<const CheckpointHandle> handles) const {
+    return impl_->checkpoint_footprint(handles);
 }
 
-runtime::PrefillWork
-Program::shared_capture_split_prefill_work(const AdmissionCandidate& candidate,
-                                           const PreparedPrompt& prompt,
-                                           std::span<const std::uint32_t> frontiers) {
-    if (impl_ == nullptr) { throw std::logic_error("Program is empty"); }
-    return impl_->shared_capture_split_prefill_work(candidate, PreparedPromptAccess::view(prompt),
-                                                    frontiers);
+CheckpointSummary Program::checkpoint_summary(CheckpointHandle h) const {
+    return impl_->checkpoint_summary(h);
 }
 
-runtime::ContextTransactionReserveStatus
-Program::start_resource_transaction(ResourcePlan&& plan, PreparedPrompt&& prompt,
-                                    runtime::CancellationFlagView cancellation) {
-    if (plan.revision_.value == 0 || plan.revision_ != impl_->resource_revision()) {
-        return runtime::ContextTransactionReserveStatus::Aborted;
-    }
-    return impl_->reserve_materialization(
-        std::move(plan.admission_), PreparedPromptAccess::take(std::move(prompt)), cancellation);
+CheckpointMetadata Program::checkpoint_metadata(CheckpointHandle h) const {
+    return impl_->checkpoint_metadata(h);
 }
 
-std::optional<PersistentBackfillProof>
-Program::prove_persistent_backfill(const RequestBasePlan& blocked_head,
-                                   const ResourcePlan& candidate,
-                                   std::span<const SequenceHandle> persistent_borrowers) const {
-    if (candidate.revision_.value == 0 || candidate.revision_ != impl_->resource_revision() ||
-        !impl_->persistent_backfill_safe(blocked_head, candidate.admission_,
-                                         persistent_borrowers)) {
-        return std::nullopt;
-    }
-    return PersistentBackfillProof(candidate.revision_);
+bool Program::checkpoint_matches(CheckpointHandle h, const RequestBasePlan& b) const {
+    return impl_->checkpoint_matches(h, b);
 }
 
-ContextTransactionProgress
-Program::progress_context_transaction(runtime::CancellationFlagView cancellation) {
-    return impl_->progress_context_transaction(cancellation);
+std::uint32_t Program::checkpoint_recovery_frontier(CheckpointHandle retained,
+                                                    const RequestBasePlan& base,
+                                                    std::uint32_t target) const {
+    return impl_->checkpoint_recovery_frontier(retained, base, target);
 }
 
-void Program::finalize_context_transaction() noexcept { impl_->finalize_context_transaction(); }
+std::uint64_t Program::checkpoint_recovery_loss(std::span<const CheckpointHandle> removed,
+                                                std::span<const CheckpointHandle> surviving) const {
+    return impl_->checkpoint_recovery_loss(removed, surviving);
+}
+
+bool Program::valid_checkpoint(CheckpointHandle h) const noexcept {
+    return impl_->valid_checkpoint(h);
+}
+
+bool Program::release_checkpoint(CheckpointHandle h) noexcept {
+    return impl_->release_checkpoint(h);
+}
+
+bool Program::revoke_snapshot(ResumeState& paused) noexcept {
+    return impl_->revoke_snapshot(paused);
+}
+
+runtime::ContextResourceUsage Program::snapshot_resources(const ResumeState& paused) const {
+    return impl_->snapshot_resources(paused);
+}
+
+std::size_t Program::host_bytes_released(std::span<const CheckpointHandle> checkpoints) const {
+    return impl_->host_bytes_released(checkpoints);
+}
+
+std::optional<std::size_t> Program::pause_host_bytes(SequenceHandle sequence) const {
+    return impl_->pause_host_bytes(sequence);
+}
+
+std::size_t Program::release_redundant_host(std::span<const CheckpointHandle> excluded,
+                                            std::optional<SequenceHandle> pending_backup) {
+    return impl_->release_redundant_host(excluded, pending_backup);
+}
+
+runtime::ResourceReservation Program::reserve_units(std::span<const ExecutionUnit> units) {
+    return impl_->reserve_units(units);
+}
+
+bool Program::reclaim_capture_reservation(runtime::ContextResourceUsage shortage) {
+    return impl_->reclaim_capture_reservation(shortage);
+}
+
+void Program::release_units(std::span<const SequenceHandle> units) noexcept {
+    impl_->release_units(units);
+}
+
+runtime::ResourceReservation Program::start_binding(const RequestBasePlan& base,
+                                                    runtime::LaneId lane,
+                                                    const SourceCandidate& source,
+                                                    ResumeState* resume, ExecutionUnitKind kind,
+                                                    std::uint32_t tokens) {
+    return impl_->start_binding(base, lane, source, resume, kind, tokens);
+}
+
+bool Program::start_capture(SequenceHandle h) { return impl_->start_capture(h); }
+
+bool Program::capture_is_input(SequenceHandle h) const { return impl_->capture_is_input(h); }
+
+std::optional<CapturePreparation> Program::prepare_capture(SequenceHandle h) {
+    return impl_->prepare_capture(h);
+}
+
+void Program::skip_capture(SequenceHandle h) { impl_->skip_capture(h); }
+
+bool Program::start_demote(const ContextDemotion& plan) { return impl_->start_demote(plan); }
+
+ContextReclaimPlan Program::plan_reclaim(std::span<const CheckpointHandle> allowed,
+                                         std::span<const CheckpointHandle> excluded,
+                                         runtime::ContextResourceUsage shortage) const {
+    return impl_->plan_reclaim(allowed, excluded, shortage);
+}
+
+std::vector<ContextRelease> Program::plan_releases(std::span<const CheckpointHandle> allowed,
+                                                   std::span<const CheckpointHandle> excluded,
+                                                   runtime::ContextResourceUsage shortage) const {
+    return impl_->plan_releases(allowed, excluded, shortage);
+}
+
+bool Program::start_pause(SequenceHandle h, bool save, runtime::ExecutionTiming* timing) {
+    return impl_->start_pause(h, save, timing);
+}
+
+ContextProgress Program::poll_context(runtime::CancellationFlagView c) {
+    return impl_->poll_context(c);
+}
+
+bool Program::context_blocks(SequenceHandle sequence) const noexcept {
+    return impl_->context_blocks(sequence);
+}
+
+bool Program::recovery_pending(SequenceHandle sequence) const noexcept {
+    return impl_->recovery_pending(sequence);
+}
 
 bool Program::has_context_transaction() const noexcept { return impl_->has_context_transaction(); }
 
-PrefillProgress Program::advance_prefill(SequenceHandle sequence,
-                                         runtime::ExecutionTiming* failed_timing) {
-    return impl_->advance_prefill(sequence, failed_timing);
+PrefillProgress Program::advance_prefill(SequenceHandle h, runtime::ExecutionTiming* t) {
+    return impl_->advance_prefill(h, t);
 }
 
-CaptureAssessment
-Program::inspect_capture(const CaptureOffer& offer, const SharedPrefixHandle* exact_shared,
-                         const SharedPrefixHandle* replacement,
-                         std::optional<runtime::CheckpointRef> private_replacement,
-                         bool permit_shared_publication) const {
-    return impl_->inspect_capture(offer, exact_shared, replacement, private_replacement,
-                                  permit_shared_publication);
+ReplayProgress Program::advance_replay(SequenceHandle h, runtime::ExecutionTiming* t) {
+    return impl_->advance_replay(h, t);
 }
 
-std::vector<runtime::CheckpointRecoveryAlternativeWork>
-Program::checkpoint_recovery_work(const ContinuationHandle& owner,
-                                  runtime::CheckpointRef checkpoint) const {
-    return impl_->checkpoint_recovery_work(owner, checkpoint);
+PendingBatch Program::decode(std::span<const SequenceHandle> s,
+                             std::span<const runtime::RoundBudget> b, runtime::ExecutionTiming* t) {
+    return impl_->decode(s, b, t);
 }
 
-CapturePressurePlanningSession Program::begin_capture_pressure_planning(
-    const CaptureAssessment& assessment, std::span<const ContinuationHandle* const> private_owners,
-    std::span<const runtime::PlanningOwnerId> private_owner_ids,
-    std::span<const SharedPrefixHandle* const> shared_owners,
-    std::span<const runtime::PlanningOwnerId> shared_owner_ids) {
-    CapturePressureCandidate candidate(impl_->make_capture_physical_candidate(assessment));
-    using SessionImpl = detail::PressurePlanningSessionImpl;
-    const std::array physical_candidates{SessionImpl::PhysicalCandidateBinding{
-        .state   = candidate.impl_.get(),
-        .capture = candidate.impl_.get(),
-    }};
-    const std::array candidate_ids{CapturePressurePlanningSession::candidate_id()};
-    PressurePlanningSession session(std::make_unique<detail::PressurePlanningSessionImpl>(
-        *impl_, physical_candidates, candidate_ids, private_owners, private_owner_ids,
-        shared_owners, shared_owner_ids));
-    return CapturePressurePlanningSession(std::move(candidate), std::move(session));
+runtime::ExecutionTiming Program::append_forced_tokens(
+    std::span<const SequenceHandle> s, std::span<const TokenId> ids, std::uint32_t stride,
+    std::span<const std::optional<std::uint32_t>> splits, runtime::ExecutionTiming* t) {
+    return impl_->append_forced_tokens(s, ids, stride, splits, t);
 }
 
-std::vector<runtime::CheckpointRecoveryAlternativeWork>
-Program::checkpoint_recovery_work(const SharedPrefixHandle& owner,
-                                  runtime::CheckpointRef checkpoint) const {
-    return impl_->checkpoint_recovery_work(owner, checkpoint);
+CommitResult Program::commit(PendingBatch&& p, std::span<const runtime::CommitDecision> d,
+                             runtime::CommitObservation o, runtime::ExecutionTiming* t) {
+    return impl_->commit(std::move(p), d, o, t);
 }
 
-bool Program::shared_capture_matches(const CaptureOffer& offer,
-                                     const SharedPrefixHandle& shared) const {
-    return impl_->shared_capture_matches(offer, shared);
+DiscardResult Program::abort_pending(PendingBatch&& p) noexcept {
+    return impl_->abort_pending(std::move(p));
 }
 
-void Program::skip_capture(CaptureOffer&& offer) { impl_->skip_capture(std::move(offer)); }
+FinishResult Program::finish(SequenceHandle s) noexcept { return impl_->finish(s); }
 
-runtime::ContextTransactionReserveStatus
-Program::reserve_active_capture(CaptureOffer&& offer, const SharedPrefixHandle* exact_shared,
-                                const SharedPrefixHandle* replacement,
-                                std::optional<runtime::CheckpointRef> private_replacement,
-                                bool permit_shared_publication,
-                                runtime::CancellationFlagView cancellation) {
-    return impl_->reserve_active_capture(std::move(offer), exact_shared, replacement,
-                                         private_replacement, permit_shared_publication,
-                                         cancellation);
-}
-
-runtime::ContextTransactionReserveStatus Program::reserve_active_capture_with_pressure(
-    CaptureOffer&& offer, const SharedPrefixHandle* exact_shared,
-    const SharedPrefixHandle* replacement,
-    std::optional<runtime::CheckpointRef> private_replacement, bool permit_shared_publication,
-    CapturePressurePlan&& pressure, runtime::CancellationFlagView cancellation) {
-    if (pressure.revision_.value == 0 || pressure.revision_ != impl_->resource_revision()) {
-        return runtime::ContextTransactionReserveStatus::Aborted;
-    }
-    return impl_->reserve_active_capture_with_pressure(
-        std::move(offer), exact_shared, replacement, private_replacement, permit_shared_publication,
-        std::move(pressure.pressure_), cancellation);
-}
-
-PendingBatch Program::decode(std::span<const SequenceHandle> sequences,
-                             std::span<const runtime::RoundBudget> budgets,
-                             runtime::ExecutionTiming* failed_timing) {
-    return impl_->decode(sequences, budgets, failed_timing);
-}
-
-runtime::ExecutionTiming
-Program::append_forced_tokens(std::span<const SequenceHandle> sequences,
-                              std::span<const TokenId> row_major_tokens, std::uint32_t row_stride,
-                              std::span<const std::optional<std::uint32_t>> prefix_execution_splits,
-                              runtime::ExecutionTiming* failed_timing) {
-    return impl_->append_forced_tokens(sequences, row_major_tokens, row_stride,
-                                       prefix_execution_splits, failed_timing);
-}
-
-CommitResult Program::commit(PendingBatch&& pending,
-                             std::span<const runtime::CommitDecision> decisions,
-                             runtime::CommitObservation observation,
-                             runtime::ExecutionTiming* failed_timing) {
-    return impl_->commit(std::move(pending), decisions, observation, failed_timing);
-}
-
-DiscardResult Program::abort_pending(PendingBatch&& pending) noexcept {
-    return impl_->abort_pending(std::move(pending));
-}
-
-FinishResult Program::finish(SequenceHandle sequence) noexcept { return impl_->finish(sequence); }
-
-AbortResult Program::abort(SequenceHandle sequence) noexcept { return impl_->abort(sequence); }
-
-ReleaseResult Program::release_continuation(ContinuationHandle&& continuation) noexcept {
-    return impl_->release_continuation(std::move(continuation));
-}
-
-bool Program::can_release_continuation(const ContinuationHandle& continuation) noexcept {
-    return impl_->can_release_continuation(continuation);
-}
-
-ReleaseResult Program::release_shared_prefix(SharedPrefixHandle&& shared) noexcept {
-    return impl_->release_shared_prefix(std::move(shared));
-}
+AbortResult Program::abort(SequenceHandle s) noexcept { return impl_->abort(s); }
 
 void Program::fail_all_cleanup() noexcept { impl_->fail_all_cleanup(); }
-
-bool Program::isolated_request_feasible(const RequestBasePlan& base) const noexcept {
-    return impl_->isolated_request_feasible(base);
-}
-
-runtime::ProgramResourceRevision Program::resource_revision() const noexcept {
-    return impl_->resource_revision();
-}
 
 PhysicalUsageSnapshot Program::physical_usage() const noexcept { return impl_->physical_usage(); }
 
@@ -500,45 +326,6 @@ std::unique_ptr<Program> create_program(const execution::Parameters& parameters,
         std::make_unique<detail::ProgramImpl>(parameters, *plan.impl_, device, startup_observer);
     plan.impl_.reset();
     return std::unique_ptr<Program>(new Program(std::move(impl)));
-}
-
-} // namespace ninfer::models::qwen3_5
-
-namespace ninfer::models::qwen3_5 {
-
-CaptureAssessment::CaptureAssessment()
-    : implementation(std::make_shared<detail::CaptureAssessmentImpl>()) {}
-
-AdmissionCandidate::AdmissionCandidate(
-    std::unique_ptr<detail::AdmissionCandidateImpl> impl) noexcept
-    : impl_(std::move(impl)) {}
-
-AdmissionCandidate::AdmissionCandidate(AdmissionCandidate&&) noexcept = default;
-
-AdmissionCandidate& AdmissionCandidate::operator=(AdmissionCandidate&&) noexcept = default;
-
-AdmissionCandidate::~AdmissionCandidate() = default;
-
-CapturePressureCandidate::CapturePressureCandidate(
-    std::unique_ptr<detail::CapturePressureCandidateImpl> impl) noexcept
-    : impl_(std::move(impl)) {}
-
-CapturePressureCandidate::CapturePressureCandidate(CapturePressureCandidate&&) noexcept = default;
-
-CapturePressureCandidate&
-CapturePressureCandidate::operator=(CapturePressureCandidate&&) noexcept = default;
-
-CapturePressureCandidate::~CapturePressureCandidate() = default;
-
-const runtime::RequestPlanSummary& AdmissionCandidate::summary() const noexcept {
-    static const runtime::RequestPlanSummary empty;
-    return impl_ != nullptr ? impl_->summary : empty;
-}
-
-const runtime::IdentityMaterializationAssessment&
-AdmissionCandidate::identity_assessment() const noexcept {
-    static const runtime::IdentityMaterializationAssessment empty;
-    return impl_ != nullptr ? impl_->identity_assessment : empty;
 }
 
 } // namespace ninfer::models::qwen3_5

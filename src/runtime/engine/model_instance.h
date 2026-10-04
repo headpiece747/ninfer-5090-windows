@@ -34,6 +34,6 @@ struct ConstructedModel {
     ContextMachineCostModel context_cost;
 };
 
-[[nodiscard]] ConstructedModel construct_model(const EngineOptions& options, DeviceContext& device);
+[[nodiscard]] ConstructedModel construct_model(EngineOptions& options, DeviceContext& device);
 
 } // namespace ninfer::runtime

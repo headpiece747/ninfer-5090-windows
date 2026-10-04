@@ -118,6 +118,69 @@ struct Uint128 {
     return quotient;
 }
 
+// Remainder against a 64-bit divisor, matching the builtin's `unsigned __int128 % uint64_t`.
+// serve/serve_options.cpp needs it to reject --host-context-mib values that do not resolve to a whole
+// number of bytes, which is upstream's parse (b9114396) written against the native type. Derived
+// rather than repeated: a % b is a - (a / b) * b, so the long-division loop above is the only place
+// that needs to be correct.
+[[nodiscard]] constexpr Uint128 operator%(const Uint128& value, std::uint64_t divisor) noexcept {
+    return value - operator/(value, divisor) * Uint128{divisor};
+}
+
+// Uint128 / Uint128, because upstream's --host-context-mib parse divides two values it built as
+// 128-bit (a MiB numerator against a power-of-ten divisor), and the builtin it was written against
+// accepts that. Splitting a 128-bit divisor needs the same shift-and-subtract walk, with a wider
+// remainder: the running remainder stays below 2 * divisor, so it spans three limbs.
+[[nodiscard]] constexpr Uint128 operator/(const Uint128& value, const Uint128& divisor) noexcept {
+    if (divisor.hi == 0) { return operator/(value, divisor.lo); }
+    Uint128 quotient{};
+    std::uint64_t rem[3] = {0, 0, 0}; // little-endian: rem[0] is least significant
+    for (int bit = 127; bit >= 0; --bit) {
+        const std::uint64_t word      = bit >= 64 ? value.hi : value.lo;
+        const unsigned bit_in_word    = static_cast<unsigned>(bit & 63);
+        const std::uint64_t bit_value = (word >> bit_in_word) & 1ULL;
+        // rem = rem * 2 + bit, across three limbs.
+        const std::uint64_t carry = rem[2] >> 63;
+        rem[2]                    = (rem[2] << 1) | (rem[1] >> 63);
+        rem[1]                    = (rem[1] << 1) | (rem[0] >> 63);
+        rem[0]                    = (rem[0] << 1) | bit_value;
+        (void)carry;
+        // Loop invariant: rem < 2 * divisor, so one conditional subtraction clears it.
+        // rem is three limbs and the divisor two, so the divisor's high limb lines up with rem[1],
+        // not rem[2]: the alignment is rem[2]:rem[1]:rem[0] against 0:divisor.hi:divisor.lo.
+        // Comparing rem[2] against divisor.hi instead is off by 64 bits, which made every dividend
+        // below 2^128 look larger than a 10^20 divisor and returned a zero quotient.
+        bool ge = (rem[2] != 0) || (rem[1] > divisor.hi) ||
+                  (rem[1] == divisor.hi && rem[0] >= divisor.lo);
+        bool borrow = false;
+        if (ge) {
+            std::uint64_t r0 = rem[0], r1 = rem[1], r2 = rem[2];
+            const std::uint64_t s0 = r0 - divisor.lo;
+            borrow                = r0 < divisor.lo;
+            const std::uint64_t b1 = r1 - divisor.hi - (borrow ? 1U : 0U);
+            borrow                = borrow ? (r1 <= divisor.hi) : (r1 < divisor.hi);
+            r0                    = s0;
+            r1                    = b1;
+            r2                    = r2 - (borrow ? 1U : 0U);
+            rem[0]                = r0;
+            rem[1]                = r1;
+            rem[2]                = r2;
+        }
+        if (ge) {
+            if (bit >= 64) {
+                quotient.hi |= (1ULL << (bit - 64));
+            } else {
+                quotient.lo |= (1ULL << bit);
+            }
+        }
+    }
+    return quotient;
+}
+
+[[nodiscard]] constexpr Uint128 operator%(const Uint128& value, const Uint128& divisor) noexcept {
+    return value - operator/(value, divisor) * divisor;
+}
+
 [[nodiscard]] constexpr bool operator==(const Uint128& a, const Uint128& b) noexcept {
     return a.hi == b.hi && a.lo == b.lo;
 }

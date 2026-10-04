@@ -1,7 +1,23 @@
 # ADR-0007: A pressure action must not invalidate a turn closure's identity
 
-**Status:** accepted and implemented. Layers 3 and 4 are landed and `exercise_host_restore` passes;
+**Status:** superseded 2026-10-04 (was: accepted and implemented).
 the case's baseline entry was removed with the fix.
+
+**Status: superseded 2026-10-04 by upstream `b9114396` ("replace context cache and add preemptive
+scheduling"), merged into this port.** The context cache this ADR reasons about no longer exists:
+`context_portfolio_value.h` and `materialization_planner.h` were deleted upstream, and
+`resource_manager.h` was rewritten, so the line numbers cited below no longer resolve. They are left
+as written rather than repointed, because a citation moved to a line that does not say what it used
+to is worse than one that visibly fails.
+
+**What survives:** the failure modes. Both ADRs describe *silent* degradation -- a turn closure that
+loses its identity without error, and a shared prefix served where no boundary was declared. Neither
+is detectable by a green build or a passing suite, which is why they were written down at all. The
+new cache has its own accounting (`host_capacity_bytes`, preemptions, `snapshot_restores`,
+`replay_restores`) and a different set of ways to lose state, so **whether these invariants hold
+across the rewrite is unverified.** Re-deriving them is open work, and the scenarios in
+`tests/models/qwen3_5/test_engine_prefix_real.cpp` are where it should start, because that is the
+file both ADRs name as the case that would have caught each one.
 
 ## Context
 
@@ -64,7 +80,7 @@ Six, each by rebuilding and re-running the reproduction rather than by argument:
 - the materialization search grant (ceiling 250 ms -> 5 s, unchanged);
 - the shared retention weight (`RetentionClass::SharedStable` 0 -> 16, unchanged) -- which was never a
   candidate: the case sets `max_shared_prefixes = 0`, so no owner carries that class and the private
-  owner's weight (`RecentPrivate` 4 / `LiveSession` 16, `resource_manager.h:1499-1511`) was untouched,
+  owner's weight (`RecentPrivate` 4 / `LiveSession` 16, `resource_manager.h` (pre-rewrite lines 1499-1511)) was untouched,
   so "unchanged" was guaranteed by construction;
 - crediting the engine's own structural boundary in the projection's credit test (unchanged);
 - making a target that degrades a checkpoint with a non-zero `demand_mask` inadmissible (identical
@@ -74,10 +90,10 @@ Six, each by rebuilding and re-running the reproduction rather than by argument:
 
 Two claims this record used to make are also withdrawn, both refuted by reading the code they cited.
 The loss is **not** zero at `demand_mask == 0`: `MaterializationCheckpointPolicy` is built from
-`cost_model_.prefill_ns` and `price_checkpoint_recovery_work` (`resource_manager.h:2070`, `:2128`),
-neither of which reads the mask, and only the *public* accumulation at `context_portfolio_value.h:82`
+`cost_model_.prefill_ns` and `price_checkpoint_recovery_work` (`resource_manager.h` (pre-rewrite line 2070), `:2128`),
+neither of which reads the mask, and only the *public* accumulation at `context_portfolio_value.h` (pre-rewrite line 82)
 is gated. And the runtime **can** tell a closure from an endpoint: `context_cache` reads
-`CheckpointRef::kind` and already distinguishes `SessionEndpoint` (`resource_manager.h:1537`,
+`CheckpointRef::kind` and already distinguishes `SessionEndpoint` (`resource_manager.h` (pre-rewrite line 1537),
 `1542-1544`, `1550`, `1569`). What it does not do is consult the kind in the *valuation*.
 
 ## Attribution

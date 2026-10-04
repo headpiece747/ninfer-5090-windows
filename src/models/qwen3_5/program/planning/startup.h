@@ -86,10 +86,6 @@ struct SequencePlanningInputs {
     ContextCacheOptions context_cache;
 };
 
-} // namespace ninfer::models::qwen3_5::detail
-
-namespace ninfer::models::qwen3_5::detail {
-
 struct SequencePlanImpl {
     const execution::Parameters* parameters = nullptr;
     std::uint32_t capacity                  = 0;
@@ -118,11 +114,6 @@ struct SequencePlannerImpl {
     runtime::SequenceCapacityCurve curve;
     std::unique_ptr<SequencePlanImpl> minimum;
 };
-
-} // namespace ninfer::models::qwen3_5::detail
-
-namespace ninfer::models::qwen3_5::detail {
-
 
 [[nodiscard]] std::unique_ptr<qwen3_5::detail::SequencePlannerImpl>
 make_sequence_planner_impl(const execution::Parameters& parameters, DeviceContext& device,

@@ -1,9 +1,25 @@
 # ADR-0009: A shared prefix is served only where a boundary is declared
 
-**Status:** accepted
+**Status:** superseded 2026-10-04 (was: accepted and implemented).
 
 Supersedes the shared-prefix paragraph of
 [ADR-0007](0007-turn-closure-retention-under-host-pressure.md).
+
+**Status: superseded 2026-10-04 by upstream `b9114396` ("replace context cache and add preemptive
+scheduling"), merged into this port.** The context cache this ADR reasons about no longer exists:
+`context_portfolio_value.h` and `materialization_planner.h` were deleted upstream, and
+`resource_manager.h` was rewritten, so the line numbers cited below no longer resolve. They are left
+as written rather than repointed, because a citation moved to a line that does not say what it used
+to is worse than one that visibly fails.
+
+**What survives:** the failure modes. Both ADRs describe *silent* degradation -- a turn closure that
+loses its identity without error, and a shared prefix served where no boundary was declared. Neither
+is detectable by a green build or a passing suite, which is why they were written down at all. The
+new cache has its own accounting (`host_capacity_bytes`, preemptions, `snapshot_restores`,
+`replay_restores`) and a different set of ways to lose state, so **whether these invariants hold
+across the rewrite is unverified.** Re-deriving them is open work, and the scenarios in
+`tests/models/qwen3_5/test_engine_prefix_real.cpp` are where it should start, because that is the
+file both ADRs name as the case that would have caught each one.
 
 ## Context
 
@@ -85,7 +101,7 @@ Accepted: keep both behaviours.
   standing is decided separately and this ADR originally read as though it covered both: the shipped
   launchers set `--context-cache-policy rolling` (`profiles.py:260`), under which
   `pressure_evidence` — and therefore standing to replace a resident — is granted to every
-  candidate regardless of evidence (`resource_manager.h:659-678`), and only the fold then decides.
+  candidate regardless of evidence (`resource_manager.h` (pre-rewrite lines 659-678)), and only the fold then decides.
   `rolling` was adopted for the private frontier, where a conversation's newest checkpoint would
   otherwise pin (`profiles.py:348-356`); it was never evaluated against the shared rule, so **the
   shared path's behaviour under `rolling` is a consequence nobody has measured.** Read the triad as
@@ -123,22 +139,22 @@ Three things in the rule above are less firm than the prose implies, and each wa
 
 **`shared_reuse_declined` is not a cost verdict.** It is incremented only when
 `program.inspect_admission(..., shared_source, ...)` returns `nullopt`
-(`resource_manager.h:384`), which is an *exactness* failure — missing state, KV or identity,
+(`resource_manager.h` (pre-rewrite line 384)), which is an *exactness* failure — missing state, KV or identity,
 `!base.allow_prefix_reuse`, `!prompt.identity.reusable`, or `prefix_matches` failing on token
 identity. The cost comparison this ADR calls "shared publication must be strictly better than the
 private-only baseline" happens later, in `FoldedCost::key()`
-(`materialization_planner.h:798-813`), and **is not counted at all**. So this ADR's own evidence
+(`materialization_planner.h` (pre-rewrite lines 798-813)), and **is not counted at all**. So this ADR's own evidence
 (`shared_reuse_candidates 1`, `shared_reuse_declined 0`) proves the *publication-eligibility* and
 *offer* stages succeeded; it does not measure the "response replay already serves the same tokens more
 cheaply" claim, which is a statement about the selection stage. Reading those two counters as a cost
 verdict is the inference this paragraph exists to prevent.
 
 **`repeated` counts reuse domains, not requests, and the two cases invert.**
-`matching_reuse_domains` (`resource_manager.h:1515-1534`) deduplicates by `ReuseDomainId`. A client
+`matching_reuse_domains` (`resource_manager.h` (pre-rewrite lines 1515-1534)) deduplicates by `ReuseDomainId`. A client
 that repeats one prompt fifty times **under a session key** contributes a single domain forever, so
 `>= 2` never fires and the candidate rides on surplus or declared credit only. The same client
 **without** a session key gets a domain derived from `publication_order`
-(`resource_manager.h:1461-1465`), which is fresh per request, so the *second* request satisfies
+(`resource_manager.h` (pre-rewrite lines 1461-1465)), which is fresh per request, so the *second* request satisfies
 `repeated`. Both `demand_mask` and `repeated` are read over the **last 32 committed admissions**
 (`demand_window_`, capacity 32), not over the current request. This is the largest single source of
 run-to-run difference in whether a shared candidate is projected at all, and the most likely reason
@@ -180,7 +196,7 @@ without the counters moving. **Untested here**: it predicts that an explicit bou
 
 **`EngineObserved` is in neither bucket.** The frontend's full-prompt automatic boundary
 (`frontend.cpp:541-543`) carries `EngineObserved`, and the admission test at
-`resource_manager.h:1885-1897` builds `declared` from `ExplicitBoundary`/`RequestedAutomatic` and
+`resource_manager.h` (pre-rewrite lines 1885-1897) builds `declared` from `ExplicitBoundary`/`RequestedAutomatic` and
 `surplus` from `DefaultAutomatic`/`EngineStructural` — omitting it. So "automatic candidates ride on
 surplus" is true for `DefaultAutomatic` and `EngineStructural` and **false** for `EngineObserved`,
 which is admissible only via `repeated`.

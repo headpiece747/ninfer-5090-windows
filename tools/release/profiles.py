@@ -261,12 +261,14 @@ INVARIANT_FLAGS: list[tuple[str, str | None]] = [
     ("--kv-dtype", "fp8"),
     ("--prefill-chunk", "8192"),
     ("--max-concurrency", "1"),
-    ("--host-state-slots", "16"),
-    ("--host-kv-mib", "8192"),
-    ("--max-shared-prefixes", "7"),
-    ("--max-private-continuations", "8"),
-    ("--max-long-anchors-per-continuation", "4"),
-    ("--context-cache-policy", "rolling"),
+    # Upstream b9114396 (2026-10-04) replaced the context cache and collapsed these five bounds into
+    # one shared Host quota: --host-state-slots, --host-kv-mib, --max-shared-prefixes,
+    # --max-private-continuations and --max-long-anchors-per-continuation no longer exist, and
+    # --context-cache-policy went with them because the new ContextCacheOptions has no policy field.
+    # 8192 MiB is the value the old pair carried (16 slots out of a pinned 8 GiB), so this is the
+    # direct translation rather than a new choice; it is re-measured, not assumed, because the new
+    # cache sizes host State/KV, pause snapshots and in-flight destinations together.
+    ("--host-context-mib", "8192"),
     ("--preserve-thinking", None),
     ("--default-thinking-budget", "4096"),
     ("--pending-timeout-ms", "600000"),

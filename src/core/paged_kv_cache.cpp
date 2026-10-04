@@ -229,11 +229,118 @@ DeviceKVPagePool::DeviceKVPagePool(DeviceSpan backing, const DeviceKVPagePoolLay
         planes_.push_back(plane);
     }
 
+    initialize_host_transfer_plan();
     free_page_runs_.reserve(spec_.page_group_count);
     page_generations_.assign(spec_.page_group_count, 1);
     page_allocated_.assign(spec_.page_group_count, false);
     validation_marks_.assign(spec_.page_group_count, 0);
     free_page_runs_.push_back(FreePageRun{.begin = 0, .count = spec_.page_group_count});
+}
+
+void DeviceKVPagePool::initialize_host_transfer_plan() {
+    const HostKVPageLayout host = plan_host_kv_page_layout(geometry());
+    host_page_stride_           = host.page_stride;
+    int device                  = 0;
+    int maximum_pitch           = 0;
+    CUDA_CHECK(cudaGetDevice(&device));
+    CUDA_CHECK(cudaDeviceGetAttribute(&maximum_pitch, cudaDevAttrMaxPitch, device));
+    const auto pitch_limit = static_cast<std::size_t>(maximum_pitch);
+    const bool page_major  = geometry().device_plane_order == PagedKVPlaneOrder::PageMajor;
+    std::size_t maximum_short_dimension = 1;
+    host_transfer_planes_.reserve(planes_.size());
+    for (std::size_t index = 0; index < planes_.size(); ++index) {
+        const auto& packed = host.planes[index];
+        const auto& plane  = planes_[index];
+        HostTransferPlane transfer{
+            .host_offset = packed.offset,
+            .page_bytes  = packed.page_payload_bytes,
+            .head_bytes  = packed.head_payload_bytes,
+            .heads       = static_cast<std::uint32_t>(geometry().planes[index].head_extent),
+            .page_copies_supported = !page_major &&
+                                     static_cast<std::size_t>(plane.nb[3]) <= pitch_limit &&
+                                     packed.head_payload_bytes <= pitch_limit,
+        };
+        page_payload_bytes_ += packed.page_payload_bytes;
+        if (transfer.page_copies_supported) {
+            maximum_short_dimension =
+                std::max(maximum_short_dimension, static_cast<std::size_t>(transfer.heads));
+        }
+        host_transfer_planes_.push_back(transfer);
+    }
+    if (page_major) {
+        host_transfer_groups_.reserve(planes_.size());
+        for (std::size_t first = 0; first < planes_.size();) {
+            HostTransferGroup group{.first_plane = first};
+            const auto width = host_transfer_planes_[first].page_bytes;
+            for (std::size_t next = first + 1; next < planes_.size(); ++next) {
+                if (host_transfer_planes_[next].page_bytes != width ||
+                    planes_[next].nb[3] != planes_[first].nb[3]) {
+                    break;
+                }
+                const auto current  = reinterpret_cast<std::uintptr_t>(planes_[next].data);
+                const auto previous = reinterpret_cast<std::uintptr_t>(planes_[next - 1].data);
+                if (current <= previous) { break; }
+                const std::size_t device_pitch = current - previous;
+                const std::size_t host_pitch   = host_transfer_planes_[next].host_offset -
+                                               host_transfer_planes_[next - 1].host_offset;
+                if (device_pitch < width || device_pitch > pitch_limit || host_pitch < width ||
+                    host_pitch > pitch_limit) {
+                    break;
+                }
+                if (group.plane_count > 1 &&
+                    (group.device_pitch != device_pitch || group.host_pitch != host_pitch)) {
+                    break;
+                }
+                group.device_pitch = device_pitch;
+                group.host_pitch   = host_pitch;
+                ++group.plane_count;
+            }
+            maximum_host_plane_group_ = std::max(maximum_host_plane_group_, group.plane_count);
+            host_transfer_groups_.push_back(group);
+            first += group.plane_count;
+        }
+        maximum_short_dimension = maximum_host_plane_group_;
+    }
+
+    // Counts and execution share each group's short-dimension predicate. The final table entry
+    // describes all longer runs, so source quotations need neither a plane scan nor allocation.
+    host_transfer_operations_.resize(maximum_short_dimension + 1, 0);
+    for (std::size_t pages = 1; pages <= maximum_short_dimension; ++pages) {
+        std::uint64_t operations = 0;
+        if (page_major) {
+            for (const auto& group : host_transfer_groups_) {
+                operations += group.copy_by_page(pages) ? pages : group.plane_count;
+            }
+        } else {
+            for (const auto& plane : host_transfer_planes_) {
+                operations += plane.copy_by_page(pages) ? pages : plane.heads;
+            }
+        }
+        if (operations > std::numeric_limits<std::uint32_t>::max()) {
+            throw std::overflow_error("Host KV transfer operation count exceeds uint32");
+        }
+        host_transfer_operations_[pages] = static_cast<std::uint32_t>(operations);
+    }
+}
+
+TransferWork DeviceKVPagePool::host_transfer_run_work(std::uint32_t pages) const {
+    if (pages == 0) { return {}; }
+    if (page_payload_bytes_ > std::numeric_limits<std::uint64_t>::max() / pages) {
+        throw std::overflow_error("Host KV transfer payload overflow");
+    }
+    return {.payload_bytes   = page_payload_bytes_ * pages,
+            .copy_operations = host_transfer_operations_[std::min<std::size_t>(
+                pages, host_transfer_operations_.size() - 1)]};
+}
+
+TransferWork DeviceKVPagePool::device_copy_work(std::uint32_t pages) const {
+    if (pages == 0) { return {}; }
+    if (page_payload_bytes_ > std::numeric_limits<std::uint64_t>::max() / pages ||
+        planes_.size() > std::numeric_limits<std::uint32_t>::max() / pages) {
+        throw std::overflow_error("Device KV copy work overflow");
+    }
+    return {.payload_bytes   = page_payload_bytes_ * pages,
+            .copy_operations = static_cast<std::uint32_t>(planes_.size()) * pages};
 }
 
 std::uint32_t DeviceKVPagePool::capacity_pages() const noexcept { return spec_.page_group_count; }
@@ -249,19 +356,6 @@ std::uint32_t DeviceKVPagePool::available_pages() const noexcept {
 std::size_t DeviceKVPagePool::plane_count() const noexcept { return planes_.size(); }
 
 const Tensor& DeviceKVPagePool::plane(std::size_t index) const { return planes_.at(index); }
-
-std::uint32_t
-DeviceKVPagePool::contiguous_run_count(std::span<const DeviceKVPageHandle> pages) const {
-    if (pages.empty()) { return 0; }
-    std::uint32_t runs    = 0;
-    std::int32_t previous = -2;
-    for (const DeviceKVPageHandle page : pages) {
-        const std::int32_t current = physical_index(page);
-        if (runs == 0 || current != previous + 1) { ++runs; }
-        previous = current;
-    }
-    return runs;
-}
 
 std::optional<DeviceKVPageReservation> DeviceKVPagePool::reserve(std::uint32_t pages) noexcept {
     if (pages == 0 || pages > available_pages()) { return std::nullopt; }
@@ -551,11 +645,11 @@ void DeviceKVPagePool::zero_pages(std::span<const DeviceKVPageHandle> pages,
     }
 }
 
-void DeviceKVPagePool::copy_page(DeviceKVPageHandle source, DeviceKVPageHandle destination,
-                                 cudaStream_t stream) const {
+TransferWork DeviceKVPagePool::copy_page(DeviceKVPageHandle source, DeviceKVPageHandle destination,
+                                         cudaStream_t stream) const {
     const std::int32_t source_index      = physical_index(source);
     const std::int32_t destination_index = physical_index(destination);
-    if (source_index == destination_index) { return; }
+    if (source_index == destination_index) { return {}; }
     for (const Tensor& plane : planes_) {
         auto* base = static_cast<unsigned char*>(plane.data);
         if (spec_.geometry.device_plane_order == PagedKVPlaneOrder::PageMajor) {
@@ -571,92 +665,120 @@ void DeviceKVPagePool::copy_page(DeviceKVPageHandle source, DeviceKVPageHandle d
                 stream));
         }
     }
+    return device_copy_work(1);
 }
 
-void DeviceKVPagePool::copy_to_host(std::span<const DeviceKVPageHandle> source,
-                                    HostKVAllocationView destination, cudaStream_t stream) const {
+template <bool ToHost>
+TransferWork
+DeviceKVPagePool::copy_host_pages(std::span<const DeviceKVPageHandle> pages,
+                                  std::conditional_t<ToHost, std::byte*, const std::byte*> host,
+                                  cudaStream_t stream) const {
+    TransferWork work;
+    const auto copy = [&](unsigned char* device_base, std::size_t device_pitch, auto* host_base,
+                          std::size_t host_pitch, std::size_t width, std::size_t height) {
+        if constexpr (ToHost) {
+            CUDA_CHECK(cudaMemcpy2DAsync(host_base, host_pitch, device_base, device_pitch, width,
+                                         height, cudaMemcpyDeviceToHost, stream));
+        } else {
+            CUDA_CHECK(cudaMemcpy2DAsync(device_base, device_pitch, host_base, host_pitch, width,
+                                         height, cudaMemcpyHostToDevice, stream));
+        }
+        ++work.copy_operations;
+    };
+    for (std::size_t begin = 0; begin < pages.size();) {
+        std::size_t end = begin + 1;
+        while (end < pages.size() && pages[end].index_ == pages[end - 1].index_ + 1) { ++end; }
+        const std::size_t count  = end - begin;
+        const std::int32_t first = pages[begin].index_;
+        const auto run_work      = host_transfer_run_work(static_cast<std::uint32_t>(count));
+        if (run_work.copy_operations >
+            std::numeric_limits<std::uint32_t>::max() - work.copy_operations) {
+            throw std::overflow_error("Host KV transfer operation count exceeds uint32");
+        }
+        if (geometry().device_plane_order == PagedKVPlaneOrder::PageMajor) {
+            if (count < maximum_host_plane_group_) {
+                for (const auto& group : host_transfer_groups_) {
+                    if (group.copy_by_page(count)) {
+                        const auto& plane  = planes_[group.first_plane];
+                        const auto& packed = host_transfer_planes_[group.first_plane];
+                        for (std::size_t page = begin; page < end; ++page) {
+                            copy(static_cast<unsigned char*>(plane.data) +
+                                     static_cast<std::int64_t>(pages[page].index_) * plane.nb[3],
+                                 group.device_pitch,
+                                 host + page * host_page_stride_ + packed.host_offset,
+                                 group.host_pitch, packed.page_bytes, group.plane_count);
+                        }
+                    } else {
+                        for (std::size_t index = group.first_plane;
+                             index < group.first_plane + group.plane_count; ++index) {
+                            const auto& plane  = planes_[index];
+                            const auto& packed = host_transfer_planes_[index];
+                            copy(static_cast<unsigned char*>(plane.data) +
+                                     static_cast<std::int64_t>(first) * plane.nb[3],
+                                 plane.nb[3], host + begin * host_page_stride_ + packed.host_offset,
+                                 host_page_stride_, packed.page_bytes, count);
+                        }
+                    }
+                }
+            } else {
+                for (std::size_t index = 0; index < planes_.size(); ++index) {
+                    const auto& plane  = planes_[index];
+                    const auto& packed = host_transfer_planes_[index];
+                    copy(static_cast<unsigned char*>(plane.data) +
+                             static_cast<std::int64_t>(first) * plane.nb[3],
+                         plane.nb[3], host + begin * host_page_stride_ + packed.host_offset,
+                         host_page_stride_, packed.page_bytes, count);
+                }
+            }
+        } else {
+            for (std::size_t index = 0; index < planes_.size(); ++index) {
+                const auto& plane  = planes_[index];
+                const auto& packed = host_transfer_planes_[index];
+                auto* device_base  = static_cast<unsigned char*>(plane.data);
+                auto* host_base    = host + begin * host_page_stride_ + packed.host_offset;
+                if (packed.copy_by_page(count)) {
+                    for (std::size_t page = begin; page < end; ++page) {
+                        copy(device_base +
+                                 static_cast<std::int64_t>(pages[page].index_) * plane.nb[2],
+                             plane.nb[3], host + page * host_page_stride_ + packed.host_offset,
+                             packed.head_bytes, packed.head_bytes, packed.heads);
+                    }
+                } else {
+                    for (std::uint32_t head = 0; head < packed.heads; ++head) {
+                        copy(device_base + static_cast<std::int64_t>(head) * plane.nb[3] +
+                                 static_cast<std::int64_t>(first) * plane.nb[2],
+                             plane.nb[2], host_base + head * packed.head_bytes, host_page_stride_,
+                             packed.head_bytes, count);
+                    }
+                }
+            }
+        }
+        work.payload_bytes += run_work.payload_bytes;
+        begin = end;
+    }
+    return work;
+}
+
+TransferWork DeviceKVPagePool::copy_to_host(std::span<const DeviceKVPageHandle> source,
+                                            HostKVAllocationView destination,
+                                            cudaStream_t stream) const {
     if (!destination.valid() || destination.page_count() != source.size() ||
         destination.layout().geometry != geometry()) {
         throw std::invalid_argument("Paged KV D2H geometry or extent is inconsistent");
     }
     for (DeviceKVPageHandle page : source) { (void)physical_index(page); }
-
-    const HostKVPageLayout& host = destination.layout();
-    std::size_t begin            = 0;
-    while (begin < source.size()) {
-        std::size_t end = begin + 1;
-        while (end < source.size() && source[end].index_ == source[end - 1].index_ + 1) { ++end; }
-        const std::size_t count  = end - begin;
-        const std::int32_t first = source[begin].index_;
-        for (std::size_t plane_index = 0; plane_index < planes_.size(); ++plane_index) {
-            const Tensor& plane                 = planes_[plane_index];
-            const HostKVPlaneLayout& host_plane = host.planes[plane_index];
-            auto* host_base = destination.data() + begin * host.page_stride + host_plane.offset;
-            const auto* device_base = static_cast<const unsigned char*>(plane.data);
-            if (geometry().device_plane_order == PagedKVPlaneOrder::PageMajor) {
-                CUDA_CHECK(cudaMemcpy2DAsync(
-                    host_base, host.page_stride,
-                    device_base + static_cast<std::int64_t>(first) * plane.nb[3], plane.nb[3],
-                    host_plane.page_payload_bytes, count, cudaMemcpyDeviceToHost, stream));
-            } else {
-                for (std::int32_t head = 0; head < plane.ne[3]; ++head) {
-                    CUDA_CHECK(cudaMemcpy2DAsync(
-                        host_base + static_cast<std::size_t>(head) * host_plane.head_payload_bytes,
-                        host.page_stride,
-                        device_base + static_cast<std::int64_t>(head) * plane.nb[3] +
-                            static_cast<std::int64_t>(first) * plane.nb[2],
-                        plane.nb[2], host_plane.head_payload_bytes, count, cudaMemcpyDeviceToHost,
-                        stream));
-                }
-            }
-        }
-        begin = end;
-    }
+    return copy_host_pages<true>(source, destination.data(), stream);
 }
 
-void DeviceKVPagePool::copy_from_host(HostKVAllocationConstView source,
-                                      std::span<const DeviceKVPageHandle> destination,
-                                      cudaStream_t stream) const {
+TransferWork DeviceKVPagePool::copy_from_host(HostKVAllocationConstView source,
+                                              std::span<const DeviceKVPageHandle> destination,
+                                              cudaStream_t stream) const {
     if (!source.valid() || source.page_count() != destination.size() ||
         source.layout().geometry != geometry()) {
         throw std::invalid_argument("Paged KV H2D geometry or extent is inconsistent");
     }
     validate_distinct_pages(destination, "Paged KV H2D destination contains duplicate pages");
-
-    const HostKVPageLayout& host = source.layout();
-    std::size_t begin            = 0;
-    while (begin < destination.size()) {
-        std::size_t end = begin + 1;
-        while (end < destination.size() &&
-               destination[end].index_ == destination[end - 1].index_ + 1) {
-            ++end;
-        }
-        const std::size_t count  = end - begin;
-        const std::int32_t first = destination[begin].index_;
-        for (std::size_t plane_index = 0; plane_index < planes_.size(); ++plane_index) {
-            const Tensor& plane                 = planes_[plane_index];
-            const HostKVPlaneLayout& host_plane = host.planes[plane_index];
-            const auto* host_base = source.data() + begin * host.page_stride + host_plane.offset;
-            auto* device_base     = static_cast<unsigned char*>(plane.data);
-            if (geometry().device_plane_order == PagedKVPlaneOrder::PageMajor) {
-                CUDA_CHECK(cudaMemcpy2DAsync(
-                    device_base + static_cast<std::int64_t>(first) * plane.nb[3], plane.nb[3],
-                    host_base, host.page_stride, host_plane.page_payload_bytes, count,
-                    cudaMemcpyHostToDevice, stream));
-            } else {
-                for (std::int32_t head = 0; head < plane.ne[3]; ++head) {
-                    CUDA_CHECK(cudaMemcpy2DAsync(
-                        device_base + static_cast<std::int64_t>(head) * plane.nb[3] +
-                            static_cast<std::int64_t>(first) * plane.nb[2],
-                        plane.nb[2],
-                        host_base + static_cast<std::size_t>(head) * host_plane.head_payload_bytes,
-                        host.page_stride, host_plane.head_payload_bytes, count,
-                        cudaMemcpyHostToDevice, stream));
-                }
-            }
-        }
-        begin = end;
-    }
+    return copy_host_pages<false>(destination, source.data(), stream);
 }
 
 std::vector<DeviceKVPageReservation>

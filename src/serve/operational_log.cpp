@@ -90,16 +90,8 @@ const char* prefix_reuse_path_name(ninfer::PrefixReusePath path) noexcept {
     switch (path) {
     case ninfer::PrefixReusePath::Root:
         return "root";
-    case ninfer::PrefixReusePath::PrivateEndpoint:
-        return "private endpoint";
-    case ninfer::PrefixReusePath::PrivateTurnClosure:
-        return "turn closure";
-    case ninfer::PrefixReusePath::PrivateResponseReplay:
-        return "response replay";
-    case ninfer::PrefixReusePath::PrivateLongAnchor:
-        return "long anchor";
-    case ninfer::PrefixReusePath::SharedStablePrefix:
-        return "shared prefix";
+    case ninfer::PrefixReusePath::Checkpoint:
+        return "checkpoint";
     }
     return "unknown";
 }
@@ -214,12 +206,14 @@ OperationalRecord render_request_start(const RequestLogContext& context) {
                 clause += ", " + std::string(name) + " " + product::format_pretty_duration(seconds);
             }
         };
-        phase("contract", context.preparation.contract_seconds);
-        phase("convert", context.preparation.convert_seconds);
-        phase("render", context.preparation.render_seconds);
+        // Upstream b9114396 collapsed the preparation phase split -- contract, convert, render,
+        // positions and cache prep -- into a single `seconds` plus `tokenize_seconds` and the media
+        // fields. The old per-phase names no longer exist, so the log reports what the new API can
+        // actually measure rather than printing zeros for phases the engine no longer times.
+        phase("prepare", context.preparation.seconds);
         phase("tokenize", context.preparation.tokenize_seconds);
-        phase("positions", context.preparation.positions_seconds);
-        phase("cache prep", context.preparation.context_cache_seconds);
+        phase("media preprocess", context.preparation.media_preprocess_seconds);
+        phase("media work", context.preparation.media_preprocess_work_seconds);
         append_clause(out, clause);
     }
     if (context.tool_count != 0) { append_counted_clause(out, "tools", context.tool_count); }
@@ -252,8 +246,7 @@ OperationalRecord render_request_rejected(const RequestRejectionLogContext& cont
 OperationalRecord render_request_done(const RequestLogContext& context,
                                       const GenerationOutcome& outcome) {
     const GenerationMetrics& metrics     = outcome.metrics;
-    const double computed_prefill_tokens = static_cast<double>(
-        std::max(0, outcome.prompt_tokens - static_cast<int>(metrics.prefix_cache_hit_tokens)));
+    const double computed_prefill_tokens = static_cast<double>(metrics.computed_prefill_tokens);
     const double decode_tokens =
         outcome.completion_tokens > 0 ? static_cast<double>(outcome.completion_tokens - 1) : 0.0;
     std::ostringstream out;
@@ -392,6 +385,12 @@ OperationalRecord render_throughput(const ThroughputReport& report) {
     if (report.current.waiting_requests != 0) {
         out << " | waiting " << report.current.waiting_requests;
     }
+    if (report.current.paused_requests != 0) {
+        out << " | paused " << report.current.paused_requests;
+    }
+    if (report.current.replaying_requests != 0) {
+        out << " | replaying " << report.current.replaying_requests;
+    }
     if (report.current.materializing_requests != 0) {
         out << " | materializing " << report.current.materializing_requests;
     }
@@ -485,17 +484,9 @@ void OperationalLog::engine_capacity(const GenerationService& service) const {
                   product::format_pretty_bytes(memory.runtime_reservation_bytes),
                   product::format_pretty_bytes(memory.available_after_startup_bytes));
 
-    if (cache.enabled) {
-        logger_->info(
-            "context cache | {} active + {} cached device states | host {} states, {} KV | "
-            "private {} | shared {} | anchors {}",
-            engine.max_concurrency, *cache.device_state_slots, cache.host_state_slots,
-            product::format_pretty_bytes(cache.host_kv_capacity_bytes),
-            *cache.max_private_continuations, *cache.max_shared_prefixes,
-            *cache.max_long_anchors_per_continuation);
-    } else {
-        logger_->info("context cache | root only");
-    }
+    logger_->info("context | history {} | {} active + {} extra device states | host {}",
+                  cache.enabled ? "on" : "off", engine.max_concurrency, *cache.device_state_slots,
+                  product::format_pretty_bytes(*cache.host_capacity_bytes));
 
     if (service.options().enable_vision) {
         const ninfer::MediaCacheSummary media = service.media_cache_summary();

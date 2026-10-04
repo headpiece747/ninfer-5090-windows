@@ -80,7 +80,8 @@ EngineOptions normalize_engine_options(EngineOptions options) {
         options.speculative          = {};
         options.enable_vision        = false;
         options.use_cuda_graph       = false;
-        options.context_cache        = ContextCacheOptions{.enabled = false};
+        options.context_cache        = ContextCacheOptions{
+                   .enabled = false, .device_state_slots = 0, .host_capacity_bytes = 0};
         break;
     default:
         throw std::invalid_argument("Engine purpose is invalid");
@@ -91,52 +92,11 @@ EngineOptions normalize_engine_options(EngineOptions options) {
 
     ContextCacheOptions& cache      = options.context_cache;
     const std::uint32_t concurrency = options.max_concurrency;
-    if (!cache.enabled) {
-        if ((cache.device_state_slots && *cache.device_state_slots != 0) ||
-            (cache.max_private_continuations && *cache.max_private_continuations != concurrency) ||
-            (cache.max_shared_prefixes && *cache.max_shared_prefixes != 0) ||
-            (cache.max_long_anchors_per_continuation &&
-             *cache.max_long_anchors_per_continuation != 0)) {
-            throw std::invalid_argument("disabled context cache accepts only root-only capacities");
-        }
-        cache.device_state_slots                = 0;
-        cache.host_state_slots                  = 0;
-        cache.host_kv_capacity_bytes            = 0;
-        cache.max_private_continuations         = concurrency;
-        cache.max_shared_prefixes               = 0;
-        cache.max_long_anchors_per_continuation = 0;
-        // A disabled cache forces the policy off rather than rejecting it: with no shared retention
-        // the policy selects nothing, so it cannot contradict the configuration.
-        cache.policy = ContextCachePolicy::Default;
-        return options;
-    }
-
-    cache.device_state_slots            = cache.device_state_slots.value_or(concurrency);
-    const std::uint64_t default_private = 2ULL * concurrency;
-    cache.max_private_continuations =
-        cache.max_private_continuations.value_or(static_cast<std::uint32_t>(default_private));
-    cache.max_shared_prefixes = cache.max_shared_prefixes.value_or(std::max(
-        concurrency, static_cast<std::uint32_t>(kMaximumPreparedPromptCacheCandidatesPerRequest)));
-    cache.max_long_anchors_per_continuation = cache.max_long_anchors_per_continuation.value_or(2U);
-
-    if (*cache.max_private_continuations < concurrency) {
-        throw std::invalid_argument(
-            "context cache max_private_continuations must cover every active request");
-    }
+    cache.device_state_slots        = cache.device_state_slots.value_or(concurrency);
     const std::uint64_t total_device_state_slots =
         static_cast<std::uint64_t>(concurrency) + *cache.device_state_slots;
     if (total_device_state_slots > std::numeric_limits<std::uint32_t>::max()) {
         throw std::overflow_error("context cache Device state capacity exceeds uint32");
-    }
-    const std::uint64_t address_spaces =
-        static_cast<std::uint64_t>(*cache.max_private_continuations) + *cache.max_shared_prefixes;
-    if (address_spaces > std::numeric_limits<std::uint32_t>::max()) {
-        throw std::overflow_error("context cache address-space capacity exceeds uint32");
-    }
-    if (*cache.max_long_anchors_per_continuation != 0 &&
-        *cache.max_private_continuations >
-            std::numeric_limits<std::size_t>::max() / *cache.max_long_anchors_per_continuation) {
-        throw std::overflow_error("context cache long-anchor capacity exceeds size_t");
     }
     return options;
 }
@@ -156,7 +116,7 @@ ModelInstance::ModelInstance(std::unique_ptr<models::qwen3_5::Model> source,
 
 ModelInstance::~ModelInstance() = default;
 
-ConstructedModel construct_model(const EngineOptions& options, DeviceContext& device) {
+ConstructedModel construct_model(EngineOptions& options, DeviceContext& device) {
     validate_options(options);
     const auto start = Clock::now();
     StartupPhaseScope inspect(options.startup_observer, StartupPhase::ArtifactInspect);
@@ -186,7 +146,8 @@ ConstructedModel construct_model(const EngineOptions& options, DeviceContext& de
         sequence.kv_capacity() != resolution.resolved_tokens) {
         throw std::logic_error("resolved KV capacity does not match the finalized Program plan");
     }
-    instance->kv_capacity_resolution = resolution;
+    options.context_cache.host_capacity_bytes = sequence.host_capacity_bytes();
+    instance->kv_capacity_resolution          = resolution;
     planning.complete();
     StartupPhaseScope program(options.startup_observer, StartupPhase::ProgramInitialize);
     instance->program = models::qwen3_5::create_program(instance->parameters, std::move(sequence),

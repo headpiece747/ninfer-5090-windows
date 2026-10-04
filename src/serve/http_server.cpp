@@ -34,8 +34,10 @@ bool is_openai_path(std::string_view path) {
     return path.starts_with("/v1/") && !is_anthropic_path(path);
 }
 
-void ensure_openai_request_id(const httplib::Request& request, httplib::Response& response) {
-    if (is_openai_path(request.path) && !response.has_header("x-request-id")) {
+void ensure_http_request_id(const httplib::Request& request, httplib::Response& response) {
+    if (is_anthropic_path(request.path) && !response.has_header("request-id")) {
+        response.set_header("request-id", new_anthropic_request_id());
+    } else if (is_openai_path(request.path) && !response.has_header("x-request-id")) {
         response.set_header("x-request-id", new_openai_request_id());
     }
 }
@@ -59,24 +61,22 @@ ThroughputReport make_throughput_report(const ninfer::RuntimeStats& previous,
 bool report_has_activity(const ThroughputReport& report) {
     return report.computed_prefill_tokens != 0 || report.committed_decode_tokens != 0 ||
            report.decode_rounds != 0 || report.current.running_requests != 0 ||
-           report.current.waiting_requests != 0 || report.current.materializing_requests != 0 ||
+           report.current.waiting_requests != 0 || report.current.paused_requests != 0 ||
+           report.current.replaying_requests != 0 || report.current.materializing_requests != 0 ||
            report.current.capture_pending_requests != 0 ||
            report.current.terminal_pending_requests != 0 ||
            report.current.active_captures_completed != report.previous.active_captures_completed ||
            report.current.active_captures_aborted != report.previous.active_captures_aborted ||
+           report.current.preemptions != report.previous.preemptions ||
+           report.current.snapshot_restores != report.previous.snapshot_restores ||
+           report.current.replay_restores != report.previous.replay_restores ||
+           report.current.replayed_tokens != report.previous.replayed_tokens ||
            report.current.root_selections != report.previous.root_selections ||
-           report.current.private_endpoint_selections !=
-               report.previous.private_endpoint_selections ||
-           report.current.private_turn_closure_selections !=
-               report.previous.private_turn_closure_selections ||
-           report.current.private_response_replay_selections !=
-               report.previous.private_response_replay_selections ||
-           report.current.private_long_anchor_selections !=
-               report.previous.private_long_anchor_selections ||
-           report.current.shared_stable_prefix_selections !=
-               report.previous.shared_stable_prefix_selections ||
+           report.current.checkpoint_selections != report.previous.checkpoint_selections ||
            report.current.state_moves != report.previous.state_moves ||
            report.current.state_forks != report.previous.state_forks ||
+           report.current.materialization_state_forks !=
+               report.previous.materialization_state_forks ||
            report.current.state_restores != report.previous.state_restores ||
            report.current.state_d2h_count != report.previous.state_d2h_count ||
            report.current.state_h2d_count != report.previous.state_h2d_count ||
@@ -89,22 +89,6 @@ bool report_has_activity(const ThroughputReport& report) {
            report.current.backend_kv_d2d_pages != report.previous.backend_kv_d2d_pages ||
            report.current.pressure_spill_pages != report.previous.pressure_spill_pages ||
            report.current.partial_tail_cow_pages != report.previous.partial_tail_cow_pages ||
-           report.current.pressure_private_owners_degraded !=
-               report.previous.pressure_private_owners_degraded ||
-           report.current.pressure_private_owners_evicted !=
-               report.previous.pressure_private_owners_evicted ||
-           report.current.pressure_shared_owners_degraded !=
-               report.previous.pressure_shared_owners_degraded ||
-           report.current.pressure_shared_owners_evicted !=
-               report.previous.pressure_shared_owners_evicted ||
-           report.current.pressure_checkpoints_dropped !=
-               report.previous.pressure_checkpoints_dropped ||
-           report.current.pressure_searches != report.previous.pressure_searches ||
-           report.current.pressure_search_budget_exhaustions !=
-               report.previous.pressure_search_budget_exhaustions ||
-           report.current.pressure_maximal_fallback_selections !=
-               report.previous.pressure_maximal_fallback_selections ||
-           report.current.historical_fork_hits != report.previous.historical_fork_hits ||
            report.current.device_state_occupied_slots !=
                report.previous.device_state_occupied_slots ||
            report.current.host_state_occupied_slots != report.previous.host_state_occupied_slots ||
@@ -113,7 +97,10 @@ bool report_has_activity(const ThroughputReport& report) {
            report.current.device_backend_kv_occupied_pages !=
                report.previous.device_backend_kv_occupied_pages ||
            report.current.host_kv_occupied_bytes != report.previous.host_kv_occupied_bytes ||
-           report.current.shared_active_references != report.previous.shared_active_references ||
+           report.current.host_context_occupied_bytes !=
+               report.previous.host_context_occupied_bytes ||
+           report.current.host_context_reserved_bytes !=
+               report.previous.host_context_reserved_bytes ||
            report.current.host_work.engine_boundary_ns !=
                report.previous.host_work.engine_boundary_ns ||
            report.current.host_work.program_submit_ns !=
@@ -160,7 +147,7 @@ void write_anthropic_error(httplib::Response& response, const ApiError& api_erro
 httplib::Server::HandlerResponse handle_unrendered_http_error(const ServeOptions& options,
                                                               const httplib::Request& request,
                                                               httplib::Response& response) {
-    ensure_openai_request_id(request, response);
+    ensure_http_request_id(request, response);
     if (!response.body.empty()) { return httplib::Server::HandlerResponse::Unhandled; }
 
     ApiError error;
@@ -191,7 +178,7 @@ httplib::Server::HandlerResponse handle_unrendered_http_error(const ServeOptions
         error.message = "An HTTP error occurred (" + std::to_string(error.status) + ")";
     }
     if (request.path.rfind("/v1/messages", 0) == 0) {
-        write_anthropic_error(response, error, new_anthropic_request_id());
+        write_anthropic_error(response, error, response.get_header_value("request-id"));
     } else {
         write_openai_error(response, error);
     }
@@ -337,11 +324,12 @@ void HttpServer::run_stats_reporter() {
 
     const ninfer::RuntimeStats current = service_->runtime_stats();
     const Clock::time_point now        = Clock::now();
-    const ThroughputReport tail        = make_throughput_report(
+    ThroughputReport tail              = make_throughput_report(
         previous, current, std::chrono::duration<double>(now - previous_time).count());
     // The exact partial interval remains useful to measurement consumers. Pretty throughput is a
     // fixed-cadence operational record and deliberately has no irregular shutdown tail.
-    if (report_has_activity(tail)) { request_jsonl_.write_throughput(tail); }
+    tail.final_interval = true;
+    request_jsonl_.write_throughput(tail);
 }
 
 void HttpServer::stop_stats_reporter() {
@@ -375,7 +363,7 @@ void HttpServer::register_routes() {
     }
 
     server_.set_pre_routing_handler([this](const httplib::Request& req, httplib::Response& res) {
-        ensure_openai_request_id(req, res);
+        ensure_http_request_id(req, res);
         if (options_.api_key.empty() || req.path == "/health" || req.method == "OPTIONS") {
             return httplib::Server::HandlerResponse::Unhandled;
         }
@@ -393,7 +381,7 @@ void HttpServer::register_routes() {
             error.message = "missing or invalid API key";
             // Render the 401 in the shape the target endpoint speaks.
             if (req.path.rfind("/v1/messages", 0) == 0) {
-                write_anthropic_error(res, error, new_anthropic_request_id());
+                write_anthropic_error(res, error, res.get_header_value("request-id"));
             } else {
                 write_openai_error(res, error);
             }
@@ -404,7 +392,7 @@ void HttpServer::register_routes() {
 
     server_.set_exception_handler(
         [this](const httplib::Request& req, httplib::Response& res, std::exception_ptr ep) {
-            ensure_openai_request_id(req, res);
+            ensure_http_request_id(req, res);
             try {
                 std::rethrow_exception(ep);
             } catch (const ApiException& e) {
@@ -415,7 +403,7 @@ void HttpServer::register_routes() {
                         response_request_id(res));
                 }
                 if (req.path.rfind("/v1/messages", 0) == 0) {
-                    write_anthropic_error(res, e.error(), new_anthropic_request_id());
+                    write_anthropic_error(res, e.error(), res.get_header_value("request-id"));
                 } else {
                     write_openai_error(res, e.error());
                 }
@@ -428,7 +416,7 @@ void HttpServer::register_routes() {
                     ApiError error;
                     error.status  = 500;
                     error.message = e.what();
-                    write_anthropic_error(res, error, new_anthropic_request_id());
+                    write_anthropic_error(res, error, res.get_header_value("request-id"));
                 } else {
                     write_exception(res, e);
                 }
@@ -442,7 +430,7 @@ void HttpServer::register_routes() {
                 error.type    = "internal_error";
                 error.message = "unknown error";
                 if (req.path.rfind("/v1/messages", 0) == 0) {
-                    write_anthropic_error(res, error, new_anthropic_request_id());
+                    write_anthropic_error(res, error, res.get_header_value("request-id"));
                 } else {
                     write_openai_error(res, error);
                 }

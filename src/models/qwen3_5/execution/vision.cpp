@@ -18,7 +18,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -422,10 +421,11 @@ void VisionContext::encode(const VisionItemView& item, Tensor& output, DeviceSpa
 
 VisionPrefillSession::VisionPrefillSession(
     DeviceContext& device, const execution::Parameters& parameters, DeviceSpan workspace,
-    const VisionWorkspacePlan& workspace_plan, qwen3_5::PreparedPromptData& prompt,
-    const VisionPrefillPlan& plan, std::size_t& handoff_peak_bytes)
+    const VisionWorkspacePlan& workspace_plan, const qwen3_5::PreparedPromptData& prompt,
+    const VisionPrefillPlan& plan, VisionHandoffState& handoff, std::size_t& handoff_peak_bytes)
     : device_(device), workspace_(workspace), workspace_plan_(workspace_plan), prompt_(prompt),
-      plan_(plan), handoff_peak_bytes_(handoff_peak_bytes), context_(device, parameters) {
+      plan_(plan), handoff_(handoff), handoff_peak_bytes_(handoff_peak_bytes),
+      context_(device, parameters) {
     if (plan_.control == nullptr || plan_.control->items.empty() || plan_.uses.empty()) {
         throw std::invalid_argument("Vision prefill plan has no suffix item spans");
     }
@@ -482,9 +482,10 @@ VisionPrefillSession::VisionPrefillSession(
                      })) {
         throw std::invalid_argument("Vision request workspace extent has no matching suffix item");
     }
-    encoded_payloads_pending_release_.reserve(plan_.uses.size());
     timers_.reserve(plan_.uses.size());
 }
+
+VisionPrefillSession::~VisionPrefillSession() { retire_handoff(); }
 
 VisionChunk VisionPrefillSession::prepare_chunk(std::uint32_t begin, std::uint32_t nominal_length) {
     if (nominal_length == 0 || begin >= prompt_.token_ids.size()) {
@@ -495,13 +496,14 @@ VisionChunk VisionPrefillSession::prepare_chunk(std::uint32_t begin, std::uint32
     std::uint32_t end = static_cast<std::uint32_t>(
         std::min<std::uint64_t>(nominal_end64, prompt_.token_ids.size()));
 
-    while (next_use_ < plan_.uses.size() && plan_.uses[next_use_].end <= begin) { ++next_use_; }
+    // Replay can revisit an earlier item, including after the last item was consumed.
+    const auto next_use = std::lower_bound(
+        plan_.uses.begin(), plan_.uses.end(), begin,
+        [](const VisionUseSpan& use, std::uint32_t position) { return use.end <= position; });
     const VisionUseSpan* active = nullptr;
-    if (next_use_ < plan_.uses.size() && plan_.uses[next_use_].begin < end) {
-        active = &plan_.uses[next_use_];
-        if (next_use_ + 1U < plan_.uses.size()) {
-            end = std::min(end, plan_.uses[next_use_ + 1U].begin);
-        }
+    if (next_use != plan_.uses.end() && next_use->begin < end) {
+        active = &*next_use;
+        if (next_use + 1 != plan_.uses.end()) { end = std::min(end, (next_use + 1)->begin); }
     }
     if (end <= begin) { throw std::logic_error("Vision chunk cap made no forward progress"); }
     if (active == nullptr) {
@@ -510,31 +512,34 @@ VisionChunk VisionPrefillSession::prepare_chunk(std::uint32_t begin, std::uint32
     const qwen3_5::VisionItemControl& control = plan_.control->items[active->control_index];
     Tensor output = VisionContext::bind_output(workspace_, workspace_plan_, control.merged_count);
 
-    if (!active_item_ || *active_item_ != active->prepared_item_index) {
+    if (!owns_handoff() || !active_item_ || *active_item_ != active->prepared_item_index) {
         const auto& payload = prompt_.media_payloads[active->prepared_item_index];
+        if (!payload) { throw std::logic_error("Vision replay lost its prepared media payload"); }
+        if (handoff_.generation_ == std::numeric_limits<std::uint64_t>::max()) {
+            throw std::overflow_error("Vision handoff generation exhausted");
+        }
         timers_.emplace_back(device_);
         timers_.back().start();
+        // Encoding scratch can overwrite the prior handoff before the final projection.
+        // Revoke that binding before enqueueing any work, including a failed encode.
+        handoff_.owner_ = nullptr;
+        ++handoff_.generation_;
         context_.encode(VisionItemView{payload->span(), &control}, output, workspace_,
                         workspace_plan_);
         timers_.back().record_stop();
+        handoff_.owner_       = this;
+        active_generation_    = handoff_.generation_;
         active_item_          = active->prepared_item_index;
         active_handoff_bytes_ = output.bytes();
         handoff_peak_bytes_   = std::max(handoff_peak_bytes_, active_handoff_bytes_);
-        encoded_payloads_pending_release_.push_back(active->prepared_item_index);
     }
     return VisionChunk{static_cast<std::int32_t>(end - begin), &control, output};
 }
 
-void VisionPrefillSession::release_encoded_media_payloads() noexcept {
-    for (const std::uint32_t item_index : encoded_payloads_pending_release_) {
-        if (item_index >= prompt_.media_payloads.size()) { std::terminate(); }
-        prompt_.media_payloads[item_index].reset();
-    }
-    encoded_payloads_pending_release_.clear();
-}
-
 void VisionPrefillSession::retire_handoff() noexcept {
+    if (owns_handoff()) { handoff_.owner_ = nullptr; }
     active_item_.reset();
+    active_generation_    = 0;
     active_handoff_bytes_ = 0;
 }
 

@@ -2,6 +2,7 @@
 #include "serve/translate.h"
 
 #include <iostream>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -46,10 +47,8 @@ int main() {
     failures += check(defaults.kv_capacity.mode == ninfer::KvCapacityMode::Explicit &&
                           defaults.kv_capacity.explicit_tokens == defaults.max_context,
                       "default KV capacity does not follow max context");
-    failures += check(defaults.context_cache.host_state_slots == ninfer::kDefaultHostStateSlots &&
-                          defaults.context_cache.host_kv_capacity_bytes ==
-                              ninfer::kDefaultHostKvCapacityBytes,
-                      "Host context-cache defaults mismatch");
+    failures += check(!defaults.context_cache.host_capacity_bytes.has_value(),
+                      "default Host context capacity was resolved before Engine startup");
     failures += check(defaults.speculative.backend == ninfer::SpeculativeBackend::None,
                       "speculative decoding is not disabled by default");
     failures += check(defaults.response_store_max_records == kDefaultResponseStoreRecords &&
@@ -165,9 +164,12 @@ int main() {
                                            "6"});
     failures += check(!configured.allow_prefix_reuse,
                       "--no-prefix-reuse did not disable server prefix reuse");
-    failures += check(configured.context_cache.host_state_slots == 0 &&
-                          configured.context_cache.host_kv_capacity_bytes == 0,
-                      "root-only server mode retained default Host capacities");
+    failures += check(!configured.context_cache.enabled &&
+                          configured.context_cache.host_capacity_bytes ==
+                              defaults.context_cache.host_capacity_bytes &&
+                          configured.context_cache.device_state_slots ==
+                              defaults.context_cache.device_state_slots,
+                      "--no-prefix-reuse changed context capacities or retained cache enablement");
     failures += check(configured.enable_vision, "--vision did not enable Vision");
     failures += check(configured.preserve_thinking == true,
                       "--preserve-thinking did not reach serving options");
@@ -192,24 +194,92 @@ int main() {
     failures += check(logging.log_level == ninfer::product::LogLevel::Debug,
                       "log level did not reach serving options");
 
-    const ServeOptions context_cache =
-        parse({"ninfer-serve", "model.ninfer", "--device-state-slots", "3", "--host-state-slots",
-               "5", "--host-kv-mib", "64", "--max-private-continuations", "9",
-               "--max-shared-prefixes", "4", "--max-long-anchors-per-continuation", "2"});
+    const ServeOptions context_cache = parse(
+        {"ninfer-serve", "model.ninfer", "--device-state-slots", "3", "--host-context-mib", "64"});
     failures += check(context_cache.context_cache.enabled &&
                           context_cache.context_cache.device_state_slots == 3 &&
-                          context_cache.context_cache.host_state_slots == 5 &&
-                          context_cache.context_cache.host_kv_capacity_bytes == (64ULL << 20) &&
-                          context_cache.context_cache.max_private_continuations == 9 &&
-                          context_cache.context_cache.max_shared_prefixes == 4 &&
-                          context_cache.context_cache.max_long_anchors_per_continuation == 2,
+                          context_cache.context_cache.host_capacity_bytes == (64ULL << 20),
                       "context-cache capacities did not reach serving options");
-    bool disabled_cache_capacity_rejected = false;
+
+    const ServeOptions zero_host_context =
+        parse({"ninfer-serve", "model.ninfer", "--host-context-mib", "0"});
+    failures += check(zero_host_context.context_cache.enabled &&
+                          zero_host_context.context_cache.host_capacity_bytes == 0,
+                      "zero Host context capacity was not retained as an explicit budget");
+
+    for (const auto& [mib, bytes] : std::vector<std::pair<std::string, std::size_t>>{
+             {"146.822265625", 153954304},
+             {"587.2890625", 615817216},
+             {"186.822265625", 195897344},
+             {"0.00000095367431640625", 1},
+             {"0.000000953674316406250000", 1},
+             {"000146.822265625000", 153954304},
+             {"64.0000", 64ULL << 20},
+             {"000.0000", 0},
+         }) {
+        const ServeOptions exact_host_context =
+            parse({"ninfer-serve", "model.ninfer", "--host-context-mib", mib});
+        failures += check(exact_host_context.context_cache.host_capacity_bytes == bytes,
+                          ("Host context MiB did not preserve exact bytes: " + mib).c_str());
+    }
+
+    constexpr std::size_t bytes_per_mib  = 1ULL << 20;
+    constexpr std::size_t max_host_bytes = std::numeric_limits<std::size_t>::max();
+    std::string maximum_host_mib         = std::to_string(max_host_bytes / bytes_per_mib);
+    std::size_t fractional_bytes         = max_host_bytes % bytes_per_mib;
+    if (fractional_bytes != 0) { maximum_host_mib += '.'; }
+    while (fractional_bytes != 0) {
+        fractional_bytes *= 10;
+        maximum_host_mib += static_cast<char>('0' + fractional_bytes / bytes_per_mib);
+        fractional_bytes %= bytes_per_mib;
+    }
+    const ServeOptions maximum_host_context =
+        parse({"ninfer-serve", "model.ninfer", "--host-context-mib", maximum_host_mib});
+    failures += check(maximum_host_context.context_cache.host_capacity_bytes == max_host_bytes,
+                      "maximum size_t Host context capacity was not accepted exactly");
+
+    bool overflowing_host_context_rejected = false;
     try {
-        (void)parse({"ninfer-serve", "model.ninfer", "--no-prefix-reuse", "--host-kv-mib", "64"});
-    } catch (const std::invalid_argument&) { disabled_cache_capacity_rejected = true; }
-    failures += check(disabled_cache_capacity_rejected,
-                      "root-only server mode accepted context-cache capacity options");
+        (void)parse({"ninfer-serve", "model.ninfer", "--host-context-mib",
+                     std::to_string(std::numeric_limits<std::size_t>::max() / (1ULL << 20) + 1)});
+    } catch (const std::invalid_argument&) { overflowing_host_context_rejected = true; }
+    failures +=
+        check(overflowing_host_context_rejected, "overflowing Host context capacity was accepted");
+
+    for (const std::string mib : {"0.1", "0.0000001", "0.000000476837158203125", "-1", "-0", "+1",
+                                  "nan", "inf", "1e3", "1.", ".5", "", " 1", "1 ", "1.2.3"}) {
+        bool invalid_host_context_rejected = false;
+        try {
+            (void)parse({"ninfer-serve", "model.ninfer", "--host-context-mib", mib});
+        } catch (const std::invalid_argument&) { invalid_host_context_rejected = true; }
+        failures +=
+            check(invalid_host_context_rejected,
+                  ("invalid or fractional-byte Host context MiB was accepted: " + mib).c_str());
+    }
+
+    for (const std::string option : {"--max-request-mib", "--media-cache-mib", "--media-live-mib",
+                                     "--response-store-max-mib"}) {
+        bool fractional_mib_rejected = false;
+        try {
+            (void)parse({"ninfer-serve", "model.ninfer", option, "1.5"});
+        } catch (const std::invalid_argument&) { fractional_mib_rejected = true; }
+        failures += check(fractional_mib_rejected,
+                          ("integer-only MiB option accepted a fraction: " + option).c_str());
+    }
+
+    for (const bool disable_first : {false, true}) {
+        std::vector<std::string> arguments = {"ninfer-serve", "model.ninfer"};
+        if (disable_first) { arguments.push_back("--no-prefix-reuse"); }
+        arguments.insert(arguments.end(),
+                         {"--device-state-slots", "3", "--host-context-mib", "64"});
+        if (!disable_first) { arguments.push_back("--no-prefix-reuse"); }
+        const ServeOptions disabled_cache = parse(std::move(arguments));
+        failures +=
+            check(!disabled_cache.allow_prefix_reuse && !disabled_cache.context_cache.enabled &&
+                      disabled_cache.context_cache.device_state_slots == 3 &&
+                      disabled_cache.context_cache.host_capacity_bytes == (64ULL << 20),
+                  "--no-prefix-reuse did not preserve independently configured capacities");
+    }
 
     const ServeOptions response_store =
         parse({"ninfer-serve", "model.ninfer", "--response-store-max-records", "42",
@@ -287,8 +357,9 @@ int main() {
     failures +=
         check(serve_usage_text("ninfer-serve").find("--no-prefix-reuse") != std::string::npos,
               "serve help omits --no-prefix-reuse");
-    failures += check(serve_usage_text("ninfer-serve").find("--host-kv-mib") != std::string::npos,
-                      "serve help omits context-cache capacities");
+    failures +=
+        check(serve_usage_text("ninfer-serve").find("--host-context-mib") != std::string::npos,
+              "serve help omits context-cache capacities");
     failures += check(serve_usage_text("ninfer-serve").find("device-state=max-concurrency") !=
                           std::string::npos,
                       "serve help omits context-cache defaults");

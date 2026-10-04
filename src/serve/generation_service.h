@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -22,15 +23,19 @@ struct RequestLifetime;
 struct RequestCapacity;
 
 struct GenerationMetrics {
-    double prepare_seconds         = 0.0;
-    double ttft_seconds            = 0.0;
-    double vision_seconds          = 0.0;
-    double prefill_seconds         = 0.0;
-    double decode_seconds          = 0.0;
-    double prompt_wall_seconds     = 0.0;
-    double generation_wall_seconds = 0.0;
-    double total_seconds           = 0.0;
+    std::uint64_t engine_request_id       = 0;
+    std::uint32_t computed_prefill_tokens = 0;
+    double prepare_seconds                = 0.0;
+    double ttft_seconds                   = 0.0;
+    double vision_seconds                 = 0.0;
+    double prefill_seconds                = 0.0;
+    double decode_seconds                 = 0.0;
+    double prompt_wall_seconds            = 0.0;
+    double generation_wall_seconds        = 0.0;
+    double total_seconds                  = 0.0;
     ninfer::GenerationEngineTiming engine_timing;
+    std::optional<ninfer::GenerationFirstOutputTiming> first_output_timing;
+    ninfer::GenerationSchedulingStats scheduling;
 
     SpeculativeBackend speculative_backend    = SpeculativeBackend::None;
     std::uint32_t speculative_draft_window    = 0;
@@ -50,12 +55,12 @@ struct GenerationMetrics {
     std::vector<std::uint64_t> speculative_recall16_per_position;
     std::uint32_t prefix_cache_hit_tokens     = 0;
     ninfer::PrefixReusePath prefix_reuse_path = ninfer::PrefixReusePath::Root;
-    ninfer::MaterializationDiagnostics materialization;
 };
 
 struct GenerationOutcome {
     std::string text;
     std::string reasoning;
+    std::vector<ninfer::TokenId> generated_token_ids;
     std::vector<ninfer::GeneratedToolCall> tool_calls;
     ninfer::ToolCallParseDiagnostics tool_call_parse;
     int prompt_tokens     = 0;
@@ -65,6 +70,13 @@ struct GenerationOutcome {
     ninfer::FinishReason finish_reason = ninfer::FinishReason::OutputLimit;
     std::optional<std::string> matched_stop_string;
     GenerationMetrics metrics;
+};
+
+// A transport may report an interrupted stream through a callback or is_cancelled().
+// Generation still settles through Engine cancellation and returns its actual work statistics.
+class ClientDisconnected final : public std::exception {
+public:
+    [[nodiscard]] const char* what() const noexcept override { return "client disconnected"; }
 };
 
 struct StreamSink {

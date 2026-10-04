@@ -1,6 +1,6 @@
 #include "models/qwen3_5/program/program_impl.h"
 #include "models/qwen3_5/program/context_work.h"
-#include "models/qwen3_5/program/context.h"
+#include "models/qwen3_5/program/execution_context.h"
 #include "models/qwen3_5/program/planning/graph_profiles.h"
 #include "core/nvtx.h"
 #include "core/device.h"
@@ -388,7 +388,7 @@ void ProgramImpl::prepare_graphs() {
         prepare_representative(code_warm.min, 1);
         device.synchronize();
         execution::dflash_decode_batch(dflash_state, 1, draft_window,
-                                       dflash_envelopes(code_warm.min, code_warm.max, draft_window),
+                                       dflash_envelopes(code_warm.max, draft_window),
                                        code_warm_target, nullptr);
         device.synchronize();
 
@@ -409,7 +409,7 @@ void ProgramImpl::prepare_graphs() {
 
                 execution::capture_dflash_decode_batch(
                     dflash_state, static_cast<std::int32_t>(batch_size), draft_window,
-                    dflash_envelopes(planned.min, planned.max, draft_window), target_envelope,
+                    dflash_envelopes(planned.max, draft_window), target_envelope,
                     profile.definition);
             }
         }

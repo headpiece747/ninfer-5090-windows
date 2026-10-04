@@ -1,3 +1,5 @@
+#include "core/uint128.h"
+
 #include "serve/serve_options.h"
 #include "product/speculative_options.h"
 
@@ -45,6 +47,54 @@ std::uint64_t parse_u64(const char* text, const char* label) {
     return static_cast<std::uint64_t>(value);
 }
 
+std::size_t parse_host_context_mib(const char* text) {
+    constexpr std::size_t bytes_per_mib = 1ULL << 20;
+    constexpr std::size_t maximum       = std::numeric_limits<std::size_t>::max();
+    const std::string_view value(text);
+    const std::size_t point      = value.find('.');
+    const std::string_view whole = value.substr(0, point);
+    std::string_view fraction =
+        point == std::string_view::npos ? std::string_view{} : value.substr(point + 1);
+    if (whole.empty() || whole.find_first_not_of("0123456789") != std::string_view::npos ||
+        (point != std::string_view::npos &&
+         (fraction.empty() ||
+          fraction.find_first_not_of("0123456789") != std::string_view::npos))) {
+        throw std::invalid_argument("--host-context-mib requires a nonnegative decimal MiB value");
+    }
+
+    std::size_t whole_mib = 0;
+    for (const char character : whole) {
+        const std::size_t digit = static_cast<std::size_t>(character - '0');
+        if (whole_mib > (maximum / bytes_per_mib - digit) / 10) {
+            throw std::invalid_argument("--host-context-mib is out of range");
+        }
+        whole_mib = whole_mib * 10 + digit;
+    }
+
+    // A whole-byte MiB value has at most 20 fractional decimal digits (1 MiB = 2^20 bytes).
+    // Use exact integer arithmetic so decimal parsing cannot round the requested budget upward.
+    while (!fraction.empty() && fraction.back() == '0') { fraction.remove_suffix(1); }
+    if (fraction.size() > 20) {
+        throw std::invalid_argument("--host-context-mib must resolve to a whole number of bytes");
+    }
+    Uint128            numerator = 0;
+    Uint128            divisor   = 1;
+    for (const char character : fraction) {
+        numerator = numerator * 10 + static_cast<std::uint64_t>(character - '0');
+        divisor *= 10;
+    }
+    numerator *= bytes_per_mib;
+    if (numerator % divisor != 0) {
+        throw std::invalid_argument("--host-context-mib must resolve to a whole number of bytes");
+    }
+    const std::size_t fractional_bytes = static_cast<std::size_t>(numerator / divisor);
+    const std::size_t whole_bytes      = whole_mib * bytes_per_mib;
+    if (fractional_bytes > maximum - whole_bytes) {
+        throw std::invalid_argument("--host-context-mib is out of range");
+    }
+    return whole_bytes + fractional_bytes;
+}
+
 KvCacheStorage parse_kv_dtype(const char* text) {
     const std::string value(text);
     if (value == "bf16") { return KvCacheStorage::BFloat16; }
@@ -73,10 +123,7 @@ std::string serve_usage_text(const char* argv0) {
            "[--context-cost-presets FILE] "
            "[--max-request-mib N] [--media-cache-mib N] [--media-live-mib N] "
            "[--media-preprocess-threads N] "
-           "[--device-state-slots N] [--host-state-slots N] [--host-kv-mib N] "
-           "[--max-private-continuations N] [--max-shared-prefixes N] "
-           "[--max-long-anchors-per-continuation N] "
-           "[--context-cache-policy default|rolling] "
+           "[--device-state-slots N] [--host-context-mib N] "
            "[--request-log-jsonl FILE] "
            "[--response-store-max-records N] [--response-store-max-mib N] "
            "[--kv-dtype bf16|int8|fp8|nvfp4|k8v4] [--spec mtp|dflash|dflash2 --draft-tokens N] "
@@ -104,11 +151,13 @@ std::string serve_usage_text(const char* argv0) {
            "       --kv-capacity auto leaves " +
            std::to_string(kDefaultKvCapacityHeadroomBytes / (1024ULL * 1024ULL)) +
            " MiB of sizing headroom\n"
-           "       --no-prefix-reuse disables compatible-prefix caching (enabled by default)\n"
-           "       context cache defaults: device-state=max-concurrency, private=2x concurrency, "
-           "shared=max(max-concurrency,4), anchors=2; Host state=8 slots, Host KV=8192 MiB\n"
-           "       --device-state-slots is extra checkpoint capacity beyond active lanes; "
-           "--host-kv-mib uses MiB\n"
+           "       --no-prefix-reuse disables cross-request history; request pause/replay "
+           "resources remain available\n"
+           "       context defaults: device-state=max-concurrency; Host budget is resolved from "
+           "8192 MiB plus eight native StateImages\n"
+           "       --device-state-slots is extra capacity beyond active lanes; "
+           "--host-context-mib bounds shared Host State/KV and in-flight storage in MiB\n"
+           "       --host-context-mib accepts decimal MiB values that resolve to whole bytes\n"
            "       --default-thinking-budget caps model-origin thinking for enabled requests; "
            "control tokens count toward the request output limit\n"
            "       --preserve-thinking retains closed-turn assistant reasoning in later prompts\n"
@@ -132,7 +181,6 @@ ServeOptions parse_serve_options(int argc, char** argv) {
     }
     bool default_max_tokens_explicit = false;
     bool kv_capacity_explicit        = false;
-    bool context_capacity_explicit   = false;
     if (argc >= 2 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h")) {
         options.help_requested = true;
         return options;
@@ -213,46 +261,9 @@ ServeOptions parse_serve_options(int argc, char** argv) {
         } else if (arg == "--device-state-slots") {
             options.context_cache.device_state_slots = static_cast<std::uint32_t>(
                 parse_nonnegative_int(require_value("--device-state-slots"), "device-state-slots"));
-            context_capacity_explicit = true;
-        } else if (arg == "--host-state-slots") {
-            options.context_cache.host_state_slots = static_cast<std::uint32_t>(
-                parse_nonnegative_int(require_value("--host-state-slots"), "host-state-slots"));
-            context_capacity_explicit = true;
-        } else if (arg == "--host-kv-mib") {
-            const std::uint64_t mib = parse_u64(require_value("--host-kv-mib"), "host-kv-mib");
-            if (mib > std::numeric_limits<std::size_t>::max() / (1ULL << 20)) {
-                throw std::invalid_argument("--host-kv-mib is out of range");
-            }
-            options.context_cache.host_kv_capacity_bytes = static_cast<std::size_t>(mib << 20);
-            context_capacity_explicit                    = true;
-        } else if (arg == "--max-private-continuations") {
-            options.context_cache.max_private_continuations =
-                static_cast<std::uint32_t>(parse_nonnegative_int(
-                    require_value("--max-private-continuations"), "max-private-continuations"));
-            context_capacity_explicit = true;
-        } else if (arg == "--max-shared-prefixes") {
-            options.context_cache.max_shared_prefixes =
-                static_cast<std::uint32_t>(parse_nonnegative_int(
-                    require_value("--max-shared-prefixes"), "max-shared-prefixes"));
-            context_capacity_explicit = true;
-        } else if (arg == "--max-long-anchors-per-continuation") {
-            options.context_cache.max_long_anchors_per_continuation = static_cast<std::uint32_t>(
-                parse_nonnegative_int(require_value("--max-long-anchors-per-continuation"),
-                                      "max-long-anchors-per-continuation"));
-            context_capacity_explicit = true;
-        } else if (arg == "--context-cache-policy") {
-            // A policy, not a capacity: it reserves nothing, so it stays out of the
-            // context_capacity_explicit set that --no-prefix-reuse rejects. A disabled context cache
-            // forces the policy off rather than rejecting the combination.
-            const std::string policy = require_value("--context-cache-policy");
-            if (policy == "default") {
-                options.context_cache.policy = ContextCachePolicy::Default;
-            } else if (policy == "rolling") {
-                options.context_cache.policy = ContextCachePolicy::Rolling;
-            } else {
-                throw std::invalid_argument(
-                    "--context-cache-policy must be 'default' or 'rolling'");
-            }
+        } else if (arg == "--host-context-mib") {
+            options.context_cache.host_capacity_bytes =
+                parse_host_context_mib(require_value("--host-context-mib"));
         } else if (arg == "--request-log-jsonl") {
             options.request_log_jsonl = require_value("--request-log-jsonl");
             if (options.request_log_jsonl.empty()) {
@@ -341,15 +352,7 @@ ServeOptions parse_serve_options(int argc, char** argv) {
     if (!kv_capacity_explicit) {
         options.kv_capacity = KvCapacityPolicy::explicit_capacity(options.max_context);
     }
-    if (!options.allow_prefix_reuse) {
-        if (context_capacity_explicit) {
-            throw std::invalid_argument(
-                "--no-prefix-reuse cannot be combined with context-cache capacity options");
-        }
-        options.context_cache.enabled                = false;
-        options.context_cache.host_state_slots       = 0;
-        options.context_cache.host_kv_capacity_bytes = 0;
-    }
+    options.context_cache.enabled = options.allow_prefix_reuse;
     if (options.port <= 0 || options.port > 65535) {
         throw std::invalid_argument("--port must be in [1,65535]");
     }

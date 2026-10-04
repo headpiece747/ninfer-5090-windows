@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -20,34 +21,15 @@ using TokenId = std::int32_t;
 inline constexpr std::uint32_t kMaximumConcurrency               = 8;
 inline constexpr std::size_t kMaximumContextCacheSessionKeyBytes = 256;
 inline constexpr std::size_t kMaximumExplicitPromptCacheMarkers  = 4;
-// Explicit markers plus the engine's automatic tool / leading-instruction / full-prompt candidates:
-// one request's shared-prefix opportunities never exceed this (see frontend.cpp's
-// opportunities.reserve). A shared catalog smaller than this fills from a single request's own
-// candidates, and automatic-evidence traffic may only take spare slots rather than evict, so a
-// catalog sized below this stops publishing automatic shared prefixes once it is full.
-inline constexpr std::size_t kMaximumPreparedPromptCacheCandidatesPerRequest = 7;
 // Aggregate encoded image/video payload retained by one prompt, independent of item count.
-inline constexpr std::size_t kMaximumPromptMediaBytes    = 256ULL << 20;
-inline constexpr std::size_t kDefaultMediaCacheBytes     = 1ULL << 30;
-inline constexpr std::size_t kDefaultMediaLiveBytes      = 2ULL << 30;
-inline constexpr std::uint32_t kDefaultHostStateSlots    = 8;
-inline constexpr std::size_t kDefaultHostKvCapacityBytes = 8ULL << 30;
+inline constexpr std::size_t kMaximumPromptMediaBytes = 256ULL << 20;
+inline constexpr std::size_t kDefaultMediaCacheBytes  = 1ULL << 30;
+inline constexpr std::size_t kDefaultMediaLiveBytes   = 2ULL << 30;
 
-// One causal-scoring pass's top-k sample of the output distribution, flattened position-major.
-//
-// `indices` and `logprobs` are each positions*k, and position p's k entries occupy
-// [p*k, (p+1)*k) in descending log-probability, so a consumer appends a position by writing k
-// consecutive pairs. Flattened rather than a vector of vectors because the consumer is an offline
-// record writer walking a million-token corpus, and a per-position heap allocation per scored token
-// would cost more than the reduction it is recording.
-//
-// The reduction is the `topk_logprobs` Op's: for each scored column it returns the k largest
-// logits' row indices and their log-probabilities under that column's own log-partition over the
-// public token count, with ties broken by ascending row index. This is the substrate for per-domain
-// KL against a reference distribution (tools/release/per_domain_kl.py). Perplexity reduces the same
-// [vocab, columns] tile to the target token's single log-probability and so cannot see a
-// distribution that moved -- the failure mode a GatedDeltaNet forget-gate defect produces, where
-// long-context perplexity improves on BF16 while the model is quietly broken.
+// Top-k logprobs and indices per position, for a scored sequence. Port type: `ninfer-perplexity`
+// reads it (apps/perplexity/topk_record.cpp) and `Engine::score_topk` returns it, neither of which
+// upstream owns. Upstream b9114396 rewrote this header and did not carry it, so the offline scoring
+// route lost its declaration until it was restored here.
 struct CausalTopk {
     std::vector<TokenId> indices;
     std::vector<float> logprobs;
@@ -123,8 +105,7 @@ enum class StartupPhase : std::uint8_t {
     TargetFinalize,
     FrontendInitialize,
     ProgramInitialize,
-    HostStatePin,
-    HostKvPin,
+    HostContextPin,
     CudaGraphPrepare,
     EngineFinalize,
 };
@@ -156,46 +137,17 @@ struct StartupObserver {
     std::function<void(const StartupEvent& event)> callback;
 };
 
-enum class ContextCachePolicy : std::uint8_t {
-    Default,
-    Rolling,
-};
-
 struct ContextCacheOptions {
-    // Engine resolves every optional once at construction. With C=max_concurrency, the enabled
-    // defaults are H=C, R=8, Host KV=8 GiB, P=2C, S=max(C,7) and L=2;
-    // Engine::options() returns those effective values.
+    // Controls cross-request history reads and writes. Request pause/replay resources remain
+    // available when history is disabled.
     bool enabled = true;
-    // Extra Device checkpoint StateImage slots H. Total Device StateImage capacity is C + H.
+    // Extra Device StateImage slots beyond max_concurrency. Defaults to max_concurrency.
     std::optional<std::uint32_t> device_state_slots;
-    // Host StateImages and Host KV bytes are independently configured pinned-memory capacities.
-    std::uint32_t host_state_slots     = kDefaultHostStateSlots;
-    std::size_t host_kv_capacity_bytes = kDefaultHostKvCapacityBytes;
-    // Bounded private/shared logical catalogs and per-continuation long-anchor count.
-    std::optional<std::uint32_t> max_private_continuations;
-    std::optional<std::uint32_t> max_shared_prefixes;
-    std::optional<std::uint32_t> max_long_anchors_per_continuation;
-    // How much standing a shared capture has when the State pools are saturated.
-    //
-    // `default` requires two matching reuse domains or explicit evidence before a capture may be
-    // valued against replacing a resident, which is right for concurrent conversations sharing a
-    // prefix. With no session key every request is its own reuse domain, so one append-only
-    // conversation never reaches that bar: the identity target is the only one assessed, it is
-    // physically infeasible while the pools are full, and the capture degrades to a private-only
-    // publication that has no room either -- so the request retains nothing, and the reusable
-    // frontier stops advancing. `rolling` lets a capture be valued against replacing any catalogued
-    // resident, and the portfolio fold decides whether it is worth more than what it would displace.
-    // Restricting the candidates to residents the request itself matched fixed one append-only
-    // conversation but left the general case: with the pools full, a newcomer with no lineage cannot
-    // be retained at all, so unrelated conversations keep only the prefixes admitted while there was
-    // room (upstream #270, "cannot be evicted into by ordinary traffic").
-    //
-    // Measured on this port with one Device checkpoint slot: the reusable frontier was pinned at
-    // 52,723 tokens from the fourth request on, with time to first token rising from 2.6 s at 65k
-    // context to 15.1 s at 117k. With `rolling` the frontier advances with the conversation
-    // (104,283 of 117,180) and first token falls to 4.1 s. Eight Device checkpoint slots buy
-    // comparable reach at +1.3 GiB of runtime.
-    ContextCachePolicy policy = ContextCachePolicy::Default;
+    // Shared Host quota for StateImages, KV, pause snapshots and in-flight destinations. Native
+    // startup defaults to 8 GiB plus eight Host StateImages using the model's actual layout.
+    // This does not bound total process RAM.
+    // Engine::options() returns both resolved capacities after construction.
+    std::optional<std::size_t> host_capacity_bytes;
 };
 
 struct ContextCostOptions {
@@ -390,16 +342,14 @@ struct ToolCallParseDiagnostics {
     std::uint32_t empty_arguments_omitted       = 0;
     std::uint32_t schema_mismatch_arguments     = 0;
     ToolCallParseFallbackReason fallback_reason = ToolCallParseFallbackReason::None;
-    // What the fallback rejected. A reason with no subject cannot tell a model that misspelled a
-    // declared name from one that invented a tool, and those need opposite responses, so the emitted
-    // name travels with the reason. `rejected_tool_name` carries it only when it is a valid
-    // identifier, so the log never carries arbitrary model text; `rejected_tool_name_length` carries
-    // its length either way, which separates "no name was read" from "the name is not an
-    // identifier"; `rejected_tool_near_match` names the declared tool that differs from it only by
-    // case, which is the deviation this class most often is.
+    // Why a tool call fell back, and what was rejected. `rejected_tool_name` is set only when the
+    // rejected text is a valid identifier, so the log gains a subject for the reason without ever
+    // carrying arbitrary model text. Port fields: upstream b9114396 rewrote this struct wholesale
+    // and did not carry them, while frontend/tool_call_parser.cpp (which upstream does not own) still
+    // writes them and src/serve/operational_log.cpp still reads them.
+    std::uint32_t rejected_tool_name_length = 0;
     std::string rejected_tool_name;
     std::string rejected_tool_near_match;
-    std::uint32_t rejected_tool_name_length = 0;
 
     [[nodiscard]] friend constexpr bool
     operator==(const ToolCallParseDiagnostics&, const ToolCallParseDiagnostics&) noexcept = default;
@@ -480,12 +430,6 @@ struct PromptOptions {
     std::vector<std::string> tool_jsons;
 };
 
-enum class CacheRetentionHint : std::uint8_t {
-    Default,
-    LiveSession,
-    Disposable,
-};
-
 enum class PromptCacheMarkerKind : std::uint8_t {
     SharedStablePrefix,
     PrivateLongAnchor,
@@ -497,7 +441,6 @@ enum class SharedCandidateEvidence : std::uint8_t {
     RequestedAutomatic = 1U << 1U,
     DefaultAutomatic   = 1U << 2U,
     EngineStructural   = 1U << 3U,
-    EngineObserved     = 1U << 4U,
 };
 
 [[nodiscard]] constexpr SharedCandidateEvidence operator|(SharedCandidateEvidence left,
@@ -542,7 +485,6 @@ struct PromptCacheMarker {
 
 struct ContextCacheHints {
     std::optional<std::string> session_key;
-    CacheRetentionHint retention = CacheRetentionHint::Default;
     std::vector<PromptCacheMarker> markers;
     // Protocols with their own automatic/explicit write policy disable the Engine's structural
     // candidates. Exact reads from already-published shared prefixes remain enabled.
@@ -591,16 +533,6 @@ struct PromptPreparationStats {
     double media_preprocess_seconds      = 0.0;
     double media_preprocess_work_seconds = 0.0;
     double tokenize_seconds              = 0.0;
-    // Host phases of preparation other than tokenization. `seconds` covers the whole call, so these
-    // exist to keep the remainder attributable: a growing conversation's time to first token cannot
-    // be acted on while "not tokenization" is one unmeasured term. The host-only chat render bench
-    // puts the template render at ~80 ms for a 229-message, 690 KB conversation, so a preparation
-    // that far exceeds that has to be read against these brackets rather than against the render.
-    double render_seconds                = 0.0;
-    double context_cache_seconds         = 0.0;
-    double convert_seconds               = 0.0;
-    double contract_seconds              = 0.0;
-    double positions_seconds             = 0.0;
     std::size_t media_items              = 0;
     std::size_t media_bytes              = 0;
     std::uint64_t raw_patches            = 0;
@@ -722,9 +654,9 @@ struct GenerationTimings {
     double vision_seconds      = 0.0;
     double prefill_seconds     = 0.0;
     double decode_seconds      = 0.0;
-    // Request wall phases at committed model-state boundaries. Prompt begins when admission and
-    // its exact reuse choice are published and ends at the first accepted output token. Generation
-    // spans the first through last accepted output token and therefore has N-1 token intervals.
+    // Prompt wall time begins at the successful initial binding attempt and ends at the first
+    // accepted output token. Generation spans the first through last accepted output token and
+    // therefore has N-1 token intervals.
     double prompt_wall_seconds     = 0.0;
     double generation_wall_seconds = 0.0;
     double total_seconds           = 0.0;
@@ -749,6 +681,53 @@ struct GenerationEngineTiming {
     std::uint64_t control_units                 = 0;
 };
 
+// Request-owned scheduling observations. Restore counters count completed restorations;
+// replayed_tokens counts tokens actually recomputed, including previously generated output;
+// these tokens are separate from initial prompt prefill and delivered output. paused_ns covers
+// pause preparation, waiting and binding restoration, excluding replay computation.
+// Transfer bytes count request-owned payload submitted for binding, capture,
+// pause and restore; background cache maintenance remains in the Engine-wide counters.
+struct GenerationSchedulingStats {
+    std::uint64_t preemptions          = 0;
+    std::uint64_t snapshot_restores    = 0;
+    std::uint64_t replay_restores      = 0;
+    std::uint64_t replayed_tokens      = 0;
+    std::uint64_t paused_ns            = 0;
+    std::uint64_t device_to_host_bytes = 0;
+    std::uint64_t host_to_device_bytes = 0;
+};
+
+// Request-owned execution work. GPU stream intervals overlap Host submission and completion
+// waits; they are evidence about Device work, not an additional wall-time component.
+struct GenerationWorkTiming {
+    double submit_seconds = 0.0;
+    double wait_seconds   = 0.0;
+    double post_seconds   = 0.0;
+    double gpu_seconds    = 0.0;
+};
+
+struct GenerationTransferTiming {
+    std::uint64_t bytes = 0;
+    double seconds      = 0.0;
+};
+
+// Frozen immediately before the first nonempty public output delta is published. This boundary
+// differs from the first accepted model token and from the client's first HTTP output. Elapsed
+// starts at Engine submission, excluding Frontend preparation. Initial queue, initial binding,
+// paused time and the remaining resident interval partition this Engine wall time.
+struct GenerationFirstOutputTiming {
+    double elapsed_seconds         = 0.0;
+    double initial_binding_seconds = 0.0;
+    GenerationEngineTiming engine;
+    GenerationWorkTiming prefill;
+    GenerationWorkTiming replay;
+    GenerationSchedulingStats scheduling;
+    std::uint32_t computed_prefill_tokens = 0;
+    // Resources: State, Main KV, Backend KV. Directions: D2H, H2D, D2D.
+    // Completed request-owned transfers only; background reclamation remains Engine-wide.
+    std::array<std::array<GenerationTransferTiming, 3>, 3> context_transfers{};
+};
+
 struct SpeculativeStats {
     SpeculativeBackend backend    = SpeculativeBackend::None;
     bool enabled                  = false;
@@ -758,15 +737,18 @@ struct SpeculativeStats {
     std::uint64_t accepted_tokens = 0;
     std::uint64_t fallback_steps  = 0;
     std::vector<std::uint64_t> accepted_per_position;
+
     // Drafter recall against the target's own pick at each draft position, indexed like
     // `accepted_per_position`. `recall1_per_position[i]` counts the rounds whose target pick at
     // position i was the drafter's top-1 candidate, `recall16_per_position[i]` the rounds whose
-    // target pick was anywhere in the drafter's 16, and `proposed_per_position[i]` the rounds that
-    // proposed position i at all. `proposed_per_position` is the denominator for all three per
-    // position rates, including the path acceptance `accepted_per_position[i] / proposed[i]`; a
-    // position the round never reached cannot be accepted or missed, and the drafter's candidates
-    // for it are still emitted, so a position's recall is only comparable against the rounds that
-    // proposed it.
+    // target pick was anywhere in the drafter's 16, and `proposed_per_position[i]` the rounds
+    // that proposed position i at all. `proposed_per_position` is the denominator for all three,
+    // so the three are published as a set rather than one at a time.
+    //
+    // Port fields: added for docs/active-work.md item 5, which needed per-position recall to tell
+    // "the drafter is wrong" from "the target changed its mind". Upstream b9114396 rewrote this
+    // struct and did not carry them; generation_service.cpp populates them and
+    // src/serve/request_log.cpp publishes them.
     std::vector<std::uint64_t> proposed_per_position;
     std::vector<std::uint64_t> recall1_per_position;
     std::vector<std::uint64_t> recall16_per_position;
@@ -783,103 +765,12 @@ struct ThinkingBudgetStats {
 
 enum class PrefixReusePath : std::uint8_t {
     Root,
-    PrivateEndpoint,
-    PrivateTurnClosure,
-    PrivateResponseReplay,
-    PrivateLongAnchor,
-    SharedStablePrefix,
-};
-
-// Why bounded pressure planning stopped for the materialization decision committed to one request.
-enum class MaterializationStopReason : std::uint8_t {
-    NoPressure,
-    QueueExhausted,
-    TargetBudget,
-    ExpansionCapacity,
-    TimeBudget,
-    InsufficientExpectedGain,
-    WorkBudget,
-};
-
-[[nodiscard]] inline constexpr const char*
-materialization_stop_reason_name(MaterializationStopReason reason) noexcept {
-    switch (reason) {
-    case MaterializationStopReason::NoPressure:
-        return "no_pressure";
-    case MaterializationStopReason::QueueExhausted:
-        return "queue_exhausted";
-    case MaterializationStopReason::TargetBudget:
-        return "target_budget";
-    case MaterializationStopReason::ExpansionCapacity:
-        return "expansion_capacity";
-    case MaterializationStopReason::TimeBudget:
-        return "time_budget";
-    case MaterializationStopReason::InsufficientExpectedGain:
-        return "insufficient_expected_gain";
-    case MaterializationStopReason::WorkBudget:
-        return "work_budget";
-    }
-    return "no_pressure";
-}
-
-enum class MaterializationSearchPhase : std::uint8_t {
-    None,
-    Setup,
-    Construction,
-    Assessment,
-    Expansion,
-    Refinement,
-};
-
-[[nodiscard]] inline constexpr const char*
-materialization_search_phase_name(MaterializationSearchPhase phase) noexcept {
-    switch (phase) {
-    case MaterializationSearchPhase::None:
-        return "none";
-    case MaterializationSearchPhase::Setup:
-        return "setup";
-    case MaterializationSearchPhase::Construction:
-        return "construction";
-    case MaterializationSearchPhase::Assessment:
-        return "assessment";
-    case MaterializationSearchPhase::Expansion:
-        return "expansion";
-    case MaterializationSearchPhase::Refinement:
-        return "refinement";
-    }
-    return "none";
-}
-
-struct MaterializationDiagnostics {
-    std::uint64_t predicted_now_ns           = 0;
-    std::uint64_t predicted_future_loss_ns   = 0;
-    std::uint64_t predicted_total_ns         = 0;
-    std::uint32_t targets_evaluated          = 0;
-    std::uint64_t projection_work            = 0;
-    std::uint64_t planning_elapsed_ns        = 0;
-    std::uint64_t search_elapsed_ns          = 0;
-    MaterializationStopReason stop_reason    = MaterializationStopReason::NoPressure;
-    bool budget_exhausted                    = false;
-    std::uint32_t selected_degradation_units = 0;
-    bool selected_maximal_fallback           = false;
-
-    std::uint64_t initial_predicted_total_ns = 0;
-    std::optional<std::uint64_t> first_improvement_ns;
-    std::uint32_t incumbent_improvements         = 0;
-    std::uint64_t search_work                    = 0;
-    std::uint64_t search_granted_ns              = 0;
-    std::uint32_t search_renewals                = 0;
-    bool search_discovery_used                   = false;
-    std::uint64_t search_overshoot_ns            = 0;
-    MaterializationSearchPhase search_stop_phase = MaterializationSearchPhase::None;
-    bool search_boundary_limited                 = false;
-
-    [[nodiscard]] friend constexpr bool
-    operator==(const MaterializationDiagnostics&,
-               const MaterializationDiagnostics&) noexcept = default;
+    Checkpoint,
 };
 
 struct GenerationResult {
+    // Unique within this Engine instance; diagnostic correlation only.
+    std::uint64_t engine_request_id = 0;
     PromptSummary prompt;
     std::vector<TokenId> generated_token_ids;
     std::string content;
@@ -890,10 +781,13 @@ struct GenerationResult {
     FinishReason finish_reason     = FinishReason::None;
     std::optional<std::string> matched_stop_string;
     std::uint32_t reused_prompt_tokens = 0;
-    PrefixReusePath prefix_reuse_path  = PrefixReusePath::Root;
-    MaterializationDiagnostics materialization;
+    // Completed initial prefill, excluding cached tokens and separately counted replay work.
+    std::uint32_t computed_prefill_tokens = 0;
+    PrefixReusePath prefix_reuse_path     = PrefixReusePath::Root;
     GenerationTimings timings;
     GenerationEngineTiming engine_timing;
+    GenerationSchedulingStats scheduling;
+    std::optional<GenerationFirstOutputTiming> first_output_timing;
     SpeculativeStats speculative;
     ThinkingBudgetStats thinking;
 };
@@ -939,10 +833,13 @@ struct MemorySummary {
     std::size_t workspace_logical_peak_bytes      = 0;
     std::size_t cuda_graph_allowance_bytes        = 0;
     std::size_t kv_payload_bytes                  = 0;
-    std::uint32_t host_state_capacity_slots       = 0;
-    std::uint32_t host_state_occupied_slots       = 0;
-    std::size_t host_kv_capacity_bytes            = 0;
-    std::size_t host_kv_occupied_bytes            = 0;
+    // One shared physical Host context backing. Reserved bytes are included in occupied bytes;
+    // State/KV occupancy below is a breakdown and must not be added to this ledger again.
+    std::size_t host_context_capacity_bytes = 0;
+    std::size_t host_context_occupied_bytes = 0;
+    std::size_t host_context_reserved_bytes = 0;
+    std::uint32_t host_state_occupied_slots = 0;
+    std::size_t host_kv_occupied_bytes      = 0;
 };
 
 // Worker-owned monotonic nanosecond counters. Top-level Host phases are mutually exclusive;
@@ -965,11 +862,7 @@ struct RuntimeHostWorkStats {
     std::uint64_t prefill_units          = 0;
     std::uint64_t control_units          = 0;
 
-    std::uint64_t admission_policy_ns           = 0;
-    std::uint64_t context_progress_ns           = 0;
     std::uint64_t stats_publication_ns          = 0;
-    std::uint64_t admission_policy_invocations  = 0;
-    std::uint64_t context_progress_invocations  = 0;
     std::uint64_t stats_publication_invocations = 0;
 };
 
@@ -977,7 +870,8 @@ struct RuntimeHostWorkStats {
 // decision observations. Consumers derive interval counters by subtracting two snapshots.
 struct RuntimeStats {
     RuntimeHostWorkStats host_work;
-    // Actual prompt tokens evaluated by prefill; reused checkpoint-prefix tokens are excluded.
+    // Initial prompt tokens evaluated by prefill. Reused checkpoint-prefix tokens and replay
+    // recomputation are excluded; replayed_tokens separately counts that additional model work.
     std::uint64_t computed_prefill_tokens = 0;
     // Tokens committed by decode rounds; the first token emitted by prefill is excluded.
     std::uint64_t committed_decode_tokens = 0;
@@ -988,49 +882,36 @@ struct RuntimeStats {
     std::uint32_t prefilling_requests       = 0;
     std::uint32_t decode_ready_requests     = 0;
     std::uint32_t waiting_requests          = 0;
+    std::uint32_t paused_requests           = 0;
+    std::uint32_t replaying_requests        = 0;
     std::uint32_t materializing_requests    = 0;
     std::uint32_t capture_pending_requests  = 0;
     std::uint32_t terminal_pending_requests = 0;
     std::uint64_t active_captures_completed = 0;
     std::uint64_t active_captures_aborted   = 0;
-    // Why a shared capture offer did not become a retained prefix. A refused capture degrades to a
-    // private-only publication, so the reusable frontier stops advancing and no other field in the
-    // report says which gate refused it. The runtime layer cannot log, so refusals are counted here.
-    std::uint64_t active_captures_offered      = 0;
-    std::uint64_t active_captures_no_vacancy   = 0;
-    std::uint64_t active_captures_plan_refused = 0;
-    std::uint64_t active_captures_infeasible   = 0;
+    std::uint64_t preemptions               = 0;
+    std::uint64_t snapshot_restores         = 0;
+    std::uint64_t replay_restores           = 0;
+    std::uint64_t replayed_tokens           = 0;
 
-    std::uint64_t root_selections                    = 0;
-    std::uint64_t private_endpoint_selections        = 0;
-    std::uint64_t private_turn_closure_selections    = 0;
-    std::uint64_t private_response_replay_selections = 0;
-    std::uint64_t private_long_anchor_selections     = 0;
-    std::uint64_t shared_stable_prefix_selections    = 0;
-    // Why the shared path served nothing. A shared prefix can be skipped before a plan is ever asked
-    // -- the request has no shortlist key at that frontier -- or the plan can decline it, and the two
-    // are indistinguishable from shared_stable_prefix_selections alone. An automatic boundary is the
-    // end of the last message, so an automatic shared prefix is offered only to a request whose
-    // prompt matches it there; a caller that wants a shared prefix served must declare the boundary.
-    // The runtime layer cannot log, so these are counted here.
-    std::uint64_t shared_reuse_candidates            = 0;
-    std::uint64_t shared_reuse_declined              = 0;
-    std::uint64_t shared_reuse_key_mismatch          = 0;
-    std::uint64_t reused_prompt_tokens               = 0;
-    std::uint32_t last_selected_frontier_tokens      = 0;
+    std::uint64_t root_selections               = 0;
+    std::uint64_t checkpoint_selections         = 0;
+    std::uint64_t reused_prompt_tokens          = 0;
+    std::uint32_t last_selected_frontier_tokens = 0;
 
-    std::uint64_t state_moves     = 0;
-    std::uint64_t state_forks     = 0;
-    std::uint64_t state_restores  = 0;
-    std::uint64_t state_d2h_count = 0;
-    std::uint64_t state_h2d_count = 0;
-    std::uint64_t state_d2d_count = 0;
-    std::uint64_t state_d2h_bytes = 0;
-    std::uint64_t state_h2d_bytes = 0;
-    std::uint64_t state_d2d_bytes = 0;
-    double state_d2h_seconds      = 0.0;
-    double state_h2d_seconds      = 0.0;
-    double state_d2d_seconds      = 0.0;
+    std::uint64_t state_moves                 = 0;
+    std::uint64_t state_forks                 = 0;
+    std::uint64_t materialization_state_forks = 0;
+    std::uint64_t state_restores              = 0;
+    std::uint64_t state_d2h_count             = 0;
+    std::uint64_t state_h2d_count             = 0;
+    std::uint64_t state_d2d_count             = 0;
+    std::uint64_t state_d2h_bytes             = 0;
+    std::uint64_t state_h2d_bytes             = 0;
+    std::uint64_t state_d2d_bytes             = 0;
+    double state_d2h_seconds                  = 0.0;
+    double state_h2d_seconds                  = 0.0;
+    double state_d2d_seconds                  = 0.0;
 
     std::uint64_t main_kv_d2h_pages    = 0;
     std::uint64_t main_kv_h2d_pages    = 0;
@@ -1051,24 +932,19 @@ struct RuntimeStats {
     double backend_kv_h2d_seconds      = 0.0;
     double backend_kv_d2d_seconds      = 0.0;
 
-    std::uint64_t pressure_spill_pages                 = 0;
-    std::uint64_t partial_tail_cow_pages               = 0;
-    std::uint32_t device_state_occupied_slots          = 0;
-    std::uint32_t host_state_occupied_slots            = 0;
-    std::uint32_t device_main_kv_occupied_pages        = 0;
-    std::uint32_t device_backend_kv_occupied_pages     = 0;
-    std::size_t host_kv_occupied_bytes                 = 0;
-    std::uint64_t pressure_private_owners_degraded     = 0;
-    std::uint64_t pressure_private_owners_evicted      = 0;
-    std::uint64_t pressure_shared_owners_degraded      = 0;
-    std::uint64_t pressure_shared_owners_evicted       = 0;
-    std::uint64_t pressure_checkpoints_dropped         = 0;
-    std::uint64_t pressure_searches                    = 0;
-    std::uint64_t pressure_search_budget_exhaustions   = 0;
-    std::uint64_t pressure_maximal_fallback_selections = 0;
-    std::uint32_t shared_active_references             = 0;
-    std::uint64_t historical_fork_hits                 = 0;
-    double actual_context_transfer_seconds             = 0.0;
+    std::uint64_t pressure_spill_pages             = 0;
+    std::uint64_t partial_tail_cow_pages           = 0;
+    std::uint32_t device_state_occupied_slots      = 0;
+    std::uint32_t host_state_occupied_slots        = 0;
+    std::uint32_t device_main_kv_occupied_pages    = 0;
+    std::uint32_t device_backend_kv_occupied_pages = 0;
+    std::size_t host_kv_occupied_bytes             = 0;
+    // Unified physical Host context occupancy. Reserved destinations are included in occupied.
+    std::size_t host_context_occupied_bytes = 0;
+    std::size_t host_context_reserved_bytes = 0;
+    // Allocator lifetime high-water mark, including reserved transfer destinations.
+    std::size_t host_context_peak_occupied_bytes = 0;
+    double actual_context_transfer_seconds       = 0.0;
 };
 
 enum class ContextCostPresetSource : std::uint8_t {

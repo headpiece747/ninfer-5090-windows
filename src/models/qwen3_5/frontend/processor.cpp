@@ -583,6 +583,8 @@ RenderedChat expand_placeholders(RenderedChat rendered, const std::vector<Vision
     if (rendered.rewrite_checkpoint) {
         rendered.rewrite_checkpoint->offset =
             map_boundary(rendered.rewrite_checkpoint->offset, "rewrite checkpoint");
+        rendered.rewrite_checkpoint->recovery_offset =
+            map_boundary(rendered.rewrite_checkpoint->recovery_offset, "input recovery");
     }
     for (std::size_t& boundary : rendered.rewrite_execution_boundaries) {
         boundary = map_boundary(boundary, "rewrite execution boundary");
@@ -740,97 +742,58 @@ EncodedChat encode_rendered_chat(const Tokenizer& tokenizer, const RenderedChat&
         throw std::logic_error("rendered chat contains unexpanded media placeholders");
     }
     EncodedChat encoded;
-    // Each byte offset the tokenizer needs, carrying what it is for. The push order and the read
-    // order used to be two independent traversals of the same five fields, agreeing only by
-    // convention: a change that reached one side and missed the other silently mislabelled every
-    // later frontier, and the count check at the end saw only the cases where the totals differed.
-    enum class BoundaryKind : std::uint8_t {
-        RewriteCheckpoint,
-        RewriteExecution,
-        Message,
-        Cache,
-        MediaBegin,
-        MediaEnd,
-    };
-    struct FrontierEntry {
-        BoundaryKind kind;
-        std::size_t ordinal;
-        std::size_t offset;
-    };
-    std::vector<FrontierEntry> ledger;
-    const auto add_boundary = [&ledger](BoundaryKind kind, std::size_t ordinal,
-                                        std::size_t offset) {
-        ledger.push_back(FrontierEntry{kind, ordinal, offset});
-    };
-    if (rendered.rewrite_checkpoint) {
-        add_boundary(BoundaryKind::RewriteCheckpoint, 0, rendered.rewrite_checkpoint->offset);
-    }
-    for (std::size_t index = 0; index < rendered.rewrite_execution_boundaries.size(); ++index) {
-        add_boundary(BoundaryKind::RewriteExecution, index,
-                     rendered.rewrite_execution_boundaries[index]);
-    }
-    for (std::size_t index = 0; index < rendered.message_boundaries.size(); ++index) {
-        if (rendered.message_boundaries[index]) {
-            add_boundary(BoundaryKind::Message, index, *rendered.message_boundaries[index]);
-        }
-    }
-    for (std::size_t index = 0; index < rendered.cache_boundaries.size(); ++index) {
-        if (rendered.cache_boundaries[index]) {
-            add_boundary(BoundaryKind::Cache, index, *rendered.cache_boundaries[index]);
-        }
-    }
-    for (std::size_t index = 0; index < rendered.media_token_runs.size(); ++index) {
-        add_boundary(BoundaryKind::MediaBegin, index, rendered.media_token_runs[index].bytes.begin);
-        add_boundary(BoundaryKind::MediaEnd, index, rendered.media_token_runs[index].bytes.end);
-    }
-    // The tokenizer answers in the order it was asked, so this is the ledger's order too.
     std::vector<std::size_t> byte_boundaries;
-    byte_boundaries.reserve(ledger.size());
-    for (const FrontierEntry& entry : ledger) { byte_boundaries.push_back(entry.offset); }
+    byte_boundaries.reserve((rendered.rewrite_checkpoint ? 2U : 0U) +
+                            rendered.rewrite_execution_boundaries.size() +
+                            rendered.message_boundaries.size() + rendered.cache_boundaries.size() +
+                            rendered.media_token_runs.size() * 2U);
+    if (rendered.rewrite_checkpoint) {
+        byte_boundaries.push_back(rendered.rewrite_checkpoint->offset);
+        byte_boundaries.push_back(rendered.rewrite_checkpoint->recovery_offset);
+    }
+    byte_boundaries.insert(byte_boundaries.end(), rendered.rewrite_execution_boundaries.begin(),
+                           rendered.rewrite_execution_boundaries.end());
+    for (const std::optional<std::size_t> boundary : rendered.message_boundaries) {
+        if (boundary) { byte_boundaries.push_back(*boundary); }
+    }
+    for (const std::optional<std::size_t> boundary : rendered.cache_boundaries) {
+        if (boundary) { byte_boundaries.push_back(*boundary); }
+    }
+    for (const MediaTokenRunByteSpec& run : rendered.media_token_runs) {
+        byte_boundaries.push_back(run.bytes.begin);
+        byte_boundaries.push_back(run.bytes.end);
+    }
 
     BoundaryEncodedText tokenized = tokenizer.encode_with_boundaries(
         rendered.text, byte_boundaries, EncodeOptions{.max_tokens = maximum_tokens},
         rendered.literal_spans);
     encoded.input_ids = std::move(tokenized.input_ids);
     if (encoded.input_ids.size() == maximum_tokens) { return encoded; }
-    // A lookup is a scan for the label, not a counter the reader has to keep in step with the
-    // writer. The ledger is tens of entries for one prompt, so the scan costs nothing measurable
-    // and buys the property that no reader can be misaligned by a change to the writer.
-    //
-    // The two checks around it guard the writer/reader pair against drifting apart, which is what
-    // the order they used to share was doing implicitly: this one catches a reader asking for a
-    // label no writer wrote, and the count at the end catches a label no reader asked for. Neither
-    // can fire today -- every reader loop mirrors its writer -- and both name the failure mode this
-    // design replaced a running index to make impossible.
-    std::size_t resolved_labels = 0;
-    const auto resolved = [&tokenized, &ledger, &resolved_labels](
-                              BoundaryKind kind,
-                              std::size_t ordinal) -> const TokenBoundaryResult& {
-        for (std::size_t index = 0; index < ledger.size(); ++index) {
-            if (ledger[index].kind == kind && ledger[index].ordinal == ordinal) {
-                ++resolved_labels;
-                return tokenized.boundaries.at(index);
-            }
-        }
-        throw std::logic_error("frontier ledger entry has no token boundary");
-    };
-    const auto to_frontier = [](std::size_t frontier, std::string_view kind) {
+    std::size_t boundary_index = 0;
+    const auto to_frontier     = [](std::size_t frontier, std::string_view kind) {
         if (frontier > std::numeric_limits<std::uint32_t>::max()) {
             throw std::overflow_error(std::string(kind) + " token frontier exceeds uint32");
         }
         return static_cast<std::uint32_t>(frontier);
     };
     if (rendered.rewrite_checkpoint) {
-        const TokenBoundaryResult& boundary = resolved(BoundaryKind::RewriteCheckpoint, 0);
+        const TokenBoundaryResult& boundary = tokenized.boundaries.at(boundary_index++);
+        const TokenBoundaryResult& recovery = tokenized.boundaries.at(boundary_index++);
         if (boundary.exact_frontier && *boundary.exact_frontier > 0) {
+            const auto frontier = to_frontier(*boundary.exact_frontier, "rewrite checkpoint");
             encoded.rewrite_checkpoint = RewriteCheckpointSpec{
-                .kind     = rendered.rewrite_checkpoint->kind,
-                .frontier = to_frontier(*boundary.exact_frontier, "rewrite checkpoint")};
+                .kind              = rendered.rewrite_checkpoint->kind,
+                .frontier          = frontier,
+                .recovery_frontier = recovery.exact_frontier && *recovery.exact_frontier > 0 &&
+                                             *recovery.exact_frontier <= frontier
+                                         ? to_frontier(*recovery.exact_frontier, "input recovery")
+                                         : frontier};
         }
     }
     encoded.rewrite_execution_frontiers.reserve(rendered.rewrite_execution_boundaries.size());
-    for (std::size_t index = 0; index < rendered.rewrite_execution_boundaries.size(); ++index) {
-        const TokenBoundaryResult& result = resolved(BoundaryKind::RewriteExecution, index);
+    for (std::size_t remaining = rendered.rewrite_execution_boundaries.size(); remaining != 0;
+         --remaining) {
+        const TokenBoundaryResult& result = tokenized.boundaries.at(boundary_index++);
         const std::optional<std::uint32_t> frontier =
             result.exact_frontier ? std::optional<std::uint32_t>(to_frontier(
                                         *result.exact_frontier, "rewrite execution boundary"))
@@ -844,7 +807,7 @@ EncodedChat encode_rendered_chat(const Tokenizer& tokenizer, const RenderedChat&
     encoded.message_boundaries.resize(rendered.message_boundaries.size());
     for (std::size_t index = 0; index < rendered.message_boundaries.size(); ++index) {
         if (rendered.message_boundaries[index]) {
-            const TokenBoundaryResult& boundary = resolved(BoundaryKind::Message, index);
+            const TokenBoundaryResult& boundary = tokenized.boundaries.at(boundary_index++);
             if (boundary.exact_frontier) {
                 encoded.message_boundaries[index] =
                     to_frontier(*boundary.exact_frontier, "message boundary");
@@ -854,17 +817,16 @@ EncodedChat encode_rendered_chat(const Tokenizer& tokenizer, const RenderedChat&
     encoded.cache_boundaries.resize(rendered.cache_boundaries.size());
     for (std::size_t index = 0; index < rendered.cache_boundaries.size(); ++index) {
         if (rendered.cache_boundaries[index]) {
-            const TokenBoundaryResult& boundary = resolved(BoundaryKind::Cache, index);
+            const TokenBoundaryResult& boundary = tokenized.boundaries.at(boundary_index++);
             if (boundary.exact_frontier)
                 encoded.cache_boundaries[index] =
                     to_frontier(*boundary.exact_frontier, "cache boundary");
         }
     }
     encoded.media_token_runs.reserve(rendered.media_token_runs.size());
-    for (std::size_t index = 0; index < rendered.media_token_runs.size(); ++index) {
-        const MediaTokenRunByteSpec& run = rendered.media_token_runs[index];
-        const TokenBoundaryResult& begin = resolved(BoundaryKind::MediaBegin, index);
-        const TokenBoundaryResult& end   = resolved(BoundaryKind::MediaEnd, index);
+    for (const MediaTokenRunByteSpec& run : rendered.media_token_runs) {
+        const TokenBoundaryResult& begin = tokenized.boundaries.at(boundary_index++);
+        const TokenBoundaryResult& end   = tokenized.boundaries.at(boundary_index++);
         if (!begin.exact_frontier || !end.exact_frontier ||
             *begin.exact_frontier >= *end.exact_frontier) {
             throw std::logic_error("media token run is not an exact nonempty token span");
@@ -885,8 +847,8 @@ EncodedChat encode_rendered_chat(const Tokenizer& tokenizer, const RenderedChat&
             .frame_index = run.frame_index,
         });
     }
-    if (resolved_labels != ledger.size()) {
-        throw std::logic_error("frontier ledger has an entry no reader resolved");
+    if (boundary_index != tokenized.boundaries.size()) {
+        throw std::logic_error("rendered token boundary result count changed during encoding");
     }
     return encoded;
 }

@@ -5,13 +5,14 @@
 #include "models/qwen3_5/program/vision_control.h"
 
 #include "models/qwen3_5/program/prefix_identity.h"
-#include "models/qwen3_5/program/planning/rebuild_work.h"
+#include "runtime/contract/timing.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -24,6 +25,22 @@ void expect(bool condition, std::string_view message) {
     if (condition) { return; }
     ++failures;
     std::cerr << "FAIL: " << message << '\n';
+}
+
+void test_execution_timing_domains() {
+    using namespace ninfer::runtime;
+    ExecutionTimingRecorder recorder(ExecutionTimingPhase::Paused);
+    recorder.include(
+        {.submit_host_ns = 10, .device_wait_ns = 20, .post_host_ns = 30, .gpu_elapsed_ns = 100});
+    recorder.include(
+        {.submit_host_ns = 4, .device_wait_ns = 5, .post_host_ns = 6, .gpu_elapsed_ns = 80});
+    const auto timing = recorder.finish();
+    expect(timing.gpu_elapsed_ns == 180 && timing.host_ns() == 50 && timing.elapsed_ns() == 75,
+           "overlapping GPU intervals must accumulate separately from Host and wall phases");
+    const auto repeated = recorder.finish();
+    expect(repeated.gpu_elapsed_ns == timing.gpu_elapsed_ns &&
+               repeated.elapsed_ns() == timing.elapsed_ns(),
+           "reading a completed execution timing must not accumulate its work again");
 }
 
 q36::DecoderStateSpec decoder_spec(ninfer::KvCacheStorage storage, bool mtp) {
@@ -140,8 +157,7 @@ void test_round_layout() {
                                      .output_rows  = 128,
                                      .draft_window = 5,
                                      .backend      = ninfer::SpeculativeBackend::Mtp});
-    const ninfer::TensorRegion exact_prefill =
-        builder.add_tensor(ninfer::DType::BF16, {32, 16}, 256, "exact prefill hidden");
+    (void)builder.add_tensor(ninfer::DType::BF16, {32, 16}, 256, "exact prefill hidden");
     q36::complete_round_state_layout(builder, round);
     (void)builder.finish(256);
     expect(round.complete, "round layout completes");
@@ -149,9 +165,6 @@ void test_round_layout() {
     expect(round.mtp.has_value() && round.mtp->draft_tokens.shape[0] == 5 &&
                round.mtp->target_input_ids.shape[0] == 6,
            "MTP prefill scratch shapes");
-    expect(round.logits.region.offset < exact_prefill.region.offset &&
-               exact_prefill.region.offset < round.mtp->draft_tokens.region.offset,
-           "exact prefill extension retains established round-region order");
     expect(round.mtp.has_value() && round.mtp->position.shape[0] == 1,
            "MTP prefill scratch is explicit");
     expect(round.mtp_decode.has_value() && round.mtp_decode->alignment_ids.shape[0] == 6 &&
@@ -394,34 +407,95 @@ void test_prefix_identity() {
            "truncated multimodal continuation identity");
 }
 
-void test_rebuild_work_prompt_frontier_boundary() {
-    constexpr std::uint32_t prompt_tokens = 100;
-    constexpr std::uint32_t prefill_chunk = 2048;
-    std::uint32_t tail_begin              = 0;
-    q36::runtime_support::include_rebuild_boundary(tail_begin, prompt_tokens, prompt_tokens);
-    expect(tail_begin == prompt_tokens,
-           "prompt-frontier rebuild boundary was not retained for continuation growth");
+void test_regular_prefix_identity() {
+    const auto prompt = [](std::size_t count, std::int32_t origin = 0) {
+        q36::PreparedPromptData value;
+        value.token_ids.assign(count, 12);
+        value.token_types.assign(count, 0);
+        value.positions.resize(3 * count);
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            for (std::size_t i = 0; i < count; ++i) {
+                value.positions[axis * count + i] = origin + static_cast<std::int32_t>(i);
+            }
+        }
+        return value;
+    };
+    auto original = prompt(128, 7);
+    q36::detail::ResidentPrefixIdentity left, right;
+    left.assign(original);
+    right.assign(original);
+    expect(left.equals(right), "independently prepared regular position identities differ");
+    const auto check_against_input = [&](const auto& value, const auto& identity) {
+        // matches reads the stored arrays against the public input, without the prefix shortcut.
+        for (std::size_t count = 0; count <= value.token_ids.size(); ++count) {
+            expect(left.prefix_equals(identity, count) == left.matches(value, count),
+                   "resident identity comparison disagrees with the prepared input");
+        }
+    };
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        auto changed = original;
+        changed.positions[axis * 128 + 64] += 1;
+        right.assign(changed);
+        check_against_input(changed, right);
+    }
+    auto changed            = original;
+    changed.token_types[64] = 1;
+    right.assign(changed);
+    check_against_input(changed, right);
+    changed = prompt(128, 8);
+    right.assign(changed);
+    check_against_input(changed, right);
+    changed                                      = original;
+    changed.identity.rewrite_execution_frontiers = {64};
+    right.assign(changed);
+    check_against_input(changed, right);
 
-    ninfer::runtime::PrefillWork work =
-        ninfer::runtime::make_prefill_work(0, prompt_tokens, 0, 0, prefill_chunk);
-    q36::runtime_support::advance_segmented_rebuild_work(work, tail_begin, prompt_tokens,
-                                                         prompt_tokens + 1, prefill_chunk);
-    const ninfer::runtime::PrefillWork exact =
-        ninfer::runtime::make_prefill_work(0, prompt_tokens + 1, 0, 0, prefill_chunk);
-    expect(work.chunks == 2 && work.tokens == exact.tokens &&
-               work.attention_pairs == exact.attention_pairs,
-           "continuation growth did not preserve the prompt-frontier rebuild split");
+    left.append_generated(2, 7);
+    right.assign(prompt(130, 7));
+    expect(left.equals(right), "regular generated positions differ from a full rebuild");
+    left.append_generated(1, 8);
+    right.assign(prompt(131, 7));
+    expect(left.prefix_equals(right, 130) && !left.equals(right),
+           "a changed generated position was ignored");
+    left.truncate(128);
+    left.append_generated(3, 7);
+    expect(left.equals(right), "truncation retained discarded position differences");
+
+    left.truncate(0);
+    left.append_generated(3, -4);
+    right.assign(prompt(3, -4));
+    expect(left.equals(right), "empty truncated identity retained an old position origin");
+    q36::detail::ResidentPrefixIdentity saved = left;
+    right.assign(prompt(3, 11));
+    left.swap(right);
+    expect(right.equals(saved) && !left.equals(saved), "swap lost the exact position identity");
+    left.clear();
+    left.append_generated(3, -4);
+    expect(left.equals(saved), "cleared identity retained its prior position metadata");
+    auto moved = std::move(left);
+    left.append_generated(1, 0);
+    left.append_generated(1, 1);
+    right.assign(prompt(2));
+    expect(moved.equals(saved) && left.prefix_equals(right, 1) && !left.equals(right),
+           "reusing a moved-from identity ignored a new position difference");
+
+    auto vision       = identity_prompt();
+    auto other_vision = identity_prompt(2);
+    left.assign(vision);
+    right.assign(other_vision);
+    check_against_input(other_vision, right);
 }
 
 } // namespace
 
 int main() {
+    test_execution_timing_domains();
     test_decoder_layout();
     test_round_layout();
     test_mtp_alignment();
     test_vision_control();
     test_prefix_identity();
-    test_rebuild_work_prompt_frontier_boundary();
+    test_regular_prefix_identity();
     if (failures != 0) {
         std::cerr << failures << " Qwen3.6 runtime mechanism checks failed\n";
         return 1;

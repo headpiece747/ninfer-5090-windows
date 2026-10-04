@@ -4,6 +4,7 @@
 #include "core/layout.h"
 #include "core/paged_kv_storage.h"
 #include "core/tensor.h"
+#include "core/transfer_work.h"
 
 #include <cuda_runtime_api.h>
 
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace ninfer {
@@ -227,8 +229,6 @@ public:
     [[nodiscard]] std::uint32_t available_pages() const noexcept;
     [[nodiscard]] std::size_t plane_count() const noexcept;
     [[nodiscard]] const Tensor& plane(std::size_t index) const;
-    [[nodiscard]] std::uint32_t
-    contiguous_run_count(std::span<const DeviceKVPageHandle> pages) const;
 
     [[nodiscard]] std::optional<DeviceKVPageReservation> reserve(std::uint32_t pages) noexcept;
 
@@ -246,20 +246,26 @@ public:
                      std::optional<DeviceKVPageHandle> preferred_predecessor = std::nullopt);
     // Single-page forms for fixed-capacity logical stores which do not own a growable lease vector.
     [[nodiscard]] DeviceKVPageLease materialize_one(DeviceKVPageReservation& reservation);
-    // Returns trailing leases to the same entitlement instead of releasing their capacity.
+    // Returns trailing leases to the reservation, keeping their capacity reserved.
     void dematerialize(DeviceKVPageReservation& reservation, std::uint32_t target_page_count,
                        std::vector<DeviceKVPageLease>& source);
     void dematerialize_one(DeviceKVPageReservation& reservation, DeviceKVPageLease&& page);
 
     void zero_pages(std::span<const DeviceKVPageHandle> pages, cudaStream_t stream = nullptr) const;
-    void copy_page(DeviceKVPageHandle source, DeviceKVPageHandle destination,
-                   cudaStream_t stream = nullptr) const;
+    TransferWork copy_page(DeviceKVPageHandle source, DeviceKVPageHandle destination,
+                           cudaStream_t stream = nullptr) const;
 
-    void copy_to_host(std::span<const DeviceKVPageHandle> source, HostKVAllocationView destination,
-                      cudaStream_t stream = nullptr) const;
-    void copy_from_host(HostKVAllocationConstView source,
-                        std::span<const DeviceKVPageHandle> destination,
-                        cudaStream_t stream = nullptr) const;
+    // One run assumes contiguous Host records and contiguous Device page IDs. Before Device
+    // allocation, sum this work over known Host runs as a nominal transfer estimate.
+    [[nodiscard]] TransferWork host_transfer_run_work(std::uint32_t pages) const;
+    [[nodiscard]] TransferWork device_copy_work(std::uint32_t pages) const;
+
+    TransferWork copy_to_host(std::span<const DeviceKVPageHandle> source,
+                              HostKVAllocationView destination,
+                              cudaStream_t stream = nullptr) const;
+    TransferWork copy_from_host(HostKVAllocationConstView source,
+                                std::span<const DeviceKVPageHandle> destination,
+                                cudaStream_t stream = nullptr) const;
 
 private:
     friend class DeviceKVPageLease;
@@ -275,6 +281,35 @@ private:
     void release_page(std::int32_t index, std::uint32_t generation) noexcept;
     void release_reservation(std::uint32_t pages) noexcept;
 
+    void initialize_host_transfer_plan();
+    template <bool ToHost>
+    TransferWork copy_host_pages(std::span<const DeviceKVPageHandle> pages,
+                                 std::conditional_t<ToHost, std::byte*, const std::byte*> host,
+                                 cudaStream_t stream) const;
+
+    struct HostTransferPlane {
+        std::size_t host_offset    = 0;
+        std::size_t page_bytes     = 0;
+        std::size_t head_bytes     = 0;
+        std::uint32_t heads        = 0;
+        bool page_copies_supported = false;
+
+        [[nodiscard]] bool copy_by_page(std::size_t pages) const noexcept {
+            return page_copies_supported && pages < heads;
+        }
+    };
+
+    struct HostTransferGroup {
+        std::size_t first_plane  = 0;
+        std::size_t plane_count  = 1;
+        std::size_t device_pitch = 0;
+        std::size_t host_pitch   = 0;
+
+        [[nodiscard]] bool copy_by_page(std::size_t pages) const noexcept {
+            return pages < plane_count;
+        }
+    };
+
     struct FreePageRun {
         std::int32_t begin  = 0;
         std::uint32_t count = 0;
@@ -282,6 +317,13 @@ private:
 
     DeviceKVPagePoolSpec spec_;
     std::vector<Tensor> planes_;
+    std::vector<HostTransferPlane> host_transfer_planes_;
+    std::vector<HostTransferGroup> host_transfer_groups_;
+    // Index is min(run pages, size - 1); the last entry covers the ordinary long-run route.
+    std::vector<std::uint32_t> host_transfer_operations_;
+    std::size_t host_page_stride_         = 0;
+    std::uint64_t page_payload_bytes_     = 0;
+    std::size_t maximum_host_plane_group_ = 1;
     std::vector<FreePageRun> free_page_runs_;
     std::vector<std::uint32_t> page_generations_;
     std::vector<bool> page_allocated_;

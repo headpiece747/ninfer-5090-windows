@@ -55,6 +55,8 @@ struct PrefillContext {
     std::uint32_t mtp_proposal_extent                          = 0;
     std::int32_t dflash_kv_table_row                           = 0;
     qwen3_5::DFlashPrefillIngress* dflash_prefill_host_ingress = nullptr;
+    std::int32_t rope_delta                                    = 0;
+    CudaEventTimer* prefill_gpu_timer                          = nullptr;
 };
 
 struct OrdinaryBatchContext {
@@ -129,7 +131,9 @@ struct TargetVerifyFrameView {
     DFlashFeatureSink* feature_sink        = nullptr;
 };
 
-void configure_text_card(TextContext& card, const ExecutionCore& execution);
+void configure_text_card(TextContext& card, const ExecutionCore& execution,
+                          const ops::SamplingConfig* sampling, std::int32_t state_source_slot,
+                          std::int32_t state_destination_slot, std::uint32_t mtp_proposal_extent);
 void target_verify_accept(ExecutionCore& execution, Tensor& continuation_hidden_store,
                           TextContext& card, TargetVerifyFrameView frame,
                           ops::CausalAttentionExecutionEnvelope envelope);

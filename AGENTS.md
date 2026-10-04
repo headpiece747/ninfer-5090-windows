@@ -43,11 +43,12 @@ NInfer is a from-scratch C++/CUDA inference engine for maximum single-GPU perfor
 use the same architecture, binding and execution path. The implementation targets `sm_120a` and
 is tuned on NVIDIA GeForce RTX 5090.
 
-Generation uses one GPU, one resident model, startup-fixed concurrency of one to eight requests,
-bounded FIFO ingress, no active-request preemption, and one compact decode batch per round.
+Generation uses one GPU, one resident model, one to eight resident execution lanes fixed at startup,
+bounded FIFO ingress with finite bypass, resource-pressure preemption with Snapshot/Replay recovery,
+and one compact decode batch per round.
 Generation and offline CausalScoring use the same public `.ninfer` Engine route. Delivered
 capabilities and commands are documented in `README.md`, the product guides, and executable
-`--help`. New mathematical architectures, execution platforms, large-scale/preemptive continuous
+`--help`. New mathematical architectures, execution platforms, large-scale continuous
 batching, and priority/QoS require an explicit product change. Another training instance or mixture
 of existing representations does not require a checkpoint-specific execution registration.
 

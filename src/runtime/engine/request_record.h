@@ -3,9 +3,8 @@
 #include "core/nvtx.h"
 #include "ninfer/types.h"
 #include "runtime/contract/execution.h"
-#include "runtime/contract/resources.h"
-#include "runtime/engine/admission_policy.h"
 #include "runtime/engine/generation_budget.h"
+#include "runtime/engine/context_cache/types.h"
 
 #include <atomic>
 #include <chrono>
@@ -98,6 +97,9 @@ enum class EngineRequestState : std::uint8_t {
     Waiting,
     Materializing,
     Prefill,
+    Replay,
+    Pausing,
+    Paused,
     DecodeReady,
     ControlReady,
     ModelFinished,
@@ -110,6 +112,7 @@ struct RequestRecord {
     using OutputSession  = typename ModelContract::OutputSession;
     using BasePlan       = typename ModelContract::RequestBasePlan;
     using SequenceHandle = typename ModelContract::SequenceHandle;
+    using ResumeState    = typename ModelContract::ResumeState;
     using StreamEvent    = std::variant<GenerationTimingObservation, OutputDelta>;
 
     RequestRecord(std::uint64_t request_identity, std::uint64_t publication_sequence,
@@ -127,12 +130,12 @@ struct RequestRecord {
     RequestRecord(const RequestRecord&)            = delete;
     RequestRecord& operator=(const RequestRecord&) = delete;
 
-    [[nodiscard]] bool is_waiting() const noexcept {
-        return model_state == EngineRequestState::Waiting;
-    }
-
     [[nodiscard]] bool is_prefilling() const noexcept {
         return model_state == EngineRequestState::Prefill;
+    }
+
+    [[nodiscard]] bool is_replaying() const noexcept {
+        return model_state == EngineRequestState::Replay;
     }
 
     [[nodiscard]] bool is_materializing() const noexcept {
@@ -183,14 +186,28 @@ struct RequestRecord {
     std::optional<FinishReason> terminal_reason;
 
     std::optional<BasePlan> base_plan;
-    std::uint64_t remaining_service_work = 0;
-    std::uint64_t backfill_epoch         = 0;
-    BackfillClass backfill_class         = BackfillClass::None;
+    std::optional<ResumeState> suspended;
+    ContinuationOwnerToken continuation_owner = 0;
+    std::uint64_t device_to_host_bytes        = 0;
+    std::uint64_t host_to_device_bytes        = 0;
+    EngineRequestState resume_phase           = EngineRequestState::Prefill;
+    std::uint32_t admission_bypasses          = 0;
+    bool recovery_pending                     = false;
+    std::uint64_t preemption_count            = 0;
+    std::uint64_t replay_restores             = 0;
+    std::uint64_t snapshot_restores           = 0;
+    std::uint64_t replayed_tokens             = 0;
+    std::uint64_t paused_ns                   = 0;
+    std::optional<Clock::time_point> paused_at;
     std::uint32_t computed_prompt_tokens = 0;
     GenerationTimings generation_timings;
     RequestHostTiming host_timing;
+    std::uint64_t initial_binding_ns = 0;
+    GenerationWorkTiming prefill_work;
+    GenerationWorkTiming replay_work;
+    std::array<std::array<GenerationTransferTiming, 3>, 3> context_transfers{};
+    std::optional<GenerationFirstOutputTiming> first_output_timing;
     SpeculativeStats speculative_stats;
-    MaterializationDiagnostics materialization_diagnostics;
 
     std::mutex mutex;
     std::condition_variable cv;

@@ -186,6 +186,102 @@ int test_standard_field_policy() {
     return failures;
 }
 
+int test_prompt_cache_boundaries() {
+    using Location = ninfer::PromptCacheMarkerLocation;
+    using Evidence = ninfer::SharedCandidateEvidence;
+    int failures   = 0;
+    for (const char* role : {"user", "system", "developer"}) {
+        Json body = base_request();
+        body["messages"].push_back(Json{{"role", role}, {"content", "complete message"}});
+        const auto prepared = prompt(parse(body).generation);
+        const auto& markers = prepared.context_cache.markers;
+        failures += check(
+            markers.size() == 1 && markers[0].location == Location::MessagePartBoundary &&
+                markers[0].after_message_count == 2 && markers[0].after_message_part_count == 1 &&
+                markers[0].evidence == Evidence::DefaultAutomatic,
+            std::string(role) + " automatic cache ends at the final source part");
+    }
+
+    Json multipart                      = base_request();
+    multipart["messages"][0]["content"] = Json::array(
+        {Json{{"type", "text"}, {"text", "first"}}, Json{{"type", "text"}, {"text", "second"}}});
+    multipart["prompt_cache_options"] = Json{{"mode", "implicit"}};
+    const auto requested              = prompt(parse(multipart).generation);
+    failures +=
+        check(requested.context_cache.markers.size() == 1 &&
+                  requested.context_cache.markers[0].location == Location::MessagePartBoundary &&
+                  requested.context_cache.markers[0].after_message_part_count == 2 &&
+                  requested.context_cache.markers[0].evidence == Evidence::RequestedAutomatic,
+              "requested implicit caching uses the final source part");
+    multipart["prompt_cache_options"] = Json{{"mode", "explicit"}};
+    const auto disabled               = prompt(parse(multipart).generation);
+    failures += check(disabled.context_cache.markers.empty() &&
+                          !disabled.context_cache.allow_engine_automatic_shared_prefixes,
+                      "explicit mode without markers disables automatic shared writes");
+
+    Json marked                      = base_request();
+    marked["messages"][0]["content"] = Json::array();
+    for (int index = 0; index < 4; ++index) {
+        marked["messages"][0]["content"].push_back(
+            Json{{"type", "text"},
+                 {"text", "section " + std::to_string(index)},
+                 {"prompt_cache_breakpoint", Json{{"mode", "explicit"}}}});
+    }
+    const auto merged = prompt(parse(marked).generation);
+    failures += check(merged.context_cache.markers.size() == 4,
+                      "automatic caching reuses an explicitly marked final part");
+    for (std::size_t index = 0; index < merged.context_cache.markers.size(); ++index) {
+        const auto& marker = merged.context_cache.markers[index];
+        failures += check(
+            marker.location == Location::MessagePartBoundary &&
+                marker.after_message_part_count == index + 1 &&
+                ninfer::has_shared_candidate_evidence(marker.evidence, Evidence::ExplicitBoundary),
+            "explicit part locations survive automatic merging");
+    }
+    failures +=
+        check(merged.context_cache.markers.size() == 4 &&
+                  ninfer::has_shared_candidate_evidence(
+                      merged.context_cache.markers.back().evidence, Evidence::DefaultAutomatic),
+              "the final explicit part also carries the automatic opportunity");
+    marked["messages"][0]["content"].push_back(Json{{"type", "text"}, {"text", "new tail"}});
+    const auto full = prompt(parse(marked).generation);
+    failures += check(full.context_cache.markers.size() == 4,
+                      "automatic caching yields to four explicit boundaries");
+    for (std::size_t index = 0; index < full.context_cache.markers.size(); ++index) {
+        const auto& marker = full.context_cache.markers[index];
+        failures += check(marker.location == Location::MessagePartBoundary &&
+                              marker.after_message_part_count == index + 1 &&
+                              marker.evidence == Evidence::ExplicitBoundary,
+                          "a later implicit target does not displace an explicit boundary");
+    }
+
+    Json assistant = base_request();
+    assistant["messages"].push_back(Json{{"role", "assistant"}, {"content", "partial answer"}});
+    const auto assistant_prompt = prompt(parse(assistant).generation);
+    failures += check(assistant_prompt.context_cache.markers.size() == 1 &&
+                          assistant_prompt.context_cache.markers[0].location ==
+                              Location::MessagePartBoundary &&
+                          assistant_prompt.context_cache.markers[0].after_message_count == 2,
+                      "assistant content retains its part boundary for continuation");
+
+    Json tool = base_request();
+    tool["messages"].push_back(
+        Json{{"role", "assistant"},
+             {"tool_calls",
+              Json::array({Json{{"id", "call_cache"},
+                                {"type", "function"},
+                                {"function", Json{{"name", "lookup"}, {"arguments", "{}"}}}}})}});
+    tool["messages"].push_back(
+        Json{{"role", "tool"}, {"tool_call_id", "call_cache"}, {"content", "result"}});
+    const auto tool_prompt = prompt(parse(tool).generation);
+    failures +=
+        check(tool_prompt.context_cache.markers.size() == 1 &&
+                  tool_prompt.context_cache.markers[0].location == Location::MessagePartBoundary &&
+                  tool_prompt.context_cache.markers[0].after_message_count == 3,
+              "tool results retain their content boundary when a result group grows");
+    return failures;
+}
+
 int test_constrained_decoding_extensions() {
     int failures                                           = 0;
     const std::vector<std::pair<const char*, Json>> active = {
@@ -782,7 +878,7 @@ int test_common_objects() {
 // prompt, so an undeclared request only offers a shared prefix to a request whose prompt matches it
 // there. A caller that wants a shared prefix served declares the boundary, which is what gives it
 // the evidence that lets shared publication commit without surplus capacity.
-int test_prompt_cache_boundaries() {
+int test_openai_prompt_cache_write_policy() {
     int failures = 0;
 
     const OpenAIChatRequest automatic = parse(base_request());
@@ -826,6 +922,7 @@ int main() {
     int failures = 0;
     failures += test_request_envelope_and_sampling();
     failures += test_standard_field_policy();
+    failures += test_openai_prompt_cache_write_policy();
     failures += test_constrained_decoding_extensions();
     failures += test_tools();
     failures += test_messages_and_media();
@@ -835,7 +932,6 @@ int main() {
     failures += test_stream_response();
     failures += test_stream_observations();
     failures += test_common_objects();
-    failures += test_prompt_cache_boundaries();
     if (failures == 0) { std::cout << "OpenAI Chat protocol tests passed\n"; }
     return failures == 0 ? 0 : 1;
 }

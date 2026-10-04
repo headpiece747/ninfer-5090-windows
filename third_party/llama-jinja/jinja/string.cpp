@@ -1,5 +1,6 @@
 #include "string.h"
 #include "unicode.h"
+#include "text/unicode.h"
 #include <algorithm>
 #include <stdexcept>
 
@@ -189,8 +190,7 @@ string string::capitalize() const { return map_case(unicode::Case::Capitalize); 
 string string::titlecase() const { return map_case(unicode::Case::Title); }
 
 string string::strip(bool left, bool right, std::optional<const std::string_view> selected) const {
-    const auto text  = str();
-    const auto chars = unicode::characters(text);
+    const auto text = str();
     const auto matching =
         selected ? unicode::characters(*selected) : std::vector<unicode::Character>{};
     const auto match = [&](auto cp) {
@@ -198,14 +198,9 @@ string string::strip(bool left, bool right, std::optional<const std::string_view
                                       [&](auto ch) { return ch.value == cp; })
                         : unicode::whitespace(cp);
     };
-    std::size_t begin = 0, end = chars.size();
-    if (left)
-        while (begin < end && match(chars[begin].value)) ++begin;
-    if (right)
-        while (end > begin && match(chars[end - 1].value)) --end;
-    const auto first_byte = begin == chars.size() ? text.size() : chars[begin].begin;
-    const auto last_byte  = end == chars.size() ? text.size() : chars[end].begin;
-    return cut_bytes(first_byte, last_byte);
+    const auto bytes =
+        ninfer::text::unicode_internal::trim_utf8(text, left, right, match, "Jinja string");
+    return cut_bytes(bytes.begin, bytes.end);
 }
 
 } // namespace jinja

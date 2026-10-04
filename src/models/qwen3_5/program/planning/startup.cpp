@@ -839,7 +839,15 @@ std::unique_ptr<SequencePlanImpl> build_sequence_candidate(const SequencePlannin
     impl->context_cache        = inputs.context_cache;
     impl->kv_storage           = inputs.kv_storage;
     impl->persistent           = persistent_layout(*impl);
-    impl->workspace            = build_workspace_plan(*impl);
+    if (!impl->context_cache.host_capacity_bytes) {
+        // Default Host capacity covers 8 GiB of KV bytes plus eight complete StateImages.
+        impl->context_cache.host_capacity_bytes =
+            checked_add(8ULL * 1024 * 1024 * 1024,
+                        checked_mul(8, impl->persistent.state_images.host.image_bytes,
+                                    "Host context state default overflow"),
+                        "Host context default overflow");
+    }
+    impl->workspace = build_workspace_plan(*impl);
     if (impl->use_cuda_graph) {
         // Definitions remain per execution profile, but only one executable is instantiated for
         // each reachable node-topology class. These bounds cover the largest profile installed in

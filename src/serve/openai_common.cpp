@@ -142,7 +142,9 @@ void apply_openai_prompt_cache_policy(GenerationRequest& request, OpenAIPromptCa
     }
 
     const bool automatic_enabled =
-        policy.automatic != OpenAIPromptCacheAutomatic::Disabled && automatic_target != nullptr;
+        policy.automatic != OpenAIPromptCacheAutomatic::Disabled && automatic_target != nullptr &&
+        (automatic_target->has_value() ||
+         explicit_boundaries.size() < kMaximumExplicitPromptCacheMarkers);
     const bool automatic_merges_explicit   = automatic_enabled && automatic_target->has_value();
     const std::size_t explicit_write_slots = !automatic_enabled || automatic_merges_explicit
                                                  ? kMaximumExplicitPromptCacheMarkers
