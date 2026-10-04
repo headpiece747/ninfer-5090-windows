@@ -1,49 +1,61 @@
-// claims-gate -- a blocking OpenCode V2 plugin.
+// claims-gate -- blocks two provable defects at the tool layer.
 //
 // Built from the V2 plugins guide (https://opencode.ai/v2/docs/build/plugins), not from type
-// definitions, which is how the previous attempt got its mental model wrong.
+// definitions, which is how the discarded first attempt got its model wrong.
 //
-// WHAT THE GUIDE SETTLES. There is exactly one hook that BLOCKS: `ctx.permission.hook("evaluate")`,
-// where "a hook may change `effect` to `allow`, `ask`, or `deny`". `ctx.tool.hook("execute.before")`
-// cannot block -- it inspects or REPLACES tool input and has no effect field -- so it is used here only
-// to observe. `ctx.shell.hook("create.before")` also only mutates. An explicitly configured `deny` is
-// final and never reaches this hook, so this gate can only ever ADD a denial.
+// WHY A GATE AND NOT A RULE. On 2026-10-03 a session asserted eleven wrong claims, all from stating
+// a conclusion before the tool call that would establish it. Rules added to AGENTS.md to prevent it
+// were not followed, because a rules file is read once at session start and then competes with
+// everything else. A gate does not need to be remembered.
 //
-// WHY DENY ONLY PROVABLE DEFECTS. Two rules were added to AGENTS.md this session to stop the agent
-// asserting before reading. Neither was followed, because a rules file is read once at session start
-// and then competes with everything else. A gate does not need to be remembered. But a gate that
-// denies on judgement is a gate that gets muted, and a muted gate teaches the agent to route around
-// it -- worse than no gate. So every condition below is arithmetic or an exact command shape:
+// WHAT IS DENIED, and both conditions are provable rather than judged -- a gate that denies on
+// judgement is a gate that gets muted, and a muted gate teaches the agent to route around it:
 //
-//   1. A Markdown edit carrying a `path/file.ext:LINE` citation whose target does not exist, or whose
-//      LINE is past EOF. This class is real: check_doc_citations.py found three (fp8_linear_add_a8.cu:215
-//      in a 117-line file, plus two unqualified config.py references). Enforcing at write time is the
-//      point -- a wrong claim in a document outlives the correction.
+//   1. A Markdown write/edit whose payload cites `file.ext:LINE` where the file is missing or LINE is
+//      past EOF. check_doc_citations.py already found three of these in the committed tree
+//      (fp8_linear_add_a8.cu:215 in a 117-line file, two unqualified config.py references). Enforcing
+//      at write time rather than commit time is the point: a wrong claim in a document outlives the
+//      correction.
+//   2. A shell command matching Set-Content / Out-File / Add-Content with `-Encoding utf8`. Under
+//      PowerShell 5.1 that writes a BOM and Get-Content decodes with the console codepage; the pair
+//      destroyed 181 lines of docs/active-work.md in one session while every other gate passed.
 //
-//   2. A PowerShell command matching Set-Content / Out-File / Add-Content with `-Encoding utf8`.
-//      PowerShell 5.1 writes a BOM and Get-Content decodes with the console codepage; that pair
-//      destroyed 181 lines of docs/active-work.md in one session and no gate caught it, because the
-//      corruption is confined to prose. The command shape IS the defect.
+// WHAT THIS CANNOT DO: nothing observes what the agent SAYS. No hook covers assistant prose, so "do
+// not assert before reading" is not enforceable by any plugin.
 //
-// WHAT THIS CANNOT DO, and it is the part that matters: nothing here observes what the agent SAYS.
-// No hook covers assistant prose, so "do not assert before reading" is not enforceable by any plugin.
-// Do not pretend otherwise.
+// ------------------------------------------------------------------------------
+// THREE ENFORCEMENT ATTEMPTS, and only the third is known to reach the tool. Read this before
+// changing any of it -- each earlier version had a full green harness and refused nothing.
 //
-// FAILS OPEN, ALWAYS. Every callback is wrapped; any error logs and returns without touching `effect`.
-// The only path that sets `deny` is a proven defect. This file must never be able to brick a session.
+//   1. `ctx.permission.hook("evaluate")` with `effect = "deny"`. WRONG LAYER. That hook sits on the
+//      PERMISSION path -- external_directory, doom_loop, ask-resolved rules. An edit inside the
+//      workspace defaults to allow and never routes there, so the files this gate protects are
+//      exactly the files it never sees. Every PERM line it logged came from an edit to the global
+//      config directory, outside the workspace, the one case it does reach.
+//
+//   2. The same hook, fixed to read the payload shape the host actually sends
+//      (`{files:[{file, patch}]}`). Still the wrong layer, so still inert for in-workspace edits.
+//
+//   3. `tool.execute.before` with a throw. Primary sources say a thrown error ABORTS the call --
+//      adlc, pinned against the plugin SDK, states it as documented host behaviour, and upstream
+//      issue #37164 says a hook can "only silently allow or throw a hard denial". MEASURED HERE AND
+//      IT DID NOT ABORT: with claims-gate.ts loaded at 00:09:23Z and the throw present, a Markdown
+//      write carrying a past-EOF citation was still created. Both of those sources describe the V1
+//      plugin API (`@opencode-ai/plugin`, whose hook signature is `(input, output)`); the V2 callback
+//      is `(event) => void`, with no output parameter and no documented abort-on-throw. The claim was
+//      carried over across a major version boundary without being re-checked.
+//
+// So the throw stays -- it is correct, and it costs nothing -- and the enforcement that does not
+// depend on hook semantics is the tool TRANSFORM below, which replaces the tool's own execute. That
+// cannot be swallowed by hook semantics: the write simply never happens.
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs"
 import { dirname, isAbsolute, resolve } from "node:path"
-// NO `import { Plugin } from "@opencode/plugin"` -- see rules-inject.ts, whose header explains why in
-// full. Short version: the opencode service resolves that package only inside the global config
-// directory, so a plugin in this repository is SKIPPED with a "Cannot find package" warning that
-// nothing else reports, and installing the package locally did not fix it across a restart.
 
 const ID = "ninfer.claims-gate"
-
 const LOG = "C:/Users/tobia/AppData/Local/Temp/opencode/claims-gate.log"
 
-// docs/research/ cites other projects by design, so a path in it is an external reference rather than
+// docs/research/ cites other projects by design, so a path there is an external reference rather than
 // a dead one. check_doc_citations.py skips the same directory.
 const EXTERNAL = "docs/research/"
 
@@ -69,12 +81,11 @@ function lineCount(path: string): number {
 
 /** Citations that are provably wrong: the file is missing, or LINE is past EOF.
  *
- *  Resolution is tried against BOTH the document's own directory and the repository root, because
+ *  Resolution is tried against BOTH the document's directory and the repository root, because
  *  documents here cite repository-relative paths (`src/ops/foo.cu:215`) while sitting in `docs/`.
- *  Resolving only against the document's directory would deny every such citation; resolving only
- *  against the root would miss a document citing its own siblings. A citation is accepted if EITHER
- *  base resolves it -- which is what check_doc_citations.py already does for the committed tree, and
- *  the two must agree, or the hook denies what the gate allows.
+ *  Resolving only against the document's directory denies every such citation; resolving only against
+ *  the root misses a document citing its own siblings. Accepting whichever base resolves it is what
+ *  check_doc_citations.py already does, and the two must agree -- or this denies what the gate allows.
  */
 function brokenCitations(text: string, docDir: string, repoRoot: string): string[] {
   const bad: string[] = []
@@ -120,91 +131,109 @@ function reencodingCommand(cmd: string): string | null {
   return null
 }
 
-/** Pull the incoming payload out of whatever shape the tool call carries. */
-function payloadOf(input: unknown): string {
-  if (typeof input === "string") return input
-  if (!input || typeof input !== "object") return ""
-  const rec = input as Record<string, unknown>
+/** The incoming payload, from whichever key the tool used. */
+function payloadOf(input: Record<string, unknown>): string {
   let out = ""
-  for (const k of ["content", "newString", "oldString", "command", "patch", "fileText"]) {
-    const v = rec[k]
+  for (const k of ["content", "newString", "oldString", "patch", "fileText"]) {
+    const v = input[k]
     if (typeof v === "string") out += `\n${v}`
   }
   return out
+}
+
+// ---------------------------------------------------------------------------------------------
+// The single decision. Both enforcement paths call this, so they cannot disagree.
+// Returns a denial reason, or null to allow. NEVER throws: a check that throws on its own bug would
+// break the tool it protects.
+// ---------------------------------------------------------------------------------------------
+function checkCall(tool: string, input: unknown, repo: string): string | null {
+  try {
+    if (typeof tool !== "string") return null
+    const args = (input ?? {}) as Record<string, unknown>
+
+    if (tool === "shell" || tool === "bash") {
+      const problem = reencodingCommand(typeof args.command === "string" ? args.command : "")
+      return problem
+    }
+
+    if (tool !== "write" && tool !== "edit" && tool !== "patch") return null
+    const target =
+      (typeof args.path === "string" && args.path) ||
+      (typeof args.filePath === "string" && args.filePath) ||
+      ""
+    if (!target.toLowerCase().endsWith(".md")) return null
+
+    const mdAbs = isAbsolute(target) ? target : resolve(repo, target)
+    if (!existsSync(mdAbs)) return null // a new file cannot cite an existing line range wrongly
+
+    const incoming = payloadOf(args)
+    if (!incoming) return null
+
+    const bad = brokenCitations(incoming, dirname(mdAbs), repo)
+    if (bad.length) {
+      return (
+        `${bad.join("; ")}. Open the line and read it before writing it down, or drop the citation.`
+      )
+    }
+    return null
+  } catch (err) {
+    log(`ERROR (allowed, failing open): ${String(err)}`)
+    return null
+  }
 }
 
 export default {
   id: ID,
 
   async setup(ctx: any) {
-    const repo = ctx.location?.directory ?? process.cwd()
+    const repo = ctx?.location?.directory ?? process.cwd()
     log(`SETUP repo=${repo}`)
 
-    // THE ENFORCEMENT POINT. Two earlier designs got this wrong and were wrong in the same way.
-    //
-    // v1 hooked `ctx.permission.hook("evaluate")` and set `event.effect = "deny"`. It has a 14-case
-    // test suite, and it has never once refused anything, because permission evaluation is the
-    // PERMISSION path: external_directory, doom_loop, and rules that resolve to ask. An edit inside
-    // the workspace defaults to allow and never routes there. Every PERM line the plugin ever logged
-    // came from an edit to the global config directory -- outside the workspace, which is the one
-    // case it does see.
-    //
-    // v2 hooked this one and only logged. The guide's own text -- "Inspect or replace tool input" --
-    // reads as observe-only, and that reading is what produced a gate that observed.
-    //
-    // It is not observe-only. Throwing from `tool.execute.before` ABORTS the tool call. That is the
-    // documented host behaviour, and it is how a third-party enforcement plugin (adlc, pinned against
-    // the plugin SDK with a live-deny regression script) blocks tool use; upstream issue #37164 states
-    // the same limit from the other side -- a hook can "only silently allow or throw a hard denial".
-    // There is no effect field because throwing IS the denial.
-    //
-    // This hook fires for EVERY tool call, which the log now proves: TOOL lines appear for every
-    // shell, write and read this session performs, including the in-workspace ones the permission
-    // path never saw.
+    // Path A -- the hook. Kept because the throw is correct per primary sources, and because an
+    // explicit `TOOL` line here is the only positive evidence that the hook fired at all. Without
+    // it, "hook did not fire" and "hook fired and was swallowed" are indistinguishable -- which is
+    // exactly how the previous version spent a session.
     await ctx.tool.hook("execute.before", (event: any) => {
       try {
         if (!event || typeof event.tool !== "string") return
-        const input = (event.input ?? {}) as Record<string, unknown>
-
-        // Gate 2 -- the PowerShell re-encoding shape. Checked first: it needs no path resolution.
-        if (event.tool === "shell" || event.tool === "bash") {
-          const problem = reencodingCommand(typeof input.command === "string" ? input.command : "")
-          if (problem) {
-            log(`DENY shell: ${problem}`)
-            throw new Error(`claims-gate: ${problem}`)
-          }
-          return
-        }
-
-        // Gate 1 -- a provably wrong citation in a Markdown edit.
-        if (event.tool !== "write" && event.tool !== "edit" && event.tool !== "patch") return
-        const target =
-          (typeof input.path === "string" && input.path) ||
-          (typeof input.filePath === "string" && input.filePath) ||
-          ""
-        if (!target.toLowerCase().endsWith(".md")) return
-
-        const mdAbs = isAbsolute(target) ? target : resolve(repo, target)
-        if (!existsSync(mdAbs)) return // a new file cannot cite an existing line range wrongly
-
-        const incoming = payloadOf(input)
-        if (!incoming) return
-
-        const bad = brokenCitations(incoming, dirname(mdAbs), repo)
-        if (bad.length) {
-          log(`DENY cite: ${bad.join(" ; ")}`)
-          throw new Error(
-            `claims-gate: refused -- ${bad.join("; ")}. ` +
-              `Open the line and read it before writing it down, or drop the citation.`,
-          )
-        }
+        const reason = checkCall(event.tool, event.input, repo)
+        log(`TOOL ${event.tool} -> ${reason ? "DENY" : "allow"}`)
+        if (reason) throw new Error(`claims-gate: ${reason}`)
       } catch (err) {
-        // Re-throw our own denial; swallow anything else. A check that throws on its own bug would
-        // break the tool it is protecting, which is worse than not checking.
-        if (err instanceof Error && err.message.startsWith("claims-gate:")) throw err
+        if (err instanceof Error && err.message.startsWith("claims-gate:")) {
+          log(`DENY ${event.tool}: ${err.message.slice(9)}`)
+          throw err
+        }
         log(`ERROR (allowed, failing open): ${String(err)}`)
       }
     })
 
-    },
+    // Path B -- the transform. This is the enforcement that does not rely on hook-throw semantics:
+    // the wrapped execute returns the denial instead of calling the original, so the write does not
+    // happen. Unregistering or disabling the plugin restores the original tool, which is the same
+    // escape hatch every plugin override has.
+    await ctx.tool.transform((editor: any) => {
+      for (const id of ["write", "edit", "patch", "shell"]) {
+        const existing = editor.get(id)
+        if (!existing || typeof existing.execute !== "function") {
+          log(`NOTE tool "${id}" not present at transform time; not wrapped`)
+          continue
+        }
+        const original = existing.execute
+        editor.update(id, (tool: any) => {
+          tool.execute = async (input: any, toolCtx: any) => {
+            const reason = checkCall(id, input, repo)
+            if (reason) {
+              log(`BLOCK ${id}: ${reason}`)
+              throw new Error(`claims-gate: refused -- ${reason}`)
+            }
+            log(`ALLOW ${id} (transform)`)
+            return original(input, toolCtx)
+          }
+        })
+      }
+    })
+
+    log("SETUP complete: hook + transform registered")
+  },
 }
