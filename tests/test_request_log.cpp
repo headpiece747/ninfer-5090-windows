@@ -425,6 +425,13 @@ int main() {
     outcome.metrics.speculative_accepted_tokens       = 720;
     outcome.metrics.speculative_fallback_steps        = 2;
     outcome.metrics.speculative_accepted_per_position = {290, 240, 190};
+    // Non-zero and NOT proportional to `accepted_per_position`, so a publisher that emitted the
+    // vectors in the wrong order, or emitted `accepted` under each name, fails rather than passing on
+    // shape alone. `recall16 >= recall1 >= accepted` per position is the invariant the drafter
+    // guarantees, so the values are chosen to violate a swap of recall1 with recall16.
+    outcome.metrics.speculative_proposed_per_position  = {300, 300, 295};
+    outcome.metrics.speculative_recall1_per_position    = {260, 150, 90};
+    outcome.metrics.speculative_recall16_per_position   = {280, 240, 175};
     outcome.metrics.materialization                   = {
                           .predicted_now_ns           = 200000,
                           .predicted_future_loss_ns   = 50000,
@@ -497,6 +504,18 @@ int main() {
     failures +=
         check(done.at("speculative").at("accepted_per_position") == Json::array({290, 240, 190}),
               "speculative position counts missing");
+    // The three drafter-recall vectors, each asserted against its own distinct values. Asserting
+    // them separately rather than one shape check is the point: a publisher that emitted all three
+    // under the wrong key, or swapped recall1 with recall16, still satisfies a key-presence test and
+    // fails these.
+    failures += check(
+        done.at("speculative").at("proposed_per_position") == Json::array({300, 300, 295}),
+        "speculative proposed-per-position missing");
+    failures +=
+        check(done.at("speculative").at("recall1_per_position") == Json::array({260, 150, 90}),
+              "speculative recall1-per-position missing");
+    failures += check(done.at("speculative").at("recall16_per_position") == Json::array({280, 240, 175}),
+                      "speculative recall16-per-position missing");
     failures += check(done.at("materialization").at("predicted_total_ns") == 250000 &&
                           done.at("materialization").at("targets_evaluated") == 7 &&
                           done.at("materialization").at("stop_reason") == "queue_exhausted" &&

@@ -439,6 +439,12 @@ GenerationOutcome GenerationService::run(PreparedRequest& prepared, const Stream
     outcome.metrics.speculative_fallback_steps  = result.speculative.fallback_steps;
     outcome.metrics.speculative_accepted_per_position =
         std::move(result.speculative.accepted_per_position);
+    outcome.metrics.speculative_proposed_per_position =
+        std::move(result.speculative.proposed_per_position);
+    outcome.metrics.speculative_recall1_per_position =
+        std::move(result.speculative.recall1_per_position);
+    outcome.metrics.speculative_recall16_per_position =
+        std::move(result.speculative.recall16_per_position);
 
     outcome.tool_calls      = std::move(result.tool_calls);
     outcome.tool_call_parse = result.tool_call_parse;

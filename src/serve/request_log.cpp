@@ -303,7 +303,15 @@ Json speculative_json(const GenerationMetrics& metrics) {
                 {"drafted_tokens", metrics.speculative_draft_tokens},
                 {"accepted_tokens", metrics.speculative_accepted_tokens},
                 {"fallback_steps", metrics.speculative_fallback_steps},
-                {"accepted_per_position", metrics.speculative_accepted_per_position}};
+                {"accepted_per_position", metrics.speculative_accepted_per_position},
+                // Published together because they are only interpretable together: all four are
+                // indexed by draft position, and `proposed` is the denominator for the other three,
+                // so a reader given `accepted_per_position` alone cannot compute a rate. These were
+                // bench-only until 2026-10-04; `docs/active-work.md` item 5 recorded that split as
+                // the reason its two acceptance figures could not be compared.
+                {"proposed_per_position", metrics.speculative_proposed_per_position},
+                {"recall1_per_position", metrics.speculative_recall1_per_position},
+                {"recall16_per_position", metrics.speculative_recall16_per_position}};
 }
 
 Json materialization_json(const ninfer::MaterializationDiagnostics& diagnostics) {

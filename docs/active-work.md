@@ -23,11 +23,12 @@ and renumbering them would break every cross-reference to it. Each heading carri
 
 **As of 2026-10-04 the work outstanding is:**
 
-- **item 5, residue** — the instrument is built and it refuted the item's premise. Two things it did
-  not settle are open. (a) `profiles.py` records QUASAR at 55.0% acceptance while the bench measures
-  21.1%; they are not the same measurement, and **the two figures must not be quoted side by side
-  until the workloads are matched**. (b) `src/serve/request_log.cpp` still publishes only
-  `accepted_per_position`, so the three new counters are invisible on the serving path. See `:286`.
+- **item 5, residue** — the instrument is built and it refuted the item's premise. **Two things it did
+  not settle remain open.** (a) `profiles.py` records QUASAR at 55.0% acceptance while the bench
+  measures 21.1%; they are not the same measurement, and **the two figures must not be quoted side by
+  side until the workloads are matched**. (b) ~~`request_log.cpp` publishes only
+  `accepted_per_position`~~ — **closed 2026-10-04**; the three drafter-recall counters now reach the
+  serving path. See `:314`.
 - **item 12** — **nothing remains open.** All nine `PORT-DISPATCH` gates were ungated 2026-10-02,
   each on its own per-route oracle; every affected file carries `UNGATED 2026-10-02`. The bullet
   below this line read "ungating is a separate performance decision" until 2026-10-04, which the
@@ -313,6 +314,18 @@ investigation using the per-position path-acceptance and Recall@16 series, not m
    recorded elsewhere in this file comes from `profiles.py` and is a serving-path number.
 2. **`src/serve/request_log.cpp` still publishes only `accepted_per_position`**, so the three new
    counters are invisible on the serving path. Widening it was outside the deliverable and is open.
+   **DONE 2026-10-04.** `proposed_per_position`, `recall1_per_position` and `recall16_per_position`
+   now travel the same path as `accepted_per_position`: carried on `GenerationMetrics`
+   (`src/serve/generation_service.h`), populated from `SpeculativeStats` (`generation_service.cpp`),
+   and published beside it in `speculative_json`. They are published as a set rather than one at a
+   time because `proposed` is the denominator for all three rates — a reader given
+   `accepted_per_position` alone cannot compute one. `ninfer_request_log_test` asserts each against
+   its own distinct values, and a probe emitting recall16's array under the recall1 key fails it, so
+   the assertions are not satisfied by key presence alone.
+
+   **What this does NOT do:** it does not make the two acceptance figures comparable. Item 1 above is
+   a workload-matching problem and is untouched by this — `profiles.py` still takes acceptance from
+   serving request logs on a domain prompt while the bench uses `bench_corpus.ids` at temperature 0.
 
 **Verification:** interleaved A/B, 4 passes each, instrumented vs a build with the read removed, gave
 acceptance `0.211111` on both arms to every digit. A baseline build emits 0/empty for all 28 new
