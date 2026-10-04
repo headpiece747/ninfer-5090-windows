@@ -148,7 +148,8 @@ path compiled out.
 
 ## 6. TDR not measured
 
-**Status:** Measured 2026-10-04 (was: Documented).
+**Status:** Closed 2026-10-04 (was: Documented). Measured at native context on the shipping route:
+longest kernel 43.10 ms, 2.2% of the 2 s budget.
 
 **What it was:** No documentation of the Windows TDR budget or the longest measured GPU launch.
 
@@ -184,20 +185,51 @@ at a fixed `--prefill-chunk 8192` the kernel's cost tracks the chunk, not the wh
 exponent of 1.14 rather than 1.0 says the chunk is not a hard wall either — there is a residual
 per-prompt term — which is why the extrapolation below is stated as a factor, not a constant multiple.
 
-**Extrapolated to the native 262,144 — two doublings beyond the largest measured point — about 343 ms,
-roughly 17% of the 2 s budget.** Labelled an extrapolation because it is one. The engine was not run at
-native context: `bench/fixtures/bench_corpus.ids` does not hold that many token ids, and
-`-p 131072` is refused with "exceeds the token-id corpus". Measuring it needs a serving-lane run at
-native context, not a longer corpus — the corpus is a bench fixture and extending it is not this
-measurement.
+**The extrapolation this paragraph used to carry was WRONG by roughly 8×, and it was wrong in a way
+worth keeping.** It read: "Extrapolated to the native 262,144 — two doublings beyond the largest
+measured point — about 343 ms, roughly 17% of the 2 s budget."
 
-The margin at the extrapolated point is ~5.8×, not the ~455× a 256-token run would suggest. That
-256-token figure is the one most likely to be quoted by accident, and it is the least representative.
+**MEASURED 2026-10-04 at native context. The longest single GPU kernel is 43.10 ms — 2.2% of the 2 s
+budget, a 46× margin — not 343 ms.**
 
-**Disposition:** the inference is replaced by a measurement at two real points plus a stated bound. The
-launcher `.bat` blocks still say "no measured profile approaches this" — that remains true at every
-measured point and at the extrapolation, but it is a weaker statement than it was, and the numbers
-above are where a reader should look for the margin.
+Measured on the serving route, which is the route that can reach native context at all: `ninfer-serve`
+on QUASAR under `nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none`, launched with the
+flags from `start_quasar_v3_dflash2_vision.bat` (`--max-context 262144 --prefill-chunk 8192 --kv-dtype
+fp8 --spec dflash2 --draft-tokens 7 --lm-head-draft --vision`), driven by a probe that reuses
+`tools/bench/warm_lane_sweep.py`'s own `conversation()` builder.
+
+| prompt tokens | longest kernel | kernel |
+|---:|---:|---|
+| 258,490 (**98.7% of native**) | **43.10 ms** | `mxfp8_kv_tiled_mma_kernel` |
+| 251,760 | served, not traced separately | — |
+| 228,203 | served, not traced separately | — |
+| 400 turns | **refused**: `context_length_exceeded`, 262,144 | — |
+
+The boundary was found rather than assumed: 385 turns serves at 258,490 prompt tokens and 400 turns is
+refused with "prepared prompt exceeds Engine max_context 262144", so the measured point sits just
+under the ceiling rather than at some convenient round number.
+
+**Why the extrapolation failed, which is the useful part.** It extrapolated
+`causal_attention_prompt_bf16_kernel` — and **that kernel appears zero times in this trace.** The bench
+route ran with the artifact's default `kv_cache=bf16`; this lane ran `--kv-dtype fp8`, and the two take
+different attention paths. So the three bench points and this lane point are not a series at all: the
+extrapolation carried a kernel across a route change that does not exist on the other side, and a
+super-linear fit to a series that changes kernel is not a fit to anything.
+
+**So the bench figures and this figure must not be tabulated together**, which is the same class of
+error as the two acceptance figures in `docs/active-work.md` item 1. The bench numbers remain valid for
+the bench route at bf16 KV; this number is valid for the shipping route at fp8 KV. Neither is
+extrapolatable to the other, and this paragraph previously invited exactly that.
+
+The 2 s TDR question is answered on the route that ships: **43.10 ms, 2.2% of budget.** Whether the
+bf16-KV bench route would behave differently at native context is untested and now needs its own
+measurement — the corpus cannot reach it, exactly as before.
+
+**Disposition: closed by measurement on the shipping route.** The longest kernel at 98.7% of native
+context is 43.10 ms, 2.2% of the 2 s budget. The launcher `.bat` blocks say "no measured profile
+approaches this", which is now true *with a number behind it* rather than by inference — and 43.10 ms
+is the figure a reader should look for, on the route that actually ships. The bf16-KV bench route at
+native context remains unmeasured and is a separate question, not a gap in this one.
 
 ---
 
