@@ -1087,21 +1087,21 @@ private:
     }
 
     [[nodiscard]] LogicalKVPageHandle& directory_slot(Directory& root, std::uint32_t page) {
-        Directory node      = root;
+        Directory* node     = &root;
         std::uint64_t width = directory_capacity_;
         for (;;) {
-            if (!node) {
-                node = std::make_shared<DirectoryNode>();
-            } else if (node.use_count() == 1) {
-                node = std::make_shared<DirectoryNode>(*node);
+            if (!*node) {
+                *node = std::make_shared<DirectoryNode>();
+            } else if (node->use_count() != 1U) {
+                *node = std::make_shared<DirectoryNode>(**node);
             }
-            if (width == kDirectoryChunkPages) { return node->pages[page]; }
+            if (width == kDirectoryChunkPages) { return (*node)->pages[page]; }
             width /= 2;
             if (page < width) {
-                node = node->left;
+                node = &(*node)->left;
             } else {
                 page -= static_cast<std::uint32_t>(width);
-                node = node->right;
+                node = &(*node)->right;
             }
         }
     }
@@ -1140,7 +1140,12 @@ private:
         }
         // A shared node contains only retained prefix pages: appending a suffix made its
         // changed path private. It needs no pruning when all removed pages lived elsewhere.
-        if (node.use_count() == 1) { return; }
+        // Spelled `use_count() != 1U` rather than `!unique()`: MSVC compiles this file at C++20,
+        // where `std::shared_ptr::unique()` is removed by _HAS_DEPRECATED_SHARED_PTR_UNIQUE, while
+        // libstdc++ still provides it. The two spellings must not be "restored" past each other --
+        // that first attempt rewrote this cursor as a value copy, which stopped writing through
+        // the slot and so dropped the copy-on-write node the tree still referenced.
+        if (node.use_count() != 1U) { return; }
         if (width == kDirectoryChunkPages) {
             std::fill(node->pages.begin() + count, node->pages.end(), LogicalKVPageHandle{});
         } else {
