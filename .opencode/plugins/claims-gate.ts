@@ -61,11 +61,41 @@
 // WHAT THIS CANNOT DO: nothing observes what the agent SAYS. No hook covers assistant prose, so "do
 // not assert before reading" is not enforceable by any plugin.
 
-import { appendFileSync, existsSync, readFileSync } from "node:fs"
+import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { dirname, isAbsolute, resolve } from "node:path"
 
 const ID = "ninfer.claims-gate"
 const LOG = "C:/Users/tobia/AppData/Local/Temp/opencode/claims-gate.log"
+
+// The log is BOUNDED, because an unbounded one is a defect I introduced. Logging every tool call was
+// what made the hook observable at all -- without it, "hook did not fire" and "hook fired and was
+// swallowed" stayed indistinguishable, which cost a session. But that diagnostic value is spent: the
+// gate is confirmed working end to end, and a file that grows by a line per tool call forever is not
+// something to leave running.
+//
+// So: denials always, in full, because they are the record of what the gate actually refused.
+// Allow lines only for the first ALLOW_LOGGED calls after start, which covers a fresh start's
+// evidence and then stops. The file is truncated if it exceeds LOG_MAX_BYTES, keeping the newest
+// lines, so a long-lived service cannot grow it without limit either.
+const ALLOW_LOGGED = 40
+const LOG_MAX_BYTES = 256 * 1024
+
+let allowsLogged = 0
+
+function log(line: string): void {
+  try {
+    appendFileSync(LOG, `${new Date().toISOString()} ${line}\n`)
+    const size = statSync(LOG).size
+    if (size > LOG_MAX_BYTES) {
+      // Keep the newest half. Truncation rather than deletion, so the most recent denials -- the
+      // part with evidentiary value -- survive.
+      const all = readFileSync(LOG, "utf8").split("\n")
+      writeFileSync(LOG, `${all.slice(Math.floor(all.length / 2)).join("\n")}\n`, "utf8")
+    }
+  } catch {
+    // logging must never break the request path
+  }
+}
 
 // docs/research/ cites other projects by construction, so a document under it is exempt. The test is
 // on the TARGET DOCUMENT's path, not on the citation text: an earlier version skipped citations
@@ -80,14 +110,6 @@ const EXTERNAL = "docs/research/"
 
 const CITE =
   /(?:^|[\s(`"'])((?:[\w.-]+\/)*[\w.-]+\.(?:md|h|hpp|cuh|cpp|cu|py|cmd|bat|json|txt|cmake)):(\d+)\b/g
-
-function log(line: string): void {
-  try {
-    appendFileSync(LOG, `${new Date().toISOString()} ${line}\n`)
-  } catch {
-    // logging must never break the request path
-  }
-}
 
 function lineCount(path: string): number {
   const text = readFileSync(path, "utf8")
@@ -214,6 +236,7 @@ export default {
 
   async setup(ctx: any) {
     const repo = ctx?.location?.directory ?? process.cwd()
+    allowsLogged = 0
     log(`SETUP repo=${repo}`)
 
     // THE MECHANISM. One hook, one rule, one place. A thrown error here aborts the tool call, which
@@ -227,8 +250,10 @@ export default {
       try {
         if (!event || typeof event.tool !== "string") return
         const reason = checkCall(event.tool, event.input, repo)
-        log(`TOOL ${event.tool} -> ${reason ? "DENY" : "allow"}`)
         if (reason) throw new Error(`claims-gate: ${reason}`)
+        // Allow lines are capped: see ALLOW_LOGGED. The cap is per-process, so a fresh service start
+        // re-arms it, which is exactly when the "did it fire?" evidence is worth having.
+        if (allowsLogged++ < ALLOW_LOGGED) log(`TOOL ${event.tool} -> allow`)
       } catch (err) {
         if (err instanceof Error && err.message.startsWith("claims-gate:")) {
           log(`DENY ${event.tool}: ${err.message.slice(9)}`)
