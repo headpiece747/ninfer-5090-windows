@@ -128,7 +128,7 @@ path compiled out.
 
 ## 6. TDR not measured
 
-**Status:** Documented.
+**Status:** Measured 2026-10-04 (was: Documented).
 
 **What it was:** No documentation of the Windows TDR budget or the longest measured GPU launch.
 
@@ -139,7 +139,45 @@ path compiled out.
 - How to raise the threshold via `TdrDelay` registry key if needed.
 - A TDR surfaces as a CUDA error and the engine's fail-stop latch terminates the process.
 
-**Disposition:** Documented. The workload shape is safe; this is an inference, not a measurement.
+**MEASURED 2026-10-04 — the second bullet is now a number, not an inference.**
+
+Instrument: Nsight Systems 2026.1.3, `--trace=cuda,nvtx --sample=none --cpuctxsw=none`, on
+`build-bench/bench/ninfer_bench.exe --spec dflash2 --draft-tokens 7` against the QUASAR artifact, at
+the shipped `--prefill-chunk 8192`. Ranked by the `cuda_gpu_kern_sum` Max column, which is the column
+that answers the TDR question.
+
+| prompt tokens | longest single kernel | ratio |
+|---:|---:|---|
+| 16,384 | **14.72 ms** | — |
+| 32,768 | **33.61 ms** | 2.28× |
+| 65,536 | **70.80 ms** | 2.11× |
+
+(all three `causal_attention_prompt_bf16_kernel`)
+
+Runners-up at 65,536 are 3.24 ms (`nvfp4_linear_swiglu_w4a4_tma`), 2.74 ms (`context_kv_mma_nvfp4`),
+2.06 ms (`nvfp4_w4a4_tma`). Everything in decode is three orders of magnitude smaller; a 256-token run's
+worst kernel is 1.09 ms.
+
+**The scaling is ~2.2× per doubling of the prompt — mildly super-linear, exponent ≈1.14 — rather than
+the quadratic (exponent 2.0) bare attention would give.** That is the prefill chunk bounding the work:
+at a fixed `--prefill-chunk 8192` the kernel's cost tracks the chunk, not the whole prompt. An
+exponent of 1.14 rather than 1.0 says the chunk is not a hard wall either — there is a residual
+per-prompt term — which is why the extrapolation below is stated as a factor, not a constant multiple.
+
+**Extrapolated to the native 262,144 — two doublings beyond the largest measured point — about 343 ms,
+roughly 17% of the 2 s budget.** Labelled an extrapolation because it is one. The engine was not run at
+native context: `bench/fixtures/bench_corpus.ids` does not hold that many token ids, and
+`-p 131072` is refused with "exceeds the token-id corpus". Measuring it needs a serving-lane run at
+native context, not a longer corpus — the corpus is a bench fixture and extending it is not this
+measurement.
+
+The margin at the extrapolated point is ~5.8×, not the ~455× a 256-token run would suggest. That
+256-token figure is the one most likely to be quoted by accident, and it is the least representative.
+
+**Disposition:** the inference is replaced by a measurement at two real points plus a stated bound. The
+launcher `.bat` blocks still say "no measured profile approaches this" — that remains true at every
+measured point and at the extrapolation, but it is a weaker statement than it was, and the numbers
+above are where a reader should look for the margin.
 
 ---
 
