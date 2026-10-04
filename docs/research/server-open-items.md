@@ -30,11 +30,31 @@ explicitly states the fault never occurs ("0 incidents in all tests and in ~9 h 
 operation"). The bug is in upstream's code, not this port's.
 
 **What exists:** `tests/models/qwen3_5/test_engine_issue5_race.cpp` — a deterministic test loop
-that drives the reporter's named trigger and asserts only their symptom. It has never gone red,
-so red-capability is unproven.
+that drives the reporter's named trigger and asserts only their symptom.
 
-**Why a faithful reproduction cannot run here:** The reporter's command line needs 20 GB of
-runtime capacity; this machine offers 15 GB. Their host has 64 GB of RAM; this machine has 48 GB.
+**RE-RUN 2026-10-04 — this test now RUNS on this machine, which the entry above said it could not.**
+The blocker recorded here was capacity: "the reporter's command line needs 20 GB of runtime capacity;
+this machine offers 15 GB." Measured on 2026-10-04 with nothing else on the GPU: **30.9 GiB VRAM free
+of 32.6 GiB, and 36.4 GB of 47.8 GB RAM free.** The 15 GB figure is no longer true of this machine, so
+the stated reason the reproduction could not run no longer holds.
+
+Run with the real artifact, which the test requires (`NINFER_TEST_ARTIFACT`, else it skips 77):
+
+```
+ninfer_qwen3_5_issue5_race_test.exe   ->  exit 0 in 15 s, "ok"
+  root published: prompt=14379 path=0 reused=0
+  holder finished: outputs=512
+  continuation finished: reused=14394 path=1 outputs=16
+  engine still accepts work after the race (not latched)
+```
+
+So the blocker is retired, and **red-capability is still unproven** — the test went green again, and a
+green run is not evidence the bug is absent. It is evidence the test does not detect it. Proving
+red-capability needs a mutation at the defect site, and this run does not locate that site: the
+accounting field the test watches, `main_kv_h2d_pages`, is a monotonic counter
+(`include/ninfer/types.h:1036`, read through `context_cache/resource_manager.h:1177`) and not a
+subtraction, so the reporter's "resource subtraction underflow" has no site in this tree that this
+measurement reaches. **That is the open part, and it is a search problem, not a capacity one.**
 
 **Docs:** `docs/research/issue5-deferred-findings.md`
 
