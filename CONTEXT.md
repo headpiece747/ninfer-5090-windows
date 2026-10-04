@@ -6,8 +6,9 @@ they are restated. If a fact here needs a number, it belongs there or in the lau
 ships it.
 
 Two names carry an artifact, not a preference: the **QUASAR artifact** is our own
-quantisation-aware-trained image, and the **NVFP4-full artifact** is the fuller one published
-by cometkim. "ninfer" on its own is ambiguous and should not be used.
+quantisation-aware-trained image, and the **NVFP4-full artifact** is the fuller requantisation of
+the unsloth line. Both are built locally by this port's converter from the Hugging Face source
+checkpoints; neither is fetched prebuilt. "ninfer" on its own is ambiguous and should not be used.
 
 ## Launch surface
 

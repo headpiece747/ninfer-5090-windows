@@ -36,16 +36,22 @@ figures are under [Profiles and launchers](#profiles-and-launchers); building fr
 
 Four weight **lines** ship with this port, and the unsloth line ships as **two images** because one
 image cannot serve both routes: the DFlash2 lane runs the no-exception build, its MTP lane the
-BF16-exception one. That is **five artifacts across eight launchers**. `download_model.bat` offers the
-two that are published:
+BF16-exception one. That is **five artifacts across eight launchers**.
 
-| Model | Weights | Artifact | Download |
+**Every one of the five is built locally** by this port's converter (`converter: ninfer-v3` in each
+artifact's `.conversion.json`) from the Hugging Face **source** checkpoints below. No `.ninfer` file
+is downloaded prebuilt; `download_model.py` fetches sources, not artifacts.
+
+| Model | Weights | Artifact | Built from |
 |---|---|---|---|
-| Qwen3.8-27B | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | [QUASAR QAT](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer), 17.36 GiB, `8b86901a…` |
-| Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.v3.ninfer` | [NVFP4-full](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4full-NInfer), 18.07 GiB, `ac98cd39…` |
-| Qwen3.8-27B | `nvfp4full_noex` | `qwen3_8_27b_nvfp4full_noex.v3.ninfer` | 17.65 GiB, `32713a7a…`; DFlash2 lane, local build only |
-| Qwen3.8-27B | `nvfp4swift15` (Swift 1.5) | `qwen3_8_27b_nvfp4swift15.v3.ninfer` | 17.65 GiB, `9c05290f…`; its `download_model.py` pin lands with its publication |
-| Qwen3.8-27B | `nvfp4nvidia` (NVIDIA ModelOpt) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | 17.65 GiB, `76131f79…`; its `download_model.py` pin lands with its publication |
+| Qwen3.8-27B | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | [QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4](https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4), 17.36 GiB |
+| Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.v3.ninfer` | [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4), 18.36 GiB, `f8dc6470…` |
+| Qwen3.8-27B | `nvfp4full_noex` | `qwen3_8_27b_nvfp4full_noex.v3.ninfer` | the same unsloth line, BF16 exceptions re-encoded; DFlash2 lane |
+| Qwen3.8-27B | `nvfp4swift15` (Swift 1.5) | `qwen3_8_27b_nvfp4swift15.v3.ninfer` | [ukisai/Swift-Qwen3.8-27B-NVFP4](https://huggingface.co/ukisai/Swift-Qwen3.8-27B-NVFP4), 17.65 GiB |
+| Qwen3.8-27B | `nvfp4nvidia` (NVIDIA ModelOpt) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | [nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4), 17.65 GiB |
+
+All eight lanes additionally embed [z-lab/Qwen3.8-27B-DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2)
+on the BF16 base [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B).
 
 All are Qwen3.8-27B. The first two rows are the published files this port has always fetched, and
 their digests are the ones pinned in `download_model.py`, which verifies every download against them;
@@ -395,9 +401,10 @@ The QUASAR QAT image uses
 [QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4](https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4)
 for its quantisation-aware-trained weights; the NVFP4-full image uses the mixed FP8/NVFP4 weights from
 [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4); the NVIDIA image uses
-[nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4); and Swift is UkisAI's
-finetune, whose sources and whose non-Apache licence `NOTICE` records. The two predecessor files are
-published under the `cometkim` Hugging Face account and are what `download_model.py` still pins, as the
-artifact table above says; this port's builds of all four lines are not published yet. Source
+[nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4); and Swift is
+[ukisai/Swift-Qwen3.8-27b](https://huggingface.co/ukisai/Swift-Qwen3.8-27b) and its
+[NVFP4 re-encoding](https://huggingface.co/ukisai/Swift-Qwen3.8-27B-NVFP4), whose sources and whose
+non-Apache licence `NOTICE` records. All five images are built by this port; none is fetched prebuilt.
+Source
 repositories other than Swift's are distributed under Apache-2.0, as `NOTICE` records. Vendored
 dependencies retain their own license files under `third_party/`.

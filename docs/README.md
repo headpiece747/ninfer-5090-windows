@@ -25,10 +25,13 @@ This port ships four weight lines, as **five images** — the unsloth line ships
 DFlash2 lane runs the no-exception build and its MTP lane the BF16-exception one. Two of the five are
 published and pinned here; the rest are built by this port:
 
-| Model | Weights | Download | Versioned model card source |
+| Model | Weights | Built from | Versioned model card source |
 |---|---|---|---|
-| Qwen3.8-27B | `nvfp4qat` (QUASAR) | [Hugging Face](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4qat-NInfer) | [model card](../model-cards/Qwen3.8-27B-nvfp4qat-NInfer/README.md) |
-| Qwen3.8-27B | `nvfp4full` | [Hugging Face](https://huggingface.co/cometkim/Qwen3.8-27B-nvfp4full-NInfer) | card lives in that repository |
+| Qwen3.8-27B | `nvfp4qat` (QUASAR) | [QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4](https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4) | [model card](../model-cards/Qwen3.8-27B-nvfp4qat-NInfer/README.md) |
+| Qwen3.8-27B | `nvfp4full` | [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4) | — |
+
+All five shipped artifacts are built locally by this port's converter from these sources; none is
+fetched prebuilt. `download_model.py` fetches sources.
 
 Upstream publishes artifacts for other checkpoints, each with its own model card on its own
 repository. This port ships none of them and keeps no copy of their pages:

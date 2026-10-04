@@ -198,19 +198,34 @@ def main() -> int:
         check(f"packager drops retired {retired}", retired not in packager)
 
     print("\n=== measured artifacts ===")
-    # Only files that genuinely have to know both artifacts are checked for both. The launchers
-    # and download_model.py cover the pair; the measurement harnesses do too. launcher_env.bat is
-    # the CLI test environment and deliberately names one artifact, so it is checked for the
-    # QUASAR default only -- adding an unused second variable would be a seam with no caller.
-    for doc, path in (("download_model.py", WT / "download_model.py"),
-                      ("v3_profile_matrix.py", WT / "tools" / "release" / "v3_profile_matrix.py")):
-        body = read(path)
-        for artifact, label, constant in ((QUASAR, "QUASAR", "QUASAR"),
-                                          (NVFP4FULL, "NVFP4-full", "NVFP4FULL")):
-            # Either the filename is written out, or the file imports the constant that owns it.
-            # The matrix does the latter now; asserting only the literal would keep the copy.
-            check(f"{doc} references the {label} artifact",
-                  artifact in body or ("from profiles import" in body and constant in body))
+    # v3_profile_matrix.py measures the shipped lanes, so it must know both artifacts.
+    body = read(WT / "tools" / "release" / "v3_profile_matrix.py")
+    for artifact, label, constant in ((QUASAR, "QUASAR", "QUASAR"),
+                                      (NVFP4FULL, "NVFP4-full", "NVFP4FULL")):
+        # Either the filename is written out, or the file imports the constant that owns it.
+        # The matrix does the latter now; asserting only the literal would keep the copy.
+        check(f"v3_profile_matrix.py references the {label} artifact",
+              artifact in body or ("from profiles import" in body and constant in body))
+
+    # download_model.py no longer fetches artifacts at all -- it fetches the SOURCE checkpoints this
+    # port builds every artifact from, because each shipped image is produced locally ("converter:
+    # ninfer-v3" in its .conversion.json). So the invariant here is the reverse of the one above: it
+    # must NOT name a shipped artifact, because doing so is what let it serve stale prebuilt bytes,
+    # and it must name every source repository the conversion reports consume.
+    download = read(WT / "download_model.py")
+    # "Mentions" is not "serves": the docstring quotes the old artifact while explaining what it
+    # replaced, so a substring test on the artifact name would fail on prose. What made it a SERVER
+    # was the two mechanisms below -- a single-file sha256 pin, and a per-file fetch. Both are gone,
+    # and both are what let it install superseded bytes under a verified label.
+    check("download_model.py pins no prebuilt artifact digest", '"sha256"' not in download)
+    check("download_model.py fetches whole repositories, not single files",
+          "hf_hub_download" not in download)
+    check("download_model.py downloads sources via snapshot_download",
+          "snapshot_download" in download)
+    for repo in ("Qwen/Qwen3.8-27B", "z-lab/Qwen3.8-27B-DFlash2", "unsloth/Qwen3.8-27B-NVFP4",
+                 "QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4", "nvidia/Qwen3.8-27B-NVFP4",
+                 "ukisai/Swift-Qwen3.8-27b", "ukisai/Swift-Qwen3.8-27B-NVFP4"):
+        check(f"download_model.py fetches source {repo}", repo in download)
 
     env = read(WT / "launcher_env.bat")
     check("launcher_env.bat names the QUASAR artifact", QUASAR in env)

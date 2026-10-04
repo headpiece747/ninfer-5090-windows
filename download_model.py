@@ -1,162 +1,164 @@
 #!/usr/bin/env python3
-"""Fetch a v3 artifact for the launchers, verifying it before and after.
+"""Fetch the SOURCE checkpoints that every shipped artifact is built from.
 
-Two problems with the original: it was hardcoded to one artifact, and it saved the file
-under the repository's name (qwen3_8_27b_nvfp4qat.ninfer) while every launcher looks for the
-.v3. form. A user following the README would download 17 GiB and then be told the artifact
-was missing.
+This used to download two prebuilt `.ninfer` artifacts from a third party's Hugging Face account.
+That was wrong twice over, and both faults are why this script was rewritten rather than edited:
 
-Artifact naming is also not uniform across publishers, and it changes: cometkim's fuller-NVFP4
-repository ships v3, and the QUASAR QAT repository has since been republished as v3 as well, so
-both download and run directly. The offline upgrader still ships in this archive for anyone
-holding a pre-existing v2 copy, which a v3 engine rejects outright.
+  1. It contradicted how the product is actually made. Every `.ninfer` artifact this port ships is
+     built LOCALLY by this port's own converter -- `converter: ninfer-v3` in each artifact's
+     conversion report -- from Hugging Face source checkpoints under `hf-src/`. The prebuilt files
+     were predecessors, not inputs.
+  2. Its pins were stale even as downloads. It pinned sha256 `ac98cd39...` for the fuller-NVFP4
+     artifact while the local build of that same recipe is `f8dc6470...` (RELEASE_NOTES.md). So the
+     script would have fetched superseded bytes and called them verified.
 
-Usage: download_model.py [--artifact quasar|nvfp4full] [--dest PATH] [--verify-only]
+So this fetches SOURCES now. Each artifact's conversion report names exactly which of these it
+consumed, and the `sources` block there is the authority -- this list mirrors those directories:
+
+    qwen3_8_27b_nvfp4full.v3.ninfer.conversion.json
+      "converter": "ninfer-v3",
+      "recipe": "qwen3_8_27b_nvfp4_unsloth_noex",
+      "sources": { base: ...\\hf-src\\Qwen3.8-27B,
+                   dflash2: ...\\hf-src\\Qwen3.8-27B-DFlash2,
+                   quantized: ...\\hf-src\\Qwen3.8-27B-NVFP4-unsloth }
+
+Usage:
+    download_model.py                 # fetch every source below
+    download_model.py --source unsloth
+    download_model.py --verify-only   # report what is present, fetch nothing
+    download_model.py --dest PATH     # override the hf-src root
+
+Verification changed with the target. A prebuilt artifact was one file and could carry a sha256; a
+source repository is a tree whose contents move, so pinning a single digest would be meaningless and
+a floating `main` would not be reproducible. `--verify-only` therefore reports presence and size per
+source, which is the property that actually matters here -- a missing source fails the converter with
+a clear error, whereas a subtly different source produces a subtly different artifact. Record the
+exact commit you convert from alongside the conversion report; that is what makes a build
+reproducible, and this script cannot do it for you.
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import sys
 import time
 
-LOCAL_DIR = r"C:\AI\models"
+HF_SRC = r"C:\AI\models\hf-src"
 
-ARTIFACTS = {
-    "quasar": {
-        "repo": "cometkim/Qwen3.8-27B-nvfp4qat-NInfer",
-        "source": "qwen3_8_27b_nvfp4qat.ninfer",
-        "target": "qwen3_8_27b_nvfp4qat.v3.ninfer",
-        "size": 18_638_510_576,
-        "sha256": "8b86901a8cd2a297a3d737e470c793b67e5ce65b49131c48c2f2f0b346fd943c",
-        "container": "v3",
-    },
-    "nvfp4full": {
-        "repo": "cometkim/Qwen3.8-27B-nvfp4full-NInfer",
-        "source": "qwen3_8_27b_nvfp4full.ninfer",
-        "target": "qwen3_8_27b_nvfp4full.v3.ninfer",
-        "size": 19_407_229_188,
-        "sha256": "ac98cd392c84a04b2a21c2f5c3988dece88d20a697ba1de663fb32d5998b8ee9",
-        "container": "v3",
-    },
+# repo_id -> (local directory under HF_SRC, what consumes it)
+SOURCES: dict[str, tuple[str, str]] = {
+    "Qwen/Qwen3.8-27B": ("Qwen3.8-27B", "the BF16 base every line is built from"),
+    "z-lab/Qwen3.8-27B-DFlash2": ("Qwen3.8-27B-DFlash2", "the DFlash2 draft companion, all eight lanes"),
+    "unsloth/Qwen3.8-27B-NVFP4": ("Qwen3.8-27B-NVFP4-unsloth", "nvfp4full and nvfp4full_noex"),
+    "QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4": ("Qwen3.8-27B-NVFP4-QUASAR", "nvfp4qat (QUASAR)"),
+    "nvidia/Qwen3.8-27B-NVFP4": ("Qwen3.8-27B-NVFP4-nvidia", "nvfp4nvidia (NVIDIA ModelOpt)"),
+    "ukisai/Swift-Qwen3.8-27b": ("Swift-Qwen3.8-27b", "the Swift 1.5 finetune, before quantisation"),
+    "ukisai/Swift-Qwen3.8-27B-NVFP4": ("Swift-Qwen3.8-27B-NVFP4", "nvfp4swift15 (Swift 1.5)"),
 }
 
 
-def compute_sha256(path: str) -> str:
-    digest = hashlib.sha256()
-    total = os.path.getsize(path)
-    done = 0
+def dir_stats(path: str) -> tuple[int, int]:
+    """(file count, total bytes) for a directory, or (0, 0) if absent."""
+    if not os.path.isdir(path):
+        return 0, 0
+    count = 0
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            count += 1
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return count, total
+
+
+def report(root: str, repos: list[str]) -> bool:
+    ok = True
+    print(f"{'source':<40} {'files':>7} {'GiB':>8}  state")
+    for repo in repos:
+        local, why = SOURCES[repo]
+        path = os.path.join(root, local)
+        count, total = dir_stats(path)
+        if count == 0:
+            ok = False
+            state = "MISSING"
+        else:
+            state = "present"
+        print(f"{repo:<40} {count:>7} {total / (1 << 30):>8.2f}  {state}  ({why})")
+    return ok
+
+
+def fetch(repo: str, root: str) -> bool:
+    local, _why = SOURCES[repo]
+    dest = os.path.join(root, local)
+    # huggingface_hub 1.x ignores HF_HUB_ENABLE_HF_TRANSFER, and on 0.x it raises when hf_transfer is
+    # absent -- which the broad except below would report as a failed download rather than a
+    # fallback, so it is set only when the module is genuinely importable.
+    import importlib.util
+
+    if importlib.util.find_spec("hf_transfer"):
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        print(
+            "  huggingface_hub is not installed. Install it, or fetch these repositories by hand\n"
+            "  into the directories named above.",
+            file=sys.stderr,
+        )
+        return False
+
+    print(f"[INFO] {repo} -> {dest}")
     started = time.time()
-    with open(path, "rb") as handle:
-        while chunk := handle.read(64 * 1024 * 1024):
-            digest.update(chunk)
-            done += len(chunk)
-            print(f"\rVerifying SHA-256: {done / total * 100:5.1f}% "
-                  f"({done / 1024 ** 3:.2f}/{total / 1024 ** 3:.2f} GiB) at "
-                  f"{(done / 1024 ** 2) / max(time.time() - started, 0.001):.0f} MB/s...",
-                  end="", flush=True)
-    print()
-    return digest.hexdigest()
-
-
-def verify_file(path: str, spec: dict) -> bool:
-    if not os.path.exists(path):
-        print(f"[ERROR] File not found: {path}")
+    try:
+        snapshot_download(repo_id=repo, local_dir=dest)
+    except Exception as exc:  # noqa: BLE001 - report any transport/auth/disk failure the same way
+        print(f"  FAILED: {exc}", file=sys.stderr)
         return False
-    size = os.path.getsize(path)
-    print(f"Checking file: {path}")
-    print(f"File size: {size} bytes ({size / 1024 ** 3:.2f} GiB)")
-    if size != spec["size"]:
-        print(f"[FAIL] Size mismatch: expected {spec['size']}, got {size}")
-        return False
-    print("[OK] Size matches expected size.")
-    print(f"Computing SHA-256 (expected: {spec['sha256']})...")
-    actual = compute_sha256(path)
-    print(f"Computed SHA-256: {actual}")
-    if actual.lower() == spec["sha256"].lower():
-        print("[SUCCESS] SHA-256 verified.")
-        return True
-    print(f"[FAIL] SHA-256 mismatch.\n  Expected: {spec['sha256']}\n  Actual:   {actual}")
-    print()
-    print("  Two causes, and they need different fixes:")
-    print("    1. The download is corrupt or partial. Delete the file and download again.")
-    print("    2. The publisher replaced the file under the same name. Then this pin is stale:")
-    print(f"       update ARTIFACTS[{spec['source']!r}] in this script with the hash above,")
-    print("       and check whether the container changed too -- a v3 file must not be fed to")
-    print("       the v2 upgrader, and a v2 file must not be handed to a v3 engine.")
-    return False
-
-
-def print_upgrade_instructions() -> None:
-    """Tell the user where the upgrader is, for a pre-existing v2 file.
-
-    No pinned artifact ships v2 any more, so this no longer fires on a fresh download; it is
-    kept for the case it was written for -- a copy downloaded before the republish.
-    """
-    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "upgrade_ninfer_v2_to_v3.py")
-    print()
-    print("[ACTION REQUIRED] A v2 container is rejected outright by a v3 engine.")
-    print("  Upgrade it with the tool shipped in this archive:")
-    print()
-    print(f'    "{sys.executable}" "{tool}" INPUT.ninfer OUTPUT.v3.ninfer')
+    print(f"  done in {time.time() - started:.0f}s")
+    return True
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Download and verify a NInfer v3 model artifact.")
-    parser.add_argument("--artifact", choices=sorted(ARTIFACTS), default="quasar",
-                        help="quasar (recommended) or nvfp4full; both ship v3")
-    parser.add_argument("--dest", default=None, help="Override the destination model file path.")
+    parser = argparse.ArgumentParser(
+        description="Fetch the SOURCE checkpoints every shipped .ninfer artifact is built from."
+    )
+    parser.add_argument("--source", choices=sorted(SOURCES), action="append",
+                        help="fetch one source (repeatable); default is all of them")
+    parser.add_argument("--dest", default=None, help="override the hf-src root")
     parser.add_argument("--verify-only", action="store_true",
-                        help="Only verify the existing file, do not download.")
+                        help="report which sources are present; fetch nothing")
     args = parser.parse_args()
 
-    spec = ARTIFACTS[args.artifact]
-    target = os.path.abspath(args.dest or os.environ.get("MODEL")
-                             or os.path.join(LOCAL_DIR, spec["target"]))
-    target_dir = os.path.dirname(target)
+    root = args.dest or os.environ.get("NINFER_HF_SRC") or HF_SRC
+    repos = args.source or sorted(SOURCES)
 
-    print(f"[INFO] Artifact: {args.artifact} ({spec['container']} container, from {spec['repo']})")
-    print(f"[INFO] Target:   {target}")
+    print(f"[INFO] Source root: {root}")
+    print("[INFO] These are INPUTS to the converter, not the shipped artifacts. Each shipped")
+    print("       .ninfer is built locally by this port ('converter: ninfer-v3' in its")
+    print("       .conversion.json), and that report names which sources it consumed.")
+    print()
 
     if args.verify_only:
-        return 0 if verify_file(target, spec) else 1
+        ok = report(root, repos)
+        print()
+        print("All required sources present." if ok else "Some sources are missing.")
+        return 0 if ok else 1
 
-    if os.path.exists(target) and verify_file(target, spec):
-        print("Already downloaded and verified.")
-        if spec["container"] != "v3":
-            print_upgrade_instructions()
-        return 0
+    os.makedirs(root, exist_ok=True)
+    failed = [repo for repo in repos if not fetch(repo, root)]
 
-    # huggingface_hub 1.x ignores HF_HUB_ENABLE_HF_TRANSFER, and on 0.x it raises when
-    # hf_transfer is not installed -- which the broad except below would turn into a
-    # failed download rather than a fallback.
-    import importlib.util
-    if importlib.util.find_spec("hf_transfer"):
-        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-    from huggingface_hub import hf_hub_download
+    print()
+    print("[INFO] Summary:")
+    report(root, repos)
+    print()
 
-    print(f"Downloading {spec['source']} from {spec['repo']}...")
-    started = time.time()
-    os.makedirs(target_dir, exist_ok=True)
-    try:
-        path = hf_hub_download(repo_id=spec["repo"], filename=spec["source"],
-                               local_dir=target_dir)
-    except Exception as error:  # noqa: BLE001
-        print(f"Error downloading: {error}")
+    if failed:
+        print(f"[FAILED] {len(failed)} of {len(repos)} source(s): {', '.join(failed)}", file=sys.stderr)
         return 1
-    print(f"Downloaded in {time.time() - started:.1f}s: {path}")
-
-    # The repositories name their files differently from the launchers' convention.
-    if os.path.abspath(path) != target:
-        os.replace(path, target)  # overwrites atomically; no remove window
-        print(f"Renamed to the launcher convention: {target}")
-
-    if not verify_file(target, spec):
-        return 1
-
-    if spec["container"] != "v3":
-        print_upgrade_instructions()
+    print("All sources fetched. Convert them with tools/convert; do not look for a prebuilt artifact.")
     return 0
 
 

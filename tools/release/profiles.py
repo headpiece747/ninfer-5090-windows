@@ -72,8 +72,10 @@ def template_path() -> str:
     """
     return str(Path(__file__).resolve().parents[2] / "tools" / "chat_templates" / "qwen3_8.jinja")
 
-# The QUASAR artifact is our own quantisation-aware-trained image; NVFP4-full is the fuller one
-# published by cometkim. "ninfer" alone is ambiguous and should not be used. See CONTEXT.md.
+# The QUASAR artifact is our own quantisation-aware-trained image; NVFP4-full is the fuller
+# requantisation of the unsloth line. Both are built locally by this port's converter from the HF
+# source checkpoints -- `converter: ninfer-v3` in each artifact's .conversion.json. "ninfer" alone is
+# ambiguous and should not be used. See CONTEXT.md.
 QUASAR = "qwen3_8_27b_nvfp4qat.v3.ninfer"
 NVFP4FULL = "qwen3_8_27b_nvfp4full.v3.ninfer"
 # The same unsloth line with its nine BF16 exception parents encoded to NVFP4. It is a separate image
