@@ -161,9 +161,15 @@ CEILINGS = {
     ("swift", "dflash2", False, True): 262144,
     ("swift", "dflash2", True, True): 240000,
     # swift15: Swift 1.5 with the DFlash2 draft encoded to NVFP4, measured 2026-09-30. All four
-    # combinations reach the native 262,144, on 1.51 GiB free with Vision and DFlash2 -- which is
-    # where the Q8-draft build of the same checkpoint is REFUSED at 262,144 and serves 240,000
-    # instead. 0.77 GiB of device weight is exactly that margin: 17.65 GiB against 18.42.
+    # combinations reach the native 262,144, on 1.51 GiB free with Vision and DFlash2. This
+    # comment used to say the Q8-draft build of the same checkpoint is REFUSED at 262,144 and
+    # serves 240,000 instead, citing 0.77 GiB of device weight as exactly that margin (17.65 GiB
+    # against 18.42). That was true when written and the tiled saturation guard invalidated it;
+    # re-measured 2026-10-04, the Q8 build SERVES at 262,144 with Vision on 2.05 GiB free. NVFP4
+    # is still the right encoding here, but not on capacity: on the default `code` domain it is
+    # also better on both measured axes (348.3 against 290.3 tok/s, 63.0% against 49.3%). That is
+    # domain-scoped and reverses on `chinese`. See the SWIFT15 note in profiles.py, which the
+    # launcher header renders.
     ("swift15", "mtp", False, True): 262144,
     ("swift15", "mtp", True, True): 262144,
     ("swift15", "dflash2", False, True): 262144,

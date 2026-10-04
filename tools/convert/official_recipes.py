@@ -695,12 +695,19 @@ def qwen3_8_27b_nvfp4_swift15_nvdraft(model, recipe, sources):
     """Swift 1.5 with the DFlash2 draft encoded to NVFP4 instead of left at Q8.
 
     Identical to `qwen3_8_27b_nvfp4_swift` except the draft projections take the NVFP4 encoding the
-    other three lines use, which is the only lever that moves device weight on this artifact. That
-    matters because the DFlash2 + Vision lane no longer serves the native 262,144 on this tree: with
-    the draft at Q8 the artifact's device weights are 18.0 GiB and the lane is refused at 262,144
-    with 1.18 GiB free at 240,000, while QUASAR and NVIDIA still serve 262,144 on 1.51 and 1.37 GiB.
-    The margin between serving and being refused is under a gigabyte, and the draft is the one part
-    of this artifact whose encoding is a measured choice rather than a producer's.
+    other three lines use, which is the only lever that moves device weight on this artifact. This
+    docstring used to justify that by capacity alone: it claimed the DFlash2 + Vision lane no longer
+    serves the native 262,144 on this tree, and that with the draft at Q8 the lane was refused at
+    262,144 with 1.18 GiB free at 240,000. That was true when written; the tiled saturation guard
+    moved the runtime picture and the claim was not re-measured until 2026-10-04, when it was
+    falsified -- the Q8-draft build SERVES at 262,144 with Vision, on 2.05 GiB free. The encoding is
+    therefore justified on measured quality rather than on a capacity wall: on the default `code`
+    domain, with both arms measured minutes apart, NVFP4 gives 348.3 tok/s and 63.0 % acceptance
+    against Q8's 290.3 tok/s and 49.3 %, and leaves 2.83 GiB free against Q8's 2.05 GiB. It wins
+    throughput, acceptance and memory together there. That result is domain-scoped and does not
+    generalise: on `chinese` the ordering reverses and Q8 is 11.7 % faster with 4.6 points better
+    acceptance, which is why the recipe ships the NVFP4 draft as the stronger arm on the documented
+    default domain rather than as a universal win.
 
     It is measured here rather than assumed because on Swift 1.0 the same change LOST 3.2 acceptance
     points on the DFlash2 lane (57.7 % against 60.9 %) -- the draft was trained on the stock model's

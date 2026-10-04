@@ -545,12 +545,36 @@ encoding changed**, so the MTP head and the whole text stack are bit-identical:
 | objects | 1590 | 1600 |
 | bytes | 18.42 GiB | **17.65 GiB** |
 | structural verifier | PASS 4383 | **PASS 4424** |
-| DFlash2 + Vision context | 240,000 (refused at 262,144) | **262,144** |
-| DFlash2 + Vision free | 1.41 GiB | **1.51 GiB** |
+| DFlash2 + Vision context | 240,000 (refused at 262,144) † | **262,144** |
+| DFlash2 + Vision free | 1.41 GiB † | **1.51 GiB** |
 
-**0.77 GiB of device weight is exactly the margin.** Its 1.51 GiB free at 262,144 + Vision is
-identical to QUASAR's on the same configuration, so it lands where the lanes that serve the full
-context land rather than merely clearing the bar.
+† **The two Q8-draft figures in this table are superseded and were stale for as long as they stood
+here.** Both were measured 2026-09-30 and both were still quoted afterwards, including as this file's
+own justification for the encoding choice. The tiled saturation guard changed the runtime memory
+picture and neither was re-measured. Re-measured 2026-10-04 with `verify`, both arms minutes apart on
+the q8draft image already in `_superseded`: the Q8 build **SERVES at 262,144 with Vision** on 2.05 GiB
+free, against this table's 240,000 and 1.41 GiB.
+
+**The encoding choice survives the correction, on better grounds.** On the `code` domain — the default
+`verify` domain, and the one the `code` row of the table below was taken on — NVFP4 is not merely the
+build that fits; it is better on all three measured axes at once:
+
+| `code`, DFlash2 d7, Vision | Q8 draft | NVFP4 draft | change |
+|---|---:|---:|---:|
+| context served | 262,144 | 262,144 | — |
+| free VRAM | 2.05 GiB | **2.83 GiB** | +0.78 GiB |
+| decode tok/s | 290.3 | **348.3** | **+20.5 %** |
+| acceptance | 49.3 % | **63.0 %** | **+13.7 pp** |
+
+Those throughput and acceptance figures reproduce this file's own interleaved `code` row (288.4 /
+49.3 % and 349.4 / 63.0 %) to within 0.7 %, on a re-run five weeks later and a different day, which
+is the reproducibility check the original numbers were missing.
+
+**This does not generalise, and the table below is why.** On `chinese` the ordering reverses: Q8 is
+11.7 % faster and 4.6 points better accepted. So the honest statement is that NVFP4 wins the `code`
+domain outright and loses `chinese`, exactly as before — what the re-probe removes is the *capacity*
+argument, not the per-domain split. A build that is faster, more accurate and smaller on one domain
+is still not the better artifact everywhere, and nothing here should be quoted without its domain.
 
 Throughput, interleaved with the Q8 build in the same window, two rounds, `code` and `chinese`:
 
@@ -567,10 +591,12 @@ the DFlash2 differences are the encoding rather than the run.
 
 So the encoding **reverses on this target too**, exactly as the Swift 1.0 measurement predicted it
 might: on code the NVFP4 draft is 13.7 points better, on chinese 4.6 points worse. The choice is
-therefore not "which is faster" but "which defect is acceptable". The Q8 build's defect is a lane
-that **cannot start at the context the product advertises**; the NVFP4 build's is 11.7 % on the one
-domain where the drafter is weakest. Recorded, measured, and shipped as the NVFP4 draft, with the
-per-domain figures here rather than a single headline.
+therefore not "which is faster" but "which defect is acceptable". This paragraph used to name the Q8
+build's defect as "a lane that cannot start at the context the product advertises" — that was the
+capacity claim, and the 2026-10-04 re-probe falsified it, since the Q8 build now starts at 262,144 with
+Vision. What remains is a pure per-domain quality trade with no capacity wall behind it. Shipped as the
+NVFP4 draft: it is the stronger arm on `code`, which is the documented default domain, and the weaker
+one only on `chinese`. Per-domain figures here rather than a single headline.
 
 ## The 308 MiB that was missing, and why it is not the same fix on every lane
 
