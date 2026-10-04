@@ -19,16 +19,37 @@ artifacts do not need rebuilding**. What the merge invalidated is the recorded p
 **Read the heading before the body: most of these are settled.** The list is kept in its original
 order and its original numbering, because a settled item is a record of how a question was answered
 and renumbering them would break every cross-reference to it. Each heading carries its own status
-(`DONE`, `ANSWERED`, `CLOSED`, `RESOLVED`, `NOT RUNNABLE`, or `Triaged … KEEP` for the ones still
-open). As of 2026-10-01 the only items with work outstanding are:
+(`DONE`, `ANSWERED`, `CLOSED`, `RESOLVED`, `NOT RUNNABLE`).
 
-- **item 5** — the Recall@1 / Recall@16 / path-acceptance split. Triaged `KEEP`; not started.
-- **item 12, second half** — the nine `PORT-DISPATCH` gates on the FP8 A8 TMA route. The cause is
-  established and the fix has landed; ungating is a separate performance decision. See the
-  `RESOLVED` block at the top of item 12.
-- **item 14, speed half** — the first request being *faster*, which nothing in the literature
-  explains. The text half is answered: it is ADR-0002's documented cross-configuration sensitivity,
-  not a first-request effect, and the original comparison was two bench runs rather than two requests.
+**As of 2026-10-04 the work outstanding is:**
+
+- **item 5, residue** — the instrument is built and it refuted the item's premise. Two things it did
+  not settle are open. (a) `profiles.py` records QUASAR at 55.0% acceptance while the bench measures
+  21.1%; they are not the same measurement, and **the two figures must not be quoted side by side
+  until the workloads are matched**. (b) `src/serve/request_log.cpp` still publishes only
+  `accepted_per_position`, so the three new counters are invisible on the serving path. See `:286`.
+- **item 12** — **nothing remains open.** All nine `PORT-DISPATCH` gates were ungated 2026-10-02,
+  each on its own per-route oracle; every affected file carries `UNGATED 2026-10-02`. The bullet
+  below this line read "ungating is a separate performance decision" until 2026-10-04, which the
+  item's own `RESOLVED` block at `:604` had already contradicted.
+- **item 14** — **both halves resolved.** Text half: not a first-request effect but ADR-0002's
+  documented cross-configuration sensitivity. Speed half: measured on a serving lane and retired
+  (`:1724`). The bullet below this line read "nothing in the literature explains it", which is what
+  the item said before it was measured.
+
+**That summary was wrong on all three counts until 2026-10-04**, and the reason is worth keeping:
+the three bullets were written when the items were open and never revisited, while the items
+themselves were annotated in place as they closed. A hand-maintained summary asserting what is open
+is worse than none, because a reader trusts it over the item it indexes. **To decide what to work
+on, read the item headings, not this list.**
+
+Two tests fail permanently and are **not** outstanding work: `ninfer_qwen3_5_dflash_real_test` (the
+route needs a `dflash` component; this product ships `dflash2`) and `ninfer_qwen3_5_moe_real_test`
+(no 35B-A3B MoE checkpoint exists for this product). Both are **baselined** in
+`tools/release/test_baseline.json` rather than skipped, so the gate stays truthful about them.
+
+Deferred items living outside this file: `docs/research/server-open-items.md` and
+`docs/research/issue5-deferred-findings.md`.
 
 Everything else below is closed, answered or negative, and is kept because the reasoning is the
 durable part. The header date was `2026-09-28` until 2026-10-01, when it was corrected: the file's

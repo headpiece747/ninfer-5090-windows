@@ -130,6 +130,8 @@ recorded ninety passing runs followed by none.
   and varies only the path.
 - **Projected, not measured**: `prepared` ≈ 8 ms and warm TTFT ≈ 22 ms. Those follow from the render
   figure and the field log's split, and the end-to-end path has not been timed with the new renderer.
+  **Both superseded — see "The end-to-end projection, measured 2026-10-02" immediately below, and
+  `:243`, where the `prepared` ≈ 8 ms half is separately refuted. Do not quote this bullet.**
 
 ### The end-to-end projection, measured 2026-10-02, and warm TTFT now exists
 

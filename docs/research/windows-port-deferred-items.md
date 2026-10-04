@@ -1,5 +1,23 @@
 # Windows port: what the research found, and what it is deferred behind
 
+> ## ⚠️ SUPERSEDED 2026-10-04 — three of the five deferred items are already done
+>
+> This document is a dated research record, not current guidance. Its ranked *"Deferred, in the
+> order they are worth doing"* table (`:106`) lists three fixes that have since landed. Verified
+> against source, not against another document:
+>
+> | this document claims | source, 2026-10-04 |
+> |---|---|
+> | `cmake/Dependencies.cmake:30` guards libcurl behind `if(NOT MSVC)` | `Dependencies.cmake:33` is `find_package(CURL 7.85)` — **done** |
+> | `src/product/CMakeLists.txt:9` still links `ws2_32` | no first-party `ws2_32` link anywhere — **done** |
+> | `SO_EXCLUSIVEADDRUSE` is never set | `src/serve/http_transport.cpp:109` sets it — **done** |
+> | `README.md` says "memory-mapped"; the code does not map | **still open** |
+> | the longest launch has never been measured | **still open** — see `server-open-items.md:15` |
+>
+> The authoritative list is `docs/research/server-open-items.md`. Read this file for how the findings
+> were reached, not for what is outstanding. A reader taking the table below as current re-derives
+> three fixes that already shipped.
+
 From `windows-port-best-practice.md` (the cited research) and the verification that followed it. Each
 item here is scoped rather than open-ended: what it is, the evidence, and what finishing it means.
 
