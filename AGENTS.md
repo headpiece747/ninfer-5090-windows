@@ -482,10 +482,19 @@ Sixty-four rules, each earned by a failure rather than chosen:
   `...v3.ninfer ` and an extension check rejected it -- while the identical binary passed under
   PowerShell's `$env:`. Use `set "VAR=value"` in `cmd`, never `set VAR=value && ...`, and before
   diagnosing a test failure check that the harness handed it what you think it did.
-- **A figure in a comment carries its configuration.** A startup line reading "pinning host state |
-  1.46 GiB" was recorded as the 16-slot cost and committed; it is the 8-slot figure, and three logs
-  side by side give 1.46 / 2.19 / 2.92 at 8 / 12 / 16. A number that arrives without its configuration
-  is how a wrong figure gets committed and then cited as corroboration.
+- **A figure in a comment carries its configuration, and a SERIES carries the configuration it was
+  measured along.** A startup line reading "pinning host state | 1.46 GiB" was recorded as the 16-slot
+  cost and committed; it is the 8-slot figure, and three logs side by side give 1.46 / 2.19 / 2.92 at
+  8 / 12 / 16. A number that arrives without its configuration is how a wrong figure gets committed and
+  then cited as corroboration. The same applies to the axis a trend is fitted along, which is the part
+  a per-figure label does not cover: on 2026-10-04 the longest GPU kernel was extrapolated from three
+  `ninfer_bench` points at the artifact's default `kv_cache=bf16` to the shipping lane's
+  `--kv-dtype fp8`, and the kernel the extrapolation named appears **zero times** in the serving
+  route's trace. The fit was clean, the exponent was plausible, and the answer was wrong by ~8x
+  (343 ms predicted, 43.10 ms measured) because the two routes never ran the same kernel. Before
+  extrapolating, confirm the thing being extrapolated is present in the destination — one
+  `Select-String` for the kernel name in the destination report — and state which single axis the
+  series shares. A trend across points that differ in something else is two series, not one.
 - **Redirect a long-running command to a file; a truncating filter kills it.** `Select-Object -First N`
   closes the pipeline and terminates the command, so a full launcher verification died half way and
   reported failure. This is the same family as swallowing output with `| Out-Null`: when the command's

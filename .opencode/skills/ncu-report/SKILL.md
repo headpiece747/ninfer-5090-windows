@@ -1,6 +1,6 @@
 ---
 name: ncu-report
-description: Profile CUDA kernels with Nsight Compute and turn the report into evidence-backed optimizations. Adapted from MIT HAN Lab's ncu-report-skill for NInfer's RTX 5090 / sm_120a engine. Use when profiling a kernel, diagnosing a bottleneck, reading an ncu report, or writing an optimization plan.
+description: Profile CUDA kernels with Nsight Compute and turn the report into evidence-backed optimizations. Adapted from MIT HAN Lab's ncu-report-skill for NInfer's RTX 5090 / sm_120a engine. Use when profiling a kernel, diagnosing a bottleneck, reading an ncu report, writing an optimization plan, or measuring per-kernel durations — including "which kernel was slowest", "how long did this launch take", or any kernel-timing question, which this host answers with Nsight Systems rather than ncu (see lesson 7).
 ---
 
 # CUDA Kernel Profiling (RTX 5090 / sm_120a, Nsight Compute)
@@ -98,6 +98,12 @@ Most under-performing CUDA kernels are under-performing for exactly one reason t
 5. **NCU's rule engine (`--page details`) already does half the work.** Each rule comes with `Est. Speedup: X%`. Read them first — they often point straight at the answer.
 
 6. **Don't delegate understanding.** Run the profiles yourself, open the reports, cite specific metric values. Never write "the profile shows it's memory-bound" — instead, name the two or three metric values that back your conclusion (e.g., "`dram__bytes_read.sum.pct_of_peak_sustained_elapsed` well under 10%, and `long_scoreboard` stalls dominate the pcsamp histogram, so the kernel is **latency-bound on L1**, not DRAM-bandwidth-bound"). Fill in the actual numbers from your report. Specificity is the deliverable.
+
+7. **On this Windows host, `ncu` cannot collect counters and `nsys` can — so reach for `nsys` when the question is "how long did each kernel take".** Measured 2026-10-04: `ncu --metrics gpu__time_duration.sum` fails with `ERR_NVGPUCTRPERM` ("the user does not have permission to access NVIDIA GPU Performance Counters"), which needs an elevation or a driver change this port does not make. **Nsight Systems is installed and not on PATH**, at
+   `C:\Program Files\NVIDIA Corporation\Nsight Systems 2026.1.3\target-windows-x64\nsys.exe`. It traces every kernel and its duration via CUPTI, needs no elevation, and is the correct tool for duration questions anyway — `ncu` replays kernels for metric collection, which is the wrong instrument for "which kernel was slowest". Extract with
+   `nsys stats --report cuda_gpu_kern_sum --format table <report>.nsys-rep` and read the **Max** column for a longest-kernel question.
+
+8. **Never `Stop-Process` the profiler.** Killing `nsys` discards the trace silently — the process dies, nothing is reported, and the `.nsys-rep` never appears. Stop only the process being profiled and wait for the profiler to exit on its own; then confirm the report file exists before reading a measurement out of it. This cost a 27 MB native-context capture that had to be re-run.
 
 ---
 
