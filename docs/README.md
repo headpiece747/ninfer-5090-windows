@@ -54,6 +54,12 @@ The active references under [`maintainer/`](maintainer/) record current architec
 artifact, and maintenance contracts. These files are not additional user workflows or installed
 API documentation.
 
+**Seven of them are written in Chinese by upstream.**
+[Maintainer documents: English index](maintainer/README.md) summarises in English what each one
+decides and links to the original, which is the source of truth. The originals are not translated or
+modified: a translation is a permanent divergence, and every future upstream merge would then conflict
+in every translated file.
+
 [`adr/`](adr/) holds the decisions behind the shipped profiles and artifact rules, each with the
 measurement that produced it: why a v3 container is required, why speculation is not bit-identical,
 the draft-binding contract, why the profiles are vision-only, and why every profile flag is
