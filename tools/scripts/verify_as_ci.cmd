@@ -44,6 +44,11 @@ if not defined VENV_OK (
 
 set "BASH=bash"
 where bash >nul 2>&1 || set "BASH=%ProgramFiles%\Git\usr\bin\sh.exe"
+REM The shell above needs Git's own usr\bin on PATH. The hook's gate() helper pipes a failed
+REM gate's output through `tail -40`, and without that directory a failure prints
+REM "tail: command not found" and exits 127 instead of the gate's status -- hiding the reason the
+REM helper exists to show. CI never saw this because its runner has bash and coreutils on PATH.
+set "PATH=%ProgramFiles%\Git\usr\bin;%PATH%"
 
 echo === 1. the hook in this checkout ===
 set "NINFER_PYTHON=%VENV%\Scripts\python.exe"
@@ -52,30 +57,17 @@ set "LOCAL_STATUS=%ERRORLEVEL%"
 echo     local hook exit: %LOCAL_STATUS%
 echo.
 
-REM The remote-path run. Only the files the gate reads are copied: the repository carries multi-gigabyte
-REM build trees and artifacts, and copying all of it exhausts memory long before it tests anything.
-set "REMOTE=%TEMP%\runner-path-check\ninfer-5090-windows"
-if exist "%TEMP%\runner-path-check" rmdir /s /q "%TEMP%\runner-path-check"
-mkdir "%REMOTE%\tools\release" || exit /b 1
-mkdir "%REMOTE%\tools\chat_templates" || exit /b 1
-mkdir "%REMOTE%\tools\scripts" || exit /b 1
-copy /y "tools\release\*.py" "%REMOTE%\tools\release\" >nul || exit /b 1
-copy /y "tools\chat_templates\*" "%REMOTE%\tools\chat_templates\" >nul || exit /b 1
-copy /y "tests\convert\*.py" "%REMOTE%\" >nul 2>&1
-copy /y "launcher_env.bat" "%REMOTE%\" >nul || exit /b 1
-copy /y "*.bat" "%REMOTE%\" >nul || exit /b 1
-echo === 2. the same gate from a checkout at a different path ===
-echo     %REMOTE%
-pushd "%REMOTE%"
-"%VENV%\Scripts\python.exe" tools\release\check_profile_consistency.py
-set "REMOTE_STATUS=%ERRORLEVEL%"
-popd
-echo     remote-path gate exit: %REMOTE_STATUS%
-echo.
-
-REM === 3. the hook in a clone at the depth ci.yml configures ===
-REM The depth is READ from the workflow, not written here. If fetch-depth: 0 is dropped from
-REM .github/workflows/ci.yml, this arm becomes a shallow clone and reproduces the failure locally
+REM One clone serves both remaining arms: a clone IS a repository at a different path, and its depth
+REM is whatever ci.yml configures.
+REM
+REM A clone rather than a hand-copied subset, which is what this was. That subset list had gone
+REM stale -- it omitted README.md, RELEASE_NOTES.md and download_model.py, all of which
+REM check_profile_consistency.py reads -- so every check read nothing, failed, and this script
+REM reported "the gate depends on where the repository lives" for a cause that was missing files.
+REM A clone cannot go stale that way.
+REM
+REM The depth is READ from the workflow, not written here, so dropping fetch-depth: 0 from
+REM .github/workflows/ci.yml turns this arm into a shallow clone and reproduces the failure here
 REM instead of leaving it for CI to find.
 set "DEPTH_ARGS=--depth 1"
 REM Anchored with /r and ^ on purpose. The unanchored form also matched the explanatory COMMENT
@@ -83,17 +75,22 @@ REM above the setting, so deleting the real fetch-depth: 0 while leaving its pro
 REM this arm on a full clone and hidden the regression -- the rule about guarding with string
 REM presence over prose, which this repository already carries.
 findstr /r /c:"^ *fetch-depth: *0" ".github\workflows\ci.yml" >nul 2>&1 && set "DEPTH_ARGS="
-set "CLONED=%TEMP%\runner-depth-check\ninfer-5090-windows"
-if exist "%TEMP%\runner-depth-check" rmdir /s /q "%TEMP%\runner-depth-check"
-mkdir "%TEMP%\runner-depth-check" || exit /b 1
-echo === 3. the hook in a clone at ci.yml's depth ===
+set "CLONED=%TEMP%\runner-check\ninfer-5090-windows"
+if exist "%TEMP%\runner-check" rmdir /s /q "%TEMP%\runner-check"
+mkdir "%TEMP%\runner-check" || exit /b 1
+echo === 2. the clone: a different path, at ci.yml's depth ===
 echo     %CLONED%   (%DEPTH_ARGS%)
 git clone %DEPTH_ARGS% --quiet "file:///%REPO:\=/%" "%CLONED%" || exit /b 1
+echo.
+echo === 3. the gate, then the hook, in that clone ===
 pushd "%CLONED%"
+"%VENV%\Scripts\python.exe" tools\release\check_profile_consistency.py
+set "REMOTE_STATUS=%ERRORLEVEL%"
+echo     remote-path gate exit: %REMOTE_STATUS%
 "%BASH%" .githooks/pre-commit
 set "DEPTH_STATUS=%ERRORLEVEL%"
-popd
 echo     depth-check hook exit: %DEPTH_STATUS%
+popd
 echo.
 
 if not "%LOCAL_STATUS%"=="0" (
