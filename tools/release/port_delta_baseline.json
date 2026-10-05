@@ -408,6 +408,11 @@
       "disposition": "unknown",
       "reason": ""
     },
+    "src/models/qwen3_5/frontend/tokenizer.cpp": {
+      "status": "M",
+      "disposition": "product",
+      "reason": "ADR-0010 incremental prompt encoding. Restored 2026-10-05 after upstream b9114396's rewrite of this file dropped the port's half: the declarations survived in the port's tokenizer.h, so the tree compiled and linked with the cache dead, encode_cache_splices() stayed 0 and nothing failed. The port's layer is wrapped in NINFER-PORT-BEGIN/END and is byte-identical to c42406ab; encode_with_boundaries_uncached is upstream's own body, renamed, so the port owns no tokenization arithmetic here. Protected by ninfer_qwen3_5_frontend_test. Remove this entry only if the feature is withdrawn and ADR-0010 is superseded."
+    },
     "src/models/qwen3_5/frontend/tokenizer.h": {
       "status": "M",
       "disposition": "product",

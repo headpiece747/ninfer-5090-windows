@@ -115,8 +115,12 @@ def git(*args: str) -> str:
 
 
 def collect(against: str) -> list[Entry]:
+    # Compared against the WORKING TREE, not HEAD. The pre-commit hook runs before the commit
+    # exists, so a HEAD-based diff would miss the divergence that the very commit being guarded is
+    # introducing -- reporting it one commit late, which is exactly how the encode cache was lost
+    # without anything failing.
     counts: dict[str, tuple[int, int]] = {}
-    for line in git("diff", "--numstat", f"{against}..HEAD").splitlines():
+    for line in git("diff", "--numstat", f"{against}").splitlines():
         parts = line.split("\t")
         if len(parts) == 3:
             try:
@@ -125,7 +129,7 @@ def collect(against: str) -> list[Entry]:
                 counts[parts[2]] = (-1, -1)  # binary
 
     entries: list[Entry] = []
-    for line in git("diff", "--name-status", f"{against}..HEAD").splitlines():
+    for line in git("diff", "--name-status", f"{against}").splitlines():
         parts = line.split("\t")
         if len(parts) < 2:
             continue
@@ -133,7 +137,7 @@ def collect(against: str) -> list[Entry]:
         added, removed = counts.get(path, (0, 0))
         marked = False
         if status == "M":
-            diff = git("diff", "--unified=0", f"{against}..HEAD", "--", path)
+            diff = git("diff", "--unified=0", f"{against}", "--", path)
             added_lines = [
                 text
                 for text in diff.splitlines()
@@ -168,6 +172,11 @@ def report(entries: list[Entry], against: str) -> None:
 
 
 def write_baseline(paths: dict[str, Entry], against: str) -> None:
+    # Carry the review forward. `reason` is the only field a human writes, and clearing it on every
+    # re-record is how a baseline rots: the entry survives, the justification does not.
+    previous: dict[str, dict[str, str]] = {}
+    if BASELINE.exists():
+        previous = json.loads(BASELINE.read_text(encoding="utf-8")).get("paths", {})
     payload = {
         "against": against,
         "recorded": datetime.date.today().isoformat(),
@@ -178,7 +187,11 @@ def write_baseline(paths: dict[str, Entry], against: str) -> None:
             "worse than none, because it hides the next real change under an expected one."
         ),
         "paths": {
-            path: {"status": entry.status, "disposition": entry.disposition, "reason": ""}
+            path: {
+                "status": entry.status,
+                "disposition": entry.disposition,
+                "reason": previous.get(path, {}).get("reason", ""),
+            }
             for path, entry in sorted(paths.items())
         },
     }
