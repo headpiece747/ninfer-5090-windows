@@ -1,4 +1,4 @@
-# Active work — current as of 2026-10-01
+# Active work — current as of 2026-10-05
 
 **This file is temporary.** It is the single current record of work in progress. Per `AGENTS.md`,
 remove it when the list is empty; do not grow it into a roadmap and do not add a parallel `v2`.
@@ -39,6 +39,13 @@ and renumbering them would break every cross-reference to it. Each heading carri
   documented cross-configuration sensitivity. Speed half: measured on a serving lane and retired
   (`:1724`). The bullet below this line read "nothing in the literature explains it", which is what
   the item said before it was measured.
+- **item 15** — **four of five fixed 2026-10-05, one open.** The suite had five failures
+  `test_baseline.json` did not record, under a note claiming "Green since 2026-09-19". The remaining
+  one, `ninfer_qwen3_5_prefix_real_test` at `C=8 terminal settlement`, had never executed on this
+  port: the frontend golden above it was returning early and hiding every scenario in that file.
+- **item 16** — **open, and it is a hypothesis rather than a list.** 40 files where the `b9114396`
+  merge took upstream's version while the port had work in them, against a control of 53 where it
+  kept the port's. Two of the three failures it seemed to predict were not losses.
 
 **That summary was wrong on all three counts until 2026-10-04**, and the reason is worth keeping:
 the three bullets were written when the items were open and never revisited, while the items
@@ -1847,6 +1854,69 @@ in a way that is easy to remove as "redundant" by a later reader.
 or the divergence is characterised precisely enough to state it as intended behaviour. Either answer is
 acceptable; leaving it undocumented is not, because the bench currently compensates for it silently.
 
+### 15. Five suite failures with no cause recorded — **FOUR FIXED 2026-10-05, one open**
+
+**Why:** `tools/release/test_baseline.json` recorded `suite_size: 142`, `recorded: 2026-10-04` and a
+`known_failures` of two, under a note reading "Green since 2026-09-19" — while the suite it describes
+had five failures it did not mention. That file was last touched by `af5890b3`, which is HEAD, so the
+claim was false at the commit that wrote it. Nothing had run the suite: `.github/workflows/gpu.yml`
+is published and wired correctly, but **no self-hosted runner is registered**, so the GPU tier has
+never executed. The four failures had four different causes, which is why each was attributed before
+it was touched rather than fixed as a group.
+
+- `ninfer_qwen3_5_frontend_test` — **lost port work.** Upstream's `b9114396` rewrote `tokenizer.cpp`
+  and the merge took upstream's version wholesale, so ADR-0010's cache layer went with it. The
+  declarations survived in the port's `tokenizer.h`, so the tree compiled and linked with the cache
+  dead: `splice_from_cache` never fired, `encode_cache_splices()` stayed 0, and the ids were still
+  correct because the full encode still ran. Restored from `c42406ab` verbatim — 5 of 5 functions
+  byte-identical once comments and blanks are dropped — and wrapped in `NINFER-PORT` markers, with
+  `encode_with_boundaries_uncached` being upstream's own body renamed.
+- `ninfer_request_log_test` — **a real defect plus a stale golden.** The producer emitted a `prepare`
+  clause carrying `preparation.seconds`, the same figure the `prepared` clause already states, so
+  every started line printed preparation twice. The golden separately expected upstream's comma where
+  this port emits a pipe between the media and preparation clauses.
+- `ninfer_http_error_handler_test` — **the merge added a contract without its implementation.** Two
+  cases use status 400 and expect opposite results, and that pair *is* the contract: an unrecognised
+  status on an Anthropic path returns `Unhandled` with the request ID established, while an OpenAI
+  path still gets the generic envelope, because a client that parses every response as JSON otherwise
+  crashes on httplib's plain-text page.
+- `ninfer_qwen3_5_agent_continuation_real_test` — **not a bug.** Its resource-lifetime failure was a
+  cascade of the frontend golden returning early.
+
+**Open:** `ninfer_qwen3_5_prefix_real_test` now reaches its scenarios and fails at `C=8 terminal
+settlement left live logical membership: running=1 materializing=0 prefill=0 decode=0 capture=0
+terminal=1`. The equivalent check in the agent-continuation scenario passes, so settlement works on
+that path and this is a specific finding rather than a broken invariant everywhere. It had never run
+on this port before 2026-10-05.
+
+**Also recorded there:** `exercise_artifact_frontend` is upstream's and asserts upstream's artifacts
+(16 thinking tokens); this port's measure 58, because their embedded template emits the
+reasoning-effort instruction as a synthetic system message — exactly the 40-token delta, with the
+no-thinking count matching upstream exactly at 18. The port now asserts its own goldens and names the
+actual count on failure.
+
+**Done when:** the `C=8` assertion is attributed and either fixed or recorded with its cause.
+
+### 16. The `b9114396` merge took upstream's version of 40 files the port had work in — **A HYPOTHESIS, twice falsified**
+
+**Why:** for every file upstream's `b9114396` changed, the merge result equals upstream's exact blob
+while the port's pre-merge blob differed from upstream's pre-merge blob — 40 files, against a control
+arm of 53 where the port's version was kept. An instrument that flagged everything would have put the
+control near zero, so 40 is a real signal.
+
+**But it is a candidate list, not a list of losses, and two of the failures it appeared to predict
+were not losses at all.** `src/serve/request_log.h` was the port being *behind*: upstream's version
+was newer and the merge correctly took it. `src/serve/http_server.cpp` was not on the list at all,
+while the merge's change there was an improvement. `tokenizer.cpp` is not on it either — its loss
+happened on the earlier branch merge — so the true total is at least 40 and not exactly 40.
+
+**What is worth doing** is the mechanical version rather than 40 manual reviews: for each file, does
+the divergence the port *once had* survive at HEAD? That is the difference between a hypothesis and a
+fact, and it is the only way to find a silent loss that no test covers.
+
+**Done when:** every one of the 40 is classified as a loss (restore it), a superseded port change
+(drop it), or the port having been behind (nothing to do), with the classification recorded.
+
 ## Gates added while this list was open
 
 **Text encoding, 2026-10-02 — `tools/release/check_text_encoding.py`.** 181 lines of this file
@@ -1982,6 +2052,39 @@ which never decodes.
 > all five measured tiles and loses three bands (448 and 512 on the split 128x128, 768 on 64x128). The
 > margin is largest where the machine is underfilled, which is prefill. Anyone re-measuring should
 > reproduce the method row, not just the number.
+
+**Port delta, 2026-10-05 — `tools/release/check_port_delta.py`.** The port modifies 230
+upstream-owned files and deletes 24, and a merge can take upstream's version of one and drop the
+port's with no error and no conflict — which is exactly what happened to ADR-0010's encode cache. The
+gate records every divergent upstream-owned path in `port_delta_baseline.json` with a disposition and
+a reason, and `--check` fails in **both** directions: a path that diverges without being recorded, and
+a recorded path that no longer diverges. Both directions were falsified before it was wired in, and
+`--write-baseline` is byte-reproducible.
+
+Two defects in it were found by using it rather than reading it. It diffed `upstream/master..HEAD`,
+but the pre-commit hook runs *before* the commit exists, so a divergence introduced by the commit
+being guarded was reported **one commit late** — it now compares the working tree, falsified with an
+uncommitted one-line change. And `--write-baseline` cleared every `reason`, which would have rotted
+the file on each re-record; it now carries them forward. It has since blocked a real commit: editing
+`tests/models/qwen3_5/test_engine_prefix_real.cpp` needed an entry with a reason before it could land.
+
+**Skill discovery, 2026-10-05 — `tools/release/check_skills.py`.** 34 of 59 skills set
+`disable-model-invocation: true`, which the V2 skills page says hides a skill from the model's
+available list, and this desktop build advertises them anyway — `principle-prove-it-works` carries the
+flag and is in the model's list with its description. The config declared a gate that was not being
+applied, and a build that honours the flag would silently hide 34 skills. The flags are removed and
+the gate keeps it that way.
+
+It fails on the two invisibility modes a commit can fix: a skill with no `description`, which is
+registered and never advertised, and a markdown file named after its own directory, where
+`skills/foo/foo.md` reads as an entry point and is never discovered. It only *reports* a visibility
+flag or a duplicate ID, both of which can be deliberate. Scope is split for the same reason: the
+project root is gated, while the global and compatibility roots are reported only, because they are
+outside the repository, absent on a CI runner, and a commit cannot fix them.
+
+Its first version flagged all 25 supporting markdown files beside `SKILL.md` in this repository —
+`ncu-report/reference/*.md` and the rest — which the V2 page explicitly blesses, and would have been
+red on every commit.
 
 ## Closed — do not reopen
 
