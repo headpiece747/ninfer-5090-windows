@@ -1060,7 +1060,7 @@
     },
     "tests/models/qwen3_5/test_engine_prefix_real.cpp": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "reason": "Port goldens for the artifact frontend check. exercise_artifact_frontend is upstream's and asserts upstream's artifacts (16 thinking / 18 no-thinking); this port's artifacts measure 58/18, because their embedded template emits the reasoning-effort instruction as a synthetic system message -- exactly the 40-token delta -- and upstream's predates it. Upstream's 16 also returned early, hiding every other scenario in this file. The port now asserts its own goldens and names the actual count on failure. Change these numbers only against a fresh measurement, and prefer the shipping path: `ninfer --messages` reports prompt tokens directly."
     },
     "tests/models/qwen3_5/test_frontend.cpp": {
@@ -1082,6 +1082,11 @@
       "status": "M",
       "disposition": "unknown",
       "reason": ""
+    },
+    "tests/ops/softmax_attention/main.cpp": {
+      "status": "M",
+      "disposition": "product",
+      "reason": "Added --no-causal. The causal sweep is five independent KV formats in one loop and is host-oracle-bound (median GPU utilisation measured 5%), so it is now registered as one ctest entry per format; this binary keeps plain_and_packed and context in an entry of its own. Every --kv-dtype path sets causal_only and returns before those two, so without the flag the split would either duplicate 553 s of work or silently drop them. Coverage is unchanged -- the format loop already filtered on the same run_storage_cases calls, each with its own criterion. Measured: 584.8 s for the single entry, 145.5 s for the six running in parallel."
     },
     "tests/ops/softmax_attention/plain_and_packed.cpp": {
       "status": "M",

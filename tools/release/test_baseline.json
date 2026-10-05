@@ -1,6 +1,6 @@
 {
-  "recorded": "2026-10-04",
-  "suite_size": 142,
+  "recorded": "2026-10-05",
+  "suite_size": 147,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -42,6 +42,11 @@
       "date": "2026-10-04",
       "count": 4,
       "note": "upstream context-cache rewrite: 6 added (host_context_arena, metrics, scheduler, qwen3_5_native_transactions, qwen3_5_preemption_real, qwen3_5_agent_continuation_real), 2 deleted with their subsystems (admission_policy, materialization_budget)"
+    },
+    {
+      "date": "2026-10-05",
+      "count": 5,
+      "note": "the softmax_attention causal sweep split into five per-format ctest entries plus one --no-causal entry for plain_and_packed and context: the same run_storage_cases calls, registered separately because the sweep is host-oracle-bound (median GPU utilisation 5%) and measured 584.8 s as one entry against 145.5 s as six in parallel"
     }
   ]
 }

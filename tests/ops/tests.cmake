@@ -45,12 +45,48 @@ ninfer_add_op_test(ninfer_dflash2_nvfp4_routes_test
   SOURCES ops/test_dflash2_nvfp4_routes.cpp
   LIBRARIES ninfer_ops)
 
-ninfer_add_op_test(ninfer_softmax_attention_test
-  SOURCES "${CMAKE_CURRENT_LIST_DIR}/softmax_attention/main.cpp"
-          "${CMAKE_CURRENT_LIST_DIR}/softmax_attention/causal_cache.cpp"
-          "${CMAKE_CURRENT_LIST_DIR}/softmax_attention/plain_and_packed.cpp"
-          "${CMAKE_CURRENT_LIST_DIR}/softmax_attention/context.cpp"
-  LIBRARIES ninfer_ops)
+# Built explicitly rather than through ninfer_add_op_test, because that helper registers one
+# add_test with no arguments and CMake does not let a test's COMMAND be replaced afterwards.
+# Everything else is what the helper does: ninfer_test_includes, the libraries, and the oracle
+# options for the translation unit that carries the comparison.
+#
+# Why it is split. The causal sweep is five independent KV formats in one loop, and it is
+# host-oracle-bound: median GPU utilisation measured 5% across 60 s of a 584 s test, so the card is
+# idle while one process grinds formats in sequence. run_softmax_attention_causal_cache_tests takes
+# the format as a filter over the same five run_storage_cases calls, with each format keeping its
+# own criterion, so one entry per format is the identical work with the host phases spread across
+# cores. Measured: 552.7 s sequential against 145.9 s for the slowest format, and the wall clock
+# equalled the slowest, which is what shows they run concurrently.
+#
+# The unparameterised entry keeps plain_and_packed and context, which --kv-dtype cannot reach
+# because it sets causal_only -- hence --no-causal, added for this. Without it this entry would
+# re-run all five formats and duplicate 553 s.
+#
+# kv_cache_append is already registered this way, at --nvfp4-only and --k8v4-only.
+add_executable(ninfer_softmax_attention_test
+  "${CMAKE_CURRENT_LIST_DIR}/softmax_attention/main.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/softmax_attention/causal_cache.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/softmax_attention/plain_and_packed.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/softmax_attention/context.cpp")
+ninfer_test_includes(ninfer_softmax_attention_test)
+target_link_libraries(ninfer_softmax_attention_test PRIVATE ninfer_ops)
+ninfer_op_oracle_options(ninfer_softmax_attention_test)
+
+add_test(NAME ninfer_softmax_attention_test
+  COMMAND ninfer_softmax_attention_test --no-causal)
+set(ninfer_softmax_attention_kv_formats bf16 int8 fp8 nvfp4 k8v4)
+foreach(format IN LISTS ninfer_softmax_attention_kv_formats)
+  add_test(NAME ninfer_softmax_attention_${format}_test
+    COMMAND ninfer_softmax_attention_test --kv-dtype ${format})
+endforeach()
+set_tests_properties(
+  ninfer_softmax_attention_test
+  ninfer_softmax_attention_bf16_test
+  ninfer_softmax_attention_int8_test
+  ninfer_softmax_attention_fp8_test
+  ninfer_softmax_attention_nvfp4_test
+  ninfer_softmax_attention_k8v4_test
+  PROPERTIES SKIP_RETURN_CODE 77)
 
 ninfer_add_op_test(ninfer_sliding_window_attention_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_sliding_window_attention.cpp"
