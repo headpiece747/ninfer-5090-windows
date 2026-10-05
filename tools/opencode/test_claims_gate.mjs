@@ -17,11 +17,13 @@
 // the DENIAL SIGNAL on the real input shapes the host sends (`write` -> {path, content},
 // `shell` -> {command}), and covers a Markdown file that does not exist yet.
 
-import { pathToFileURL } from "node:url"
+import { pathToFileURL, fileURLToPath } from "node:url"
 import { readFileSync, existsSync } from "node:fs"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 
-const REPO = "C:\\AI\\ninfer-v3-windows"
+// Derived from this file's own location, never a literal: a hardcoded repo path passes on the one
+// machine that has it and fails everywhere else. Same fix as test_plugin_loads.mjs.
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const mod = await import(pathToFileURL(resolve(REPO, ".opencode/plugins/claims-gate.ts")).href)
 const plugin = mod.default ?? mod
 

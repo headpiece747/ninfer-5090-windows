@@ -25,11 +25,15 @@
 // loadable here -- and a future contributor reaching for the documented import would otherwise
 // reintroduce a silent, load-time-only failure that every logic test still passes.
 
-import { pathToFileURL } from "node:url"
-import { resolve } from "node:path"
+import { pathToFileURL, fileURLToPath } from "node:url"
+import { dirname, resolve } from "node:path"
 import { existsSync, readFileSync } from "node:fs"
 
-const REPO = "C:\\AI\\ninfer-v3-windows"
+// Derived from this file's own location, never a literal. A hardcoded repo path passes on the one
+// machine that has it and fails everywhere else: this check read C:\AI\ninfer-v3-windows on the CI
+// runner and died with ENOENT, which is the fault the launcher comparison already had when the
+// render embedded str(REPO) and the runner's checkout path made the two sides unmatchable.
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const PLUGIN_DIR = resolve(REPO, ".opencode/plugins")
 const PLUGINS = ["rules-inject.ts", "claims-gate.ts"]
 

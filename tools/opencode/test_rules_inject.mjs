@@ -13,10 +13,12 @@
 //   * a malformed event must not throw. A throw inside `context` lands on every agent-loop request,
 //     and a plugin that can wedge the loop is worse than no plugin
 
-import { pathToFileURL } from "node:url"
-import { resolve } from "node:path"
+import { pathToFileURL, fileURLToPath } from "node:url"
+import { dirname, resolve } from "node:path"
 
-const REPO = "C:\\AI\\ninfer-v3-windows"
+// Derived from this file's own location, never a literal: a hardcoded repo path passes on the one
+// machine that has it and fails everywhere else. Same fix as test_plugin_loads.mjs.
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const mod = await import(pathToFileURL(resolve(REPO, ".opencode/plugins/rules-inject.ts")).href)
 const plugin = mod.default ?? mod
 
