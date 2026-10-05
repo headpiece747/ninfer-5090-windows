@@ -210,7 +210,9 @@ OperationalRecord render_request_start(const RequestLogContext& context) {
         // positions and cache prep -- into a single `seconds` plus `tokenize_seconds` and the media
         // fields. The old per-phase names no longer exist, so the log reports what the new API can
         // actually measure rather than printing zeros for phases the engine no longer times.
-        phase("prepare", context.preparation.seconds);
+        //
+        // There is deliberately no `prepare` phase: `seconds` is the total, `prepared` already
+        // states it, and emitting it again printed the same figure twice on every started line.
         phase("tokenize", context.preparation.tokenize_seconds);
         phase("media preprocess", context.preparation.media_preprocess_seconds);
         phase("media work", context.preparation.media_preprocess_work_seconds);

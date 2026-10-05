@@ -289,8 +289,12 @@ int main() {
     failures += check(
         pretty_start.message ==
             "req#7 started | openai-chat non-stream | 2 messages | max output 4,096 | thinking "
-            "xhigh, budget 256 | media 1, prepared 120 ms | preserve thinking",
-        "pretty request-start record mismatch");
+            "xhigh, budget 256 | media 1 | prepared 120 ms, tokenize 20.0 ms, media preprocess "
+            "80.0 ms, media work 310 ms | preserve thinking",
+        // Name the actual line. The first version of this check reported only "mismatch", so a
+        // golden that was one character wrong and a producer that was wrong looked identical.
+        // c_str() on the temporary is safe: it outlives the full-expression that calls check.
+        ("pretty request-start record mismatch: " + pretty_start.message).c_str());
     RequestLogContext default_thinking = context;
     default_thinking.requested_reasoning_effort.reset();
     default_thinking.thinking_budget.reset();
