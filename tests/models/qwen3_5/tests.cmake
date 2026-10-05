@@ -98,6 +98,11 @@ set_tests_properties(ninfer_qwen3_5_agent_continuation_real_test PROPERTIES
   ENVIRONMENT "NINFER_PREFIX_REAL_SCENARIO=agent-continuation")
 
 # A real-model test owns the single GPU while its artifact is resident.
+#
+# issue5_race_test was registered separately and left out of this list, so it carried neither
+# RUN_SERIAL nor a label. Nothing noticed until the suite gained -j: run alongside another test its
+# timing windows move, and it failed -- which is what a race reproduction should do under changed
+# scheduling, and is why it belongs here for the same reason the others do.
 set(ninfer_qwen3_5_real_tests
   ninfer_qwen3_5_loading_real_test
   ninfer_qwen3_5_native_transactions_test
@@ -108,6 +113,7 @@ set(ninfer_qwen3_5_real_tests
   ninfer_qwen3_5_vision_workspace_test
   ninfer_qwen3_5_dflash2_real_test
   ninfer_qwen3_5_dflash_prefill_real_test
+  ninfer_qwen3_5_issue5_race_test
   ninfer_qwen3_5_moe_real_test
   ninfer_qwen3_5_dflash_real_test)
 set_tests_properties(${ninfer_qwen3_5_real_tests} PROPERTIES

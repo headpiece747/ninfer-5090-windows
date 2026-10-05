@@ -42,7 +42,13 @@ REM with an environment variable poisoned every test after it on 2026-09-25 (the
 REM case, 36 failures), and a fixed order hides that. The baseline compares test names, so a random
 REM order changes nothing about the verdict.
 echo === CTEST ===
-ctest --test-dir build-test --output-on-failure --schedule-random
+REM -j 8, and it is safe for a reason already in the tree rather than a new one: the real-model
+REM tests carry RUN_SERIAL TRUE, so ctest runs nothing alongside them and the ~16 GiB artifact each
+REM loads cannot collide. What -j adds is overlap between the op tests, which are host-oracle-bound
+REM -- ninfer_softmax_attention_test measured 5% median GPU utilisation across 60 s of a 584 s test
+REM -- so they spread across cores without changing anything they assert. Measured 2026-10-05: the
+REM six softmax entries take 145.5 s at -j 6 against 511 s run serially.
+ctest --test-dir build-test --output-on-failure --schedule-random -j 8
 echo CTEST_EXIT=%ERRORLEVEL%
 REM === OP PERTURBATION ===
 REM Last, and separate from the suite, because it asks a different question: not "do the tests pass"
