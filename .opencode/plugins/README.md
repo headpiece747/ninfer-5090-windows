@@ -14,26 +14,29 @@ One addresses a rule that is broken, the other a rule that is forgotten.
 
 ## Install
 
-```sh
-npm install --prefix .opencode/plugins
-```
-
-Then restart the opencode service, or nothing loads. Plugins are read at service start.
+Nothing to install — the plugins import nothing. Restart the opencode service, or nothing loads:
+plugins are read at service start.
 
 ## Why `package.json` exists here
 
-`@opencode/plugin` resolves only inside the global config directory, where `thinking-guard.ts` lives.
-These plugins sit in this repository, which has no `node_modules`, so without a local install opencode
-resolves nothing and **skips both files silently** — it does not crash, so nothing else reports it:
+For `"type": "module"`, and for nothing else. It declares no dependencies.
+
+The history is worth keeping, because the obvious fix was tried and did not work. `@opencode/plugin`
+resolves only inside the global config directory, where `thinking-guard.ts` lives, so these plugins
+originally imported it, and opencode **skipped both files silently** — it does not crash, so nothing
+else reported it:
 
 ```
 WARN failed to load plugin target=...\.opencode\plugins\claims-gate.ts
   cause="Cause([Die(ResolveMessage: Cannot find package '@opencode/plugin' imported from ...)]"
 ```
 
-`package.json` pins `@opencode/plugin` to the version the host itself runs, and `package-lock.json` is
-committed so a reinstall cannot silently move it. `node_modules/` is not committed — 139 MiB, 168
-packages.
+Installing the package into `.opencode/plugins/node_modules` made `node` resolve it and did **not**
+make the service resolve it — byte-identical packages, across a restart. So the plugins no longer
+import it at all: `Plugin.define({ id, setup })` is a typing helper over a plain object, and the
+default export is that object. The dependency, the committed lockfile and the 139 MiB install went
+with the import. `test_plugin_loads.mjs` asserts the import's **absence**, because that absence is
+the property that makes these files loadable here.
 
 ## Tests
 
@@ -43,7 +46,7 @@ Three harnesses, and the split between them is deliberate:
 |---|---|---|
 | `test_claims_gate.mjs` | is the deny/allow decision logic right? | no — stubs the package, so it runs anywhere |
 | `test_rules_inject.mjs` | does the injected text arrive, on every call, without accumulating? | no — same stub |
-| `test_plugin_loads.mjs` | **would opencode actually load these?** | **yes — real package, no stub** |
+| `test_plugin_loads.mjs` | **would opencode actually load these?** | no — it asserts the package is *not* imported |
 
 The stub is correct for testing decision logic in isolation and **wrong** for asking whether the
 service can load the file, because it makes an unresolvable import resolvable. That is how both

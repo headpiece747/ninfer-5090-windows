@@ -3,8 +3,5 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Project-scoped opencode plugins for NInfer. See ../plugins/README.md for why this package exists.",
-  "dependencies": {
-    "@opencode/plugin": "2.0.11"
-  }
+  "description": "Project-scoped opencode plugins for NInfer. See ../plugins/README.md for why this package exists."
 }

@@ -82,13 +82,13 @@ if git rev-parse --verify --quiet upstream/master >/dev/null; then
 else
     echo "pre-commit: SKIPPED port delta -- upstream/master is not a local ref (run: git fetch upstream)"
 fi
-# The two opencode plugins in .opencode/plugins/ resolve @opencode/plugin from a local node_modules,
-# which is deliberately not committed (139 MiB). opencode SKIPS a plugin that fails to load rather than
-# crashing, so a missing install is silent: both plugins sat in the tree through one commit, passing
-# their logic tests and never having run, because those tests stubbed the very package that failed to
-# resolve. Node is not a dependency of this product -- these plugins shape an agent's behaviour and
-# nothing about the shipped engine -- so its absence skips loudly here rather than failing every commit
-# for a C++ contributor, while its presence makes a missing install a hard failure.
+# The two opencode plugins in .opencode/plugins/ import nothing, so this check needs no install; what
+# it asserts is that the @opencode/plugin import stays ABSENT. opencode SKIPS a plugin that fails to
+# load rather than crashing, so that failure is silent: both plugins sat in the tree through one
+# commit, passing their logic tests and never having run, because those tests stubbed the very package
+# that failed to resolve. Node is not a dependency of this product -- these plugins shape an agent's
+# behaviour and nothing about the shipped engine -- so its absence skips loudly here rather than
+# failing every commit for a C++ contributor, while its presence runs the check.
 if command -v node >/dev/null 2>&1; then
     gate "opencode plugin load" node --experimental-strip-types tools/opencode/test_plugin_loads.mjs
 else
