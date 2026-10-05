@@ -1590,6 +1590,112 @@ int test_explicit_leading_instruction_cache_boundary() {
                  "full-system marker");
 }
 
+int test_trimmed_source_cache_boundaries() {
+    struct Case {
+        std::vector<std::string> parts;
+        std::size_t marked_part;
+        std::string expression;
+        std::optional<std::string> prefix;
+    };
+
+    const std::vector<Case> cases{
+        {{"policy\n"}, 1, "m.content|trim", "policy"},
+        {{"\u3000policy\u00a0\r\n"}, 1, "m.content|trim", "policy"},
+        {{" \t"}, 1, "m.content|trim", ""},
+        {{" \t", "policy\n"}, 1, "m.content|trim", ""},
+        {{"policy ", "\t\n"}, 1, "m.content|trim", "policy"},
+        {{"stable\n", "dynamic\n"}, 1, "m.content|trim", "stable\n"},
+        {{"policy", "\n"}, 2, "m.content|trim", "policy"},
+        {{"  policy\n"}, 1, "norm(m.content)", "policy"},
+        {{"  policy\n"}, 1, "(' ' ~ m.content ~ ' ')|trim", "policy"},
+        {{"policy\n"}, 1, "(m.content|trim) ~ ' suffix'", "policy"},
+        {{"xxpolicyxx"}, 1, "m.content.rstrip('x').lstrip('x')", "policy"},
+        {{"policy\n"}, 1, "(m.content|trim).rstrip('y')", "polic"},
+        {{"policy\n"}, 1, "(m.content|trim)[1:]", "olicy"},
+        {{" straße\n"}, 1, "m.content|trim|upper", "STRASSE"},
+        {{"x\n"}, 1, "(m.content|trim) ~ 'y'", std::nullopt},
+        {{"policy\n"}, 1, "(m.content|trim) ~ '/' ~ (m.content|trim)", std::nullopt},
+        {{"policy\n"}, 1, "(m.content|trim)[:-1]", std::nullopt},
+        {{"policy\n"}, 1, "m.content[:-1]", std::nullopt},
+        {{"policy\n"}, 1, "m.content|trim|tojson", std::nullopt},
+        {{"policy\n"}, 1, "'omitted'", std::nullopt},
+    };
+    int failures = 0;
+    for (const auto& item : cases) {
+        auto source = resources("{% macro norm(x) %}{{ x|trim }}{% endmacro %}"
+                                "{% for m in messages %}<|im_start|>{{ m.role }}\n{{ " +
+                                item.expression +
+                                " }}<|im_end|>\n{% endfor %}"
+                                "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}");
+        // A trimmed source endpoint can become the interior of an ordinary BPE token.
+        auto tokenizer_json                    = nlohmann::json::parse(source.tokenizer_json);
+        tokenizer_json["model"]["vocab"]["xy"] = 2000;
+        tokenizer_json["model"]["merges"]      = nlohmann::json::array({{"x", "y"}});
+        source.tokenizer_json                  = tokenizer_json.dump();
+        const fi::Tokenizer tokenizer(
+            {source.tokenizer_json, source.tokenizer_config_json, source.generation_config_json});
+        const auto frontend = make_frontend(source, false);
+        for (const auto role : {ninfer::ChatRole::System, ninfer::ChatRole::User}) {
+            ninfer::PromptInput input;
+            ninfer::ChatMessage marked;
+            marked.role            = role;
+            std::size_t source_end = 0;
+            for (std::size_t i = 0; i < item.parts.size(); ++i) {
+                marked.parts.push_back({.text = item.parts[i]});
+                if (i < item.marked_part) source_end += item.parts[i].size();
+            }
+            input.messages.push_back(std::move(marked));
+            ninfer::ChatMessage suffix;
+            suffix.role = ninfer::ChatRole::User;
+            suffix.parts.push_back({.text = "question"});
+            input.messages.push_back(std::move(suffix));
+            input.context_cache.allow_engine_automatic_shared_prefixes = false;
+            ninfer::PromptCacheMarker marker;
+            marker.kind     = ninfer::PromptCacheMarkerKind::SharedStablePrefix;
+            marker.evidence = ninfer::SharedCandidateEvidence::ExplicitBoundary;
+            if (role == ninfer::ChatRole::System) {
+                marker.location = ninfer::PromptCacheMarkerLocation::LeadingInstructionBoundary;
+                marker.leading_instruction_bytes = static_cast<std::uint32_t>(source_end);
+            } else {
+                marker.location            = ninfer::PromptCacheMarkerLocation::MessagePartBoundary;
+                marker.after_message_count = 1;
+                marker.after_message_part_count = static_cast<std::uint32_t>(item.marked_part);
+            }
+            input.context_cache.markers.push_back(marker);
+            const auto prepared       = frontend.prepare(input);
+            const auto& data          = FrontendFactory::inspect(prepared);
+            const auto& opportunities = data.context_cache.opportunities;
+            if (item.prefix) {
+                const std::string expected =
+                    "<|im_start|>" +
+                    std::string(role == ninfer::ChatRole::System ? "system" : "user") + "\n" +
+                    *item.prefix;
+                const bool matches =
+                    opportunities.size() == 1 &&
+                    opportunities[0].frontier < data.token_ids.size() &&
+                    tokenizer.decode(std::span(data.token_ids).first(opportunities[0].frontier)) ==
+                        expected;
+                if (!matches) {
+                    std::cerr << "expression=" << item.expression
+                              << " role=" << (role == ninfer::ChatRole::System ? "system" : "user")
+                              << " failed to preserve the trimmed source boundary\n";
+                }
+                failures += check(
+                    matches, "trimmed source marker did not resolve to the expected token prefix");
+            } else {
+                failures +=
+                    check(opportunities.empty(),
+                          "ambiguous or omitted source boundary created a cache opportunity");
+            }
+            input.context_cache.markers.clear();
+            const auto plain = frontend.prepare(std::move(input));
+            failures += check(data.token_ids == FrontendFactory::inspect(plain).token_ids,
+                              "cache boundary metadata changed the rendered token sequence");
+        }
+    }
+    return failures;
+}
+
 int test_source_part_recovery_boundary() {
     const std::string custom_template =
         "{% for m in messages %}[{{ m.role }}]{{ m.content }}[/complete-message]\n{% endfor %}"
@@ -2790,6 +2896,7 @@ int main() {
     failures += test_registered_template_cache_markers();
     failures += test_image_resize_rejection_policy();
     failures += test_explicit_leading_instruction_cache_boundary();
+    failures += test_trimmed_source_cache_boundaries();
     failures += test_source_part_recovery_boundary();
     failures += test_input_recovery_requires_proven_closing();
     failures += test_automatic_message_boundary_fallback();

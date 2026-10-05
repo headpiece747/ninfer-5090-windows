@@ -7,6 +7,7 @@
 namespace jinja {
 
 void string::tag(std::uint32_t origin, bool exact) {
+    std::erase_if(parts, [](const auto& part) { return part.collapsed_source_end.has_value(); });
     std::size_t offset = 0;
     for (auto& part : parts) {
         part.origin        = origin;
@@ -38,12 +39,29 @@ bool string::is_uppercase() const { return unicode::is_upper(str()); }
 
 bool string::is_lowercase() const { return unicode::is_lower(str()); }
 
+void string::append_boundary(std::uint32_t origin, std::size_t begin, std::size_t end) {
+    if (!parts.empty()) {
+        auto& last = parts.back();
+        if (last.collapsed_source_end && last.origin == origin &&
+            begin <= *last.collapsed_source_end && *last.source_offset <= end) {
+            last.source_offset        = std::min(*last.source_offset, begin);
+            last.collapsed_source_end = std::max(*last.collapsed_source_end, end);
+            return;
+        }
+    }
+    parts.push_back({origin, {}, begin, false, end});
+}
+
 string& string::append(const string& other) {
     if (this == &other) return append(string(other));
     for (const auto& part : other.parts) {
+        if (part.collapsed_source_end) {
+            append_boundary(part.origin, *part.source_offset, *part.collapsed_source_end);
+            continue;
+        }
         if (!parts.empty()) {
             auto& last = parts.back();
-            if (last.literal == part.literal &&
+            if (!last.collapsed_source_end && last.literal == part.literal &&
                 ((!last.origin && !part.origin) ||
                  (last.origin == part.origin && last.source_offset && part.source_offset &&
                   *last.source_offset + last.val.size() == *part.source_offset))) {
@@ -57,6 +75,10 @@ string& string::append(const string& other) {
 }
 
 string string::cut_bytes(std::size_t begin, std::size_t end) const {
+    return cut_bytes(begin, end, false);
+}
+
+string string::cut_bytes(std::size_t begin, std::size_t end, bool collapse_removed) const {
     const auto size = byte_size();
     if (begin > end || end > size) throw std::out_of_range("Jinja byte slice exceeds string");
     if (begin == 0 && end == size) return *this;
@@ -64,6 +86,19 @@ string string::cut_bytes(std::size_t begin, std::size_t end) const {
     std::size_t offset = 0;
     for (const auto& part : parts) {
         const auto next = offset + part.val.size();
+        if (part.collapsed_source_end) {
+            // Trimming moves removed boundaries to the retained edge; slicing only keeps
+            // boundaries that already lie within the selected output range.
+            if (collapse_removed || (begin <= offset && offset <= end)) {
+                result.append_boundary(part.origin, *part.source_offset,
+                                       *part.collapsed_source_end);
+            }
+            continue;
+        }
+        if (collapse_removed && part.origin && part.source_offset && offset < begin) {
+            result.append_boundary(part.origin, *part.source_offset,
+                                   *part.source_offset + std::min(next, begin) - offset);
+        }
         if (begin < next && end > offset) {
             const auto local_begin = std::max(begin, offset) - offset;
             const auto local_end   = std::min(end, next) - offset;
@@ -74,6 +109,11 @@ string string::cut_bytes(std::size_t begin, std::size_t end) const {
             else if (local_begin != 0 || local_end != part.val.size())
                 output.origin = 0;
             result.parts.push_back(std::move(output));
+        }
+        if (collapse_removed && part.origin && part.source_offset && next > end) {
+            result.append_boundary(part.origin,
+                                   *part.source_offset + std::max(offset, end) - offset,
+                                   *part.source_offset + part.val.size());
         }
         offset = next;
     }
@@ -200,7 +240,7 @@ string string::strip(bool left, bool right, std::optional<const std::string_view
     };
     const auto bytes =
         ninfer::text::unicode_internal::trim_utf8(text, left, right, match, "Jinja string");
-    return cut_bytes(bytes.begin, bytes.end);
+    return cut_bytes(bytes.begin, bytes.end, true);
 }
 
 } // namespace jinja

@@ -165,6 +165,32 @@ int trim_semantics() {
                   clipped.literal_spans[0].begin == 0 &&
                   clipped.literal_spans[0].end == clipped.text.size(),
               "trim across string parts lost literal status or byte origin");
+    failures += check(
+        clipped.boundary_mappings.size() == 2 && clipped.boundary_mappings[0].tag == 7 &&
+            clipped.boundary_mappings[0].source_begin == 0 &&
+            clipped.boundary_mappings[0].source_end == 3 &&
+            clipped.boundary_mappings[0].offset == 0 && clipped.boundary_mappings[1].tag == 7 &&
+            clipped.boundary_mappings[1].source_begin == 16 &&
+            clipped.boundary_mappings[1].source_end == 19 &&
+            clipped.boundary_mappings[1].offset == 13,
+        "trim did not map deleted Unicode source boundaries to the surviving content edges");
+
+    const auto empty = JinjaTemplate("before{{ text|trim }}after", "empty-trim-origin")
+                           .render({{"text", " \t"}}, {.regions = regions});
+    failures += check(
+        empty.text == "beforeafter" && empty.regions.empty() && empty.literal_spans.empty() &&
+            empty.boundary_mappings.size() == 1 && empty.boundary_mappings[0].tag == 7 &&
+            empty.boundary_mappings[0].source_begin == 0 &&
+            empty.boundary_mappings[0].source_end == 2 && empty.boundary_mappings[0].offset == 6,
+        "fully trimmed input lost its boundary or created literal output bytes");
+
+    const auto quoted = JinjaTemplate("{{ text|trim|tojson }}", "trim-json-origin")
+                            .render({{"text", " value\n"}}, {.regions = regions});
+    failures += check(
+        quoted.text == "\"value\"" && quoted.regions.size() == 1 && quoted.regions[0].tag == 7 &&
+            quoted.regions[0].begin == 0 && quoted.regions[0].end == quoted.text.size() &&
+            !quoted.regions[0].source_offset && quoted.boundary_mappings.empty(),
+        "JSON encoding of trimmed input lost its origin or retained exact boundaries");
 
     const std::string invalid = std::string("left") + '\x80' + "right";
     for (const char* source : {"{{ text.strip() }}", "{{ text.lstrip() }}", "{{ text.rstrip() }}",
