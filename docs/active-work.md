@@ -39,10 +39,11 @@ and renumbering them would break every cross-reference to it. Each heading carri
   documented cross-configuration sensitivity. Speed half: measured on a serving lane and retired
   (`:1724`). The bullet below this line read "nothing in the literature explains it", which is what
   the item said before it was measured.
-- **item 15** — **four of five fixed 2026-10-05, one open.** The suite had five failures
-  `test_baseline.json` did not record, under a note claiming "Green since 2026-09-19". The remaining
-  one, `ninfer_qwen3_5_prefix_real_test` at `C=8 terminal settlement`, had never executed on this
-  port: the frontend golden above it was returning early and hiding every scenario in that file.
+- **item 15** — **RESOLVED 2026-10-05, gate green.** The suite had five failures
+  `test_baseline.json` did not record, under a note claiming "Green since 2026-09-19". All five are
+  fixed: two were lost or half-landed port work, one was a real defect beside a stale golden, one was
+  a cascade, and the last was a race in the test's own read. `140/142 passed` with only the two
+  baselined failures, and `check_test_baseline.py` reports no regression.
 - **item 16** — **open, and it is a hypothesis rather than a list.** 40 files where the `b9114396`
   merge took upstream's version while the port had work in them, against a control of 53 where it
   kept the port's. Two of the three failures it seemed to predict were not losses.
@@ -1854,7 +1855,7 @@ in a way that is easy to remove as "redundant" by a later reader.
 or the divergence is characterised precisely enough to state it as intended behaviour. Either answer is
 acceptable; leaving it undocumented is not, because the bench currently compensates for it silently.
 
-### 15. Five suite failures with no cause recorded — **FOUR FIXED 2026-10-05, one open**
+### 15. Five suite failures with no cause recorded — **RESOLVED 2026-10-05: all five fixed, gate green**
 
 **Why:** `tools/release/test_baseline.json` recorded `suite_size: 142`, `recorded: 2026-10-04` and a
 `known_failures` of two, under a note reading "Green since 2026-09-19" — while the suite it describes
@@ -1883,11 +1884,32 @@ it was touched rather than fixed as a group.
 - `ninfer_qwen3_5_agent_continuation_real_test` — **not a bug.** Its resource-lifetime failure was a
   cascade of the frontend golden returning early.
 
-**Open:** `ninfer_qwen3_5_prefix_real_test` now reaches its scenarios and fails at `C=8 terminal
-settlement left live logical membership: running=1 materializing=0 prefill=0 decode=0 capture=0
-terminal=1`. The equivalent check in the agent-continuation scenario passes, so settlement works on
-that path and this is a specific finding rather than a broken invariant everywhere. It had never run
-on this port before 2026-10-05.
+**Resolved — a race in the test's read, not a live request and not an engine defect.** The message
+reads as two live requests and is one. `running_requests` counts ANY occupied slot and
+`terminal_pending_requests` counts occupied slots with `terminal_reason` set, so the counters are not
+disjoint and `running=1 terminal=1` describes a single slot. The slot was real; the read was stale.
+`settle_terminal_requests` runs the whole terminal sequence per request on the worker —
+`program->finish`, `resources_.publish` for the cache owner, `resources_.finish` — and only then
+`complete_success`, which sets `response_done` and wakes a waiting consumer. `remove_completed_slot`
+and `publish_runtime_stats` come after that, and `runtime_stats()` returns the published snapshot, so
+a read taken the instant the last `wait()` returns can return a snapshot from before that request
+settled.
+
+That **confirms** the architecture document rather than contradicting it: "the final response waits
+for terminal resource and cache-owner settlement to complete" holds, because settlement precedes
+`complete_success`. What lags is the stats publication, not the settlement.
+
+A bounded poll then showed the counters reaching zero, which is what ruled out a leak. The poll's
+iteration count is deliberately not recorded as evidence: a tight `runtime_stats()` loop contends
+with the worker on the stats mutex, so it measures its own interference.
+
+The check now yields until the counters drain, bounded, so a real leak fails rather than hangs. The
+agent-continuation settlement check carries the identical latent race and passes only because it does
+more work between its last `generate()` and its read, so it gets the same treatment.
+
+**Full suite, 2026-10-05:** `99% tests passed, 2 tests failed out of 142` — `moe_real_test` and
+`dflash_real_test`, both baselined — with `check_test_baseline.py` reporting `140/142 passed` and
+`GATE PASSED: no regression against the recorded baseline`.
 
 **Also recorded there:** `exercise_artifact_frontend` is upstream's and asserts upstream's artifacts
 (16 thinking tokens); this port's measure 58, because their embedded template emits the
@@ -1895,7 +1917,8 @@ reasoning-effort instruction as a synthetic system message — exactly the 40-to
 no-thinking count matching upstream exactly at 18. The port now asserts its own goldens and names the
 actual count on failure.
 
-**Done when:** the `C=8` assertion is attributed and either fixed or recorded with its cause.
+**Done when:** the `C=8` assertion is attributed and either fixed or recorded with its cause. —
+**satisfied 2026-10-05.**
 
 ### 16. The `b9114396` merge took upstream's version of 40 files the port had work in — **A HYPOTHESIS, twice falsified**
 
