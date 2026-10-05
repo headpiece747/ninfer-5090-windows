@@ -135,12 +135,26 @@ ninfer::PromptInput chinese_chat(bool enable_thinking) {
 }
 
 int exercise_artifact_frontend(const ninfer::Engine& engine) {
-    if (engine.count_tokens(chinese_chat(true)) != 16) {
-        std::cerr << "artifact tokenizer/chat template changed the thinking prompt golden\n";
+    // These goldens describe THIS PORT's artifacts, not upstream's, whose expectation is 16/18.
+    // The no-thinking count matches upstream exactly at 18, and the thinking count is 58 because
+    // every artifact this port builds embeds a template that emits the reasoning-effort
+    // instruction as a synthetic system message -- "<|im_start|>system\n" + the xhigh paragraph +
+    // "<|im_end|>\n" -- which is exactly the 40-token difference. Upstream's artifacts embed a
+    // template that predates that instruction, so its 16 cannot hold against these.
+    //
+    // The actual count is named on failure. The first version printed only the expectation, so an
+    // artifact that legitimately tokenizes differently and one that is broken looked identical --
+    // and this golden is the reason the rest of this test's scenarios never ran.
+    const std::uint32_t thinking_tokens = engine.count_tokens(chinese_chat(true));
+    if (thinking_tokens != 58) {
+        std::cerr << "artifact tokenizer/chat template changed the thinking prompt golden: got "
+                  << thinking_tokens << ", expected 58\n";
         return 1;
     }
-    if (engine.count_tokens(chinese_chat(false)) != 18) {
-        std::cerr << "artifact tokenizer/chat template changed the no-thinking prompt golden\n";
+    const std::uint32_t plain_tokens = engine.count_tokens(chinese_chat(false));
+    if (plain_tokens != 18) {
+        std::cerr << "artifact tokenizer/chat template changed the no-thinking prompt golden: got "
+                  << plain_tokens << ", expected 18\n";
         return 1;
     }
     return 0;
