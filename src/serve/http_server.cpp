@@ -172,6 +172,15 @@ httplib::Server::HandlerResponse handle_unrendered_http_error(const ServeOptions
         error.code    = "method_not_allowed";
         error.message = "The requested method is not allowed for this endpoint.";
     } else {
+        // An unrecognised status on the Anthropic surface belongs to that surface's own handler,
+        // which renders the real error envelope; a generic one here would replace it. The request
+        // ID has already been established, and that is the guarantee this path owes before any
+        // rendering. On an OpenAI path the generic envelope is still written, because an
+        // SDK-backed client that parses every response as JSON otherwise crashes on httplib's
+        // plain-text error page.
+        if (request.path.rfind("/v1/messages", 0) == 0) {
+            return httplib::Server::HandlerResponse::Unhandled;
+        }
         error.status  = response.status != 0 ? response.status : 500;
         error.type    = "api_error";
         error.code    = "internal_error";
