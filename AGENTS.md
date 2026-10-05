@@ -229,7 +229,7 @@ something, and each is named here so it gets used rather than rediscovered.
 
 | situation | tool |
 |---|---|
-| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. **Ten** gate scripts (`check_doc_links.py`, `check_doc_citations.py`, `check_text_encoding.py`, `check_fp8_band_ladders.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`, `check_rule_count.py`, `check_dead_types.py`, `check_duplication.py`), plus the opencode plugin load check when `node` is on PATH, then `pytest tests/convert` plus four named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the ten steps** — it omitted the calibration-corpus gate, the stream-default ratchet, the rule count, the citation gate, the dead-type ratchet, the duplication baseline, ruff and mypy |
+| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. **Eleven** gate scripts (`check_doc_links.py`, `check_doc_citations.py`, `check_text_encoding.py`, `check_fp8_band_ladders.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`, `check_rule_count.py`, `check_dead_types.py`, `check_duplication.py`, `check_port_delta.py`), plus the opencode plugin load check when `node` is on PATH, then `pytest tests/convert` plus four named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the eleven steps** — it omitted the calibration-corpus gate, the stream-default ratchet, the rule count, the citation gate, the dead-type ratchet, the duplication baseline, the port-delta ratchet, ruff and mypy |
 | a declared type nothing can reach | `check_dead_types.py` — a `struct`/`class`/`enum` whose name occurs exactly once in the tree, at its own declaration. **Types only**: "no textual reference" stops meaning "no use" for a macro or a template instantiation, and a gate that guesses gets muted. It found the copy-drafting withdrawal, and it is a **ratchet**, not a detector: it stops the surface growing rather than proving the code reachable |
 | copy-paste, and whether it is *new* | `check_duplication.py` — jscpd 5.4.0 over `src/` and `include/`, against `.jscpd-baseline.json`. **The baseline is the point**: 378 clones already exist here (3.86% of lines), so a threshold gate would fail on every commit and get muted. It fails only past 5 *new* clones, and names them. Three exits, and the middle one matters: 0 clean, 1 new duplication, 2 **jscpd missing or analyzed nothing** — a scan that did not run is not a pass. Install with `uv tool install jscpd==5.4.0`. Measured: 490 files in ~65 ms; at `--min-lines 20`, 9 clones (0.36% of C++ lines) |
 | a document cites `file.ext:LINE` | `check_doc_citations.py` gates the resolvable ones; it names a citation pointing past the end of a file that exists, and only *reports* one naming no tracked file, because `docs/research/` cites other projects by construction and a gate that cannot tell an external reference from a dead one is guessing |
@@ -249,8 +249,16 @@ something, and each is named here so it gets used rather than rediscovered.
 | what upstream already decided, or whether a symptom is known | the upstream tracker: `gh issue list --repo Neroued/ninfer --search <term>` — this project's reference corpus |
 | **an unfamiliar subsystem, a wrong belief about the code, or a claim that a fix works** | **a skill — see [Skills](#skills-and-when-to-reach-for-one) below** |
 
-Not installed deliberately: CI. GitHub-hosted runners have no GPU, so the suite needs a self-hosted
-runner on this machine, and publishing a workflow needs a push.
+CI is installed in two tiers, split by what needs the card. `.github/workflows/ci.yml` runs
+`bash .githooks/pre-commit` on `windows-latest` for every push and pull request to `dev`/`main`, so
+the fast gates have one definition and CI cannot drift from the hook. `.github/workflows/gpu.yml`
+runs `test_v3.cmd` and then the baseline gate on a **self-hosted** runner labelled `gpu-5090`, on a
+nightly cron and on dispatch, serialised against measurements by its `concurrency` group.
+GitHub-hosted runners cannot take the second tier: they have no GPU and no CUDA toolkit.
+**As of 2026-10-04 no self-hosted runner is registered on this machine** (no `actions.runner.*`
+service), so the GPU tier has never executed and cannot have caught anything; `gpu.yml`'s header
+carries the registration commands. This paragraph previously read "Not installed deliberately: CI",
+which the two-tier commit `88ee28f0` had already made false.
 
 ### Skills, and when to reach for one
 

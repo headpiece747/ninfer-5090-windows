@@ -1,10 +1,11 @@
 #!/bin/sh
-# Ten checks, all seconds: documentation links resolve, documentation citations still point
+# Eleven checks, all seconds: documentation links resolve, documentation citations still point
 # inside the files they name, tracked text is byte-preserved UTF-8, the
 # profile tables match the profile module and the generated launchers, the calibration corpus is
 # still the one the artifact's creator used, the set of production functions defaulting a CUDA stream
 # has not widened, no first-party type is declared and never named again, no copy-paste has been
-# added past the recorded baseline, and the converter tests
+# added past the recorded baseline, no divergence from upstream inside an upstream-owned
+# file has gone unrecorded, and the converter tests
 # pass. Each has caught a real drift in this repository --
 # a README quoting a digest the pins had moved past, 181 lines of documentation re-encoded by a
 # scripted edit while every other gate still passed, a suite size that had drifted from the baseline,
@@ -73,6 +74,14 @@ gate "stream-default ratchet" "$PY" tools/release/check_production_stream_defaul
 gate "rule count" "$PY" tools/release/check_rule_count.py
 gate "dead types" "$PY" tools/release/check_dead_types.py
 gate "new duplication" "$PY" tools/release/check_duplication.py
+# The upstream remote is a local-only ref: actions/checkout clones origin alone, so CI has no
+# upstream/master and the gate would fail there on a machine that cannot fetch it. Skip loudly,
+# the way the opencode plugin check skips without node, rather than failing every CI commit.
+if git rev-parse --verify --quiet upstream/master >/dev/null; then
+    gate "port delta" "$PY" tools/release/check_port_delta.py --check
+else
+    echo "pre-commit: SKIPPED port delta -- upstream/master is not a local ref (run: git fetch upstream)"
+fi
 # The two opencode plugins in .opencode/plugins/ resolve @opencode/plugin from a local node_modules,
 # which is deliberately not committed (139 MiB). opencode SKIPS a plugin that fails to load rather than
 # crashing, so a missing install is silent: both plugins sat in the tree through one commit, passing

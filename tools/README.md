@@ -11,19 +11,23 @@ Python tools are independent of CMake; there is no `NINFER_BUILD_TOOLS` option.
 
 ## Release tools
 
-`release/` holds the gates and the packaging pipeline. The six that run on every commit are wired
+`release/` holds the gates and the packaging pipeline. The eleven that run on every commit are wired
 into `.githooks/pre-commit`, and [the row for that hook in `AGENTS.md`](../AGENTS.md) is the
 authority for what they cover:
 
 | Tool | Runs |
 |---|---|
 | `check_doc_links.py` | every commit, and again during packaging |
+| `check_doc_citations.py` | every commit; a citation must still point inside the file it names |
 | `check_text_encoding.py` | every commit |
 | `check_fp8_band_ladders.py` | every commit; its `--self-test` is the control |
 | `check_profile_consistency.py` | every commit, and again during packaging |
 | `check_calibration_corpus.py` | every commit |
 | `check_production_stream_defaults.py` | every commit |
 | `check_rule_count.py` | every commit; keeps `AGENTS.md`'s stated rule count equal to the bullets |
+| `check_dead_types.py` | every commit; a declared first-party type nothing names again |
+| `check_duplication.py` | every commit; copy-paste added past the recorded baseline |
+| `check_port_delta.py --check` | every commit; divergence inside an upstream-owned file past `port_delta_baseline.json` |
 The rest run when their stage calls for them:
 
 | Tool | Runs |
