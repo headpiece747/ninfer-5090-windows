@@ -47,6 +47,10 @@ and renumbering them would break every cross-reference to it. Each heading carri
 - **item 16** — **open, and it is a hypothesis rather than a list.** 40 files where the `b9114396`
   merge took upstream's version while the port had work in them, against a control of 53 where it
   kept the port's. Two of the three failures it seemed to predict were not losses.
+- **item 17** — **the suite runs 3.0x faster; the remaining 1.6x is a coverage decision, not a
+  mechanical one.** 1430.9 s → 471.0 s. Splitting `context_kv_materialize` would take it to about
+  300 s, but that test's workspace check is a whole-sweep postcondition and cannot be relocated
+  without changing what it asserts.
 
 **That summary was wrong on all three counts until 2026-10-04**, and the reason is worth keeping:
 the three bullets were written when the items were open and never revisited, while the items
@@ -1939,6 +1943,43 @@ fact, and it is the only way to find a silent loss that no test covers.
 
 **Done when:** every one of the 40 is classified as a loss (restore it), a superseded port change
 (drop it), or the port having been behind (nothing to do), with the classification recorded.
+
+### 17. The suite runs 3.0x faster, and the remaining 1.6x is a coverage decision — **DONE 2026-10-05; the second half is open**
+
+**Why:** the suite took 1430.9 s and two tests were 60% of it — `ninfer_softmax_attention_test` at
+584.8 s and `ninfer_context_kv_materialize_test` at 265.1 s. The dominant one was **not using the
+GPU**: median utilisation 5% across 60 s of it, so its 584 s was the naive host oracle on one core
+while twenty-three idled. And the suite ran strictly serially, `ctest` with no `-j`.
+
+**Done, both measured:**
+
+- `softmax_attention`'s causal sweep is five independent KV formats in one loop, and the binary
+  already took `--kv-dtype` as a filter over the same `run_storage_cases` calls, each keeping its own
+  criterion. Registered as six ctest entries, plus `--no-causal` for the two scenarios `--kv-dtype`
+  cannot reach because it sets `causal_only`. 584.8 s as one entry against 145.5 s as six in parallel,
+  and coverage is unchanged structurally — `selected` is only a `continue`.
+- `-j 8`. It needed no new protection, and that is worth recording because I nearly added one: the
+  real-model tests already carry `RUN_SERIAL TRUE`, which is stronger than a resource lock, so ctest
+  runs nothing alongside them and the ~16 GiB artifact each loads cannot collide.
+
+1430.9 s → 471.0 s with the artifact set and only the two baselined failures. Five repetitions at
+different `--schedule-random` orders: 2391.53 s total, only the baselined failures, no flake.
+
+**One regression, found by the first parallel run.**
+`ninfer_qwen3_5_issue5_race_test` reproduces a cache-hitting continuation submitted while another lane
+is generating — its subject is a race — and run alongside other tests its timing windows move, so it
+failed. It is registered in its own block and was never added to `ninfer_qwen3_5_real_tests`, so it
+carried neither `RUN_SERIAL` nor a label while every other real-model test did. 142 serial runs never
+showed it, which is the argument for the repeat-run rather than a reason to skip it.
+
+**Open, and it is a coverage decision.** `context_kv_materialize` is host-bound too (median 6%) and
+its four groups measure 175 / 49 / 24 / 4 s, so splitting it would take the suite to about 300 s. It
+cannot be split as it stands: its workspace-interval check compares the computed capacity for each
+batch against `fixture.observed_peak[batch]`, which is last-write-wins, so the check is a whole-sweep
+postcondition over the exact sequence. Relocating it changed what it asserted and broke the bare
+binary — `failures=1` with no arguments, where the same binary had passed — which is why the attempt
+was reverted rather than adjusted. Making the check per-group, each group validating the peaks it
+recorded, would be more checks but a **different assertion** than today's. That trade is the owner's.
 
 ## Gates added while this list was open
 
