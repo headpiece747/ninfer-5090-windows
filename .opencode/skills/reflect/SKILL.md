@@ -1,7 +1,6 @@
 ---
 name: reflect
 description: "Spawn three parallel review subagents over the active session, surface learnings, and route each to a concrete edit on an existing skill. Use when the user says reflect."
-disable-model-invocation: true
 ---
 
 > **Port note (this repo):** this host does not expose an `agent-transcripts/` directory. The reviewers work from a session digest the parent writes (task, decisions, dead ends, the working path, the user's corrections), plus the show-me-your-work trail when one exists. The routing targets are the skills installed under `.opencode/skills/`.

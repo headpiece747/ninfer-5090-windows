@@ -1,7 +1,6 @@
 ---
 name: show-me-your-work
 description: "Keep a reviewable decision trail for long-running or unattended work: a TSV log with one row per decision (what, why, evidence, result). Local by default; commit it when a reviewer needs the trail to trust the result. Use for /show-me-your-work, autonomous or multi-phase runs, or work a human reviews after stepping away."
-disable-model-invocation: true
 ---
 
 > **Port note (this repo):** this host does not expose an `agent-transcripts/` directory; the audit step reads the trail itself plus git history, build/test output, and any GliderTrace session artifacts instead. `scripts/log.sh` works when a POSIX shell is available (Git Bash); otherwise append rows with the file tools following the same hygiene (single-line cells, strip tabs/newlines, prefix formula-leading cells with a single quote).
