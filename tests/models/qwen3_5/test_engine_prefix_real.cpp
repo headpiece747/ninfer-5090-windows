@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -132,6 +133,27 @@ ninfer::PromptInput chinese_chat(bool enable_thinking) {
     input.messages.push_back(std::move(message));
     input.options.enable_thinking = enable_thinking;
     return input;
+}
+
+// RuntimeStats is a snapshot the worker republishes at its own cycle boundaries, and a completed
+// response is published before that republish: settle_terminal_requests finishes the native
+// sequence, publishes and finishes the cache owner, then calls complete_success -- which wakes a
+// waiting consumer -- and only afterwards remove_completed_slot and publish_runtime_stats. So a read
+// taken the instant the last wait() returns can return a snapshot from before that request settled,
+// and the counters show a live request that is not there. Yield until they drain, with a bound so a
+// real leak still fails rather than hanging.
+bool wait_for_settlement(const ninfer::Engine& engine, int attempts = 200000) {
+    for (int attempt = 0; attempt < attempts; ++attempt) {
+        const ninfer::RuntimeStats stats = engine.runtime_stats();
+        if (stats.running_requests == 0 && stats.materializing_requests == 0 &&
+            stats.paused_requests == 0 && stats.replaying_requests == 0 &&
+            stats.prefilling_requests == 0 && stats.decode_ready_requests == 0 &&
+            stats.capture_pending_requests == 0 && stats.terminal_pending_requests == 0) {
+            return true;
+        }
+        std::this_thread::yield();
+    }
+    return false;
 }
 
 int exercise_artifact_frontend(const ninfer::Engine& engine) {
@@ -1306,6 +1328,10 @@ int exercise_agent_continuation(const char* artifact) {
         if (!previous) { return 1; }
     }
 
+    // Same reason as the C=8 check: the stats snapshot is republished after the response completes,
+    // so this must not read it the instant the last generate() returns. The assertion below is
+    // unchanged and still reports, including the host-context reservations it also covers.
+    (void)wait_for_settlement(engine);
     const auto settled = engine.runtime_stats();
     const auto memory  = engine.memory_summary();
     if (settled.running_requests || settled.waiting_requests || settled.paused_requests ||
@@ -1766,11 +1792,11 @@ int exercise_concurrent_resource_settlement(const char* artifact) {
             return 1;
         }
     }
-    const ninfer::RuntimeStats settled = engine.runtime_stats();
-    if (settled.running_requests != 0 || settled.materializing_requests != 0 ||
-        settled.paused_requests != 0 || settled.replaying_requests != 0 ||
-        settled.prefilling_requests != 0 || settled.decode_ready_requests != 0 ||
-        settled.capture_pending_requests != 0 || settled.terminal_pending_requests != 0) {
+    // wait_for_settlement rather than an immediate read. The stats are republished by the worker
+    // after it completes the response, so reading them the instant the last wait() returns can
+    // return a snapshot taken before this request settled -- which reads exactly like a live request.
+    if (!wait_for_settlement(engine)) {
+        const ninfer::RuntimeStats settled = engine.runtime_stats();
         std::cerr << "C=8 terminal settlement left live logical membership: running="
                   << settled.running_requests << " materializing=" << settled.materializing_requests
                   << " prefill=" << settled.prefilling_requests
