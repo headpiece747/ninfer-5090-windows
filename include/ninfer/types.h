@@ -160,6 +160,7 @@ struct ContextCostOptions {
 struct EngineOptions {
     std::filesystem::path artifact_path;
     std::filesystem::path chat_template_path;
+    std::size_t grammar_cache_bytes    = 256ULL * 1024 * 1024;
     EnginePurpose purpose              = EnginePurpose::Generation;
     int device                         = 0;
     std::uint32_t max_context          = 2048; // Logical ceiling of one request or score window.
@@ -269,7 +270,31 @@ struct OutputOptions {
     std::uint32_t tool_name_max_length = 128;
 };
 
+enum class OutputConstraintKind : std::uint8_t { Grammar, JsonObject, JsonSchema };
+
+// Constrains generated content; Chat reasoning retains the model's framing. Source is owning
+// GBNF or JSON Schema text. JsonObject has no source payload.
+struct OutputConstraint {
+    OutputConstraintKind kind = OutputConstraintKind::Grammar;
+    std::string source;
+
+    [[nodiscard]] static OutputConstraint grammar(std::string source) {
+        return {OutputConstraintKind::Grammar, std::move(source)};
+    }
+
+    [[nodiscard]] static OutputConstraint json_object() {
+        return {OutputConstraintKind::JsonObject, {}};
+    }
+
+    [[nodiscard]] static OutputConstraint json_schema(std::string source) {
+        return {OutputConstraintKind::JsonSchema, std::move(source)};
+    }
+
+    bool operator==(const OutputConstraint&) const = default;
+};
+
 struct RequestOptions {
+    std::optional<OutputConstraint> constraint;
     ExecutionOptions execution;
     StopPolicy stop;
     OutputOptions output;
@@ -501,6 +526,11 @@ struct PromptInput {
 };
 
 enum class RequestErrorKind : std::uint8_t {
+    InvalidGrammar,
+    InvalidJsonSchema,
+    UnsupportedJsonSchema,
+    UnsatisfiableJsonSchema,
+    ConstraintDeadEnd,
     ContextLengthExceeded,
     ThinkingBudgetCapacityInsufficient,
     MediaBudgetExceeded,
@@ -513,13 +543,16 @@ enum class RequestErrorKind : std::uint8_t {
 
 class RequestError final : public std::invalid_argument {
 public:
-    RequestError(RequestErrorKind kind, std::string message)
-        : std::invalid_argument(std::move(message)), kind_(kind) {}
+    RequestError(RequestErrorKind kind, std::string message, std::string pointer = {})
+        : std::invalid_argument(std::move(message)), kind_(kind), pointer_(std::move(pointer)) {}
 
     [[nodiscard]] RequestErrorKind kind() const noexcept { return kind_; }
 
+    [[nodiscard]] const std::string& pointer() const noexcept { return pointer_; }
+
 private:
     RequestErrorKind kind_;
+    std::string pointer_;
 };
 
 struct PromptSummary {
@@ -814,6 +847,24 @@ enum class PrefixReusePath : std::uint8_t {
     Checkpoint,
 };
 
+enum class AdmissionFallbackReason : std::uint8_t {
+    None,
+    SourceInvalid,
+    SourceRevoked,
+    CostChanged,
+    CapacityLimit,
+    IsolatedCapacity,
+};
+
+struct GenerationAdmissionStats {
+    std::uint32_t preferred_reused_tokens = 0;
+    // Subset of initial queue wait, not additional TTFT. Includes waiting for a lane
+    // after a useful source has been selected.
+    double source_wait_seconds              = 0.0;
+    std::uint32_t revoked_checkpoints       = 0;
+    AdmissionFallbackReason fallback_reason = AdmissionFallbackReason::None;
+};
+
 struct GenerationResult {
     // Unique within this Engine instance; diagnostic correlation only.
     std::uint64_t engine_request_id = 0;
@@ -833,6 +884,7 @@ struct GenerationResult {
     GenerationTimings timings;
     GenerationEngineTiming engine_timing;
     GenerationSchedulingStats scheduling;
+    GenerationAdmissionStats admission;
     std::optional<GenerationFirstOutputTiming> first_output_timing;
     SpeculativeStats speculative;
     ThinkingBudgetStats thinking;

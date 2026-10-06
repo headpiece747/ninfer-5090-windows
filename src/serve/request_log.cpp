@@ -346,6 +346,35 @@ Json scheduling_json(const ninfer::GenerationSchedulingStats& stats) {
                 {"host_to_device_bytes", stats.host_to_device_bytes}};
 }
 
+Json admission_json(const ninfer::GenerationAdmissionStats& stats) {
+    const char* reason = nullptr;
+    switch (stats.fallback_reason) {
+    case ninfer::AdmissionFallbackReason::None:
+        reason = "none";
+        break;
+    case ninfer::AdmissionFallbackReason::SourceInvalid:
+        reason = "source_invalid";
+        break;
+    case ninfer::AdmissionFallbackReason::SourceRevoked:
+        reason = "source_revoked";
+        break;
+    case ninfer::AdmissionFallbackReason::CostChanged:
+        reason = "cost_changed";
+        break;
+    case ninfer::AdmissionFallbackReason::CapacityLimit:
+        reason = "capacity_limit";
+        break;
+    case ninfer::AdmissionFallbackReason::IsolatedCapacity:
+        reason = "isolated_capacity";
+        break;
+    }
+    if (!reason) { throw std::logic_error("invalid admission fallback reason"); }
+    return Json{{"preferred_reused_tokens", stats.preferred_reused_tokens},
+                {"source_wait_seconds", stats.source_wait_seconds},
+                {"revoked_checkpoints", stats.revoked_checkpoints},
+                {"fallback_reason", reason}};
+}
+
 double nanoseconds_to_seconds(std::uint64_t value) noexcept {
     return static_cast<double>(value) * 1.0e-9;
 }
@@ -642,7 +671,8 @@ std::string format_request_done_json(const std::string& server_instance_id, std:
             : Json(nullptr);
     record["speculative"] = speculative_json(outcome.metrics);
     record["generation"]  = Json{{"engine_request_id", outcome.metrics.engine_request_id},
-                                 {"scheduling", scheduling_json(outcome.metrics.scheduling)}};
+                                 {"scheduling", scheduling_json(outcome.metrics.scheduling)},
+                                 {"admission", admission_json(outcome.metrics.admission)}};
     return record.dump();
 }
 

@@ -2128,6 +2128,31 @@ ninfer::models::qwen3_5::PreparedPrompt thinking_prompt(const Frontend& frontend
     return frontend.prepare(std::move(input));
 }
 
+int test_constrained_thinking_control(const Frontend& frontend) {
+    auto prompt           = thinking_prompt(frontend);
+    const auto bare_close = frontend.tokenize_text("</think>");
+    auto session          = frontend.make_output_session(
+        prompt, {}, {}, {.budget = static_cast<std::uint32_t>(bare_close.size())},
+        ninfer::OutputConstraint::grammar("root ::= \" yes\""));
+    const auto decision = session.preview_model(bare_close, 512, ninfer::FinishReason::OutputLimit);
+    int failures =
+        check(decision.continuation == ninfer::runtime::ContinuationAction::ApplyTargetControl,
+              "noncanonical close disabled the constrained thinking budget");
+    (void)session.commit_preview();
+    const auto control = session.pending_control_tokens();
+    if (control.empty()) return failures + check(false, "constrained thinking control is missing");
+    (void)session.preview_control(control, 512);
+    auto closed = session.commit_preview();
+    failures += check(channel_text(closed, ninfer::OutputChannel::Content).empty(),
+                      "thinking framing leaked into constrained content");
+    (void)session.preview_model(frontend.tokenize_text(" yes"), 512,
+                                ninfer::FinishReason::OutputLimit);
+    failures +=
+        check(channel_text(session.commit_preview(), ninfer::OutputChannel::Content) == " yes",
+              "constrained content lost its leading space after thinking");
+    return failures;
+}
+
 int test_thinking_budget_control(const Frontend& frontend) {
     auto prompt = thinking_prompt(frontend);
     ninfer::StopPolicy stop;
@@ -2900,6 +2925,7 @@ int main() {
     failures += test_structured_tool_output();
     failures += test_reasoning_split(frontend);
     failures += test_thinking_budget_control(frontend);
+    failures += test_constrained_thinking_control(frontend);
     failures += test_utf8_and_hidden_eos(frontend);
     failures += test_media_cache_reuses_immutable_payload();
     failures += test_media_payload_outlives_frontend_cache();

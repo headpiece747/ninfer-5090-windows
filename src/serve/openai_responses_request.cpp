@@ -703,9 +703,8 @@ parse_function_tool(const Json& item, std::optional<std::string> wire_namespace,
             bad_request("function strict must be a boolean", "tools");
         }
         if (item.at("strict").get<bool>()) {
-            bad_request("strict function schema enforcement requires constrained decoding, "
-                        "which the Engine does not provide",
-                        "tools", "strict_tools_not_supported");
+            bad_request("strict function schema enforcement is not implemented", "tools",
+                        "strict_tools_not_supported");
         }
     }
     if (item.contains("defer_loading") && !item.at("defer_loading").is_null()) {
@@ -933,23 +932,17 @@ void parse_reasoning(const Json& body, OpenAIResponsesPromptRequest& out) {
     out.generation.reasoning_effort = *effort;
 }
 
-void parse_text(const Json& body) {
+void parse_text(const Json& body, GenerationRequest& request) {
     if (!body.contains("text") || body.at("text").is_null()) { return; }
     const Json& text = body.at("text");
     if (!text.is_object()) { bad_request("text must be an object", "text"); }
     static const std::unordered_set<std::string> allowed = {"format", "verbosity"};
     reject_nonnull_unknown_members(text, allowed, "text");
     if (text.contains("format") && !text.at("format").is_null()) {
-        const Json& format = text.at("format");
-        if (!format.is_object() || !format.contains("type") || !format.at("type").is_string()) {
-            bad_request("text.format must be a typed object", "text");
-        }
-        if (format.at("type").get<std::string>() != "text" || format.size() != 1) {
-            bad_request("structured text output requires constrained decoding, which the Engine "
-                        "does not provide",
-                        "text", "structured_outputs_not_supported");
-        }
+        parse_json_output_format(text["format"], request, "text.format",
+                                 JsonFormatProtocol::Responses);
     }
+
     if (text.contains("verbosity") && !text.at("verbosity").is_null()) {
         if (!text.at("verbosity").is_string()) {
             bad_request("text.verbosity must be a string", "text");
@@ -1036,7 +1029,7 @@ ParsedPromptFields parse_prompt_fields(const Json& body, const RequestLimits& li
                     "parallel_tool_calls", "parallel_tool_calls_not_supported");
     }
     parse_reasoning(body, out.prompt);
-    parse_text(body);
+    parse_text(body, out.prompt.generation);
     parse_truncation(body);
     parse_preserve_thinking(body, out.prompt);
     out.prompt.generation.max_tokens = limits.default_max_tokens;
@@ -1086,6 +1079,7 @@ void reject_unsupported_platform_fields(const Json& body) {
 
 void validate_common_top_level(const Json& body, bool create) {
     static const std::unordered_set<std::string> create_fields = {"background",
+                                                                  "structured_outputs",
                                                                   "chat_template_kwargs",
                                                                   "client_metadata",
                                                                   "context_management",
@@ -1155,6 +1149,9 @@ OpenAIResponsesCreateRequest parse_openai_responses_create_request(const Json& b
     parsed.prompt.cache_policy = cache_policy;
     OpenAIResponsesCreateRequest out;
     out.prompt              = std::move(parsed.prompt);
+    if (body.contains("text") && body["text"].is_object() && body["text"].contains("format") &&
+        !body["text"]["format"].is_null())
+        out.text_format = body["text"]["format"];
     out.tools               = std::move(parsed.wire_tools);
     out.tool_choice         = std::move(parsed.wire_tool_choice);
     out.tool_identities     = std::move(parsed.tool_identities);
@@ -1243,6 +1240,7 @@ OpenAIResponsesCreateRequest parse_openai_responses_create_request(const Json& b
         out.requested_max_output_tokens  = *max_output;
         out.prompt.generation.max_tokens = *max_output;
     }
+    parse_structured_outputs(body, out.prompt.generation);
     return out;
 }
 

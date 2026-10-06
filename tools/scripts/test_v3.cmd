@@ -20,6 +20,14 @@ REM recorded baseline is in tools\release\test_baseline.json.
 setlocal
 set "REPO=%~dp0..\.."
 
+REM The project's Python, resolved before the configure because the configure needs it. The build
+REM must use this interpreter and not whatever find_package(Python3) happens to find: on this machine
+REM that resolves to C:/Python314, while the tests' declared dependencies (jsonschema, declared in
+REM tests/text/requirements.txt for ninfer_json_schema_oracle_test) live in the selected environment.
+REM Honours NINFER_PYTHON so CI and a developer override select the same interpreter here as elsewhere.
+set "PY=%NINFER_PYTHON%"
+if "%PY%"=="" set "PY=C:/vllm-env/Scripts/python.exe"
+
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
 cd /d "%REPO%"
 
@@ -27,6 +35,7 @@ echo === CONFIGURE (BUILD_TESTING=ON) ===
 cmake -B build-test -S . -G Ninja ^
   -DCMAKE_CUDA_ARCHITECTURES=120a ^
   -DCMAKE_BUILD_TYPE=Release ^
+  -DPython3_EXECUTABLE="%PY%" ^
   -DBUILD_TESTING=ON
 echo CONFIGURE_EXIT=%ERRORLEVEL%
 
@@ -59,7 +68,5 @@ REM worst, and the gate verifies that for itself with a build dry run rather tha
 REM verdict describes this tree rather than whatever happened to be lying around. It cannot build
 REM here itself: nvcc needs cl.exe, which needs the Visual Studio environment a Python process does
 REM not carry. Costs about a second per mutation, plus one no-op dry run.
-set "PY=%NINFER_PYTHON%"
-if "%PY%"=="" set "PY=C:/vllm-env/Scripts/python.exe"
 "%PY%" tools\release\check_test_mutation.py
 echo MUTATION_EXIT=%ERRORLEVEL%

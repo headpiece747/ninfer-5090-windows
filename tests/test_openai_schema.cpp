@@ -146,7 +146,6 @@ int test_standard_field_policy() {
     rejected("logit_bias", Json{{"12", 1}}, "logit_bias_not_supported");
     rejected("logprobs", true, "logprobs_not_supported");
     rejected("top_logprobs", 2, "logprobs_not_supported");
-    rejected("response_format", Json{{"type", "json_schema"}}, "response_format_not_supported");
     rejected("modalities", Json::array({"text", "audio"}), "modality_not_supported");
     rejected("web_search_options", Json::object(), "web_search_not_supported");
     rejected("moderation", Json::object(), "moderation_not_supported");
@@ -283,34 +282,55 @@ int test_prompt_cache_boundaries() {
 }
 
 int test_constrained_decoding_extensions() {
-    int failures                                           = 0;
-    const std::vector<std::pair<const char*, Json>> active = {
-        {"grammar", "root ::= \"yes\" | \"no\""},
-        {"structured_outputs", Json{{"json", Json{{"type", "object"}}}}},
-        {"guided_json", Json{{"type", "object"}}},
-        {"guided_regex", "[a-z]+"},
-        {"guided_choice", Json::array({"yes", "no"})},
-        {"guided_grammar", "root ::= \"yes\" | \"no\""},
-    };
-    for (const auto& [field, value] : active) {
-        Json body            = base_request();
-        body[field]          = value;
-        const ApiError error = api_error([&] { (void)parse(body); });
-        failures +=
-            check(error.param == field && error.code == "constrained_decoding_not_supported" &&
-                      error.message.find(field) != std::string::npos,
-                  std::string(field) + " constrained decoding is explicitly rejected");
+    int failures               = 0;
+    Json body                  = base_request();
+    body["structured_outputs"] = Json{{"grammar", "root ::= \"yes\" | \"no\""}};
+    const auto parsed          = parse(body);
+    failures += check(parsed.generation.constraint->source == "root ::= \"yes\" | \"no\"" &&
+                          options(parsed.generation).constraint == parsed.generation.constraint,
+                      "GBNF must survive protocol-to-Engine translation");
+    body["stop"] = "yes";
+    failures += check(api_error([&] { (void)parse(body); }).param == "structured_outputs.grammar",
+                      "grammar with custom stops accepted");
+    for (const auto& value : {Json{{"grammar", ""}}, Json{{"json", Json::object()}}, Json("bad")}) {
+        body                       = base_request();
+        body["structured_outputs"] = value;
+        failures += check(api_error([&] { (void)parse(body); }).status == 400,
+                          "malformed structured_outputs accepted");
     }
-
-    Json neutral                  = base_request();
-    neutral["grammar"]            = "";
-    neutral["structured_outputs"] = nullptr;
-    neutral["guided_json"]        = nullptr;
-    neutral["guided_regex"]       = nullptr;
-    neutral["guided_choice"]      = nullptr;
-    neutral["guided_grammar"]     = nullptr;
-    failures += check(parse(neutral).generation.messages.size() == 1,
-                      "neutral constrained-decoding extension values are accepted");
+    for (const char* alias :
+         {"grammar", "guided_json", "guided_regex", "guided_choice", "guided_grammar"}) {
+        body        = base_request();
+        body[alias] = "root ::= \"yes\"";
+        failures += check(api_error([&] { (void)parse(body); }).param == alias,
+                          "unsupported constrained-decoding alias accepted");
+    }
+    body                    = base_request();
+    body["response_format"] = Json{{"type", "json_object"}};
+    failures += check(options(parse(body).generation).constraint->kind ==
+                          ninfer::OutputConstraintKind::JsonObject,
+                      "JSON object mode lost in Engine translation");
+    const Json schema = {
+        {"type", "object"},
+        {"properties", {{"description", {{"type", "string"}}}, {"a", {{"type", "integer"}}}}}};
+    body["response_format"] =
+        Json{{"type", "json_schema"},
+             {"json_schema", {{"name", "answer"}, {"strict", false}, {"schema", schema}}}};
+    const auto typed = parse(body).generation;
+    failures += check(typed.constraint->kind == ninfer::OutputConstraintKind::JsonSchema &&
+                          typed.constraint->source == schema.dump() &&
+                          typed.constraint_param == "response_format.json_schema.schema",
+                      "JSON schema source/order or diagnostic location lost");
+    body["structured_outputs"] = Json{{"grammar", "root ::= \"x\""}};
+    failures +=
+        check(api_error([&] { (void)parse(body); }).status == 400, "conflicting formats accepted");
+    const auto error = request_error_to_api_error(
+        ninfer::RequestError(ninfer::RequestErrorKind::UnsupportedJsonSchema, "unsupported keyword",
+                             "/properties/x/format"),
+        typed.constraint_param);
+    failures += check(error.param == "response_format.json_schema.schema/properties/x/format" &&
+                          error.code == "unsupported_json_schema",
+                      "schema error lost its source path");
     return failures;
 }
 

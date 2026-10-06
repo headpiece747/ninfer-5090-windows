@@ -11,6 +11,7 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -54,10 +55,7 @@ int prepare_verify_case(int k, int batch) {
     DeviceContext context;
     cuda_synchronize();
     const auto launch = [&] {
-        // No copy pair: the null pair must reproduce the previous behaviour exactly, so this call
-        // site stays as the regression guard for the default path.
-        ops::speculative_prepare_verify_inputs(a, d, l, e, full, positions, nullptr, nullptr,
-                                               context.stream);
+        ops::speculative_prepare_verify_inputs(a, d, l, e, full, positions, context.stream);
         ops::speculative_prepare_verify_ids(a, d, e, ids, context.stream);
     };
     DecodeGraphDefinition definition;
@@ -89,109 +87,6 @@ int prepare_verify_case(int k, int batch) {
     return failures;
 }
 
-// The copy path, qualified against the same host oracle with the copy rule added. The boundaries
-// that matter are a zero count (must reproduce the null path exactly), a count above K (clamped), a
-// negative count (clamped to zero), and a count below the row's extent (a blend, which is why the
-// contract states C[b] >= Pcur[b] for a whole-row copy). The last assertion in every case is that the
-// draft model's own buffer is unchanged: the proposal is its output and the Op must not write it.
-int prepare_verify_copy_case(int k, int batch) {
-    const int width = k + 1;
-    std::vector<std::int32_t> anchors(batch), lengths(batch), drafts(k * batch);
-    std::vector<std::int32_t> copies(k * batch);
-    for (int b = 0; b < batch; ++b) {
-        anchors[b] = 70000 + 11 * b;
-        lengths[b] = 131072 + 1009 * b;
-        for (int j = 0; j < k; ++j) {
-            drafts[b * k + j] = 37 + 257 * b + 7919 * j;
-            copies[b * k + j] = 900000 + 13 * b + 104729 * j;  // disjoint from drafts
-        }
-    }
-    DeviceBuffer d_anchors = to_device(anchors), d_lengths = to_device(lengths);
-    DeviceBuffer d_drafts = to_device(drafts), d_copies = to_device(copies);
-    DeviceBuffer d_extents = to_device(std::vector<std::int32_t>(batch, 0));
-    DeviceBuffer d_copy_extents = to_device(std::vector<std::int32_t>(batch, 0));
-    GuardedDeviceBuffer d_full(width * batch * sizeof(std::int32_t));
-    GuardedDeviceBuffer d_null(width * batch * sizeof(std::int32_t));
-    GuardedDeviceBuffer d_positions(width * batch * sizeof(std::int32_t));
-    Tensor a(d_anchors.p, DType::I32, {batch}), l(d_lengths.p, DType::I32, {batch});
-    Tensor d(d_drafts.p, DType::I32, {k, batch}), c(d_copies.p, DType::I32, {k, batch});
-    Tensor e(d_extents.p, DType::I32, {batch}), ce(d_copy_extents.p, DType::I32, {batch});
-    Tensor with_copy(d_full.data(), DType::I32, {width, batch});
-    Tensor without(d_null.data(), DType::I32, {width, batch});
-    Tensor positions(d_positions.data(), DType::I32, {width, batch});
-
-    int failures = 0;
-    // Copy counts chosen to hit each documented behaviour, including the two out-of-range clamps and
-    // the blend where the copy is shorter than the row's extent.
-    const std::vector<std::int32_t> copy_choices{0, 1, 2, k - 1, k, k + 1, 64, -1};
-    for (const std::int32_t copy_count : copy_choices) {
-        for (int phase = 0; phase <= k; ++phase) {
-            std::vector<std::int32_t> extents(batch), copy_extents(batch);
-            for (int b = 0; b < batch; ++b) {
-                extents[b]      = (phase + 3 * b) % width;
-                copy_extents[b] = copy_count;
-            }
-            DeviceContext context;
-            CUDA_CHECK(cudaMemcpyAsync(d_extents.p, extents.data(), d_extents.bytes,
-                                       cudaMemcpyHostToDevice, context.stream));
-            CUDA_CHECK(cudaMemcpyAsync(d_copy_extents.p, copy_extents.data(), d_copy_extents.bytes,
-                                       cudaMemcpyHostToDevice, context.stream));
-            ops::speculative_prepare_verify_inputs(a, d, l, e, with_copy, positions, &c, &ce,
-                                                   context.stream);
-            ops::speculative_prepare_verify_inputs(a, d, l, e, without, positions, nullptr,
-                                                   nullptr, context.stream);
-            context.synchronize();
-
-            const int clamped = copy_count < 0 ? 0 : (copy_count > k ? k : copy_count);
-            std::vector<std::int32_t> want(width * batch), want_positions(width * batch);
-            for (int b = 0; b < batch; ++b) {
-                for (int j = 0; j < width; ++j) {
-                    const bool inside = j <= extents[b] && j > 0;
-                    const bool copied  = inside && j <= clamped;
-                    want[b * width + j] =
-                        j == 0        ? anchors[b]
-                        : !inside     ? anchors[b]
-                        : copied      ? copies[b * k + j - 1]
-                                      : drafts[b * k + j - 1];
-                    want_positions[b * width + j] = lengths[b] + std::min(j, extents[b]);
-                }
-            }
-            failures += verify_exact("copy ids", read<std::int32_t>(d_full, want.size()), want);
-            failures += verify_exact("null-path ids unchanged", read<std::int32_t>(d_null, want.size()),
-                                     [&] {
-                                         std::vector<std::int32_t> plain(width * batch);
-                                         for (int b = 0; b < batch; ++b)
-                                             for (int j = 0; j < width; ++j)
-                                                 plain[b * width + j] =
-                                                     (j > 0 && j <= extents[b]) ? drafts[b * k + j - 1]
-                                                                                 : anchors[b];
-                                         return plain;
-                                     }());
-            failures += verify_exact("copy positions", read<std::int32_t>(d_positions, want_positions.size()),
-                                     want_positions);
-        }
-    }
-    failures += verify_exact("drafts untouched by the copy path", from_device<std::int32_t>(d_drafts, drafts.size()),
-                             drafts);
-    failures += verify_exact("copies untouched by the copy path", from_device<std::int32_t>(d_copies, copies.size()),
-                             copies);
-    failures += verify_exact("anchors unchanged", from_device<std::int32_t>(d_anchors, batch), anchors);
-    failures += d_full.verify_guards("copy ids");
-    failures += d_null.verify_guards("null-path ids");
-    failures += d_positions.verify_guards("copy positions");
-
-    // The pair is all-or-nothing: one without the other must be refused rather than silently
-    // proposing nothing, which would be indistinguishable from a row that simply had no copy.
-    bool rejected = false;
-    try {
-        DeviceContext context;
-        ops::speculative_prepare_verify_inputs(a, d, l, e, with_copy, positions, &c, nullptr,
-                                               context.stream);
-    } catch (const std::invalid_argument&) { rejected = true; }
-    if (!rejected) { std::cerr << "copy tokens without extents was accepted\n"; ++failures; }
-    return failures;
-}
-
 struct AcceptExpected {
     std::vector<std::int32_t> sampled;
     std::int32_t num_sampled;
@@ -210,6 +105,8 @@ struct SparseAcceptSuite {
     const int kSparseColumns;
     const int kSparseBatch;
     std::size_t observed_workspace = 0;
+    std::vector<std::uint32_t> masks;
+    static constexpr int mask_words = (kSparseTokenDomain + 31) / 32;
 
     SparseAcceptSuite(int drafts, int batch)
         : kSparseDrafts(drafts), kSparseColumns(drafts + 1), kSparseBatch(batch) {}
@@ -260,6 +157,10 @@ struct SparseAcceptSuite {
                                                   const std::vector<std::int32_t>& token_counts,
                                                   const std::vector<std::int32_t>& drafts) {
         const auto adjusted = [&](int token) {
+            if (!masks.empty() &&
+                !(masks[(row * kSparseColumns + column) * mask_words + token / 32] &
+                  (1u << (token % 32))))
+                return -std::numeric_limits<double>::infinity();
             double value = bf16_to_f32(logits[sparse_logit_index(row, column, token)]);
             int count    = token_counts[static_cast<std::size_t>(row) * kSparseTokenDomain + token];
             for (int previous = 0; previous < column; ++previous) {
@@ -498,6 +399,15 @@ struct SparseAcceptSuite {
             device_configs[static_cast<std::size_t>(row)].token_counts =
                 static_cast<std::int32_t*>(d_token_counts.p) +
                 static_cast<std::size_t>(row) * kSparseTokenDomain;
+        }
+        std::optional<DeviceBuffer> d_masks;
+        if (!masks.empty()) {
+            d_masks.emplace(to_device(masks));
+            for (int row = 0; row < kSparseBatch; ++row) {
+                device_configs[row].mask = {static_cast<const std::uint32_t*>(d_masks->p) +
+                                                row * kSparseColumns * mask_words,
+                                            mask_words};
+            }
         }
         DeviceBuffer d_configs = to_device(device_configs);
 
@@ -780,6 +690,44 @@ struct SparseAcceptSuite {
                                               " B=" + std::to_string(kSparseBatch),
                                           targets, logits, drafts, ids, q, extents, lengths,
                                           anchors, configs, history, {false});
+    }
+
+    int grammar_mask_case() {
+        std::vector<int> targets(kSparseColumns * kSparseBatch, 42),
+            drafts(kSparseDrafts * kSparseBatch),
+            ids(kSparseCandidates * kSparseDrafts * kSparseBatch),
+            extents(kSparseBatch, kSparseDrafts), lengths(kSparseBatch, 70),
+            anchors(kSparseBatch, 0);
+        std::vector<std::uint16_t> logits(static_cast<std::size_t>(kSparsePhysicalRows) *
+                                              kSparseColumns * kSparseBatch,
+                                          f32_to_bf16(12.0f));
+        std::vector<float> q(ids.size(), 0.0f);
+        std::vector<ops::SamplingConfig> configs(kSparseBatch);
+        std::vector<int> history(kSparseTokenDomain * kSparseBatch, 0);
+        masks.assign(kSparseColumns * kSparseBatch * mask_words, 0);
+        const int a = kSparseTokenDomain - 2, b = kSparseTokenDomain - 1, x = 42;
+        for (int row = 0; row < kSparseBatch; ++row) {
+            configs[row].temperature = row < kSparseBatch / 2 ? 0.0f : 1.0f;
+            configs[row].seed        = 8123 + row;
+            for (int col = 0; col < kSparseColumns; ++col) {
+                for (int token : {a, b}) {
+                    masks[(row * kSparseColumns + col) * mask_words + token / 32] |=
+                        1u << (token % 32);
+                    logits[sparse_logit_index(row, col, token)] = f32_to_bf16(0.0f);
+                }
+                if (col < kSparseDrafts) {
+                    const int base = sparse_candidate_index(row, col, 0);
+                    for (int c = 0; c < 16; ++c) ids[base + c] = c + 100;
+                    ids[base]     = a;
+                    ids[base + 1] = x;
+                    q[base] = q[base + 1]             = 0.5f;
+                    drafts[row * kSparseDrafts + col] = (row + col) % 2 ? x : a;
+                }
+            }
+        }
+        // p(a)=p(b)=.5, q(a)=q(x)=.5: a accepts, invalid x corrects to b with probability 1.
+        return execute_sparse_accept_case("sparse grammar mask", targets, logits, drafts, ids, q,
+                                          extents, lengths, anchors, configs, history, {false});
     }
 
     int repeated_history_case(bool stochastic) {
@@ -1343,6 +1291,27 @@ int deterministic_sampling_case() {
                                token_counts, expected);
 }
 
+int grammar_onehot_case(int domain, float temperature) {
+    constexpr int k = 3;
+    const std::vector<int> drafts{11, 12, 13};
+    const std::vector<int> targets(k + 1, 0);
+    std::vector<std::uint16_t> logits((domain + 2) * (k + 1), f32_to_bf16(12.0f));
+    const int words = (domain + 31) / 32;
+    std::vector<std::uint32_t> masks(words * (k + 1), 0);
+    for (int col = 0; col <= k; ++col) {
+        const int allowed = col < 2 ? drafts[col] : 51;
+        masks[col * words + allowed / 32] |= 1u << (allowed % 32);
+        logits[col * (domain + 2) + allowed] = f32_to_bf16(-2.0f);
+    }
+    auto device_masks = to_device(masks);
+    ops::SamplingConfig config;
+    config.temperature  = temperature;
+    config.mask         = {static_cast<const std::uint32_t*>(device_masks.p), words};
+    const auto expected = accept_state_oracle(drafts, 2, 51, 73);
+    return execute_accept_case("one-hot grammar mask", targets, logits, domain + 2, drafts, 73,
+                               domain, config, std::vector<int>(domain, 0), expected);
+}
+
 int greedy_penalty_case(int token_domain) {
     constexpr int k = 2;
     const std::vector<std::int32_t> drafts{1, 1};
@@ -1543,11 +1512,6 @@ int transforms_conformance() {
     int failures = 0;
     for (int k = 1; k <= 15; ++k)
         for (int batch : {1, 8}) failures += prepare_verify_case(k, batch);
-    // The copy path is swept at the boundaries that change behaviour rather than at every width: a
-    // full-width and an over-wide count bracket the clamp, and k=1 exercises the narrowest round a
-    // copy round can use. Every width is already covered by the null path above.
-    for (int k : {1, 2, 7, 15})
-        for (int batch : {1, 8}) failures += prepare_verify_copy_case(k, batch);
     for (int width = 2; width <= 16; ++width)
         for (int batch : {1, 8}) failures += batched_select_hidden_case(width, batch);
     failures += select_hidden_case(5120, 6, 0);
@@ -1595,6 +1559,8 @@ int main(int argc, char** argv) {
     failures += greedy_accept_case(5, 2);
     failures += greedy_accept_case(5, 5);
     failures += greedy_accept_case(15, 7, 257);
+    for (int domain : {64, 257, 248077})
+        for (float temperature : {0.0f, 1.0f}) failures += grammar_onehot_case(domain, temperature);
     failures += greedy_penalty_case(64);
     failures += greedy_penalty_case(257);
     failures += deterministic_sampling_case();
@@ -1629,6 +1595,7 @@ int main(int argc, char** argv) {
     for (int k : {1, 7, 15}) {
         SparseAcceptSuite suite(k, 8);
         failures += suite.sparse_general_mixed_case();
+        failures += SparseAcceptSuite(k, 8).grammar_mask_case();
         failures += suite.sparse_greedy_direct_case(0, true);
         failures += SparseAcceptSuite(k, 1).repeated_history_case(false);
         failures += SparseAcceptSuite(k, 1).repeated_history_case(true);

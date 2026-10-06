@@ -811,10 +811,10 @@ int test_explicit_rejections() {
 
     value         = base;
     value["text"] = Json{{"format", Json{{"type", "json_schema"}}}};
-    failures += check(api_code([&] {
+    failures += check(api_error([&] {
                           (void)parse_openai_responses_create_request(value, limits());
-                      }) == "structured_outputs_not_supported",
-                      "structured output is rejected explicitly");
+                      }).param == "text.format.name",
+                      "malformed output schema is rejected");
 
     value               = base;
     value["background"] = true;
@@ -1070,10 +1070,54 @@ int test_input_tokens_uses_shared_state_path() {
     return failures;
 }
 
+int test_constrained_decoding() {
+    int failures = 0;
+    Json body{{"model", "qwen"},
+              {"input", "hello"},
+              {"structured_outputs", {{"grammar", "root ::= \"yes\""}}}};
+    const auto request = parse_openai_responses_create_request(body, limits());
+    OpenAIResponsesStore store(8, 1024 * 1024);
+    const auto resolved =
+        resolve_openai_responses_prompt(request.prompt, store, std::nullopt, false);
+    failures += check(to_request_options(resolved.generation, {}, {}, true).constraint->source ==
+                          "root ::= \"yes\"",
+                      "Responses GBNF extension was lost in resolution or Engine translation");
+    body["tools"] = Json::array({Json{{"type", "function"}, {"name", "lookup"}}});
+    failures += check(api_error([&] {
+                          (void)parse_openai_responses_create_request(body, limits());
+                      }).param == "structured_outputs.grammar",
+                      "grammar admitted active tools");
+    body["tool_choice"] = "none";
+    failures += check(parse_openai_responses_create_request(body, limits())
+                              .prompt.generation.constraint->source == "root ::= \"yes\"",
+                      "inactive tools blocked grammar");
+    body["structured_outputs"] = Json{{"grammar", ""}};
+    failures += check(api_error([&] {
+                          (void)parse_openai_responses_create_request(body, limits());
+                      }).param == "structured_outputs.grammar",
+                      "empty grammar was accepted");
+    body                      = Json{{"model", "qwen"},
+                                     {"input", "hello"},
+                                     {"text",
+                                      {{"format",
+                                        {{"type", "json_schema"},
+                                         {"name", "answer"},
+                                         {"strict", true},
+                                         {"schema", {{"type", "object"}}}}}}}};
+    const auto schema_request = parse_openai_responses_create_request(body, limits());
+    const auto response =
+        make_openai_response_object("resp_test", 1, schema_request, {}, sample_outcome());
+    failures += check(response.body["text"]["format"] == schema_request.text_format &&
+                          schema_request.prompt.generation.constraint_param == "text.format.schema",
+                      "Responses format echo or source path lost");
+    return failures;
+}
+
 } // namespace
 
 int main() {
     int failures = 0;
+    failures += test_constrained_decoding();
     failures += test_basic_request_and_resolution();
     failures += test_budgets_and_nonsemantic_hints();
     failures += test_typed_items_and_cache_markers();

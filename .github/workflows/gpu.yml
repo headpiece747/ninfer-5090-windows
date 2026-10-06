@@ -36,7 +36,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: the suite (configure, build, ctest with --schedule-random)
-        run: cmd /c tools\scripts\test_v3.cmd
+        env:
+          # The artifact belongs on THIS step, not only on the gate: the four required real-model
+          # tests skip without it, and the gate then fails on missing coverage rather than on a
+          # regression. The recipe's configure also needs the project's Python, because it passes
+          # -DPython3_EXECUTABLE so that ninfer_json_schema_oracle_test runs where its declared
+          # dependency (tests/text/requirements.txt) is installed.
+          NINFER_TEST_ARTIFACT: C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer
+        run: |
+          C:\vllm-env\Scripts\python.exe -m pip install --quiet -r tests/text/requirements.txt
+          cmd /c tools\scripts\test_v3.cmd
 
       # The artifact is outside the checkout: the four required real-model tests read
       # C:\AI\models, which is why this runs here rather than anywhere else.

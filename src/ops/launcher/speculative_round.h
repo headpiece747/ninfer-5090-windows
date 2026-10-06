@@ -7,14 +7,10 @@
 
 namespace ninfer::ops::detail {
 
-// `copy_tokens`/`copy_extents` are an optional host-authored proposal that replaces the draft model's
-// tokens in the verify block for the rows they cover, leaving the draft model's own buffer
-// untouched. Both must be null together, and a null pair reproduces the previous behaviour exactly.
 void speculative_prepare_verify_inputs_launch(const Tensor& anchors, const Tensor& drafts,
                                               const Tensor& base_positions,
                                               const Tensor& current_extents, Tensor& verify_ids,
-                                              Tensor& positions, const Tensor* copy_tokens,
-                                              const Tensor* copy_extents, cudaStream_t stream);
+                                              Tensor& positions, cudaStream_t stream);
 void speculative_prepare_verify_ids_launch(const Tensor& anchors, const Tensor& drafts,
                                            const Tensor& current_extents, Tensor& verify_ids,
                                            cudaStream_t stream);

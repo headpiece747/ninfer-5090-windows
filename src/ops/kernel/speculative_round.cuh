@@ -21,31 +21,17 @@ __global__ void speculative_prepare_verify_inputs_kernel(const std::int32_t* anc
                                                          const std::int32_t* drafts,
                                                          const std::int32_t* base_positions,
                                                          const std::int32_t* current_extents,
-                                                         const std::int32_t* copy_tokens,
-                                                         const std::int32_t* copy_extents,
                                                          std::int32_t* verify_ids,
                                                          std::int32_t* positions, std::int32_t k) {
     const int row = static_cast<int>(blockIdx.y);
     const int T   = k + 1;
     int extent    = current_extents[row];
     extent        = extent < 0 ? 0 : (extent > k ? k : extent);
-    // A copy row replaces the draft model's proposal in the verify block only. The draft model's own
-    // buffer is left untouched, which is what makes this safe without reasoning about the drafter's
-    // state: the proposal is an output, and only the target reads `verify_ids`.
-    int copied = copy_extents == nullptr ? 0 : copy_extents[row];
-    copied     = copied < 0 ? 0 : (copied > k ? k : copied);
     for (int j = static_cast<int>(blockIdx.x) * blockDim.x + threadIdx.x; j < T;
          j += blockDim.x * gridDim.x) {
         const int off = row * T + j;
-        // j is a 1-based column past the anchor, so a copy at column j-1 lands at the same index
-        // the draft would have occupied.
-        const int from_copy = copied > 0 && j <= copied;
-        verify_ids[off]      = j == 0
-                                   ? anchors[row]
-                                   : (j <= extent
-                                          ? (from_copy ? copy_tokens[row * k + j - 1]
-                                                       : drafts[row * k + j - 1])
-                                          : anchors[row]);
+        verify_ids[off] =
+            j == 0 ? anchors[row] : (j <= extent ? drafts[row * k + j - 1] : anchors[row]);
         if (positions != nullptr) {
             positions[off] = base_positions[row] + (j <= extent ? j : extent);
         }
@@ -259,7 +245,7 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_accept_greedy_draft
         logits + static_cast<std::int64_t>(row) * cols * physical_rows;
     const bool penalties = cfg.presence_penalty != 0.0f || cfg.frequency_penalty != 0.0f;
 
-    if (!(cfg.temperature > 0.0f) && !penalties) {
+    if (!(cfg.temperature > 0.0f) && !penalties && cfg.mask.words == nullptr) {
         if (tid == 0) {
             int a = 0;
             while (a < extent && row_targets[a] == row_drafts[a]) { ++a; }
@@ -321,6 +307,7 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_accept_greedy_draft
                 __syncthreads();
             }
             if (tid == 0) {
+                if (cfg.mask.words && !isfinite(red_val[0])) { asm volatile("trap;"); }
                 const int selected = red_idx[0];
                 if (i < extent && selected == row_drafts[i]) {
                     a_sh = i + 1;
@@ -409,7 +396,9 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_sampling_partial_to
     const SamplingConfig cfg = configs[row];
     const bool greedy        = !(cfg.temperature > 0.0f);
     const bool penalties     = cfg.presence_penalty != 0.0f || cfg.frequency_penalty != 0.0f;
-    if ((greedy && !penalties) || token_domain <= kSamplerTileItems) { return; }
+    if ((greedy && !penalties && cfg.mask.words == nullptr) || token_domain <= kSamplerTileItems) {
+        return;
+    }
     workspace = speculative_workspace_row(workspace, workspace_row_stride, row);
     if (partial == 0 && threadIdx.x == 0) {
         workspace.group_done[col] = 0;
@@ -429,8 +418,11 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_sampling_partial_to
         for (int item = 0; item < kSamplerItemsPerThread; ++item) {
             const int tile_index = item * blockDim.x + threadIdx.x;
             const int v          = tile_start + tile_index;
-            keys[item] =
-                v < token_domain ? sampling_bf16_tile_sort_key(logits[base + v], tile_index) : 0u;
+            keys[item]           = (v < token_domain &&
+                          (!cfg.mask.words ||
+                           (cfg.mask.words[col * cfg.mask.stride + v / 32] & (1u << (v % 32)))))
+                                       ? sampling_bf16_tile_sort_key(logits[base + v], tile_index)
+                                       : 0u;
         }
         sampling_store_bf16_tile_topk(keys, cap, tile_start, workspace, col, partial,
                                       topk_storage.bf16);
@@ -492,7 +484,7 @@ __launch_bounds__(kSamplerGroupBlock) __global__ void speculative_sampling_group
     const bool greedy    = !(cfg.temperature > 0.0f);
     const bool penalties = cfg.presence_penalty != 0.0f || cfg.frequency_penalty != 0.0f;
 
-    if (greedy && !penalties) {
+    if (greedy && !penalties && cfg.mask.words == nullptr) {
         if constexpr (SparseProposal) {
             if (tid < 32 && col == 0 && group == 0)
                 speculative_sparse_warp_greedy(target_tokens, drafts, lengths, anchors,
@@ -578,6 +570,8 @@ __launch_bounds__(kSamplerGroupBlock) __global__ void speculative_sampling_group
         cand_idx[tid]                = sampling_key_index(key);
     }
     __syncthreads();
+
+    if (tid == 0 && greedy && cfg.mask.words && !isfinite(cand_val[0])) { asm volatile("trap;"); }
 
     if constexpr (SparseProposal) {
         __shared__ int last_column;

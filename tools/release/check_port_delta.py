@@ -30,9 +30,15 @@ Dispositions, after review:
 Usage
 -----
     python tools/release/check_port_delta.py
-    python tools/release/check_port_delta.py --against upstream/master
+    python tools/release/check_port_delta.py --against upstream/dev
     python tools/release/check_port_delta.py --check            # the gate
     python tools/release/check_port_delta.py --write-baseline   # after a review
+
+The reference must be the upstream branch this tree is based on. That is normally `upstream/dev`,
+because `dev` is where upstream works and what a merge takes; `master` is its release branch, and
+while the port sat at `master` this defaulted to it. Once `dev` runs ahead, comparing against
+`master` reports upstream's own newer files as the port's divergence -- 695 paths where the truth
+was 541 -- so `--check` also fails when the recorded reference is not the one being compared.
 """
 from __future__ import annotations
 
@@ -48,7 +54,7 @@ from typing import NamedTuple
 
 REPO = Path(__file__).resolve().parents[2]
 BASELINE = Path(__file__).resolve().parent / "port_delta_baseline.json"
-DEFAULT_UPSTREAM = "upstream/master"
+DEFAULT_UPSTREAM = "upstream/dev"
 
 # Files the port added are its own and carry no merge risk; only these statuses diverge
 # inside a file upstream owns.
@@ -206,12 +212,24 @@ def write_baseline(paths: dict[str, Entry], against: str) -> None:
     print(f"wrote {BASELINE.relative_to(REPO)}: {len(paths)} entries")
 
 
-def check(paths: dict[str, Entry]) -> int:
+def check(paths: dict[str, Entry], against: str) -> int:
     if not BASELINE.exists():
         print(f"  FAIL: {BASELINE.name} is missing, so there is nothing to ratchet against")
         return 1
     payload = json.loads(BASELINE.read_text(encoding="utf-8"))
     recorded: dict[str, object] = payload.get("paths", {})
+
+    # The baseline is a statement about one upstream reference. Comparing it against a different one
+    # makes every file that reference moved read as the port's divergence -- on 2026-10-05 this
+    # reported 695 paths where the truth was 541 -- so a mismatch is its own failure rather than a
+    # confusing path count that invites a re-record.
+    recorded_against = payload.get("against")
+    if recorded_against != against:
+        print(f"  FAIL: {BASELINE.name} is filed against {recorded_against!r}, "
+              f"but this run compares {against!r}")
+        print("    Re-record deliberately:")
+        print(f"      python tools/release/check_port_delta.py --write-baseline --against {against}")
+        return 1
 
     grew = sorted(set(paths) - set(recorded))
     stale = sorted(set(recorded) - set(paths))
@@ -250,7 +268,7 @@ def main() -> int:
         write_baseline(paths, args.against)
         return 0
     if args.check:
-        return check(paths)
+        return check(paths, args.against)
 
     report(entries, args.against)
     if args.json is not None:

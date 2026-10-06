@@ -1981,6 +1981,91 @@ binary — `failures=1` with no arguments, where the same binary had passed — 
 was reverted rather than adjusted. Making the check per-group, each group validating the peaks it
 recorded, would be more checks but a **different assertion** than today's. That trade is the owner's.
 
+### 18. Upstream's five commits, merged — **MERGED 2026-10-05; the speculative path converged on upstream**
+
+**Why:** upstream's `eb6696ae`, `08902f73`, `a643abcd`, `911d34db` and `7e2973ee` are 190 files and
++48,687/−960: JSON-mode and schema-constrained decoding, GBNF constrained decoding across the
+generation backends, the vendored XGrammar CPU core, a runtime fix preserving cache sources across
+admission waits, and a restructured `AGENTS.md`. Seven conflicts, and the interesting part is that
+**none of them was a disagreement about behaviour** — six were the port holding upstream's *own
+older* shape while upstream refactored past it, and the seventh was a document.
+
+**What the primary sources said.** `08902f73`'s message is the key: *"Unify speculative execution
+around Forward and Finish graphs for MTP, DFlash, and DFlash2."* Checking each symbol against the
+merge base rather than against the conflict sizes separated the two cases cleanly:
+`select_graph_profile` and `target_verify_accept` are in the base and absent from `upstream/dev`, so
+upstream *removed* them; `kDrafterCandidatesPerPosition` and `copy_tokens` are absent from the base,
+so the port *added* them. The conflict sizes said nothing about which was which — `decode.cpp`'s 56
+lines were upstream's three helpers that upstream had deleted, and the port's 72-line recall block
+was outside the hunk entirely.
+
+**Two errors that only the compiler caught, both mine.** Taking upstream's side of `decode.cpp`'s
+hunk deleted `kDrafterCandidatesPerPosition`, which was defined *inside* the namespace the hunk
+replaced while the port's recall block that uses it sits outside — the file looked resolved and did
+not compile. And the two bench/test conflicts where each side supplied a body for one function slot
+sharing a trailing `return failures; }` produced a nested function. Neither is visible by reading
+the conflict; both are visible immediately in a build.
+
+**The withdrawal, and why it was not a close call.** `copy_tokens`/`copy_extents` came from
+`70bf39f5` (n-gram copy drafting), whose core item 9 already records as replaced with its surface
+withdrawn — these two were left behind, and the reasons they looked harmless were each false. They
+did not preserve the capability's call sites: because `stream` is not last in the port's signature,
+upstream's positional 7-argument calls landed the stream on `copy_tokens` and failed to compile, so
+the pair forced *every* call site to diverge. Nothing had ever set them: every call site passed
+`nullptr, nullptr`, and the only other reference was a host array in `round_buffers.h` never wrapped
+into a `Tensor`. And the Op-level test that covered them covered the removed capability, not shipped
+behaviour. Withdrawing them converges six files on upstream exactly — `port_delta_baseline` 255 → 249
+— and the defaulted-stream pin drops from 27 sites across 8 files to 26 across 7, because the
+default was carried on that declaration.
+
+**Windows necessity.** The vendored XGrammar does not compile under MSVC.
+`XGRAMMAR_UNREACHABLE()` expands to nothing on MSVC, so a value-returning lambda whose last branch
+is unreachable fails with C4716 — `grammar_compiler.cc:1593`, the only error in the vendored core,
+whose `LowestBit` and `PopCount` already carry MSVC fallbacks. An `_MSC_VER` branch using
+`__assume(false)` fixes it at the macro, which is where it covers every use site; it emits nothing,
+so reachable behaviour is unchanged. Filed in the ratchet as `windows` with its reason, because a
+vendor update will drop it.
+
+**The ratchet's reference was wrong, and its failure mode was a misleading number.** It defaulted to
+`upstream/master`, which was right while the port sat at master. `dev` is where upstream works and
+what a merge takes, so once dev ran ahead, comparing against master reported upstream's own newer
+files as the port's divergence: **695 paths where the truth was 541**. The default is now
+`upstream/dev`, and `--check` fails when the recorded reference is not the one being compared — a
+stale reference now names itself instead of producing a path count that invites a re-record.
+
+**Also:** `AGENTS.md` keeps both intents (upstream's restructured skeleton, the port's directive,
+tables, 64 rules and Windows practices); `README.md`'s capability list gains the two constraint
+capabilities upstream documents in `docs/cli.md`, `docs/serving.md` and
+`docs/maintainer/constrained-decoding.md`; `suite_size` moves 145 → 149, which is exactly the four
+ctest entries upstream adds (`ninfer_grammar_test`, `ninfer_json_schema_test`,
+`ninfer_json_schema_oracle_test`, `ninfer_qwen3_5_grammar_real_test`) and no removals.
+
+**An environment defect the merge exposed, in three layers.** `ninfer_json_schema_oracle_test` —
+upstream's own new oracle — failed, and each layer masked the next. It needed `jsonschema`, declared
+in `tests/text/requirements.txt` and documented in `tests/README.md`, but **no CI tier installed it**:
+upstream has no CI at all (only `FUNDING.yml` and a PR template), so the test has only ever run on the
+maintainer's machine. Installing it was not enough, because `tests/CMakeLists.txt` does a plain
+`find_package(Python3 REQUIRED COMPONENTS Interpreter)`, which here resolves to `C:/Python314/python.exe`
+— not the project's selected `C:\vllm-env\Scripts\python.exe` where the dependency belongs. And with
+the interpreter corrected, the test failed a third time for a real reason: its `subprocess` calls use
+`text=True` with no encoding, so Python uses the **locale** encoding — UTF-8 on Linux, **cp1252** on
+Windows — and the payload deliberately carries CJK and emoji (`ensure_ascii=False`), so the first case
+raised `UnicodeEncodeError` and the probe never ran. Fixed in three places: both suite recipes pass
+`-DPython3_EXECUTABLE` (honouring `NINFER_PYTHON`), `gpu.yml` installs `-r tests/text/requirements.txt`,
+and the four call sites state `encoding="utf-8"` — the last is a port divergence in an upstream file,
+recorded in the ratchet as `windows` with its reason.
+
+**And a latent CI defect found beside it.** `gpu.yml` set `NINFER_TEST_ARTIFACT` on the *gate* step
+but not on the *suite* step, so the four required real-model tests would skip and the gate would fail
+on missing coverage rather than on a regression — the exact trap the AGENTS table documents, sitting
+unexercised because no self-hosted runner is registered. The artifact now sits on both steps.
+
+**Done when:** the tree builds, the suite is green against the baseline, the ratchet and the
+pre-commit gates pass, and nothing the port owns was silently dropped. **Done 2026-10-05:** build
+clean; **149 tests, 99% passed, 2 failed** — both the recorded known failures — with the baseline
+gate green; the mutation gate green; the ratchet green at 250 recorded paths; all twelve pre-commit
+gates pass; and the port's own recipe passes end to end.
+
 ## Gates added while this list was open
 
 **Text encoding, 2026-10-02 — `tools/release/check_text_encoding.py`.** 181 lines of this file

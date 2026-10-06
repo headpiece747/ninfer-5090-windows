@@ -369,6 +369,7 @@ The official artifacts provide the following capabilities, with optional compone
 - offline causal-perplexity scoring;
 - private and shared exact-prefix reuse with Device/Host State and KV retention;
 - model-aware sampling defaults and explicit sampler overrides;
+- GBNF, JSON-object, and JSON-schema output constraints on every decoding backend;
 - OpenAI Responses Core, OpenAI Chat Completions, and Anthropic Messages, including streaming,
   tools, local response state, token counting, and usage accounting.
 

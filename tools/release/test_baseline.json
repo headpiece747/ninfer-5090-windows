@@ -1,6 +1,6 @@
 {
   "recorded": "2026-10-05",
-  "suite_size": 145,
+  "suite_size": 149,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -52,6 +52,11 @@
       "date": "2026-10-05",
       "count": -2,
       "note": "the native renderer is withdrawn, so its two differential-parity entries go with it: ninfer_chat_render_native_parity_test and ninfer_chat_render_native_parity_media_test, and the bench mode they drove. The renderer was a second implementation of one serialization and the measurement did not back it -- an interleaved A/B on the shipping route showed no advantage and a median 1.65 ms against it, after ADR-0012's projected 42 ms saving had already been falsified -- so under the port's rule (prefer upstream unless a change is measurably better or needed for Windows) it does not survive. The render's output stays covered by test_shipped_template_render_bytes, the chat-template goldens and the frontend tests, which compare against goldens rather than against a sibling implementation. No required_tests or optional_tests change."
+    },
+    {
+      "date": "2026-10-05",
+      "count": 4,
+      "note": "upstream five commits add four ctest entries and remove none: ninfer_grammar_test, ninfer_json_schema_test, ninfer_json_schema_oracle_test, ninfer_qwen3_5_grammar_real_test. Measured with ctest -N against the merged tree (149) and attributed from git diff 68c54356..upstream/dev on tests/. 145 -> 149."
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "against": "upstream/master",
+  "against": "upstream/dev",
   "recorded": "2026-10-05",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
@@ -223,11 +223,6 @@
       "disposition": "unknown",
       "reason": ""
     },
-    "include/ninfer/ops/speculative_round.h": {
-      "status": "M",
-      "disposition": "unknown",
-      "reason": ""
-    },
     "include/ninfer/types.h": {
       "status": "M",
       "disposition": "product",
@@ -438,11 +433,6 @@
       "disposition": "unknown",
       "reason": ""
     },
-    "src/models/qwen3_5/program/execution_context.h": {
-      "status": "M",
-      "disposition": "unknown",
-      "reason": ""
-    },
     "src/models/qwen3_5/program/planning/startup.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -464,11 +454,6 @@
       "reason": ""
     },
     "src/models/qwen3_5/program/program_impl.h": {
-      "status": "M",
-      "disposition": "unknown",
-      "reason": ""
-    },
-    "src/models/qwen3_5/program/round_buffers.h": {
       "status": "M",
       "disposition": "unknown",
       "reason": ""
@@ -591,21 +576,6 @@
     "src/ops/gdn_input_proj/q8/q8_gdn_input_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": ""
-    },
-    "src/ops/kernel/speculative_round.cuh": {
-      "status": "M",
-      "disposition": "unknown",
-      "reason": ""
-    },
-    "src/ops/launcher/speculative_round.cu": {
-      "status": "M",
-      "disposition": "unknown",
-      "reason": ""
-    },
-    "src/ops/launcher/speculative_round.h": {
-      "status": "M",
-      "disposition": "unknown",
       "reason": ""
     },
     "src/ops/linear/bf16/bf16_a16_tma_mma.cuh": {
@@ -849,11 +819,6 @@
       "reason": ""
     },
     "src/ops/wrapper/sparse_moe.cpp": {
-      "status": "M",
-      "disposition": "unknown",
-      "reason": ""
-    },
-    "src/ops/wrapper/speculative_round.cpp": {
       "status": "M",
       "disposition": "unknown",
       "reason": ""
@@ -1183,6 +1148,11 @@
       "disposition": "product",
       "reason": ""
     },
+    "tests/text/test_json_schema.py": {
+      "status": "M",
+      "disposition": "windows",
+      "reason": "Subprocess calls state encoding='utf-8'. With text=True and no encoding, Python uses the locale encoding: UTF-8 on Linux, cp1252 on Windows, which cannot encode the CJK and emoji the payload deliberately carries (ensure_ascii=False) -- so the oracle raised UnicodeEncodeError on its first case and the probe never ran. Four call sites; no assertion changed."
+    },
     "third_party/llama-jinja/jinja/runtime.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -1192,6 +1162,11 @@
       "status": "M",
       "disposition": "windows",
       "reason": ""
+    },
+    "third_party/xgrammar/cpp/support/utils.h": {
+      "status": "M",
+      "disposition": "windows",
+      "reason": "XGRAMMAR_UNREACHABLE() expands to nothing on MSVC, so a value-returning lambda whose last branch is unreachable fails to compile with C4716 ('must return a value') -- grammar_compiler.cc:1593, the only error in the vendored core under MSVC (LowestBit and PopCount already carry MSVC fallbacks). Added an _MSC_VER branch using __assume(false), MSVC's equivalent of __builtin_unreachable(), which emits nothing so reachable behaviour is unchanged. A vendor update must re-apply this."
     },
     "tools/README.md": {
       "status": "M",

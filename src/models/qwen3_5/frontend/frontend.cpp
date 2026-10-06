@@ -10,6 +10,8 @@
 #include "models/qwen3_5/frontend/tokenizer.h"
 #include "models/qwen3_5/frontend/tool_call_parser.h"
 #include "text/unicode.h"
+#include "text/grammar.h"
+#include <mutex>
 
 #include <nlohmann/json.hpp>
 
@@ -567,7 +569,8 @@ public:
             throw std::invalid_argument(
                 "Frontend requires the parsed model tokenizer and public token domain");
         }
-        sampling = default_sampling(options.architecture);
+        sampling            = default_sampling(options.architecture);
+        grammar_cache_bytes = options.grammar_cache_bytes;
         for (const int token : tokenizer->default_stop_token_ids()) {
             if (!tokenizer->is_valid_token(token)) {
                 throw std::invalid_argument(
@@ -605,8 +608,25 @@ public:
     StopPolicy defaults;
     ModelSamplingDefaults sampling;
     std::shared_ptr<const std::vector<TokenId>> thinking_control_tokens;
-    bool vision_enabled       = true;
-    std::uint32_t max_context = 0;
+    bool vision_enabled             = true;
+    std::uint32_t max_context       = 0;
+    std::size_t grammar_cache_bytes = 0;
+    mutable std::once_flag grammar_once;
+    mutable std::unique_ptr<text::GrammarCompiler> grammar_compiler;
+
+    text::GrammarCompiler& grammars() const {
+        std::call_once(grammar_once, [&] {
+            std::vector<std::string> vocab(tokenizer->vocab_size());
+            for (std::size_t id = 0; id < vocab.size(); ++id) {
+                if (!tokenizer->is_valid_token(static_cast<TokenId>(id))) { continue; }
+                const auto decoded = tokenizer->decoded_token(static_cast<TokenId>(id));
+                if (!decoded.special) { vocab[id] = decoded.bytes; }
+            }
+            grammar_compiler = std::make_unique<text::GrammarCompiler>(
+                std::move(vocab), defaults.token_ids, grammar_cache_bytes);
+        });
+        return *grammar_compiler;
+    }
 };
 
 std::span<const std::int32_t> PreparedPromptData::position_axis(int axis) const {
@@ -725,6 +745,7 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
     auto prepared              = std::make_unique<PreparedPromptData>();
     PreparedPromptData& result = *prepared;
     result.tool_call_output    = tool_call_output;
+    result.has_active_tools    = !options.tool_jsons.empty();
     std::vector<std::optional<std::uint32_t>> message_boundaries;
     std::vector<std::optional<std::uint32_t>> cache_boundaries;
     if (has_media) {
@@ -737,11 +758,12 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
                                   control, impl_->max_context);
         } catch (const fi::ProcessorError& error) { throw_processor_error(error); }
         result.token_ids.assign(processed.input_ids.begin(), processed.input_ids.end());
-        result.starts_in_reasoning = processed.starts_in_reasoning;
-        result.token_types         = std::move(processed.token_types);
-        result.positions           = std::move(processed.positions);
-        result.rope_delta          = processed.rope_delta;
-        result.media_payloads      = std::move(processed.media_payloads);
+        result.starts_in_reasoning  = processed.starts_in_reasoning;
+        result.continuation_content = std::move(processed.continuation_content);
+        result.token_types          = std::move(processed.token_types);
+        result.positions            = std::move(processed.positions);
+        result.rope_delta           = processed.rope_delta;
+        result.media_payloads       = std::move(processed.media_payloads);
         result.vision_items.reserve(processed.vision_items.size());
         for (fi::VisionItem& item : processed.vision_items) {
             result.vision_items.push_back(convert_vision_item(std::move(item)));
@@ -770,6 +792,7 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
         const fi::RenderedChat rendered = impl_->chat_template.render(
             messages, render_options(options, rendered_markers), control);
         result.starts_in_reasoning  = rendered.starts_in_reasoning;
+        result.continuation_content = rendered.continuation_content;
         const auto tokenize_started = Clock::now();
         fi::EncodedChat encoded     = fi::encode_rendered_chat(
             *impl_->tokenizer, rendered, static_cast<std::size_t>(impl_->max_context) + 1U);
@@ -872,16 +895,41 @@ std::vector<TokenId> Frontend::tokenize_text(std::string_view text) const {
     return impl_->tokenizer->encode(text);
 }
 
-OutputSession Frontend::make_output_session(const PreparedPrompt& prompt,
-                                            const StopPolicy& caller_stop,
-                                            const OutputOptions& output,
-                                            const ThinkingControlOptions& thinking) const {
+OutputSession
+Frontend::make_output_session(const PreparedPrompt& prompt, const StopPolicy& caller_stop,
+                              const OutputOptions& output, const ThinkingControlOptions& thinking,
+                              const std::optional<OutputConstraint>& constraint) const {
     if (prompt.data_ == nullptr) { throw std::invalid_argument("prepared prompt is empty"); }
     StopPolicy policy = merge_stop_policy(*impl_->tokenizer, caller_stop);
     if (output.raw) { policy.publish_stop_token = true; }
-    return OutputSession(impl_->tokenizer, std::move(policy), output,
-                         prompt.data_->starts_in_reasoning, thinking,
-                         impl_->thinking_control_tokens, prompt.data_->tool_call_output);
+    std::unique_ptr<text::GrammarSession> matcher;
+    if (constraint) {
+        if (impl_->defaults.token_ids.empty() || prompt.data_->has_active_tools ||
+            !caller_stop.token_ids.empty() || !caller_stop.strings.empty() ||
+            !caller_stop.include_model_defaults || caller_stop.publish_stop_token || output.raw ||
+            output.preserve_special_tokens) {
+            throw RequestError(constraint->kind == OutputConstraintKind::Grammar
+                                   ? RequestErrorKind::InvalidGrammar
+                                   : RequestErrorKind::InvalidJsonSchema,
+                               "output constraints require default EOS, text output and no "
+                               "active tools or custom stops");
+        }
+        try {
+            matcher = impl_->grammars().compile(*constraint,
+                                                prompt.data_->starts_in_reasoning
+                                                    ? fi::kCanonicalReasoningCloseSerialization
+                                                    : std::string_view{},
+                                                prompt.data_->continuation_content);
+        } catch (const RequestError&) { throw; } catch (const std::invalid_argument& error) {
+            throw RequestError(constraint->kind == OutputConstraintKind::Grammar
+                                   ? RequestErrorKind::InvalidGrammar
+                                   : RequestErrorKind::InvalidJsonSchema,
+                               error.what());
+        }
+    }
+    return OutputSession(
+        impl_->tokenizer, std::move(policy), output, prompt.data_->starts_in_reasoning, thinking,
+        impl_->thinking_control_tokens, prompt.data_->tool_call_output, std::move(matcher));
 }
 
 const StopPolicy& Frontend::default_stop_policy() const noexcept { return impl_->defaults; }

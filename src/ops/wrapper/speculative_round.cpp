@@ -100,9 +100,7 @@ std::size_t speculative_accept_sparse_drafts_workspace_capacity_bytes(
 
 void speculative_prepare_verify_inputs(const Tensor& anchors, const Tensor& drafts,
                                        const Tensor& base_positions, const Tensor& current_extents,
-                                       Tensor& verify_ids, Tensor& positions,
-                                       const Tensor* copy_tokens, const Tensor* copy_extents,
-                                       cudaStream_t stream) {
+                                       Tensor& verify_ids, Tensor& positions, cudaStream_t stream) {
     constexpr const char* op = "speculative_prepare_verify_inputs";
     const std::int32_t k     = drafts.ne[0];
     const std::int32_t batch = drafts.ne[1];
@@ -110,25 +108,14 @@ void speculative_prepare_verify_inputs(const Tensor& anchors, const Tensor& draf
     if (batch < 1) {
         throw std::invalid_argument("speculative_prepare_verify_inputs: B must be >=1");
     }
-    // The copy pair is optional, but it is a pair: one without the other would silently propose
-    // nothing, which is indistinguishable from a row that simply had no copy.
-    if ((copy_tokens == nullptr) != (copy_extents == nullptr)) {
-        throw std::invalid_argument("speculative_prepare_verify_inputs: copy tokens and extents "
-                                    "must be supplied together");
-    }
     require_vector(anchors, DType::I32, batch, op, "anchors");
     require_matrix(drafts, DType::I32, k, batch, op, "drafts");
     require_vector(base_positions, DType::I32, batch, op, "base_positions");
     require_vector(current_extents, DType::I32, batch, op, "current_extents");
     require_matrix(verify_ids, DType::I32, k + 1, batch, op, "verify_ids");
     require_matrix(positions, DType::I32, k + 1, batch, op, "positions");
-    if (copy_tokens != nullptr) {
-        require_matrix(*copy_tokens, DType::I32, k, batch, op, "copy_tokens");
-        require_vector(*copy_extents, DType::I32, batch, op, "copy_extents");
-    }
-    detail::speculative_prepare_verify_inputs_launch(anchors, drafts, base_positions,
-                                                     current_extents, verify_ids, positions,
-                                                     copy_tokens, copy_extents, stream);
+    detail::speculative_prepare_verify_inputs_launch(
+        anchors, drafts, base_positions, current_extents, verify_ids, positions, stream);
 }
 
 void speculative_prepare_verify_ids(const Tensor& anchors, const Tensor& drafts,

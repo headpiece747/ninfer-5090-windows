@@ -88,10 +88,17 @@ REM is the point of this note.
 set "TESTS=ninfer_resource_manager_test ninfer_artifact_reader_test ninfer_kv_capacity_test"
 set "ASAN_SKIPPED=ninfer_context_cost_test"
 
+REM The build must use the project's Python and not whatever find_package(Python3) finds: the tests'
+REM declared dependencies live in the selected environment, and tests/CMakeLists.txt requires an
+REM interpreter for ninfer_json_schema_oracle_test.
+set "PY=%NINFER_PYTHON%"
+if "%PY%"=="" set "PY=C:/vllm-env/Scripts/python.exe"
+
 echo === CONFIGURE (AddressSanitizer) ===
 cmake -B build-asan -S . -G Ninja ^
   -DCMAKE_CUDA_ARCHITECTURES=120a ^
   -DCMAKE_BUILD_TYPE=Release ^
+  -DPython3_EXECUTABLE="%PY%" ^
   -DBUILD_TESTING=ON ^
   -DCMAKE_CXX_FLAGS="/fsanitize=address /Zi" ^
   -DCMAKE_CUDA_FLAGS="-Xcompiler=/fsanitize=address" ^

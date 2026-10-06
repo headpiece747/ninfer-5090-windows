@@ -1,5 +1,6 @@
 #include "serve/request_validation.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -7,6 +8,89 @@
 #include <utility>
 
 namespace ninfer::serve {
+
+namespace {
+void set_constraint(GenerationRequest& request, OutputConstraint constraint, std::string param) {
+    if (request.constraint) bad_request("only one output constraint may be specified", param);
+    request.constraint       = std::move(constraint);
+    request.constraint_param = std::move(param);
+}
+} // namespace
+
+void parse_json_output_format(const RequestJson& format, GenerationRequest& request,
+                              const std::string& param, JsonFormatProtocol protocol) {
+    if (!format.is_object() || !format.contains("type") || !format["type"].is_string())
+        bad_request("output format must contain a string type", param);
+    const auto type = format["type"].get<std::string>();
+    if (type == "text" && protocol != JsonFormatProtocol::Anthropic) {
+        if (format.size() != 1) bad_request("text format has no options", param);
+        return;
+    }
+    if (type == "json_object" && protocol != JsonFormatProtocol::Anthropic) {
+        if (format.size() != 1) bad_request("json_object format has no options", param);
+        set_constraint(request, OutputConstraint::json_object(), param);
+        return;
+    }
+    if (type != "json_schema") bad_request("unsupported output format type", param + ".type");
+    const auto* spec         = &format;
+    std::string schema_param = param;
+    if (protocol == JsonFormatProtocol::Chat) {
+        if (format.size() != 2 || !format.contains("json_schema") ||
+            !format["json_schema"].is_object())
+            bad_request("json_schema format requires a json_schema object", param);
+        spec = &format["json_schema"];
+        schema_param += ".json_schema";
+    }
+    for (const auto& [key, value] : spec->items()) {
+        const bool allowed = key == "schema" ||
+                             (key == "type" && protocol != JsonFormatProtocol::Chat) ||
+                             (protocol != JsonFormatProtocol::Anthropic &&
+                              (key == "name" || key == "description" || key == "strict"));
+        if (!allowed) bad_request("unknown output format option: " + key, schema_param + "." + key);
+    }
+    if (protocol != JsonFormatProtocol::Anthropic) {
+        if (!spec->contains("name") || !(*spec)["name"].is_string())
+            bad_request("json_schema requires a name", schema_param + ".name");
+        const auto name = (*spec)["name"].get<std::string>();
+        if (name.empty() || name.size() > 64 ||
+            !std::all_of(name.begin(), name.end(), [](unsigned char c) {
+                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                       c == '_' || c == '-';
+            }))
+            bad_request("schema name must contain 1..64 letters, digits, underscores or hyphens",
+                        schema_param + ".name");
+        if (spec->contains("description") && !(*spec)["description"].is_string())
+            bad_request("schema description must be a string", schema_param + ".description");
+        if (spec->contains("strict") && !(*spec)["strict"].is_null() &&
+            !(*spec)["strict"].is_boolean())
+            bad_request("schema strict must be a boolean", schema_param + ".strict");
+    }
+    if (!spec->contains("schema") ||
+        (!(*spec)["schema"].is_object() && !(*spec)["schema"].is_boolean()))
+        bad_request("schema must be an object or boolean", schema_param + ".schema");
+    set_constraint(request, OutputConstraint::json_schema((*spec)["schema"].dump()),
+                   schema_param + ".schema");
+}
+
+void parse_structured_outputs(const RequestJson& body, GenerationRequest& request) {
+    for (const char* alias :
+         {"grammar", "guided_json", "guided_regex", "guided_choice", "guided_grammar"}) {
+        if (body.contains(alias) && !body[alias].is_null())
+            bad_request("use standard JSON output formats or structured_outputs.grammar", alias);
+    }
+    if (body.contains("structured_outputs") && !body["structured_outputs"].is_null()) {
+        const auto& value = body["structured_outputs"];
+        if (!value.is_object() || value.size() != 1 || !value.contains("grammar") ||
+            !value["grammar"].is_string() || value["grammar"].get_ref<const std::string&>().empty())
+            bad_request("structured_outputs requires one nonempty grammar string",
+                        "structured_outputs.grammar");
+        set_constraint(request, OutputConstraint::grammar(value["grammar"].get<std::string>()),
+                       "structured_outputs.grammar");
+    }
+    if (request.constraint && (request.uses_tools() || !request.stop_strings.empty()))
+        bad_request("output constraints cannot be combined with active tools or custom stops",
+                    request.constraint_param);
+}
 
 [[noreturn]] void bad_request(std::string message, std::string param, std::string code) {
     ApiError error;

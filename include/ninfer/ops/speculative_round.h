@@ -10,8 +10,9 @@
 namespace ninfer::ops {
 
 struct SpeculativeAcceptExecutionEnvelope {
-    // Execution promise: every row has temperature<=0 and both penalties disabled. When false,
-    // the general route remains valid for any supported mixture of greedy and stochastic rows.
+    // Execution promise: every row has temperature<=0, both penalties disabled and no token mask.
+    // When false, the general route remains valid for any supported mixture of greedy and
+    // stochastic rows.
     bool all_rows_greedy_without_penalties = false;
 };
 
@@ -27,30 +28,14 @@ struct SpeculativeAcceptExecutionEnvelope {
  * Math / indexing:
  *   For row b and 0<=j<=K:
  *     verify_ids[j,b] = anchors[b]                         when j=0
- *                       copy_tokens[j-1,b]                 when 0<j<=Pcur[b] and 0<j<=C[b]
- *                       drafts[j-1,b]                      when 0<j<=Pcur[b] and C[b]=0
+ *                       drafts[j-1,b]                     when 0<j<=Pcur[b]
  *                       anchors[b]                        otherwise;
  *     positions[j,b]  = base_positions[b] + min(j,Pcur[b]).
  *
- * The copy pair (copy_tokens, copy_extents) is optional and either both are supplied or neither.
- * C[b] is the row's copied draft count, clamped to [0,K]. The copy is bounded by Pcur[b] as well as
- * C[b] because columns past the extent are anchor padding rather than verified drafts, so a copy
- * token there would never be checked. A caller that wants the copy to stand for the whole row must
- * therefore set C[b] >= Pcur[b]; a shorter copy blends, taking the copy for its first C[b] verified
- * columns and the draft model's for the rest. The draft model's own buffer is never written, so the
- * proposal remains an output of the draft model and only the target consumes the replacement.
- *
- * CUDA graph capture:
- *   This Op runs inside captured decode graphs, so the two copy pointers are baked into the
- *   executable at capture time. They must address persistent device allocations that outlive the
- *   graph -- the sequence frame's ingress is the intended owner. Per-round *values* are fine because
- *   copy_extents is read on the device; a per-round allocation passed as copy_tokens would capture a
- *   pointer that is stale by the next replay.
- *
  * Logical shapes:
  *   All tensors are contiguous I32. anchors/base_positions/current_extents are [B], drafts is
- *   [K,B] with K>=1 and B>=1, and verify_ids/positions are [K+1,B]. copy_tokens is [K,B] and
- *   copy_extents is [B]. Each current extent is in [0,K]. Inputs and outputs do not overlap.
+ *   [K,B] with K>=1 and B>=1, and verify_ids/positions are [K+1,B]. Each current extent is in
+ *   [0,K]. Inputs and outputs do not overlap.
  *
  * Effects:
  *   Writes every physical output element, including safe invalid-tail values. Inputs remain
@@ -61,16 +46,14 @@ struct SpeculativeAcceptExecutionEnvelope {
  */
 void speculative_prepare_verify_inputs(const Tensor& anchors, const Tensor& drafts,
                                        const Tensor& base_positions, const Tensor& current_extents,
-                                       Tensor& verify_ids, Tensor& positions,
-                                       const Tensor* copy_tokens = nullptr,
-                                       const Tensor* copy_extents = nullptr,
-                                       cudaStream_t stream = nullptr);
+                                       Tensor& verify_ids, Tensor& positions, cudaStream_t stream);
 
 /**
  * Prepare only the target verification ids when the caller already owns the matching position
  * matrix. Shapes and id semantics are identical to speculative_prepare_verify_inputs; the
  * existing positions remain untouched.
- */void speculative_prepare_verify_ids(const Tensor& anchors, const Tensor& drafts,
+ */
+void speculative_prepare_verify_ids(const Tensor& anchors, const Tensor& drafts,
                                     const Tensor& current_extents, Tensor& verify_ids,
                                     cudaStream_t stream);
 

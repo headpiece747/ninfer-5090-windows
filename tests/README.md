@@ -1,9 +1,9 @@
 # Tests
 
 The retained tests protect current `.ninfer`, numerical operator, model, runtime-transaction,
-benchmark-report, and external protocol behavior. Repository verification principles are defined in
-[`../AGENTS.md`](../AGENTS.md); Op contract and CUDA implementation guidance is in
-[`../docs/maintainer/op-development.md`](../docs/maintainer/op-development.md).
+benchmark-report, and external protocol behavior. Op qualification and CUDA implementation rules
+are defined in [Op development](../docs/maintainer/op-development.md); product execution and
+ownership contracts are defined in [Engine architecture](../docs/maintainer/engine-architecture.md).
 
 ## Organization
 
@@ -221,6 +221,15 @@ physical state/KV ownership, binding, capture, reclamation and abort; their posi
 `none`, `mtp`, `dflash` or `dflash2`. Each backend requires an artifact containing that component.
 Public-HTTP latency and output gaps are measured separately by the
 [TTFT campaign](../tools/bench/ttft/README.md).
+
+`ninfer_qwen3_5_grammar_real_test [none|mtp|dflash|dflash2] [graph|eager] [concurrency] [vision]` uses
+`NINFER_TEST_ARTIFACT` to check GBNF/JSON/schema content, sampling, thinking, continuation, prefix reuse
+and mixed batches. Set `NINFER_TEST_CONSTRAINT=grammar` or `json_schema` on the preemption test to
+check matcher continuity through Snapshot/Replay and cancellation. `ninfer_grammar_test` and
+`ninfer_json_schema_test` cover CPU language semantics. `ninfer_json_schema_oracle_test` compares
+supported schemas with the independent Python `jsonschema` validator; install its dependency with
+`python3 -m pip install -r tests/text/requirements.txt` in the selected test environment.
+The sampling and speculative Op tests qualify masks against independent mathematical oracles.
 
 The capability-evaluation coordinator has its own environment and unittest entry point:
 

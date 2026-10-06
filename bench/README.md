@@ -58,10 +58,10 @@ The matrix contains three independently measured test kinds:
 - `pp{P}+tg{G}` uses the same `G+1` convention after a `P`-token prefill and reports both phase
   rates from the same generation call.
 
-All benchmark requests use raw output, disable model-default stops, and disable prefix reuse. This
-keeps the requested token count exact without adding another generation path. When CUDA Graph is
-enabled and the matrix contains decode work, one ordinary public generation request primes the
-decode graph before warmups and measured repetitions.
+Unconstrained requests use raw output and disable model-default stops, keeping the requested
+token count exact. All requests disable prefix reuse. When CUDA Graph is enabled and the matrix
+contains decode work, a public generation batch with the selected grammar/concurrency settings
+primes the decode graphs before warmups and measured repetitions.
 
 ## CLI
 
@@ -72,6 +72,8 @@ ninfer_bench --weights <artifact.ninfer>
           [-n, --n-gen <list>]
           [-pg, --prompt-gen <P,G;P,G...>]
           [-r, --repetitions <n>] [--warmup <n>]
+          [--concurrency <1..8>] [--grammar-file <path> | --json-schema-file <path> | --json-object]
+          [--mixed-constraints]
           [--max-ctx <tokens>] [--prefill-chunk <tokens>]
           [--kv-dtype <bf16|int8|fp8|nvfp4|k8v4>]
           [--spec <mtp|dflash|dflash2> --draft-tokens <n>] [--lm-head-draft]
@@ -106,8 +108,16 @@ For a DFlash2 companion artifact:
   --max-ctx 4096 --kv-dtype bf16 --warmup 1 -r 3
 ```
 
+`--concurrency` submits that many prepared requests per repetition. `--grammar-file`,
+`--json-schema-file` and `--json-object` select mutually exclusive output constraints and enable
+normal text output and default EOS; a constrained request may finish before the output limit.
+`--mixed-constraints` applies the selected constraint to alternate requests and requires concurrency
+of at least two. Warmups use the same mixture and compile constraints before measured repetitions.
+`batch out t/s` measures all actual output tokens over the repetition's submit-to-completion wall
+time. Per-request phase rates remain separate from this aggregate throughput.
+
 The benchmark disables context retention because every repetition is an independent root request.
-Schema v15 records `speculative_backend`, `draft_tokens`, and the proposal head independently;
+Schema v16 records `speculative_backend`, `draft_tokens`, and the proposal head independently;
 JSON and CSV identify DFlash2 explicitly. MTP alone reserves its extra lookahead KV margin.
 
 ## Context-cost calibration
@@ -1180,22 +1190,26 @@ closed.
 
 Table, JSON, and CSV reports identify the architecture, model instance, artifact, Engine configuration,
 load summary, memory capacity, KV payload, workspace peak, phase throughput, and speculative
-statistics. JSON schema version 15 records the public value objects directly:
+statistics. JSON schema version 17 records the public value objects directly:
 
+- `config`: constraint type, source/file and mixed-request selection, alongside execution settings;
 - `load`: architecture, public name, actual formats, prefill signature, load/upload time,
   file/H2D/staging bytes and Device/Host object counts;
 - `memory`: weights/sequence/unified-workspace arenas, the optional non-additive Vision layout,
   planned context, KV storage, CUDA Graph allowance, and KV payload;
-- each repetition's `timings`: prepare, Vision, prefill, decode, and total seconds;
-- each repetition's `speculative`: window, rounds, drafted/accepted tokens, fallbacks, and per-position
+- `repetition_wall_seconds`: each concurrent repetition's submit-to-completion interval;
+- each request sample's `timings`: prepare, Vision, prefill, decode, and total seconds;
+- each request sample's `speculative`: window, rounds, drafted/accepted tokens, fallbacks, and per-position
 acceptance.
 
 Each test reports `workspace_peak_bytes` from the planned phase markers, including CUDA Graph
 replay, and `workspace_allocator_peak_bytes` from host-side arena allocation activity. These are
 intentionally separate: replay reuses captured addresses without advancing the host allocator.
 
-`decode_output_tok_s` counts the requested `G` decode outputs. `decode_engine_tok_s` uses the
-Program's speculative round statistics, so it also describes work performed by a final partially
+`reps` contains request samples in repetition-major order, with explicit `repetition` and `row`.
+`output_tok_s` divides each repetition's actual outputs by its wall time.
+`decode_output_tok_s` counts actual outputs after the first token, allowing early grammar EOS.
+`decode_engine_tok_s` uses the Program's speculative round statistics, so it also describes work performed by a final partially
 committed speculative round. Reports also contain the command and machine information needed to
 interpret a local measurement.
 

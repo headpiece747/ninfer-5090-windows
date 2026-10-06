@@ -16,23 +16,17 @@ namespace ninfer::ops::detail {
 void speculative_prepare_verify_inputs_launch(const Tensor& anchors, const Tensor& drafts,
                                               const Tensor& base_positions,
                                               const Tensor& current_extents, Tensor& verify_ids,
-                                              Tensor& positions, const Tensor* copy_tokens,
-                                              const Tensor* copy_extents, cudaStream_t stream) {
+                                              Tensor& positions, cudaStream_t stream) {
     constexpr int kBlock = 32;
     const int k          = drafts.ne[0];
     const int batch      = drafts.ne[1];
     const dim3 grid(static_cast<unsigned int>(div_up(k + 1, kBlock)),
                     static_cast<unsigned int>(batch));
-    // Resolved before the launch: a conditional expression in a kernel argument trips nvcc's parser.
-    const std::int32_t* copy_ids =
-        copy_tokens == nullptr ? nullptr : static_cast<const std::int32_t*>(copy_tokens->data);
-    const std::int32_t* copy_counts =
-        copy_extents == nullptr ? nullptr : static_cast<const std::int32_t*>(copy_extents->data);
     speculative_prepare_verify_inputs_kernel<<<grid, kBlock, 0, stream>>>(
         static_cast<const std::int32_t*>(anchors.data),
         static_cast<const std::int32_t*>(drafts.data),
         static_cast<const std::int32_t*>(base_positions.data),
-        static_cast<const std::int32_t*>(current_extents.data), copy_ids, copy_counts,
+        static_cast<const std::int32_t*>(current_extents.data),
         static_cast<std::int32_t*>(verify_ids.data), static_cast<std::int32_t*>(positions.data), k);
     CUDA_CHECK(cudaGetLastError());
 }
@@ -48,7 +42,7 @@ void speculative_prepare_verify_ids_launch(const Tensor& anchors, const Tensor& 
     speculative_prepare_verify_inputs_kernel<<<grid, kBlock, 0, stream>>>(
         static_cast<const std::int32_t*>(anchors.data),
         static_cast<const std::int32_t*>(drafts.data), nullptr,
-        static_cast<const std::int32_t*>(current_extents.data), nullptr, nullptr,
+        static_cast<const std::int32_t*>(current_extents.data),
         static_cast<std::int32_t*>(verify_ids.data), nullptr, k);
     CUDA_CHECK(cudaGetLastError());
 }

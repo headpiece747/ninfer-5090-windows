@@ -125,14 +125,46 @@ The endpoint supports:
 - Assistant `reasoning_content` and `reasoning` history aliases.
 
 Options whose observable behavior the Engine cannot provide are rejected when they request that
-behavior. This includes JSON constrained output, nonzero `logit_bias`, requested log probabilities,
-audio/file input or audio output, `strict:true`, required or named tool choice,
+behavior. This includes nonzero `logit_bias`, requested log probabilities,
+audio/file input or audio output, strict function tools, required or named tool choice,
 `parallel_tool_calls:false` with enabled tools, explicit low/high image detail, web search,
 moderation, low/high verbosity, stored Chat Completions, and non-empty legacy `functions`.
 Each capability rejection identifies the affected field and the guarantee NInfer cannot provide.
-Known constrained-decoding aliases (`grammar`, `structured_outputs`, `guided_json`, `guided_regex`,
-`guided_choice`, and `guided_grammar`) receive the same explicit rejection instead of being treated
-as unknown hints.
+
+JSON mode and JSON Schema use the standard protocol fields:
+
+| Endpoint | Field |
+|---|---|
+| Chat Completions | `response_format: {"type":"json_object"}` or `{"type":"json_schema","json_schema":{"name":"answer","schema":{...},"strict":true}}` |
+| Responses | `text.format: {"type":"json_object"}` or `{"type":"json_schema","name":"answer","schema":{...},"strict":true}` |
+| Anthropic Messages | `output_config.format: {"type":"json_schema","schema":{...}}` |
+
+`json_object` requires an object root. Schema mode follows the supplied root type and enforces the
+[supported assertions](maintainer/constrained-decoding.md#42-json-与-schema-的执行合同), including when
+`strict` is omitted or false. Unsupported assertions return HTTP 400 before generation. OpenAI
+errors distinguish `invalid_json_schema`, `unsupported_json_schema` and `unsatisfiable_json_schema`;
+`param` identifies the request field followed by the schema JSON Pointer. Anthropic uses its
+`invalid_request_error` envelope with the schema location in the message. Responses echoes the
+selected `text.format` in aggregate responses and SSE response objects.
+
+JSON output uses compact separators and declared property order. State the desired content in the
+prompt; the schema is not inserted into it. Only one output constraint may be supplied.
+
+GBNF constrained decoding is available through the NInfer extension `structured_outputs.grammar`
+on Chat Completions, Responses and Anthropic Messages:
+
+```json
+{"structured_outputs": {"grammar": "root ::= \"yes\" | \"no\""}}
+```
+
+These constraints apply to answer content; thinking is separate. GBNF supports recursive rules,
+Unicode and repetition. All modes support streaming and all speculative backends. For assistant
+continuation, the grammar covers the existing assistant content plus the generated suffix. Completion uses the model's EOS tokens;
+output limits and cancellation can produce an incomplete answer. Active tools and custom stops
+cannot be combined with an output constraint; `tool_choice:"none"` is allowed. OpenAI errors use
+`invalid_grammar` for invalid grammars and `constraint_dead_end` for a reachable prefix without a
+legal next token. Anthropic reports these through its `invalid_request_error` envelope.
+The `grammar` and `guided_*` aliases are not accepted.
 
 Semantically neutral fields do not make an otherwise executable request fail. All-zero
 `logit_bias`, `logprobs:false`, `top_logprobs:0`, `verbosity:"medium"`, empty legacy tool controls,
@@ -418,7 +450,7 @@ wire response contains typed `output` Items.
 | `reasoning.effort` | `none` requests disabled thinking; other standard effort values pass to the selected template |
 | `chat_template_kwargs` | template parameters as a JSON object; standard options merge with typed fields |
 | `preserve_thinking` | alias for `chat_template_kwargs.preserve_thinking`; conflicting values are rejected |
-| `text.format` | omitted or `{"type":"text"}` only |
+| `text.format` | `text` (default), `json_object`, or `json_schema`; see output constraints above |
 | `tools` | direct function definitions or namespace groups containing function definitions; see below |
 | `tool_choice` | `auto`, `none`, or function-only `allowed_tools` with mode `auto`; a namespaced selection carries both `namespace` and `name` |
 | `parallel_tool_calls` | `true` by default; `false` is accepted only when no effective tool is callable |
@@ -518,7 +550,7 @@ undeclared model output remains ordinary text. `allowed_tools` with mode `auto` 
 without changing declaration order, while `tool_choice:"none"` disables structured tool output even
 when the history contains earlier calls.
 
-NInfer does not execute functions or enforce JSON Schema through constrained decoding, so
+NInfer does not execute functions or constrain tool arguments to their schemas, so
 `strict:true`, required or named tool choice, hosted tools, remote MCP tools, and custom free-form
 tools are rejected. Deferred loading, output schemas, and caller restrictions that exclude direct
 invocation are also rejected because their semantics cannot be honored.
@@ -639,7 +671,7 @@ curl http://127.0.0.1:8080/v1/responses/input_tokens \
 ```
 
 Unsupported Create fields include Conversations, prompt templates, context management, hosted
-moderation, Structured Outputs/JSON mode, non-empty `include`, background execution, compaction,
+moderation, non-empty `include`, background execution, compaction,
 files/audio, and OpenAI-hosted/MCP/custom tools. These are compatibility boundaries, not silently
 accepted placeholders.
 
@@ -688,7 +720,7 @@ remains usable across serve restarts.
 `display:"omitted"` is rejected because NInfer cannot provide Anthropic's
 encrypted hidden-reasoning restore semantics. `preserve_thinking` remains a NInfer extension for
 closed-turn reasoning history. `output_config.effort` passes its protocol-validated value to the
-selected template.
+selected template. `output_config.format` accepts JSON Schema output as described above.
 
 User-defined, non-strict tools support `name`, `description`, object `input_schema`, and
 `input_examples`. `tool_choice:auto` and `none` are executable. Forced or named choice,
@@ -883,7 +915,7 @@ in append mode and flushes every event, so successive model or MTP blocks may sh
 file. The parent directory must already exist. Failure to open the file aborts startup; the log path
 is also rejected if it resolves to the model artifact.
 
-Every line is one `ninfer_serve_request_log` schema-v24 JSON object. All events carry
+Every line is one `ninfer_serve_request_log` schema-v25 JSON object. All events carry
 `timestamp_unix_ms` and a process-unique `server_instance_id`; request IDs are monotonic only within
 that server instance. Successful request-start records include request-scoped acquisition,
 media-preprocessing wall/work, tokenizer, cache hit/miss/single-flight, and payload-size fields;
@@ -914,6 +946,12 @@ as full-precision JSON numbers. Its `speculative` object contains `backend`, `dr
 derived downstream from raw token counts and seconds instead of rounded stderr strings.
 `generation.scheduling` records preemptions, snapshot/replay restores, replayed tokens, paused time
 and request-owned transfer bytes. Replay rebuilds committed state without adding new output usage.
+
+`generation.admission` records the initial `preferred_reused_tokens`, `source_wait_seconds`,
+`revoked_checkpoints`, and `fallback_reason`. Source waiting is a subset of initial queue time;
+selecting or retaining a checkpoint does not itself count as a cache hit. Revocations count retained
+checkpoint references removed under resource pressure. Fallback reasons are `none`, `source_invalid`,
+`source_revoked`, `cost_changed`, `capacity_limit`, and `isolated_capacity`.
 
 `request_scheduling` records `pause_started`, `paused`, `restore_started`, `restored`,
 `replay_complete`, `recovery_complete`, `snapshot_revoked`, and a `terminal` boundary for preempted
@@ -1068,8 +1106,7 @@ a following compatible turn can reuse it. Output-limit and context-capacity fini
 `length`/ `max_tokens`; ordinary model or string stops map to `stop`/ `end_turn`.
 
 Function tools are rendered into the model prompt and generated calls are parsed into protocol
-responses. NInfer does not execute tools and does not enforce client JSON Schema through constrained
-decoding.
+responses. NInfer does not execute tools or enforce tool-argument schemas through constrained decoding.
 
 Prompt-token usage includes chat-template and expanded media tokens. Generated-token usage comes
 from accepted output token IDs, including a stop token whose decoded text may be withheld.

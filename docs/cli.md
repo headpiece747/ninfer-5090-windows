@@ -46,6 +46,31 @@ Changes to the file take effect after restarting NInfer:
   --chat-template tools/chat_templates/qwen3_8.jinja --prompt "Hello"
 ```
 
+`--grammar-file FILE` constrains the answer with a GBNF grammar whose entry rule is `root`:
+
+```bash
+printf 'root ::= "yes" | "no"\n' > answer.gbnf
+./build/apps/ninfer models/qwen3_8_27b_nvfp4.ninfer \
+  --prompt "Is 17 prime?" --no-thinking --grammar-file answer.gbnf --max-new 64
+```
+
+`--json-object` constrains the answer to a JSON object. `--json-schema-file FILE` applies a JSON
+Schema; the three constraint options are mutually exclusive:
+
+```bash
+printf '%s\n' '{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}' > answer.schema.json
+./build/apps/ninfer models/qwen3_8_27b_nvfp4.ninfer \
+  --prompt "Return the answer to 6 times 7 as JSON." --no-thinking \
+  --json-schema-file answer.schema.json --max-new 64
+```
+
+GBNF supports recursive rules, Unicode character classes and repetition. All three modes work with
+ordinary decoding, MTP, DFlash and DFlash2. Thinking may precede the constrained answer; an output
+limit or cancellation can leave it incomplete. Constraints cannot be combined with active tools,
+custom stops or `--raw-output`. JSON uses compact separators and declared property order. Describe
+the desired content in the prompt; the schema is not added to it automatically. See the
+[supported schema subset](maintainer/constrained-decoding.md#42-json-与-schema-的执行合同).
+
 Omitted thinking and effort options use the selected template's defaults. `--no-thinking` or
 `--reasoning-effort none` requests disabled thinking; other effort values cannot be combined with
 `--no-thinking`. The template interprets the selected effort. `--greedy` selects exact argmax
