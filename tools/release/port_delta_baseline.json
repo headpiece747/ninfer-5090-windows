@@ -6,1246 +6,1495 @@
     ".codex/hooks.json": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     ".codex/hooks/clang_format.py": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     ".gitattributes": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- port: this port. Open it before changing this path."
     },
     ".gitignore": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Ignore rules for the port's own tooling: the test virtualenv, the jscpd report directory, and the opencode plugins' node_modules. None of them is upstream's."
     },
     "AGENTS.md": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- ADR: 0012. Open it before changing this path."
     },
     "CMakeLists.txt": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "CONTRIBUTING.md": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "A branch note: work lands on dev, and main is reviewed before implementation to avoid duplicating or conflicting with what has already been released. The port's release cut is squashed onto main, so this is its own workflow rather than upstream's."
     },
     "README.md": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- ADR: 0004. Open it before changing this path."
     },
     "apps/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of the drafter-recall instrument: the CLI prints recall@1 and recall@16 by position from the vectors decode.cpp accumulates, and the per-position denominators are what make the two rates readable."
     },
     "apps/cli/main.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of the drafter-recall instrument: the CLI prints recall@1 and recall@16 by position from the vectors decode.cpp accumulates, and the per-position denominators are what make the two rates readable."
     },
     "apps/perplexity/main.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Consumes the CausalTopk tile for per-domain KL against a reference that cannot be resident on this machine -- the reason the instrument exists."
     },
     "apps/serve/main.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Engine-failure reporting: the engine latches failure permanently (fail_all_locked sets failed_ once and nothing clears it), so without this check the process stays alive forever after an engine-wide failure, indistinguishable from a healthy one at the process level. Exit code 3 is kept distinct from 1 (configuration, bind or warmup error) so a supervisor can tell them apart."
     },
     "bench/README.md": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Cited in the diff -- ADR: 0012. Open it before changing this path."
     },
     "bench/context_cost/model_context_fixture.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "bench/fixtures/ttft/manifest.json": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The LF fix recorded in AGENTS.md: build_fixtures.py digested CRLF bytes on Windows, so 18 of 26 TTFT digests described bytes no LF checkout produces and the corpus gate passed here and failed everywhere else. The digests in manifest.json are the regenerated LF ones."
     },
     "bench/fixtures/ttft/text/long_64k_independent.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "bench/fixtures/ttft/text/rotation_55k_0.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "bench/fixtures/ttft/text/rotation_55k_1.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "bench/fixtures/ttft/text/rotation_55k_2.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "bench/fixtures/ttft/text/rotation_55k_3.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "bench/fixtures/ttft/text/rotation_55k_4.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "bench/fixtures/ttft/text/rotation_55k_5.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "bench/inference/ninfer_bench_support.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Reports the per-position recall split in both the JSON and the CSV, with proposed_per_position as the denominator for recall@1, recall@16 and path acceptance. The bench table is read by header name and never by column position."
     },
     "bench/models/qwen3_5/benchmarks.cmake": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "bench/ops/candidate_selector_bench.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The bench builds the selector's codebooks as Weight, matching the Op's signature after the codebooks became real weights. Same change as src/ops/wrapper/candidate_selector.cpp."
     },
     "cmake/Dependencies.cmake": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "docs/README.md": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- port: this port. Open it before changing this path."
     },
     "docs/maintainer/build-system.md": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- port: this port. Open it before changing this path."
     },
     "docs/maintainer/op-development.md": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "The perturbation-coverage section of the Op development contract: a passing test is not evidence that the test can fail, and an Op whose wrong answer is well formed -- a selection returning the wrong k entries, a tie broken the wrong way, a sort that orders ascending -- needs a deliberate perturbation to be distinguishable from a correct one. That is what the NINFER_OP_TEST_MUTATIONS seam in src/ops/CMakeLists.txt exists for."
     },
     "docs/maintainer/paged-kv-cache.md": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "An anchor fix for the port's own gate: check_doc_links.py resolves every link target including its fragment, and these two maintainer documents are written in Chinese upstream, so the anchors are the full heading text rather than the English stubs the links used."
     },
     "docs/maintainer/qwen3_5-model.md": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "An anchor fix for the port's own gate: check_doc_links.py resolves every link target including its fragment, and these two maintainer documents are written in Chinese upstream, so the anchors are the full heading text rather than the English stubs the links used."
     },
     "docs/performance.md": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- port: this port. Open it before changing this path."
     },
     "docs/performance/qwen3.6-27b.md": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "docs/performance/qwen3.6-35b-a3b.md": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "docs/performance/qwen3.8-27b.md": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "docs/weight-conversion.md": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "eval/README.md": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- doc: docs/perplexity-baseline.md. Open it before changing this path."
     },
     "examples/cli/messages/long_niah_128k.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "examples/cli/messages/long_niah_256k.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "examples/cli/messages/long_niah_64k.json": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "include/ninfer/engine.h": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Engine::score_topk and the CausalTopk result, the public surface of the port's top-k instrument."
     },
     "include/ninfer/ops/attn_input_proj.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The Op contract updated for the NVFP4 drafter route: the parent stores rows in physical order [query, key, value] and the three-output specialization no longer assumes the Q8 parent's layout. Same route as src/ops/wrapper/attn_input_proj.cpp."
     },
     "include/ninfer/ops/candidate_selector.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Declares the selector codebooks as weights of logical shape [256,248320] in either format, which is what lets candidate_selector_path take them as Weight rather than as a raw pointer -- the change that lets an NVFP4 drafter artifact be served at all."
     },
     "include/ninfer/ops/linear_swiglu.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The Op contract updated for the ungated FP8 bands (docs/active-work.md item 12): A16Only and AllowA8 now hold at every positive T rather than only through T=16, with the linear-then-silu_mul decomposition materializing the gate/up projection above the fused small-T family."
     },
     "include/ninfer/types.h": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Cited in the diff -- item: 5. Open it before changing this path."
     },
     "model-cards/Qwen3.6-27B-NInfer/.gitattributes": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-27B-NInfer/LICENSE": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-27B-NInfer/SHA256SUMS": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-27B-NInfer/artifact-manifest.json": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-27B-nvfp4-NInfer/.gitattributes": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-27B-nvfp4-NInfer/LICENSE": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-27B-nvfp4-NInfer/SHA256SUMS": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-27B-nvfp4-NInfer/artifact-manifest.json": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-35B-A3B-NInfer/.gitattributes": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-35B-A3B-NInfer/LICENSE": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-35B-A3B-NInfer/SHA256SUMS": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.6-35B-A3B-NInfer/artifact-manifest.json": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.8-27B-NInfer/.gitattributes": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.8-27B-NInfer/LICENSE": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.8-27B-NInfer/SHA256SUMS": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.8-27B-NInfer/artifact-manifest.json": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.8-27B-nvfp4-NInfer/LICENSE": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.8-27B-nvfp4-NInfer/SHA256SUMS": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "model-cards/Qwen3.8-27B-nvfp4-NInfer/artifact-manifest.json": {
       "status": "D",
       "disposition": "deleted",
+      "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
     "src/artifact/file_io.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/artifact/file_io.h": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/artifact/materializer.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "plan_transfer extracts the copy-range plan from the transfer path so the same ordering and merging rule serves every caller. A deduplication of the same class as the others in this list."
     },
     "src/artifact/materializer.h": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "src/artifact/reader.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The other half of the Reader widening: Reader::object and Reader::component forward to the Directory it owns, so the config parser can reach metadata without every caller holding the inner type. Both Directory and Reader exist on both sides."
     },
     "src/artifact/reader.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The other half of the Reader widening: Reader::object and Reader::component forward to the Directory it owns, so the config parser can reach metadata without every caller holding the inner type. Both Directory and Reader exist on both sides."
     },
     "src/core/paged_kv_cache.h": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Documents the plane order as a contract: kv_cache_append and causal_softmax_attention walk these planes positionally, and which planes exist is a property of the resolved storage layout rather than of the Op."
     },
     "src/core/weight_view.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "A validation fix: a native Weight input with RowScale layout now requires a complete FP8 parent, and says so by name, instead of reading a partial plane as though it were whole."
     },
     "src/models/qwen3_5/config.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The config parser takes artifact::Reader instead of artifact::Directory, so it can reach the artifact's metadata: load.cpp populates EngineInfo::name and metadata_json from reader.metadata(), which Directory does not expose. Both types exist on both sides -- this is a widening for the metadata, not a rename."
     },
     "src/models/qwen3_5/config.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The config parser takes artifact::Reader instead of artifact::Directory, so it can reach the artifact's metadata: load.cpp populates EngineInfo::name and metadata_json from reader.metadata(), which Directory does not expose. Both types exist on both sides -- this is a widening for the metadata, not a rename."
     },
     "src/models/qwen3_5/execution/draft.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
     "src/models/qwen3_5/execution/parameters.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
     "src/models/qwen3_5/execution/parameters.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
     "src/models/qwen3_5/frontend/chat_template.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- measure: Measured. Open it before changing this path."
     },
     "src/models/qwen3_5/frontend/prepared_prompt.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The per-phase timings the request log and the serve phase report read: render_seconds, convert_seconds, contract_seconds and context_cache_seconds. Their definitions are recorded in AGENTS.md -- prepare_seconds spans the whole frontend, so reading one of these as 'the render' was a measured error once."
     },
     "src/models/qwen3_5/frontend/tokenizer.cpp": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "ADR-0010 incremental prompt encoding. Restored 2026-10-05 after upstream b9114396's rewrite of this file dropped the port's half: the declarations survived in the port's tokenizer.h, so the tree compiled and linked with the cache dead, encode_cache_splices() stayed 0 and nothing failed. The port's layer is wrapped in NINFER-PORT-BEGIN/END and is byte-identical to c42406ab; encode_with_boundaries_uncached is upstream's own body, renamed, so the port owns no tokenization arithmetic here. Protected by ninfer_qwen3_5_frontend_test. Remove this entry only if the feature is withdrawn and ADR-0010 is superseded."
     },
     "src/models/qwen3_5/frontend/tokenizer.h": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Cited in the diff -- ADR: 0010. Open it before changing this path."
     },
     "src/models/qwen3_5/frontend/tool_call_parser.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Fallback diagnostics now name the subject they rejected. Its comment states the contract: 'undeclared tool' with no subject cannot distinguish a model that misspelled a declared name from one that invented a tool, and those need opposite responses. Covered by tests/test_tool_call_parser.cpp."
     },
     "src/models/qwen3_5/load.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The config parser takes artifact::Reader instead of artifact::Directory, so it can reach the artifact's metadata: load.cpp populates EngineInfo::name and metadata_json from reader.metadata(), which Directory does not expose. Both types exist on both sides -- this is a widening for the metadata, not a rename."
     },
     "src/models/qwen3_5/load/dflash2.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
     "src/models/qwen3_5/load/prepare.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The config parser takes artifact::Reader instead of artifact::Directory, so it can reach the artifact's metadata: load.cpp populates EngineInfo::name and metadata_json from reader.metadata(), which Directory does not expose. Both types exist on both sides -- this is a widening for the metadata, not a rename."
     },
     "src/models/qwen3_5/program/decode.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The drafter-recall instrument: accumulates proposed_per_position, recall1_per_position and recall16_per_position beside the DFlash round. The fields are documented in include/ninfer/types.h, printed by apps/cli/main.cpp, and published as metrics by src/serve/generation_service.*. Added by 611604e0; no Op signature and no numerics change."
     },
     "src/models/qwen3_5/program/planning/startup.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The per-layer KV plane geometry is built once by storage_planes(layer_storage, kv_heads) and repeated per layer, instead of the four push_back calls being written out per layer. A deduplication of the same class as ops/common/validation.h and the route catalog, and the same gate protects it."
     },
     "src/models/qwen3_5/program/program.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- port: the port's. Open it before changing this path."
     },
     "src/models/qwen3_5/program/program.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Declares Program::causal_score_topk, the public route to the top-k instrument above."
     },
     "src/models/qwen3_5/program/program_impl.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "ProgramImpl::causal_score_topk, the port's per-domain KL instrument. Its own comment records that upstream b9114396 has no top-k scoring at all, and that the reference it compares against cannot be resident on this machine. causal_score forwards to it with topk == 0, so the two share one staging loop and cannot disagree about which positions were scored."
     },
     "src/models/qwen3_5/program/program_impl.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The top-k instrument's host landing buffer and its declaration: causal_score_topk with score_topk_host sized for a full tile at the Op's documented maximum K (2 MiB), planned for the maximum rather than for the k a caller asks for, because k is a runtime choice here."
     },
     "src/models/qwen3_5/program/storage/kv_address_space.h": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "src/models/qwen3_5/state/decoder_state.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "The per-layer KV plane geometry is built once by storage_planes(layer_storage, kv_heads) and repeated per layer, instead of the four push_back calls being written out per layer. A deduplication of the same class as ops/common/validation.h and the route catalog, and the same gate protects it."
     },
     "src/models/qwen3_5/weights.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "A comment recording that the draft attention consumes one fused query+key+value parent while the artifact declares only the three logical parameters: parameters.cpp assembles the parent with ops::prepare_attn_input_proj_weights, and requiring a fused parameter of its own would reject every upstream-generated artifact, since the converter groups the three."
     },
     "src/ops/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The perturbation seam: Op kernels may carry small mutation branches behind NINFER_OP_TEST_MUTATIONS, selected per run by NINFER_OP_MUTATION, and tools/release/check_test_mutation.py asserts the suite actually goes red when one is selected. Scoped to the test tree, because build/ and build-test/ are separate configurations and BUILD_TESTING is what gates it. The recipe runs the gate as part of test_v3.cmd."
     },
     "src/ops/attn_input_proj/fp8/fp8_attn_input_a8.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
     "src/ops/attn_input_proj/nvfp4/nvfp4_attn_input_plan.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Feeds the DFlash2 NVFP4 route above: the companion weights' attention-input projection, whose own plan and translation unit this registers."
     },
     "src/ops/attn_input_proj/q8/q8_attn_input_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h). That header records what this replaced: nine files each defined kAnyCols as the same expression, and each carried a closure predicate in one of four signature shapes, all of them the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array -- so this is a deduplication with a fix in it, not a restyle. Five callers; check_duplication.py protects the dedup the way it protects ops/common/validation.h."
     },
     "src/ops/attn_input_proj/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Feeds the DFlash2 NVFP4 route above: the companion weights' attention-input projection, whose own plan and translation unit this registers."
     },
     "src/ops/basic_sources.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Registers the topk_logprobs Op (launcher and wrapper). It is the instrument behind Engine::score_topk and ProgramImpl::causal_score_topk -- per-domain KL against a reference that cannot be resident on this machine -- and it is declared in include/ninfer/ops/topk_logprobs.h."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path_kernels.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path_plan.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/candidate_selector/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/context_kv_materialize/context_kv_materialize.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/context_kv_materialize/launch.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The context_kv_materialize NVFP4 route: a second storage format for the same Op, with its own launch entry and translation unit. Part of the port's NVFP4 work alongside the DFlash2 linear shapes."
     },
     "src/ops/context_kv_materialize/materialize.cu": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Extraction, not a behaviour change: context_column, DeviceLayerView, DeviceLayers and store_key_head moved to src/ops/context_kv_materialize/context_kv_common.cuh so the route and the non-TMA path share one definition. Same class as the ops/common/validation.h deduplication, and protected the same way -- check_duplication.py fails on new clones, so a merge that restores upstream's copies is caught rather than silent."
     },
     "src/ops/context_kv_materialize/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The context_kv_materialize NVFP4 route: a second storage format for the same Op, with its own launch entry and translation unit. Part of the port's NVFP4 work alongside the DFlash2 linear shapes."
     },
     "src/ops/dynamic_grouped_conv/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h). That header records what this replaced: nine files each defined kAnyCols as the same expression, and each carried a closure predicate in one of four signature shapes, all of them the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array -- so this is a deduplication with a fix in it, not a restyle. Five callers; check_duplication.py protects the dedup the way it protects ops/common/validation.h."
     },
     "src/ops/gdn_input_proj/fp8/fp8_gdn_input_a8.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
     "src/ops/gdn_input_proj/q4_q5/q4_q5_gdn_input_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h). That header records what this replaced: nine files each defined kAnyCols as the same expression, and each carried a closure predicate in one of four signature shapes, all of them the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array -- so this is a deduplication with a fix in it, not a restyle. Five callers; check_duplication.py protects the dedup the way it protects ops/common/validation.h."
     },
     "src/ops/gdn_input_proj/q8/q8_gdn_input_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h). That header records what this replaced: nine files each defined kAnyCols as the same expression, and each carried a closure predicate in one of four signature shapes, all of them the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array -- so this is a deduplication with a fix in it, not a restyle. Five callers; check_duplication.py protects the dedup the way it protects ops/common/validation.h."
     },
     "src/ops/linear/bf16/bf16_a16_tma_mma.cuh": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "src/ops/linear/fp8/fp8_a8_mma.cuh": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Part of the FP8 ungating work (docs/active-work.md item 12): split-K geometry and the identity row policy threaded through the MMA launch, so the ungated token bands have a schedule that can carry partials. Same family as the nine UNGATED files."
     },
     "src/ops/linear/fp8/fp8_a8_tma_mma.cuh": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- doc: docs/research/doc-drift-tooling-prior-art.md. Open it before changing this path."
     },
     "src/ops/linear/fp8/fp8_format.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/linear/fp8/fp8_launch.cuh": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Part of the FP8 ungating work (docs/active-work.md item 12): split-K geometry and the identity row policy threaded through the MMA launch, so the ungated token bands have a schedule that can carry partials. Same family as the nine UNGATED files."
     },
     "src/ops/linear/fp8/fp8_schedule.cuh": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Split-K geometry moved to the schedule BASE, because it is a property of a schedule and not of a transport -- Fp8A8TmaMmaSchedule used to declare it, so a plain MMA schedule had no split-K geometry at all. Part of the same FP8 work as the nine UNGATED files: without a non-TMA schedule carrying split-K there is nothing for the ungated bands to select."
     },
     "src/ops/linear/fp8/fp8_template_launch.cuh": {
       "status": "M",
       "disposition": "unknown",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: GetLastError. Open it before changing this path."
     },
     "src/ops/linear/fp8/shapes/n14336_k5120.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
     "src/ops/linear/fp8/shapes/n16384_k5120.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
     "src/ops/linear/fp8/shapes/n34816_k5120.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
     "src/ops/linear/fp8/shapes/n5120_k17408.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
     "src/ops/linear/fp8/shapes/n5120_k6144.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
     "src/ops/linear/linear.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/linear/nvfp4/nvfp4_a4_tma.cuh": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "src/ops/linear/nvfp4/nvfp4_dispatch.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/linear/nvfp4/nvfp4_format.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/linear/nvfp4/nvfp4_launch.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/linear/nvfp4/nvfp4_shapes.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/linear/nvfp4/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/linear_add/fp8/fp8_linear_add_a8.cu": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
     "src/ops/linear_add/q5/q5_linear_add_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h), whose own comment records what it replaced: nine files each defined kAnyCols as the same expression and each carried a closure predicate in one of four shapes, all the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array. A deduplication with a fix in it, protected by check_duplication.py."
     },
     "src/ops/linear_add/q8/q8_linear_add_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h), whose own comment records what it replaced: nine files each defined kAnyCols as the same expression and each carried a closure predicate in one of four shapes, all the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array. A deduplication with a fix in it, protected by check_duplication.py."
     },
     "src/ops/linear_attention/gated_delta_net/replay.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/linear_pair/q8/q8_pair_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/linear_swiglu/fp8/fp8_linear_swiglu_a8.cu": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
     "src/ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_plan.cpp": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "The DFlash2 NVFP4 drafter route. wrapper/attn_input_proj.cpp records why it exists: the NVFP4-encoded drafter is port-only, because upstream three-output drafter projection is Q8 only and its NVFP4 registry carries no drafter geometry, so neither serves an artifact whose draft module is NVFP4. Weight-only A16, as every drafter projection is."
     },
     "src/ops/linear_swiglu/q4/q4_linear_swiglu_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h), whose own comment records what it replaced: nine files each defined kAnyCols as the same expression and each carried a closure predicate in one of four shapes, all the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array. A deduplication with a fix in it, protected by check_duplication.py."
     },
     "src/ops/linear_swiglu/q8/q8_linear_swiglu_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h), whose own comment records what it replaced: nine files each defined kAnyCols as the same expression and each carried a closure predicate in one of four shapes, all the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array. A deduplication with a fix in it, protected by check_duplication.py."
     },
     "src/ops/linear_topk/linear_topk.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/rmsnorm_rope/rmsnorm_rope.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/softmax_attention/common/mxfp8_tiled_plan.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "src/ops/weight_input.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The DFlash2 NVFP4 drafter route. wrapper/attn_input_proj.cpp records why it exists: the NVFP4-encoded drafter is port-only, because upstream three-output drafter projection is Q8 only and its NVFP4 registry carries no drafter geometry, so neither serves an artifact whose draft module is NVFP4. Weight-only A16, as every drafter projection is."
     },
     "src/ops/wrapper/argmax.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/attn_input_proj.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The DFlash2 NVFP4 drafter route. wrapper/attn_input_proj.cpp records why it exists: the NVFP4-encoded drafter is port-only, because upstream three-output drafter projection is Q8 only and its NVFP4 registry carries no drafter geometry, so neither serves an artifact whose draft module is NVFP4. Weight-only A16, as every drafter projection is."
     },
     "src/ops/wrapper/candidate_selector.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- measure: Measured. Open it before changing this path."
     },
     "src/ops/wrapper/causal_conv1d_silu.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/dynamic_grouped_conv.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/embedding.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/gdn_gating.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/gdn_gating_proj.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/gdn_input_proj.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/l2norm.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/linear_add.cpp": {
       "status": "M",
       "disposition": "refactor",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/linear_pair.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/linear_swiglu.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/prepare_masked_block.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/rmsnorm.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/rmsnorm_pack_tail.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/wrapper/sparse_moe.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/product/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The media-acquire wire-source classification: data URIs and HTTP(S) URLs, with libcurl linked behind NINFER_HAVE_LIBCURL and the CMake option NINFER_BUILD_MEDIA_ACQUIRE. prompt_input.cpp uses classify_wire_source to decide a message part's SourceKind, so the same prefix rule serves every wire endpoint instead of each parsing its own."
     },
     "src/product/logging/logging.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/product/logging/startup_log.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/product/media_acquire/acquire.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/product/media_acquire/source.h": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "The media-acquire wire-source classification: data URIs and HTTP(S) URLs, with libcurl linked behind NINFER_HAVE_LIBCURL and the CMake option NINFER_BUILD_MEDIA_ACQUIRE. prompt_input.cpp uses classify_wire_source to decide a message part's SourceKind, so the same prefix rule serves every wire endpoint instead of each parsing its own."
     },
     "src/product/prompt_input/prompt_input.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The media-acquire wire-source classification: data URIs and HTTP(S) URLs, with libcurl linked behind NINFER_HAVE_LIBCURL and the CMake option NINFER_BUILD_MEDIA_ACQUIRE. prompt_input.cpp uses classify_wire_source to decide a message part's SourceKind, so the same prefix rule serves every wire endpoint instead of each parsing its own."
     },
     "src/runtime/contract/resources.h": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "src/runtime/engine/causal_score_core.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The top-k job plumbing for Engine::score_topk: a promise/future per request, so an offline evaluator can hold several tiles in flight. Feeds include/ninfer/engine.h's score_topk."
     },
     "src/runtime/engine/context_cache/context_cost.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/runtime/engine/context_cache/resource_manager.h": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Windows necessity: MSVC has no __int128, so core/uint128.h provides the type -- a real 128-bit builtin under GCC and a two-word struct with the needed operators under MSVC. Here it replaces upstream's cast in a comparison whose product overflows 64 bits. Pinned by the port-delta baseline and protected by src/core/uint128.h's own tests."
     },
     "src/runtime/engine/engine.cpp": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Engine::score_topk, the public entry point for the top-k instrument, dispatched to the resident core's program."
     },
     "src/runtime/engine/kv_capacity.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "A deduplication: the two execution cores held identical copies of this, and the header's own comment says why it lives in one place now -- the resolution is published into the summary both cores report, so two copies could disagree. The same class as ops/common/validation.h and the route catalog."
     },
     "src/serve/generation_service.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Publishes the three per-position recall vectors as metrics (see the header entry above)."
     },
     "src/serve/generation_service.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Carries speculative_proposed_per_position, speculative_recall1_per_position and speculative_recall16_per_position out of the engine, so a served lane reports its drafter's recall rather than only its accept rate."
     },
     "src/serve/http_server.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Unrouted HTTP statuses now leave as a JSON error envelope. Its own comment gives the reason: a client that parses every response as JSON -- the SDK-backed harnesses -- otherwise crashes on httplib's plain-text page. Covered by tests/test_http_error_handler.cpp."
     },
     "src/serve/http_transport.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- port: the port . Open it before changing this path."
     },
     "src/serve/openai_chat_request.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Media URL validation using product::media_acquire::classify_wire_source, so every wire endpoint rejects a part that is neither HTTP(S) nor a data URI with a named error rather than passing it downstream. Same rule as src/product/media_acquire/source.h."
     },
     "src/serve/openai_responses_request.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Media URL validation using product::media_acquire::classify_wire_source, so every wire endpoint rejects a part that is neither HTTP(S) nor a data URI with a named error rather than passing it downstream. Same rule as src/product/media_acquire/source.h."
     },
     "src/serve/operational_log.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Reports the prepare phase for every request, media or not, because preparation is host-side prompt work regardless: building the tool-call contract, converting the messages, rendering the chat template and tokenizing the whole prompt. The phase field is what tools/bench/report_serve_phases.py reads, and its definition is recorded in AGENTS.md (prepare_seconds spans the whole frontend, not just the render)."
     },
     "src/serve/operational_log.h": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Engine-failure reporting: the engine latches failure permanently (fail_all_locked sets failed_ once and nothing clears it), so without this check the process stays alive forever after an engine-wide failure, indistinguishable from a healthy one at the process level. Exit code 3 is kept distinct from 1 (configuration, bind or warmup error) so a supervisor can tell them apart."
     },
     "src/serve/request_log.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/serve/serve_options.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Windows necessity: MSVC has no __int128, so core/uint128.h provides the type -- a real 128-bit builtin under GCC and a two-word struct with the needed operators under MSVC. Here it replaces upstream's cast in a comparison whose product overflows 64 bits. Pinned by the port-delta baseline and protected by src/core/uint128.h's own tests."
     },
     "src/text/jinja.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "windows",
       "reason": "A real fix, and the comment records the incident: a byte-order mark is an encoding artifact rather than template content, the lexer would emit it as the first character of every render -- costing a token in every prompt and putting a zero-width character in front of the chat control tokens -- and an artifact has shipped with one embedded. Stripped here rather than trusting every source file to be clean."
     },
     "tests/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/README.md": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- doc: docs/maintainer/op-development.md. Open it before changing this path."
     },
     "tests/artifact/fixture.h": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "tests/artifact/materialization_cuda_errors.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "tests/artifact/test_container.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/artifact/test_reader.cpp": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/artifact/tests.cmake": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "tests/artifact/writer_interop.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/cmake/BenchSupportTests.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- ADR: 0012. Open it before changing this path."
     },
     "tests/cmake/CoreTests.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- measure: Measured. Open it before changing this path."
     },
     "tests/cmake/ProductTests.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/convert/test_cli.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/convert/test_qwen3_5.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/convert/test_sources.py": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/models/qwen3_5/test_engine_dflash_real.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/models/qwen3_5/test_engine_prefix_real.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Port goldens for the artifact frontend check. exercise_artifact_frontend is upstream's and asserts upstream's artifacts (16 thinking / 18 no-thinking); this port's artifacts measure 58/18, because their embedded template emits the reasoning-effort instruction as a synthetic system message -- exactly the 40-token delta -- and upstream's predates it. Upstream's 16 also returned early, hiding every other scenario in this file. The port now asserts its own goldens and names the actual count on failure. Change these numbers only against a fresh measurement, and prefer the shipping path: `ninfer --messages` reports prompt tokens directly."
     },
     "tests/models/qwen3_5/test_frontend.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- ADR: 0010. Open it before changing this path."
     },
     "tests/models/qwen3_5/tests.cmake": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- port: the port's. Open it before changing this path."
     },
     "tests/ops/linear/test_nvfp4_a16.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/ops/linear_swiglu/test_fp8.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for the ungated FP8 bands: the token list is the band boundaries themselves (1, 64, 65, 129, 192, 193, 257, 513), so a ladder that reads the wrong bound fails here. That is the defect class the named constants in fp8_linear_add_a8.cu exist to prevent."
     },
     "tests/ops/softmax_attention/main.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Added --no-causal. The causal sweep is five independent KV formats in one loop and is host-oracle-bound (median GPU utilisation measured 5%), so it is now registered as one ctest entry per format; this binary keeps plain_and_packed and context in an entry of its own. Every --kv-dtype path sets causal_only and returns before those two, so without the flag the split would either duplicate 553 s of work or silently drop them. Coverage is unchanged -- the format loop already filtered on the same run_storage_cases calls, each with its own criterion. Measured: 584.8 s for the single entry, 145.5 s for the six running in parallel."
     },
     "tests/ops/softmax_attention/plain_and_packed.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "tests/ops/test_attn_input_proj.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/ops/test_candidate_selector.cpp": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "The candidate selector's oracle coverage. The port's DFlash2 drafter proposes from a ranked candidate list, so the selector's ordering is what the recall instrument measures."
     },
     "tests/ops/test_context_kv_materialize.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/ops/test_gated_delta_net_replay_record.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "tests/ops/test_gdn_replay_fold.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "tests/ops/test_speculative_round.cpp": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "tests/ops/tests.cmake": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
     "tests/runtime/test_context_cost.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "tests/test_cli_options.cpp": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/test_gdn_replay_records.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "tests/test_host_timing.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "tests/test_http_error_handler.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The test for the JSON error envelope above: it parses the body of every unrouted status rather than checking the status code alone, which is the property the change exists for."
     },
     "tests/test_kv_cache.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/test_ninfer_bench_support.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "The recall split's contract test: every position gets a different denominator and a different numerator, so a reader that swapped two columns or divided by the wrong base fails. Also covers upstream's concurrent-throughput and grammar cases."
     },
     "tests/test_openai_schema.cpp": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Test coverage for the OpenAI prompt-cache write policy: the protocol defines its own, so it never uses the Engine's structural shared boundaries -- allow_engine_automatic_shared_prefixes is cleared and the automatic boundary is placed at the end of the last message instead."
     },
     "tests/test_pretty_logging.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "tests/test_request_log.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "tests/test_serve_corpus.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/test_tool_call_parser.cpp": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "The test for the fallback diagnostics above."
     },
     "tests/text/test_chat_templates.py": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Cited in the diff -- port: this port. Open it before changing this path."
     },
     "tests/text/test_json_schema.py": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Subprocess calls state encoding='utf-8'. With text=True and no encoding, Python uses the locale encoding: UTF-8 on Linux, cp1252 on Windows, which cannot encode the CJK and emoji the payload deliberately carries (ensure_ascii=False) -- so the oracle raised UnicodeEncodeError on its first case and the probe never ran. Four call sites; no assertion changed."
     },
     "third_party/llama-jinja/jinja/runtime.cpp": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- measure: Measured. Open it before changing this path."
     },
     "third_party/llama-jinja/jinja/value.cpp": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
     "third_party/xgrammar/cpp/support/utils.h": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "XGRAMMAR_UNREACHABLE() expands to nothing on MSVC, so a value-returning lambda whose last branch is unreachable fails to compile with C4716 ('must return a value') -- grammar_compiler.cc:1593, the only error in the vendored core under MSVC (LowestBit and PopCount already carry MSVC fallbacks). Added an _MSC_VER branch using __assume(false), MSVC's equivalent of __builtin_unreachable(), which emits nothing so reachable behaviour is unchanged. A vendor update must re-apply this."
     },
     "tools/README.md": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Cited in the diff -- doc: docs/maintainer/project-map.md. Open it before changing this path."
     },
     "tools/artifact/file_io.py": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "The Python side of the Win32 I/O work: sys.platform == 'win32' branches, because sysconf, posix_fadvise and fdatasync are POSIX page-cache and durability controls with no Windows equivalent. src/artifact/file_io.cpp carries the C++ half."
     },
     "tools/artifact/reader.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "windows",
       "reason": "The Python half of the Win32 file I/O work: pread, pwrite and the binary-mode flag come from tools/artifact/file_io.py, which branches on sys.platform because POSIX page-cache controls have no Windows equivalent. src/artifact/file_io.cpp carries the C++ half."
     },
     "tools/artifact/writer.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "windows",
       "reason": "The Python half of the Win32 file I/O work: pread, pwrite and the binary-mode flag come from tools/artifact/file_io.py, which branches on sys.platform because POSIX page-cache controls have no Windows equivalent. src/artifact/file_io.cpp carries the C++ half."
     },
     "tools/bench/ttft/build_fixtures.py": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "The LF fix recorded in AGENTS.md: build_fixtures.py digested CRLF bytes on Windows, so 18 of 26 TTFT digests described bytes no LF checkout produces and the corpus gate passed here and failed everywhere else. The digests in manifest.json are the regenerated LF ones."
     },
     "tools/bench/ttft/cases.py": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "A bench case for the resource underflow reported as issue 5: three concurrent conversations that grow, at the reporter's configuration. The failure is state released that was not held, which needs several lanes active at once and a cache serving a shared prefix."
     },
     "tools/bench/ttft/execution.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "A dead assignment removed: self.completed_ns was written to a local that nothing read."
     },
     "tools/chat_templates/qwen3_8.jinja": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The shipped chat template's port changes: client reasoning-effort aliases mapped onto the three the template renders, and tool-result histories accepted whose original user turn was removed. The engine hands the template one of none|minimal|low|medium|high|xhigh|max and the template renders three, so the mapping has to live here."
     },
     "tools/convert/__main__.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "windows",
       "reason": "Windows necessity in the converter's entry point: the drive letter is not the `file.py:function` separator, so a spec like C:/x.py:f is split with os.path.splitdrive before rpartition. Without it the drive letter is read as the function name."
     },
     "tools/convert/official_recipes.py": {
       "status": "M",
       "disposition": "product",
+      "review": "product",
       "reason": "Cited in the diff -- doc: docs/maintainer/artifact-conventions.md. Open it before changing this path."
     },
     "tools/convert/pipeline.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "A fix on top of the annotations. pipeline.py's own comment states it: entry 0 is the artifact itself and lives at `path`, every later entry is a part beside it, and a part without a name is a writer bug rather than a path of None. resources.py guards vision_config before reading it."
     },
     "tools/convert/qwen3_5.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "The _fixed helper gained a `required` flag so the draft config must state is_causal. Recorded in docs/active-work.md: DFlash v1's published config omits the key, our converter's check only raised when it was present, and the runtime never reads it -- so a converted v1 drafter silently got a uniformly non-causal block. The runtime applies one causality to the whole draft stack, so a config that omits the key leaves the converter assuming a uniformity it cannot verify, and a config this layer cannot represent is refused rather than converted. Both directions are pinned."
     },
     "tools/convert/recipe.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Type annotations, which the port's own gate requires: .githooks/pre-commit runs 'mypy tools/release tools/convert tests', so an unannotated container in the converter fails the commit rather than merely reading worse."
     },
     "tools/convert/resources.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "A fix on top of the annotations. pipeline.py's own comment states it: entry 0 is the artifact itself and lives at `path`, every later entry is a part beside it, and a part without a name is a writer bug rather than a path of None. resources.py guards vision_config before reading it."
     },
     "tools/convert/sources/compressed_tensors.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "Cited in the diff -- port: the port's. Open it before changing this path."
     },
     "tools/convert/sources/safetensors.py": {
       "status": "M",
       "disposition": "unknown",
+      "review": "product",
       "reason": "A security fix for untrusted input: a community artifact supplies index.json, so the file names in it are not trustworthy -- an anchored path, or ../.., would replace the root when joined. The root is resolved and the names are checked against it."
     },
     "tools/upgrade_ninfer_v2_to_v3.py": {
       "status": "M",
       "disposition": "windows",
+      "review": "windows",
       "reason": "The same Win32 branching as tools/artifact/file_io.py, for the same reason."
     }
   }

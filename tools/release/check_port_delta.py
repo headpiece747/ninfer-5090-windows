@@ -27,6 +27,16 @@ Dispositions, after review:
   refactor   revert to upstream's version -- restructuring his code buys nothing
   unknown    not yet reviewed
 
+A baseline entry carries two account fields, and the difference matters:
+
+  disposition  the marker heuristic's guess, recomputed on every record. Deliberately broad, and
+               a triage hint rather than a verdict.
+  review       the verdict a review reached, carried forward like `reason`. The report prefers it,
+               so a file the review KEPT cannot read as "refactor" -- a label that invites exactly
+               the change the review decided against.
+  reason       what the diff does and where to check it: a citation to an item, ADR, document or
+               measurement, or a plain statement that the diff carries no provenance.
+
 Usage
 -----
     python tools/release/check_port_delta.py
@@ -158,12 +168,20 @@ def divergences(entries: list[Entry]) -> dict[str, Entry]:
     return {entry.path: entry for entry in entries if entry.status in DIVERGENT}
 
 
-def report(entries: list[Entry], against: str) -> None:
+def report(entries: list[Entry], against: str, reviews: dict[str, str]) -> None:
+    # A reviewed verdict wins over the marker heuristic. The heuristic is deliberately broad -- a
+    # false "windows" costs one human glance -- so it is a triage hint, and a review that read the
+    # diff is the better answer. Without this, twelve files the review KEPT read as "refactor",
+    # which the docstring defines as "revert to upstream's version": a label that invites exactly
+    # the change the review decided against.
+    def verdict(entry: Entry) -> str:
+        return reviews.get(entry.path, entry.disposition)
+
     by_disposition: dict[str, list[Entry]] = {}
     for entry in entries:
-        by_disposition.setdefault(entry.disposition, []).append(entry)
+        by_disposition.setdefault(verdict(entry), []).append(entry)
 
-    counts = Counter(entry.disposition for entry in entries)
+    counts = Counter(verdict(entry) for entry in entries)
     print(f"delta against {against}: {len(entries)} paths")
     for name in ("windows", "product", "refactor", "unknown", "port-added", "deleted"):
         if name in counts:
@@ -175,11 +193,16 @@ def report(entries: list[Entry], against: str) -> None:
             print(f"\n=== {name} (review: {counts[name]}) ===")
             for entry in sorted(group, key=lambda e: -e.size):
                 print(f"  {entry.added:5d}+ {entry.removed:5d}-  {entry.path}")
+    unreviewed = [e for e in entries if e.path not in reviews and e.status in DIVERGENT]
+    if unreviewed:
+        print(f"\n{len(unreviewed)} divergent path(s) carry no reviewed verdict; the disposition "
+              f"shown is the marker heuristic.")
 
 
 def write_baseline(paths: dict[str, Entry], against: str) -> None:
-    # Carry the review forward. `reason` is the only field a human writes, and clearing it on every
-    # re-record is how a baseline rots: the entry survives, the justification does not.
+    # Carry the review forward. `reason` is the field a human writes and `review` is the verdict a
+    # review reached; clearing either on every re-record is how a baseline rots: the entry survives,
+    # the justification does not.
     previous: dict[str, dict[str, str]] = {}
     if BASELINE.exists():
         previous = json.loads(BASELINE.read_text(encoding="utf-8")).get("paths", {})
@@ -196,6 +219,7 @@ def write_baseline(paths: dict[str, Entry], against: str) -> None:
             path: {
                 "status": entry.status,
                 "disposition": entry.disposition,
+                "review": previous.get(path, {}).get("review", ""),
                 "reason": previous.get(path, {}).get("reason", ""),
             }
             for path, entry in sorted(paths.items())
@@ -270,12 +294,19 @@ def main() -> int:
     if args.check:
         return check(paths, args.against)
 
-    report(entries, args.against)
+    recorded: dict[str, dict[str, str]] = {}
+    if BASELINE.exists():
+        recorded = json.loads(BASELINE.read_text(encoding="utf-8")).get("paths", {})
+    reviews = {path: entry["review"] for path, entry in recorded.items() if entry.get("review")}
+
+    report(entries, args.against, reviews)
     if args.json is not None:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(
             json.dumps(
-                [{**e._asdict(), "disposition": e.disposition} for e in entries], indent=2
+                [{**e._asdict(), "disposition": e.disposition,
+                  "review": reviews.get(e.path, "")} for e in entries],
+                indent=2,
             )
             + "\n",
             encoding="utf-8",

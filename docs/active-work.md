@@ -2177,9 +2177,18 @@ before being added, because a loose pattern hides a divergence instead of surfac
 
 **Done when:** every path's reason names its justification, and the unreviewed group is empty.
 **Done 2026-10-06:** 249 of 249 accounted for; the ratchet green; the reverted file verified by a
-clean rebuild and the affected tests. What remains open is not a gap in the account but the review
-depth itself — a future pass that wants to re-derive a specific justification should read the path's
-diff, which is what each reason says to do.
+clean rebuild and the affected tests.
+
+**And the verdict is recorded rather than derived.** The report used to group by the marker
+heuristic, which left twelve files the review KEPT labelled `refactor` — a disposition the tool's own
+docstring defines as *"revert to upstream's version"*, so the report invited exactly the change the
+review had decided against, and 131 more read as `unknown`, meaning "not yet reviewed", for paths
+that had been. A baseline entry now carries a `review` field beside `reason`, carried forward on
+re-record the same way, and the report prefers it: **windows 67, product 158, deleted 24, and no
+`refactor` and no `unknown`**. Falsified in both directions before being trusted — 249 of 249
+verdicts and reasons survive two consecutive re-records with none lost or changed, and `--check`
+still gates on the path set. The heuristic still runs and is still written as `disposition`, because
+it is a triage hint worth keeping; it is simply no longer mistaken for a verdict.
 
 **Two things this deliberately does not do.** It does not decide the 121, because deciding them from
 a keyword would be the transcription this file warns about. And it is not a gate: the reason field is
