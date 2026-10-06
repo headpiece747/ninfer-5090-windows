@@ -36,10 +36,13 @@ under the bench records). Interleaved against 8, the value 1 costs 1.3 GiB less 
 acceptance (62.5% against 58.6%) at the same decode. **That record is about the pre-b9114396 context
 cache.** The reclaim it measured was a change to that cache, and upstream's replacement does not carry
 it: at HEAD `can_release_continuation` and the reclaim have zero occurrences, and
-`resource_manager.h` is upstream's plus the Uint128 fix, so the twelve-conversation run describes a
-mechanism that is no longer in the tree and has not been re-taken. Upstream's #366 announces that
-rewrite and names #177, #179 and #251 -- the saturation reports it answers -- so re-testing is the
-maintainer's own request, not a new one. A larger value buys retained-state
+`resource_manager.h` is upstream's plus the Uint128 fix. The re-test upstream's #366 asks for was run
+on 2026-10-06 with `tools/release/repro_251.py`, and **the cliff is back when the pools fill**: reuse
+holds for 1 conversation with no host backing, for 2 with a ~2-image host quota, and for all six only
+because 8 GiB of quota is more than six conversations need -- which is capacity, not reclamation
+(`docs/research/prefix-state-eviction.md`, last section). So the cliff is bounded by
+`--host-context-mib` now rather than by `--device-state-slots`, and this file's own quotas have not
+been re-derived against that. A larger value buys retained-state
 capacity for interleaved conversations, which nothing in this repo measures -- treat raising it as an
 unverified trade, not as a fix.
 Decode varies ~10% between windows, and free VRAM ~0.2 GiB with whatever else holds the card. Within

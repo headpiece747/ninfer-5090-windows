@@ -2088,10 +2088,16 @@ full.
   longer exists, and `tools/release/profiles.py` still ships `--device-state-slots 1` for every profile
   on the strength of it. Upstream #251 is still OPEN, and upstream's own answer to this family is the
   rewrite itself: **#366**, the maintainer's announcement of `b9114396`, lists #177, #179, #229 and
-  #251 among the reports it responds to and asks reporters to re-test their cases. Whether the
-  replacement covers the private-continuation saturation this port measured is exactly what that
-  request asks, and nothing here has re-taken it; the profiles' comment now says so instead of
-  asserting the cliff is gone, and this is the item's open end.
+  #251 among the reports it responds to and asks reporters to re-test their cases.
+  **That re-test was run on 2026-10-06 and the cliff is back** (`repro_251.py`, unchanged, against the
+  new cache; `docs/research/prefix-state-eviction.md`'s last section): with `--device-state-slots 1`
+  and no host backing reuse holds for **1** conversation and then stops permanently; with a ~2-image
+  host quota it holds for **2** and then stops; with the shipped 8192 MiB quota it holds for all six,
+  which is capacity and not reclamation -- the old finding, reproduced on the new code. So the
+  shipped `--device-state-slots 1` is an unverified setting whose cliff is now bounded by
+  `--host-context-mib`, and the fix's home in the new architecture is the open question this item
+  ends on: the replacement has reclaim machinery (`begin_reclaim`, `victims`, `ReclaimRights`,
+  `may_revoke`, `retention`) and why it does not fire for this traffic is to be instrumented, not read.
 * `src/runtime/engine/context_cache/{materialization_budget.h,materialization_planner.h}` and
   `tests/test_materialization_budget.cpp` -- superseded. The port's 250 ms grant ceiling (`e92cd9d7`)
   patched a mechanism upstream's rewrite deleted; `MaterializationSearchBudget` has zero occurrences

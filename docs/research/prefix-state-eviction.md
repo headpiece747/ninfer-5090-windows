@@ -1,9 +1,11 @@
 # Prefix state eviction: what production engines do, and what this engine lacked
 
-Status: **resolved 2026-09-19** -- the reclaim landed in
+Status: **resolved 2026-09-19, and re-opened 2026-10-06 by the cache replacement.** The reclaim landed in
 `src/runtime/engine/context_cache/resource_manager.h` (`reclaim_oldest_private_continuation`), and
-`repro_251.py` now reports reuse for every conversation. The defect sections below are the record of
-how it was found; read "FOUND AND FIXED" before acting on any of them.
+`repro_251.py` reported reuse for every conversation. Upstream's `b9114396` then replaced that cache,
+the merge took upstream's version, and the port's reclaim went with it -- **re-measured 2026-10-06, the
+cliff is back** (last section). The defect sections below are the record of how it was found; read
+"FOUND AND FIXED" before acting on any of them, and the re-measurement before trusting the fix.
 
 Written before changing `src/models/qwen3_5/program/planning/pressure.cpp`. Supersedes nothing. The
 measurement it responds to is in `tools/release/repro_251.py`.
@@ -809,4 +811,54 @@ Measured: `ninfer_resource_manager_test` and `ninfer_materialization_budget_test
 `test_v3.cmd` 122/122; `check_test_baseline.py` GATE PASSED with `known_failures: {}`. The
 "timing-dependent test" paragraph in `docs/upstream-reports/` was wrong: a caller-supplied clock
 (`950c87cb`) already left the 5 ms outcome unchanged, so the failure was deterministic policy.
+
+## RE-MEASURED 2026-10-06, after the context-cache replacement: the cliff is back
+
+Upstream's `b9114396` replaced the cache this note's fix lived in, the merge took upstream's version,
+and the port's reclaim went with it. Upstream's #366 announces that rewrite, lists #177/#179/#251
+among the reports it answers, and asks reporters to re-test their cases. **Re-tested here, and the
+defect is live again** — with `tools/release/repro_251.py` unchanged (it attaches to any server) and
+the same shape as the fast loop above, three pool configurations on `qwen3_8_27b_nvfp4qat`,
+`--max-concurrency 1`, 6 conversations, ~810-token prompts, second request extending the first:
+
+| configuration | reuse per conversation | verdict |
+|---|---|---|
+| `--device-state-slots 1 --host-context-mib 0` | 95.9%, 0.0% x5 | **reproduced at conversation 2** |
+| `--device-state-slots 1 --host-context-mib 300` | 95.9% x2, 0.0% x4 | **reproduced at conversation 3** |
+| `--device-state-slots 1 --host-context-mib 8192` | 95.9% x6 | not reproduced -- **capacity, not reclamation** |
+
+The engine's own request log agrees with the client's usage fields on every request, and its
+`prefix_reuse_path` is the sharper evidence: `checkpoint` for the requests that reused, `root` for
+every request after the cliff, for the rest of the run. So the failure is still silent, still
+permanent, and still restart-only.
+
+**And the log says which half of the mechanism fails**: on the post-cliff requests,
+`generation.admission` reads `preferred_reused_tokens: 0` with `fallback_reason: "none"` -- the engine
+did not *prefer* a reuse and lose it, it had **no source to offer at all**. That is the old
+mechanism's signature: the first request of the next conversation never captured a checkpoint (its
+capture was skipped with the pool full), so its repeat finds nothing to reuse. It also rules out the
+first hypothesis a reader reaches for -- "a preferred source was revoked under pressure" -- which
+would have shown a non-zero `preferred_reused_tokens` and a `fallback_reason` naming the revocation.
+
+The third row is the one that matters for reading the first two: 8 GiB of host quota holds six
+810-token conversations' state images (~147 MiB each), so the run passes because nothing had to be
+reclaimed -- the same reason the old note's `--host-state-slots 8` run reused 6 of 12. Shrinking the
+quota to ~2 images puts the cliff back, which is exactly the old finding reproduced on the new code:
+**the host pool delays the cliff; it does not remove it.**
+
+Consequences for this port, which the note has to state because it ships the setting:
+
+- **`tools/release/profiles.py` ships `--device-state-slots 1` for every profile on the strength of
+  the reclaim this note measured.** That justification is void: the reclaim is not in the tree, and
+  the value is now an unverified setting whose behaviour depends on the host quota, not on the device
+  slots.
+- The cliff is bounded by `--host-context-mib` now. Whether a shipped profile's quota is enough for a
+  real agent workload (many conversations, ~147 MiB of state each) has not been measured, and the
+  number that would answer it is the count of live conversations a lane keeps, not the prompt size.
+- The fix's home in the new architecture is not established here. The old fix lived at
+  active-capture admission in `resource_manager.h`; the replacement has its own reclaim machinery
+  (`begin_reclaim`, `victims`, `ReclaimRights`, `may_revoke`, `retention`) and **why it does not fire
+  for this traffic is the next question**, to be instrumented the way this note's sections were --
+  not read.
+
 
