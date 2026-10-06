@@ -3,16 +3,34 @@
 # A self-hosted runner is not a preference here, it is the only option: GitHub-hosted images have no
 # GPU and no CUDA toolkit, so the artifact build alone cannot run on them. This workflow therefore
 # expects a runner on the machine that owns the 5090, with the toolchain the recipes use already
-# staged: Visual Studio (vcvars64), the CUDA toolkit, ffmpeg\ beside the executable, the tooling
-# interpreter at C:\vllm-env, and the shipped artifacts under C:\AI\models.
+# staged: Visual Studio (vcvars64), the CUDA toolkit, the tooling interpreter at C:\vllm-env, and the
+# shipped artifacts under C:\AI\models.
 #
-# Register one with:
+# Two things this file's own first run would otherwise fail on, both measured 2026-10-06:
+#
+#   * `ffmpeg/` is gitignored (.gitignore:74), so a fresh checkout has no FFmpeg tree and the
+#     configure fails -- the Windows layer locates FFmpeg through that tree instead of pkg-config.
+#     `actions/checkout` also runs `git clean -ffdx`, which would delete a pre-staged copy inside the
+#     workspace, so the tree has to live OUTSIDE it: this workflow stages `C:\AI\ffmpeg` into the
+#     checkout. Keep that directory on the runner (a junction to a working checkout's ffmpeg/ is
+#     fine: `cmd /c mklink /J C:\AI\ffmpeg <checkout>\ffmpeg`).
+#   * `schedule` and `workflow_dispatch` only fire when the workflow file is on the DEFAULT branch
+#     (GitHub's own note: "This event will only trigger a workflow run if the workflow file exists on
+#     the default branch"), and until 2026-10-06 the default branch was `main`, which carried no
+#     workflows at all -- so this file could not be scheduled or dispatched from `dev`. The default
+#     branch is now `dev`, which is also the branch whose tree the job is meant to test.
+#
+# Register a runner with:
 #   mkdir actions-runner && cd actions-runner
-#   curl -O https://github.com/actions/runner/releases/latest/download/actions-runner-win-x64.zip
-#   tar -xf actions-runner-win-x64.zip
+#   curl -O https://github.com/actions/runner/releases/download/v2.338.0/actions-runner-win-x64-2.338.0.zip
+#   tar -xf actions-runner-win-x64-2.338.0.zip
 #   ./config.cmd --url https://github.com/headpiece747/ninfer-5090-windows --token <token> \
 #                --labels gpu-5090 --name 5090-box
 #   ./run.cmd          # or ./svc.cmd install for a service
+#
+# The URL is versioned on purpose: `releases/latest/download/actions-runner-win-x64.zip` 404s,
+# because the released asset carries the version in its name. Check the current one with
+# `gh api repos/actions/runner/releases/latest --jq '.tag_name, (.assets[].name)'`.
 name: gpu-suite
 
 on:
@@ -34,6 +52,22 @@ jobs:
     runs-on: [self-hosted, windows, gpu-5090]
     steps:
       - uses: actions/checkout@v4
+
+      # `ffmpeg/` is gitignored and `actions/checkout` cleans the workspace, so the tree is staged
+      # from outside it. See the header: without this the configure cannot find FFmpeg at all.
+      - name: stage the FFmpeg tree the build needs
+        shell: powershell
+        run: |
+          if (Test-Path 'ffmpeg\include\libavformat') {
+            Write-Host 'ffmpeg already staged in the workspace'
+            exit 0
+          }
+          if (-not (Test-Path 'C:\AI\ffmpeg\include\libavformat')) {
+            throw 'no FFmpeg tree: neither in the workspace nor at C:\AI\ffmpeg. Stage it on the runner (see the workflow header); the configure locates FFmpeg through this tree instead of pkg-config.'
+          }
+          Copy-Item -Recurse -Force 'C:\AI\ffmpeg' 'ffmpeg'
+          if (-not (Test-Path 'ffmpeg\bin\avformat-*.dll')) { throw 'C:\AI\ffmpeg has no bin\ DLLs to stage' }
+          Write-Host 'staged C:\AI\ffmpeg into the checkout'
 
       - name: the suite (configure, build, ctest with --schedule-random)
         env:
