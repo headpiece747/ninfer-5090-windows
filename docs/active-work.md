@@ -2598,9 +2598,13 @@ baseline gate, and the dispatch-only compute-sanitizer subset. One annotation is
 than hidden: `actions/checkout@v4` targets Node 20, which the runner forces onto Node 24 — a
 deprecation warning, not a failure.
 
-**One inefficiency recorded, not fixed:** the job runs the suite twice — `test_v3.cmd` runs ctest,
-then the gate finds no `.gate-cache.json` in a fresh workspace and runs it again (~7 minutes of an
-otherwise idle nightly GPU). Removing it means changing the recipe or the gate's cache contract.
+**One inefficiency was found and fixed in the same pass:** the job ran the suite twice — `test_v3.cmd`
+runs ctest, then the gate found no `.gate-cache.json` in a fresh workspace and ran it again (~7 minutes
+of the card, and a second chance for a flake to fail the gate). The suite step now captures its own run
+(`cmd /c tools\scripts\test_v3.cmd > "%TEMP%\test_v3.log" 2>&1` and `type`s it, so the log stays
+visible) and the gate reads it with `--from-log`. Verified by running exactly that pair here:
+`150/152` with the two baselined failures and the mutation gate green in the capture, then
+**GATE PASSED: no regression against the recorded baseline** from the gate.
 
 **Done when:** the tier runs. **Done:** the run above, every step green.
 

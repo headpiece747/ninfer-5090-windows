@@ -84,7 +84,12 @@ jobs:
           NINFER_TEST_ARTIFACT: C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer
         run: |
           C:\vllm-env\Scripts\python.exe -m pip install --quiet -r tests/text/requirements.txt
-          cmd /c tools\scripts\test_v3.cmd
+          REM Captured as well as printed, because the gate reads this run instead of repeating it:
+          REM a fresh workspace has no build-test/.gate-cache.json, so without --from-log the gate
+          REM would run the whole suite a second time (~7 minutes of the card, and a second chance
+          REM for a flake to fail the gate). `type` keeps the log visible in the job output.
+          cmd /c tools\scripts\test_v3.cmd > "%TEMP%\test_v3.log" 2>&1
+          type "%TEMP%\test_v3.log"
 
       # The artifact is outside the checkout: the four required real-model tests read
       # C:\AI\models, which is why this runs here rather than anywhere else.
@@ -93,7 +98,8 @@ jobs:
           NINFER_TEST_ARTIFACT: C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer
         run: |
           C:\vllm-env\Scripts\python.exe -m pip install --quiet pyyaml
-          C:\vllm-env\Scripts\python.exe tools\release\check_test_baseline.py
+          REM --from-log: the verdict describes the suite the step above ran, not a second one.
+          C:\vllm-env\Scripts\python.exe tools\release\check_test_baseline.py --from-log "%TEMP%\test_v3.log"
 
       # On demand only. A sanitized run is 10-20x slower, and the subset is chosen by hand when a
       # specific kernel is under suspicion rather than run as routine coverage.
