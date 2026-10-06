@@ -291,9 +291,16 @@ ceiling at the same time, because each active lane needs its own state: `--max-c
 `opencode-concurrency-limit` plugin, `options.concurrency` on the model) so the two agree instead
 of one queueing behind the other.
 
-What is *not* measured: how much reuse the host-retention path actually recovers when several
-subagent sessions interleave. `repro_251.py`'s accepted shape is one conversation asked twice, so it
-does not cover this workload.
+What *is* measured now, as of 2026-10-06: 60 distinct conversations, each asked twice at the shipped
+`--host-context-mib 8192 --device-state-slots 1`, all reused their own second request at ~96%
+(`tools/release/repro_251.py`; the run and its configuration are in
+`docs/research/prefix-state-eviction.md`'s last section). So the quota covers far more conversations
+than a main session plus subagents, and the reuse the host-retention path recovers for this shape is
+measured rather than assumed. What is still not measured is *interleaved* subagents whose states
+compete for the quota while all are active, and the cliff's position at other quotas: at
+`--host-context-mib 300` the same run stops reusing from the third conversation, and the cause is the
+replacement cache's value gate (a reused endpoint is not displaced for a cold admission), not a
+missing eviction path.
 
 ## Caveats
 

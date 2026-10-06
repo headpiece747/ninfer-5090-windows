@@ -315,8 +315,10 @@ Two things the server does offer, with defaults worth knowing:
 Point an OpenAI-compatible provider at a running launcher, using the model id from that launcher's
 header. [docs/opencode-settings.md](docs/opencode-settings.md) carries the `opencode.json`, the four
 model entries, the compaction settings, and the concurrency answer: the launchers run
-`--max-concurrency 1` deliberately, and that only works because eight conversation states are
-retained in host RAM, which covers a main session plus parallel subagents.
+`--max-concurrency 1` deliberately, and that only works because the launchers' 8 GiB host quota
+retains conversation state — measured 2026-10-06 with `repro_251.py`: 60 distinct conversations, each
+asked twice, all reused their own second request at ~96%, which covers a main session plus parallel
+subagents.
 
 ## Capabilities and limits
 
