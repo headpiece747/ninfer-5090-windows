@@ -135,6 +135,34 @@ PROFILE_ARGS: dict[str, tuple[str, ...]] = {
         "--device-state-slots", 1,
         "--host-context-mib", 0,
     ),
+    # The reporter's production configuration from the port's issue 5, scaled to fit this machine and
+    # translated onto the post-b9114396 CLI. Upstream's context-cache replacement collapsed the
+    # explicit capacity flags this profile was first written against -- `--host-state-slots`,
+    # `--host-kv-mib`, `--max-shared-prefixes`, `--max-private-continuations` and
+    # `--max-long-anchors-per-continuation` no longer exist -- so host state and host KV are now one
+    # `--host-context-mib` quota and the descriptor counts are derived. What the case exercises is
+    # preserved: three concurrent lanes, state parked to host and restored, and sessions far longer
+    # than any default ceiling.
+    #
+    # Their literals do not fit this machine: the engine refused startup with
+    # "requires 20316679168 bytes, but only 15289286656 bytes are available", because host KV alone is
+    # 24 GiB beside 16 GiB of weights on a 48 GB box. Every quantity is therefore scaled by the same
+    # ratio rather than tuned one at a time. 40% of their values: kv-capacity 294912 -> 117964,
+    # host KV 24576 MiB -> 9830 MiB, max-context 262144 -> 104857, which still leaves every session
+    # room to grow past 8,000 tokens. Their unscaled and verbatim lines need 20.3 GB of runtime and
+    # are recorded in docs/research/resource-underflow-issue-5.md rather than shipped as profiles
+    # that cannot start here.
+    "cache-reporter-concurrency3-scaled": _args(
+        "--max-context", 104857,
+        "--kv-capacity", 117964,
+        "--prefill-chunk", 1024,
+        "--max-concurrency", 3,
+        "--max-pending-requests", 32,
+        "--pending-timeout-ms", 3600000,
+        "--device-state-slots", 2,
+        "--host-context-mib", _host_mib(16 * STATE_IMAGE_BYTES + 9830 * (1 << 20)),
+        "--preserve-thinking",
+    ),
     "cache-off": _args(
         "--max-context", 8192,
         "--kv-capacity", 8192,

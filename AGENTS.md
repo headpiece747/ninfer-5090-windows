@@ -37,7 +37,7 @@ remove superseded aliases, fallbacks, transition branches, and their tests withi
 Advertised OpenAI and Anthropic protocols are external contracts; update affected schema tests
 and serving documentation together.
 Update stable requirements in their existing authoritative document; maintain one current authority.
-Use Conventional Commit subjects with concise lowercase types when a commit is requested.
+Use Conventional Commit subjects with concise lowercase types for every commit.
 
 ## Verification and reporting
 
@@ -290,8 +290,11 @@ Select model artifacts by explicit path, never glob order, modification time, or
 “latest”. Source checkpoints and large artifacts are prerequisites; download or regenerate them
 only when that work is in scope. Install or upgrade dependencies only when the task needs it.
 
-Create commits only when requested. Use Conventional Commit subjects with concise lowercase types
-such as `feat`, `fix`, `perf`, `bench`, `test`, `build`, `refactor`, `docs`, or `chore`.
+Commit and push when it is deemed necessary and nothing in flight is disturbed: land a coherent unit
+of work with its evidence, and push `dev` so the work is not one disk failure from gone. Do not commit
+or push while a build, a suite run or a measurement holds the tree, and never rewrite published
+history. Use Conventional Commit subjects with concise lowercase types such as `feat`, `fix`, `perf`,
+`bench`, `test`, `build`, `refactor`, `docs`, or `chore`.
 
 ## Working practices (Windows port)
 

@@ -31,7 +31,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- ADR: 0012. Open it before changing this path."
+      "reason": "Upstream restructured this file -- it dropped 'Objective and scope', condensed Product/architecture, Change policy and Verification, and added '## References' and '## Local environment' -- and the port's material slots under its headings: the 2026-09-27 'Before proposing anything' directive, the check table, the reporting and completion rules, the tooling and skills tables, the 65 rules, the Windows working practices, the crash-dump row and the merge-stash and contention rules. Changed 2026-10-06 on the owner's directive: the commit policy is now 'commit and push when it is deemed necessary and nothing in flight is disturbed', in place of 'create commits only when requested' at both places it appeared."
     },
     "CMakeLists.txt": {
       "status": "M",
@@ -49,7 +49,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- ADR: 0004. Open it before changing this path."
+      "reason": "This port's product document. The b9114396 merge took upstream's skeleton for the top-level sections and kept the port's content only inside `## Performance` and `## Windows`; the port's head block, `## Install a release (recommended)`, `## Client compatibility and known API limitations` and `## OpenCode Desktop integration` were restored 2026-10-06 from c42406ab, and upstream's `## Quick start` (a Linux clone this tree cannot follow), `## Evaluation` (its scores over checkpoints this port does not ship), `## Docker` and `## Support` are dropped -- which is what 31ab6dfe did and the merge undid. Two facts were corrected in place rather than copied: constrained decoding exists (upstream eb6696ae) and the engine preempts under resource pressure."
     },
     "apps/CMakeLists.txt": {
       "status": "M",
@@ -213,6 +213,12 @@
       "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
+    "docs/serving.md": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Port documentation restored 2026-10-06 from a silent take by the b9114396 merge: the check_request_logs.py validation paragraph and the tool-call fallback's rejected_* subject fields. Both describe surfaces that exist at HEAD -- tools/release/check_request_logs.py, and rejected_tool_name / rejected_tool_near_match / rejected_tool_name_length in types.h, set at frontend/tool_call_parser.cpp:649-659 -- and neither was documented anywhere until this restore."
+    },
     "docs/weight-conversion.md": {
       "status": "M",
       "disposition": "windows",
@@ -285,6 +291,12 @@
       "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
+    "model-cards/Qwen3.6-27B-NInfer/README.md": {
+      "status": "D",
+      "disposition": "deleted",
+      "review": "deleted",
+      "reason": "Removed by the port in 1b53a301, which kept only the shipped checkpoints' pages and cards: this port ships none of these checkpoints, measures none of them and pins none of them, and docs/README.md points at the publishing repositories instead of a copy. The b9114396 merge restored upstream's README.md into each of the five directories, because upstream changed that file in the merge range while the card's other five files did not, leaving five stray cards with no LICENSE, SHA256SUMS or artifact-manifest.json. Deleted again 2026-10-06."
+    },
     "model-cards/Qwen3.6-27B-NInfer/SHA256SUMS": {
       "status": "D",
       "disposition": "deleted",
@@ -308,6 +320,12 @@
       "disposition": "deleted",
       "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
+    },
+    "model-cards/Qwen3.6-27B-nvfp4-NInfer/README.md": {
+      "status": "D",
+      "disposition": "deleted",
+      "review": "deleted",
+      "reason": "Removed by the port in 1b53a301, which kept only the shipped checkpoints' pages and cards: this port ships none of these checkpoints, measures none of them and pins none of them, and docs/README.md points at the publishing repositories instead of a copy. The b9114396 merge restored upstream's README.md into each of the five directories, because upstream changed that file in the merge range while the card's other five files did not, leaving five stray cards with no LICENSE, SHA256SUMS or artifact-manifest.json. Deleted again 2026-10-06."
     },
     "model-cards/Qwen3.6-27B-nvfp4-NInfer/SHA256SUMS": {
       "status": "D",
@@ -333,6 +351,12 @@
       "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
+    "model-cards/Qwen3.6-35B-A3B-NInfer/README.md": {
+      "status": "D",
+      "disposition": "deleted",
+      "review": "deleted",
+      "reason": "Removed by the port in 1b53a301, which kept only the shipped checkpoints' pages and cards: this port ships none of these checkpoints, measures none of them and pins none of them, and docs/README.md points at the publishing repositories instead of a copy. The b9114396 merge restored upstream's README.md into each of the five directories, because upstream changed that file in the merge range while the card's other five files did not, leaving five stray cards with no LICENSE, SHA256SUMS or artifact-manifest.json. Deleted again 2026-10-06."
+    },
     "model-cards/Qwen3.6-35B-A3B-NInfer/SHA256SUMS": {
       "status": "D",
       "disposition": "deleted",
@@ -357,6 +381,12 @@
       "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
     },
+    "model-cards/Qwen3.8-27B-NInfer/README.md": {
+      "status": "D",
+      "disposition": "deleted",
+      "review": "deleted",
+      "reason": "Removed by the port in 1b53a301, which kept only the shipped checkpoints' pages and cards: this port ships none of these checkpoints, measures none of them and pins none of them, and docs/README.md points at the publishing repositories instead of a copy. The b9114396 merge restored upstream's README.md into each of the five directories, because upstream changed that file in the merge range while the card's other five files did not, leaving five stray cards with no LICENSE, SHA256SUMS or artifact-manifest.json. Deleted again 2026-10-06."
+    },
     "model-cards/Qwen3.8-27B-NInfer/SHA256SUMS": {
       "status": "D",
       "disposition": "deleted",
@@ -374,6 +404,12 @@
       "disposition": "deleted",
       "review": "deleted",
       "reason": "Removed by the port. Upstream owns this file and the port does not ship it -- check whether anything still references it before restoring it from upstream."
+    },
+    "model-cards/Qwen3.8-27B-nvfp4-NInfer/README.md": {
+      "status": "D",
+      "disposition": "deleted",
+      "review": "deleted",
+      "reason": "Removed by the port in 1b53a301, which kept only the shipped checkpoints' pages and cards: this port ships none of these checkpoints, measures none of them and pins none of them, and docs/README.md points at the publishing repositories instead of a copy. The b9114396 merge restored upstream's README.md into each of the five directories, because upstream changed that file in the merge range while the card's other five files did not, leaving five stray cards with no LICENSE, SHA256SUMS or artifact-manifest.json. Deleted again 2026-10-06."
     },
     "model-cards/Qwen3.8-27B-nvfp4-NInfer/SHA256SUMS": {
       "status": "D",
@@ -465,11 +501,29 @@
       "review": "product",
       "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
+    "src/models/qwen3_5/execution/text.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "The constructor half of the TextCallConfig restore: the slot validation moves here from set_linear_state_slots, which is removed together with set_sampling and set_mtp_proposal_extent."
+    },
+    "src/models/qwen3_5/execution/text.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "TextCallConfig, restored 2026-10-06 after item 16 found the b9114396 merge had taken the port's version of df2004da. The per-call inputs -- sampling, the Linear Attention state slots and the MTP proposal extent -- arrive at construction, so the sequence is unrepresentable rather than conventional, and the slot validation that lived in one setter moves into the constructor where it cannot be skipped. set_gdn_state_action stays a setter and says why in place: target verification switches it on a card it was handed, after construction."
+    },
     "src/models/qwen3_5/frontend/chat_template.cpp": {
       "status": "M",
       "disposition": "unknown",
       "review": "product",
       "reason": "Cited in the diff -- measure: Measured. Open it before changing this path."
+    },
+    "src/models/qwen3_5/frontend/frontend.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Prompt preparation's host phases, restored 2026-10-06 after item 16 found the b9114396 merge had taken the port's version of 1cd70d17. The merge took upstream's frontend.cpp and dropped the five Clock brackets -- contract, convert, render, positions and cache prep -- while prepared_prompt.h kept their fields, so at HEAD nothing wrote or read them. The split is what makes a preparation that is not the render attributable: the render is ~80 ms of a 3.4 s remainder on a real agent session."
     },
     "src/models/qwen3_5/frontend/prepared_prompt.h": {
       "status": "M",
@@ -525,11 +579,23 @@
       "review": "product",
       "reason": "The drafter-recall instrument: accumulates proposed_per_position, recall1_per_position and recall16_per_position beside the DFlash round. The fields are documented in include/ninfer/types.h, printed by apps/cli/main.cpp, and published as metrics by src/serve/generation_service.*. Added by 611604e0; no Op signature and no numerics change."
     },
+    "src/models/qwen3_5/program/execution_context.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "configure_text_card's declaration follows TextCallConfig: the sampling, state slots and proposal extent arrive at construction now, so it takes the card and the execution core only."
+    },
     "src/models/qwen3_5/program/planning/startup.cpp": {
       "status": "M",
       "disposition": "unknown",
       "review": "product",
       "reason": "The per-layer KV plane geometry is built once by storage_planes(layer_storage, kv_heads) and repeated per layer, instead of the four push_back calls being written out per layer. A deduplication of the same class as ops/common/validation.h and the route catalog, and the same gate protects it."
+    },
+    "src/models/qwen3_5/program/prefill.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "The definition and both call sites of configure_text_card for the TextCallConfig restore: the three setters move to the TextContext constructor and the call sites pass TextCallConfig."
     },
     "src/models/qwen3_5/program/program.cpp": {
       "status": "M",
@@ -554,6 +620,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "The top-k instrument's host landing buffer and its declaration: causal_score_topk with score_topk_host sized for a full tile at the Op's documented maximum K (2 MiB), planned for the maximum rather than for the k a caller asks for, because k is a runtime choice here."
+    },
+    "src/models/qwen3_5/program/speculative/mtp.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "The third configure_text_card call site, in the MTP bridge, for the TextCallConfig restore."
     },
     "src/models/qwen3_5/program/storage/kv_address_space.h": {
       "status": "M",
@@ -1466,6 +1538,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "A dead assignment removed: self.completed_ns was written to a local that nothing read."
+    },
+    "tools/bench/ttft/profiles.py": {
+      "status": "M",
+      "disposition": "product",
+      "review": "product",
+      "reason": "cache-reporter-concurrency3-scaled, restored 2026-10-06: cases.py's reporter-concurrency3-growth case referenced a profile the b9114396 merge dropped, so the case could not run. The profile is translated onto the post-b9114396 CLI -- --host-state-slots, --host-kv-mib, --max-shared-prefixes, --max-private-continuations and --max-long-anchors-per-continuation no longer exist, so host state and KV are one --host-context-mib quota and the descriptor counts are derived -- with the reporter's values scaled by the same 40% as before."
     },
     "tools/chat_templates/qwen3_8.jinja": {
       "status": "M",

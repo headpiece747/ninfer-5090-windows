@@ -44,9 +44,12 @@ and renumbering them would break every cross-reference to it. Each heading carri
   fixed: two were lost or half-landed port work, one was a real defect beside a stale golden, one was
   a cascade, and the last was a race in the test's own read. `140/142 passed` with only the two
   baselined failures, and `check_test_baseline.py` reports no regression.
-- **item 16** — **open, and it is a hypothesis rather than a list.** 40 files where the `b9114396`
-  merge took upstream's version while the port had work in them, against a control of 53 where it
-  kept the port's. Two of the three failures it seemed to predict were not losses.
+- **item 16** — **CLOSED 2026-10-06.** The `b9114396` merge's silent takes were re-derived with a
+  corrected instrument and every reproducible candidate classified; five real losses were restored
+  (the frontier ledger and the engine settle order earlier, then prompt preparation's host phases, the
+  `TextCallConfig` refactor, the reporter profile, the five model cards and the port's `README.md`),
+  and one loss -- the #251 reclaim -- is recorded as open rather than claimed. The counts this item
+  first recorded (40 taken / 53 kept / 19 gone) are not reproducible and were dropped.
 - **item 17** — **the suite runs 3.0x faster; the remaining 1.6x is a coverage decision, not a
   mechanical one.** 1430.9 s → 471.0 s. Splitting `context_kv_materialize` would take it to about
   300 s, but that test's workspace check is a whole-sweep postcondition and cannot be relocated
@@ -1924,7 +1927,7 @@ actual count on failure.
 **Done when:** the `C=8` assertion is attributed and either fixed or recorded with its cause. —
 **satisfied 2026-10-05.**
 
-### 16. The `b9114396` merge took upstream's version of 40 files the port had work in — **RUN 2026-10-06: one real loss found and restored, 18 still to read**
+### 16. The `b9114396` merge took upstream's version of 40 files the port had work in — **COMPLETE 2026-10-06: four silent losses restored, every reproducible candidate classified**
 
 **Why:** for every file upstream's `b9114396` changed, the merge result equals upstream's exact blob
 while the port's pre-merge blob differed from upstream's pre-merge blob — 40 files, against a control
@@ -1998,6 +2001,140 @@ as the port having been behind.
 (drop it), or the port having been behind (nothing to do), with the classification recorded.
 **Partially done 2026-10-06:** the instrument is corrected and recorded, the one confirmed loss is
 restored and verified, and the remaining 18 are named above rather than left implied by a count.
+
+**COMPLETE 2026-10-06, second pass: the counts in this item are wrong, and four more losses are
+restored.** The instrument was re-run from the recorded geometry (`75a89050` base, `c42406ab` port,
+`a8e212ac` upstream tip, `355dda55` merge) with the three corrected rules above. Reproducible figures:
+**187** paths upstream changed (`183` by `git diff --name-only`), **25** where the merge took upstream's
+blob and the port had work, **1** where it kept the port's, and **11** of the 25 still equal to
+upstream at HEAD. Six definitions were tried -- port-work measured against the base, against
+`b9114396~1`, or against upstream's tip; upstream-changed measured against the tip, against
+`b9114396`, or with rename detection -- and none reproduces the recorded **40 taken / 53 kept / 19
+gone**. Those three numbers are dropped rather than carried, and the 24 real candidates (25 minus
+`request_log.h`, whose port blob already equalled upstream's tip at the merge) are classified here in
+full.
+
+**Restored, each verified:**
+
+* **`src/models/qwen3_5/frontend/frontend.cpp` — prompt preparation's five host phases** (`1cd70d17`).
+  The merge took upstream's frontend.cpp and dropped the `Clock` brackets for contract, convert,
+  render, positions and cache prep, while `prepared_prompt.h` kept the fields; at HEAD nothing wrote
+  or read them. The port had already noticed the reduced log and adapted to it in `df91de1e` -- whose
+  message says *"Upstream b9114396 collapsed PromptPreparationStats to one total plus tokenize"* and
+  concludes *"neither side was a lost port change, which is why this one is not a restore"*. **That
+  premise is false**: neither `75a89050` nor `a8e212ac` contains `render_seconds`, so there was no
+  upstream split to collapse -- the split was this port's (`1cd70d17`, author headpiece747, not an
+  ancestor of `upstream/dev`). Restored with the public fields in `include/ninfer/types.h`, the
+  `contract`/`convert`/`render`/`positions`/`cache prep` clauses in `src/serve/operational_log.cpp`
+  (the false comment replaced by what the phases mean), the golden and the media-less assertion in
+  `tests/test_request_log.cpp`, and a producer assertion in `ninfer_qwen3_5_frontend_test` that was
+  **falsified in both directions** -- with the render bracket disabled it fails with "text preparation
+  did not report the render phase", with it restored it passes.
+* **`src/models/qwen3_5/execution/{text.h,text.cpp}` + `program/{prefill.cpp,execution_context.h}` +
+  `program/speculative/mtp.cpp` — the `TextCallConfig` refactor** (`df2004da`). The per-call inputs
+  (sampling, the Linear Attention state slots, the MTP proposal extent) arrive at construction, so the
+  three-setters-after-construction sequence is unrepresentable, and the slot validation moves into the
+  constructor where it cannot be skipped. `set_gdn_state_action` stays a setter and says why in place.
+* **`tools/bench/ttft/profiles.py` — `cache-reporter-concurrency3-scaled`**, which
+  `tools/bench/ttft/cases.py`'s `reporter-concurrency3-growth` case referenced: the merge dropped the
+  profile, so that case could not run. Translated onto the post-`b9114396` CLI, which no longer has
+  `--host-state-slots`, `--host-kv-mib`, `--max-shared-prefixes`, `--max-private-continuations` or
+  `--max-long-anchors-per-continuation` (host state and KV are one `--host-context-mib` quota now and
+  the descriptor counts are derived); the reporter's values keep the same 40% scaling.
+* **The five upstream model cards.** `1b53a301` deleted them deliberately ("this port ships none of
+  those checkpoints") and the merge restored upstream's `README.md` into each of the five directories
+  -- because upstream changed that one file in the merge range while the card's other five files did
+  not -- leaving five stray cards with no LICENSE, SHA256SUMS or manifest while `docs/README.md`
+  points at the publishing repositories. Deleted again.
+* **`README.md` -- the port's product document, which the file-level instrument could not see.** The
+  merge took upstream's skeleton for the top-level sections and kept the port's content only inside
+  `## Performance` and `## Windows`, so at HEAD the front page said *"NInfer requires 64-bit Linux …
+  git clone https://github.com/Neroued/ninfer.git"*, documented a Docker image, carried upstream's
+  `## Evaluation` table over five checkpoints this port does not ship, and offered upstream's `## Support`
+  -- while the port's own title, `## Install a release (recommended)`, `## Client compatibility and
+  known API limitations` and `## OpenCode Desktop integration` were gone, and the page contradicted
+  itself ("no WSL2 or Docker" beside a Docker section). `31ab6dfe` had removed exactly those sections
+  ("document this port's product, not upstream's"), so this is the same silent take at section
+  granularity: `merge_blob == upstream_blob` is a file-level test and the file still differed from
+  upstream because of the port's own sections. Restored from the port's head block plus HEAD's
+  already-updated `Performance`/`Windows`, with two facts corrected in place -- constrained decoding
+  exists now (upstream `eb6696ae`), and the engine preempts under resource pressure -- and the
+  duplicated `ninfer::Uint128` line (a merge remnant) dropped. `check_doc_links.py` is what caught
+  the consequence, with five dead card links from upstream's `## Evaluation`. **The port had already
+  decided this once**: the `d44ab584` merge's resolutions (recorded above, `:1209`) say "**Ours** for
+  `README.md`: upstream's side links a dozen pages this port deleted and carries their
+  AIME/GPQA/ERQA scores", and the b9114396 merge undid that decision without recording one.
+
+**Left as upstream has it, with the reason:**
+
+* `src/models/qwen3_5/program/transactions/commit.cpp` and `tests/test_resource_manager.cpp` --
+  superseded. The port's change was `ProgramImpl::can_release_continuation`, the non-consuming
+  counterpart to `release_continuation` that its reclaim-at-admission fix (`d05ee90a`, for upstream
+  #251) needed because moving a handle the Program would refuse corrupts a live catalog entry.
+  Upstream's context-cache replacement removed both `can_release_continuation` and
+  `release_shared_prefix` from `Program`, and at HEAD the port's `resource_manager.h` is upstream's
+  plus the `Uint128` fix. **This is the one loss this pass could not close and does not claim to:**
+  `d05ee90a` measured the #251 cliff gone (12/12 reuse at `--device-state-slots 1`), that reclaim no
+  longer exists, and `tools/release/profiles.py` still ships `--device-state-slots 1` for every profile
+  on the strength of it. Upstream #251 is still OPEN, and upstream's own answer to this family is the
+  rewrite itself: **#366**, the maintainer's announcement of `b9114396`, lists #177, #179, #229 and
+  #251 among the reports it responds to and asks reporters to re-test their cases. Whether the
+  replacement covers the private-continuation saturation this port measured is exactly what that
+  request asks, and nothing here has re-taken it; the profiles' comment now says so instead of
+  asserting the cliff is gone, and this is the item's open end.
+* `src/runtime/engine/context_cache/{materialization_budget.h,materialization_planner.h}` and
+  `tests/test_materialization_budget.cpp` -- superseded. The port's 250 ms grant ceiling (`e92cd9d7`)
+  patched a mechanism upstream's rewrite deleted; `MaterializationSearchBudget` has zero occurrences
+  at HEAD. Upstream issue #229 is still OPEN and its reporter is deploying the same widening on
+  current master, so the port's evidence belongs on that issue rather than in a restore.
+* `src/runtime/engine/model_instance.cpp` -- superseded. The port forced `cache.policy = Default` when
+  the cache is disabled and defaulted `max_shared_prefixes` from
+  `kMaximumPreparedPromptCacheCandidatesPerRequest`; upstream's new `ContextCacheOptions` has neither
+  field, and `--max-shared-prefixes` is no longer accepted.
+* `tests/test_context_cost.cpp` -- superseded by a move: upstream's rewrite placed it at
+  `tests/runtime/test_context_cost.cpp` and the port's `_getpid` portability fix is present there.
+* `src/models/qwen3_5/program/context.h` -- superseded by a move: upstream deleted it and its
+  `configure_text_card` declaration now lives in `program/execution_context.h`, where the
+  `TextCallConfig` restore carries the port's signature change.
+* `tools/bench/ttft/README.md` -- superseded: upstream's rewrite replaced the document and the media
+  case table the port's one-line correction edited; the case name does not appear at HEAD.
+
+* **`docs/serving.md`** -- restored: the `check_request_logs.py` validation paragraph and the tool-call
+  fallback's `rejected_tool_name` / `rejected_tool_near_match` / `rejected_tool_name_length` subject
+  fields. Both describe surfaces that exist at HEAD and were documented nowhere after the merge.
+
+**Classified as already accounted for:**
+
+* `src/models/qwen3_5/frontend/processor.cpp` (frontier ledger) and `runtime/engine/engine_core.h`
+  (kv_capacity dedup half + settle order) -- restored in `393d1f64`.
+* `src/models/qwen3_5/frontend/tokenizer.cpp` -- restored 2026-10-05 (ADR-0010 incremental encode);
+  the ratchet entry carries the reason.
+* `tests/models/qwen3_5/test_engine_prefix_real.cpp` -- port edits present (artifact goldens, guarded
+  main, the model's default stops where a tool is declared).
+* `src/serve/request_log.h` -- the port having been behind by the letter of the instrument and
+  converged in fact: its blob at the merge already equalled upstream's tip (both schema 23); HEAD is at
+  25.
+
+**Verified:** `build-test` 637/637 targets and `build` 587/587; the full suite is **150/152** with
+only the two baselined failures (`ninfer_qwen3_5_dflash_real_test` and `ninfer_qwen3_5_moe_real_test`,
+each reporting its own cause) and `ninfer_qwen3_5_loading_real_test` skipped by construction;
+`check_test_baseline.py` reports **GATE PASSED: no regression against the recorded baseline**;
+`ninfer_request_log_test`, `ninfer_qwen3_5_frontend_test` and `ninfer_pretty_logging_test` pass, with
+the new phase assertion falsified in both directions (the render bracket disabled makes it fail with
+its own message); the ratchet is green at 268 paths with the 13 new entries carrying reasons and
+verdicts; `check_profile_consistency.py` reports 0 disagreements; ruff and mypy are clean. End to end
+on a serving lane started with the restored reporter profile (`qwen3_8_27b_nvfp4qat`, `--max-context
+104857 --kv-capacity 117964 --max-concurrency 3 --device-state-slots 2 --host-context-mib
+12179.05078125`): the engine pinned 11.9 GiB of host context, answered `/health`, completed a
+request (`prompt 58 | output 24 | TTFT 74.8 ms`), and printed
+
+    req#1 started | openai-chat non-stream | 1 message | max output 24 | thinking template default |
+    prepared 240 us, contract 0 us, convert 1 us, render 196 us, tokenize 39 us, positions 0 us,
+    cache prep 0 us | preserve thinking
+
+which is the phase split the restore put back, produced by the restored `frontend.cpp` and consumed
+by the restored `operational_log.cpp`, on a card built through the restored `TextCallConfig`.
+
 
 ### 17. The suite runs 3.0x faster, and the remaining 1.6x is a coverage decision — **DONE 2026-10-05; the second half is open**
 
@@ -2401,6 +2538,14 @@ keeping their default stops, and every assertion in them still holds — `all` i
 `exercise_rewrite_branch`'s `Checkpoint` reuse is confirmed under the new contract. The baseline gate
 then ran the full suite: **150/152, the only two failures the recorded ones**, and the ratchet is green
 at 255 paths with no unreviewed entry.
+
+**Filed locally, not upstream, 2026-10-06:** the guard-versus-scenarios finding is written up in
+[upstream-constrained-tools-guard.md](research/upstream-constrained-tools-guard.md) — the guard at
+`src/models/qwen3_5/frontend/frontend.cpp:919`, the six scenarios it rejects, the control that passes
+because it never disabled the default stops, the reproduction, and the searches showing that nothing
+upstream reports it and that no upstream commit has touched either file since `41e50d0d`. It is kept
+there rather than posted, because the port does not file on the upstream tracker without the owner's
+decision; it is written to be pasted as an issue as-is.
 
 ## Gates added while this list was open
 

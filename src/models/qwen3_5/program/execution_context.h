@@ -133,9 +133,7 @@ struct TargetVerifyFrameView {
     DFlashFeatureSink* feature_sink        = nullptr;
 };
 
-void configure_text_card(TextContext& card, const ExecutionCore& execution,
-                         const ops::SamplingConfig* sampling, std::int32_t state_source_slot,
-                         std::int32_t state_destination_slot, std::uint32_t mtp_proposal_extent);
+void configure_text_card(TextContext& card, const ExecutionCore& execution);
 void target_verify_forward(ExecutionCore&, TextContext&, TargetVerifyFrameView,
                            ops::CausalAttentionExecutionEnvelope);
 void target_accept(ExecutionCore&, Tensor& continuation_hidden_store, TargetVerifyFrameView);

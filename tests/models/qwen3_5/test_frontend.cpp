@@ -1370,6 +1370,13 @@ int test_text_and_image_prepare(const Frontend& frontend) {
         check(text_data.position_axis(0).back() == 12 && text_data.position_axis(1).back() == 12 &&
                   text_data.position_axis(2).back() == 12,
               "text frontend did not construct axis-major positions");
+    // The host phases the started line prints are produced here, not by its consumer. The merge that
+    // took upstream's frontend.cpp dropped these brackets while the fields stayed in
+    // PromptPreparationStats, so the tree compiled with nothing writing or reading them. `render` is
+    // the discriminating one: `tokenize_seconds` is upstream's own field and predates the split.
+    const ninfer::PromptPreparationStats& phases = text.preparation_stats();
+    failures += check(phases.render_seconds > 0.0 && phases.seconds >= phases.render_seconds,
+                      "text preparation did not report the render phase the started line prints");
 
     ninfer::ChatMessage preserved_message;
     preserved_message.role = ninfer::ChatRole::User;

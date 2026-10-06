@@ -206,14 +206,19 @@ OperationalRecord render_request_start(const RequestLogContext& context) {
                 clause += ", " + std::string(name) + " " + product::format_pretty_duration(seconds);
             }
         };
-        // Upstream b9114396 collapsed the preparation phase split -- contract, convert, render,
-        // positions and cache prep -- into a single `seconds` plus `tokenize_seconds` and the media
-        // fields. The old per-phase names no longer exist, so the log reports what the new API can
-        // actually measure rather than printing zeros for phases the engine no longer times.
+        // The phases run in this order, and each is printed only when it ran. There is deliberately
+        // no `prepare` phase: `seconds` is the total, `prepared` already states it, and emitting it
+        // again printed the same figure twice on every started line.
         //
-        // There is deliberately no `prepare` phase: `seconds` is the total, `prepared` already
-        // states it, and emitting it again printed the same figure twice on every started line.
+        // `render` and `positions` are absent for a request with media, which renders inside the
+        // processor and reports that component's own timings instead; the field is zero, and the
+        // `phase` lambda prints a phase only when it ran.
+        phase("contract", context.preparation.contract_seconds);
+        phase("convert", context.preparation.convert_seconds);
+        phase("render", context.preparation.render_seconds);
         phase("tokenize", context.preparation.tokenize_seconds);
+        phase("positions", context.preparation.positions_seconds);
+        phase("cache prep", context.preparation.context_cache_seconds);
         phase("media preprocess", context.preparation.media_preprocess_seconds);
         phase("media work", context.preparation.media_preprocess_work_seconds);
         append_clause(out, clause);

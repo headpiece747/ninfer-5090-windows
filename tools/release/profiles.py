@@ -33,9 +33,15 @@ denominator and the numerator.
 --device-state-slots is 1 for every profile, from a record: the reclaim that landed 2026-09-19
 removed the #251 cliff, so all twelve conversations reuse at 1 as well as at 8 (`slots_sweep_*.txt`
 under the bench records). Interleaved against 8, the value 1 costs 1.3 GiB less runtime and raises
-acceptance (62.5% against 58.6%) at the same decode. A larger value buys retained-state capacity for
-interleaved conversations, which nothing in this repo measures -- treat raising it as an unverified
-trade, not as a fix.
+acceptance (62.5% against 58.6%) at the same decode. **That record is about the pre-b9114396 context
+cache.** The reclaim it measured was a change to that cache, and upstream's replacement does not carry
+it: at HEAD `can_release_continuation` and the reclaim have zero occurrences, and
+`resource_manager.h` is upstream's plus the Uint128 fix, so the twelve-conversation run describes a
+mechanism that is no longer in the tree and has not been re-taken. Upstream's #366 announces that
+rewrite and names #177, #179 and #251 -- the saturation reports it answers -- so re-testing is the
+maintainer's own request, not a new one. A larger value buys retained-state
+capacity for interleaved conversations, which nothing in this repo measures -- treat raising it as an
+unverified trade, not as a fix.
 Decode varies ~10% between windows, and free VRAM ~0.2 GiB with whatever else holds the card. Within
 one interleaved window, with the warmup transient excluded, it varies 1.5% or less.
 Every value below is backed by a record in matrix_v3.jsonl under the launcher's own file name, and
@@ -318,12 +324,14 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # how many conversations can keep a cached state at once. Until 2026-09-19 the engine had no
     # eviction, so once these were exhausted prefix reuse stopped permanently until restart
     # (upstream issue #251, "no LRU eviction observed"; reproduced here with 1: reuse held for 3
-    # conversations, then every later request re-prefilled from the root, silently). Active-capture
-    # admission now reclaims the oldest unpinned private continuation to free a slot, so the cliff
-    # is gone and the value is a capacity/VRAM trade rather than a survival requirement: 12/12
-    # conversations reuse at 1, 2, 4 and 8 alike, while 8 costs ~1.3 GiB of runtime and 13.6% of
-    # decode on QUASAR DFlash2. A larger value buys retained-state capacity for interleaved
-    # conversations, which nothing here measures -- see the module docstring.
+    # conversations, then every later request re-prefilled from the root, silently). The port's
+    # active-capture reclaim landed on 2026-09-19 and measured the cliff gone -- 12/12 conversations
+    # reusing at 1, 2, 4 and 8 alike, while 8 costs ~1.3 GiB of runtime and 13.6% of decode on
+    # QUASAR DFlash2. That reclaim was a change to the pre-b9114396 context cache, and upstream's
+    # replacement does not carry it (see the module docstring), so under the replacement the value is
+    # an unverified setting rather than a measured trade: the twelve-conversation run has not been
+    # re-taken. A larger value buys retained-state capacity for interleaved conversations, which
+    # nothing here measures.
     #
     # The ladder below was measured on the superseded slot model: it varied --host-state-slots, which
     # upstream b9114396 replaced with --host-context-mib. It is kept because the finding is about the
@@ -341,7 +349,9 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # shared_owners_evicted 0, peak host_state_slots 8. The shared prefixes are never evicted, they are
     # never retained -- the slot is gone before the capture can claim it -- and all the pressure is the
     # private side, where the engine now retains continuations and reclaims the oldest only under
-    # pressure (upstream #251). That reclaim keeps the current request working, not every prefix, so the
+    # pressure (upstream #251; that reclaim was part of the same superseded cache -- upstream's #366
+    # announces the rewrite that replaced it and names #177/#179/#251 among the reports it answers,
+    # asking reporters to re-test). That reclaim keeps the current request working, not every prefix, so the
     # pool has to be sized for the states the engine actually keeps rather than for the prefixes alone.
     # The same bounds gave 5/5 on 2026-09-17 (commit 93181817); #251 landed on 2026-09-19 and changed
     # how many states a conversation keeps, and nothing re-ran the claim.
