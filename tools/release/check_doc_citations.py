@@ -5,9 +5,9 @@ This repository cites code by `path:line` constantly -- in ADRs, in maintainer n
 `AGENTS.md`, and in the comments inside tools and benches. That convention is what makes a
 claim checkable, and it is also what rots: a line reference is a promise that the reader can
 open the file and find the thing named. Two such citations were found stale in one session on
-2026-10-03 (`check_shared_prefix_reuse.py:116` pointing at `native_render.cpp:550` for code
-that had moved to `:605`, and ADR-0012's `native_render.cpp:629-631` after that file shifted
-again), each of which sent a reader to the wrong place without any signal.
+2026-10-03 (`check_shared_prefix_reuse.py:116` pointing at `native_render.cpp:550` -- a file since
+withdrawn with ADR-0012 -- for code that had moved to `:605`, and ADR-0012's `native_render.cpp:629-631`
+after that file shifted again), each of which sent a reader to the wrong place without any signal.
 
 The check is deliberately mechanical and deliberately narrow. It answers one question -- does
 the cited file exist, and is the cited line inside it -- because that is the class a script can

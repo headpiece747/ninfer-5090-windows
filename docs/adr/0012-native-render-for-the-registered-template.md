@@ -1,7 +1,17 @@
 # ADR-0012: the registered template is rendered in C++, gated by its digest
 
-Status: accepted and implemented (2026-09-23). The native renderer is landing; the
-[verification](#verification) section states what was measured and what is still projected.
+Status: **superseded 2026-10-05** -- the renderer this describes has been withdrawn.
+
+This decision accepted a *projected* 42 ms render saving, and measurement did not support it. An
+interleaved A/B on the shipping route (three cycles, alternating arms, two warmup and three measured
+requests each, comparing `preparation_seconds.total - .tokenize`) found no advantage: median 8.08 ms
+native against 6.43 ms Jinja, i.e. **1.65 ms against** the native path, with the ranges overlapping
+and the difference inside the noise. Under the port's rule -- prefer upstream unless a change is
+measurably better or is needed for the Windows port -- a second implementation of one serialization
+that cannot show a benefit does not survive. The render now goes through Jinja, which is upstream's
+route, and the differential parity entries went with the renderer they compared.
+
+The sections below are kept as the record of what was measured and what was still projected.
 
 ## Context
 

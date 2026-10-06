@@ -2052,6 +2052,8 @@ published TTFT figure rests on, and it is why this could be done without re-meas
 `build_fixtures.py --check` passes.
 
 **The native chat renderer has been silently inactive outside a CRLF worktree — FOUND 2026-10-02.**
+(The renderer itself was withdrawn 2026-10-05 — see ADR-0012 — so this block is the record of the
+defect and its correction, not a description of the tree.)
 `native_render.cpp` identifies the shipped `qwen3_8.jinja` by digest, and its own comment says a
 line-ending change retires the fast path. It needed recomputing, because the constant was wrong rather
 than stale: it hashed the file's CRLF form (`01befcc8`) while the committed blob is LF (`951dee26`),

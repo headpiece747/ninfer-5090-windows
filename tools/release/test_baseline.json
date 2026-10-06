@@ -1,6 +1,6 @@
 {
   "recorded": "2026-10-05",
-  "suite_size": 147,
+  "suite_size": 145,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -47,6 +47,11 @@
       "date": "2026-10-05",
       "count": 5,
       "note": "the softmax_attention causal sweep split into five per-format ctest entries plus one --no-causal entry for plain_and_packed and context: the same run_storage_cases calls, registered separately because the sweep is host-oracle-bound (median GPU utilisation 5%) and measured 584.8 s as one entry against 145.5 s as six in parallel"
+    },
+    {
+      "date": "2026-10-05",
+      "count": -2,
+      "note": "the native renderer is withdrawn, so its two differential-parity entries go with it: ninfer_chat_render_native_parity_test and ninfer_chat_render_native_parity_media_test, and the bench mode they drove. The renderer was a second implementation of one serialization and the measurement did not back it -- an interleaved A/B on the shipping route showed no advantage and a median 1.65 ms against it, after ADR-0012's projected 42 ms saving had already been falsified -- so under the port's rule (prefer upstream unless a change is measurably better or needed for Windows) it does not survive. The render's output stays covered by test_shipped_template_render_bytes, the chat-template goldens and the frontend tests, which compare against goldens rather than against a sibling implementation. No required_tests or optional_tests change."
     }
   ]
 }

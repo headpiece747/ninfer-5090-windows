@@ -387,7 +387,8 @@ Sixty-four rules, each earned by a failure rather than chosen:
   CRLF bytes on Windows, so 18 of 26 TTFT digests described bytes no LF checkout produces and
   the corpus gate passed here and failed everywhere else.
 - **A test that hashes a file certifies the checkout, not the file.**
-  `native_render.cpp` held the shipped chat template's digest in the CRLF form while the
+  `native_render.cpp` -- the port's second renderer, since withdrawn with ADR-0012 -- held the
+  shipped chat template's digest in the CRLF form while the
   committed blob is LF, so the native fast path was active only on a CRLF worktree and fell
   back to Jinja on Linux, CI and any fresh clone -- while its test passed here, because here is
   where the CRLF came from. Hash what ships.

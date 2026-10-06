@@ -93,7 +93,7 @@ check(
 
 // ---- a doc in docs/ citing a repo-relative path, plus a real past-EOF target ----
 const DOC = resolve(REPO, "docs/maintainer/engine-architecture.md")
-const CPP = "src/models/qwen3_5/frontend/native_render.cpp"
+const CPP = "src/models/qwen3_5/frontend/chat_template.cpp"
 const CPP_LINES = readFileSync(resolve(REPO, CPP), "utf8").split("\n").length
 const AGENTS = resolve(REPO, "AGENTS.md")
 

@@ -1,6 +1,6 @@
 {
   "against": "upstream/master",
-  "recorded": "2026-10-04",
+  "recorded": "2026-10-05",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -398,11 +398,6 @@
       "disposition": "unknown",
       "reason": ""
     },
-    "src/models/qwen3_5/frontend/chat_template.h": {
-      "status": "M",
-      "disposition": "unknown",
-      "reason": ""
-    },
     "src/models/qwen3_5/frontend/prepared_prompt.h": {
       "status": "M",
       "disposition": "unknown",
@@ -419,11 +414,6 @@
       "reason": ""
     },
     "src/models/qwen3_5/frontend/tool_call_parser.cpp": {
-      "status": "M",
-      "disposition": "unknown",
-      "reason": ""
-    },
-    "src/models/qwen3_5/frontend_sources.cmake": {
       "status": "M",
       "disposition": "unknown",
       "reason": ""
@@ -1070,7 +1060,7 @@
     },
     "tests/models/qwen3_5/tests.cmake": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "windows",
       "reason": ""
     },
     "tests/ops/linear/test_nvfp4_a16.cpp": {
@@ -1085,7 +1075,7 @@
     },
     "tests/ops/softmax_attention/main.cpp": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "reason": "Added --no-causal. The causal sweep is five independent KV formats in one loop and is host-oracle-bound (median GPU utilisation measured 5%), so it is now registered as one ctest entry per format; this binary keeps plain_and_packed and context in an entry of its own. Every --kv-dtype path sets causal_only and returns before those two, so without the flag the split would either duplicate 553 s of work or silently drop them. Coverage is unchanged -- the format loop already filtered on the same run_storage_cases calls, each with its own criterion. Measured: 584.8 s for the single entry, 145.5 s for the six running in parallel."
     },
     "tests/ops/softmax_attention/plain_and_packed.cpp": {

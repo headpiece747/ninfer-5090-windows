@@ -113,7 +113,7 @@ def diverged(count: int, tag: str) -> list[dict[str, str]]:
 
     The tail must stay a USER turn. `ResidentPrefixIdentity::matches` (prefix_identity.cpp:218)
     compares `rewrite_execution_frontiers`, and those are derived from ASSISTANT blocks in the
-    rendered text (native_render.cpp:550, `if (role == "assistant")`). A different number of
+    rendered text (the port's native renderer, since withdrawn with ADR-0012, keyed this on `if (role == "assistant")`). A different number of
     assistant turns inside the counted prefix makes the two identities disagree and the shared
     prefix is refused -- which is correct behaviour, and the reason this harness cannot simply
     change the tail's content.
@@ -203,7 +203,7 @@ def anthropic_body(
 
     The discriminator for a real defect, not a harness one. On the OpenAI route a declared breakpoint
     lands on a content PART, which produces a MessagePartBoundary marker. That location used to
-    resolve to no frontier at all -- native_render.cpp left MessagePartBoundary and
+    resolve to no frontier at all -- the port's native renderer (since withdrawn with ADR-0012) left MessagePartBoundary and
     LeadingInstructionBoundary unset, a divergence from the Jinja path that ADR-0012 originally
     recorded as "by design" and that was corrected on 2026-10-03, when the native renderer began
     recording per-part end offsets and resolving both locations. The OpenAI parser can still set

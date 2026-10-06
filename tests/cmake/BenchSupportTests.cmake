@@ -20,19 +20,9 @@ target_include_directories(ninfer_context_cost_measure_test PRIVATE
 
 add_test(NAME ninfer_context_cost_measure_test COMMAND ninfer_context_cost_measure_test)
 
-# The native renderer is a second implementation of one serialization, and it was compared only by a
-# bench in no gate: seven `RenderedChat` fields had no coverage at all, and the reasoning-effort arms
-# compared the native renderer with itself while reporting agreement. The suite compares 2 of the 9
-# fields; these two entries run the differential oracle for the rest and fail the suite on any
-# divergence, on a broken control, or on a retired native path. They need no FFmpeg runtime: this bench
-# has no media-library link dependency (the dflash bench does, which is a separate recipe's problem).
-# The media arm is separate because it is the only corpus carrying a multi-part user turn, which is
-# where a part boundary sits between other parts rather than at the end of the content.
-add_test(NAME ninfer_chat_render_native_parity_test
-         COMMAND ninfer_qwen3_5_chat_render_bench
-                 --template "${PROJECT_SOURCE_DIR}/tools/chat_templates/qwen3_8.jinja"
-                 --native --sweep 5 --quiet)
-add_test(NAME ninfer_chat_render_native_parity_media_test
-         COMMAND ninfer_qwen3_5_chat_render_bench
-                 --template "${PROJECT_SOURCE_DIR}/tools/chat_templates/qwen3_8.jinja"
-                 --native --media --sweep 6 --quiet)
+# The differential oracle for the native renderer is gone with the renderer itself. The renderer was
+# a second implementation of one serialization, and the measurement did not back it: an interleaved
+# A/B on the shipping route showed no advantage and a median 1.65 ms against it, after ADR-0012's
+# projected 42 ms saving had already been falsified. One implementation has nothing to differ from,
+# and the render's output stays covered by the frontend tests and the chat-template tests, which
+# compare against goldens rather than against a sibling implementation.

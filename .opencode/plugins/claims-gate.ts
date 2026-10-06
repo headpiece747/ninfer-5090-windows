@@ -49,7 +49,8 @@
 //   reason about than one that enforces it once.
 //
 // The mechanism is `tool.execute.before` with a throw, and it is confirmed end to end in the running
-// service: a Markdown write citing `native_render.cpp:999999` (the file has 706 lines) was refused
+// service: a Markdown write citing `native_render.cpp:999999` (the file then had 706 lines; it has
+// since been withdrawn with ADR-0012) was refused
 // and not created, while a write citing line 42 was created.
 //
 //   4. Not an attempt -- a bug in all of the above. `if (!existsSync(target)) return null`, commented
