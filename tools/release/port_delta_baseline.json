@@ -21,7 +21,7 @@
     ".gitignore": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Ignore rules for the port's own tooling: the test virtualenv, the jscpd report directory, and the opencode plugins' node_modules. None of them is upstream's."
     },
     "AGENTS.md": {
       "status": "M",
@@ -36,7 +36,7 @@
     "CONTRIBUTING.md": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A branch note: work lands on dev, and main is reviewed before implementation to avoid duplicating or conflicting with what has already been released. The port's release cut is squashed onto main, so this is its own workflow rather than upstream's."
     },
     "README.md": {
       "status": "M",
@@ -46,12 +46,12 @@
     "apps/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of the drafter-recall instrument: the CLI prints recall@1 and recall@16 by position from the vectors decode.cpp accumulates, and the per-position denominators are what make the two rates readable."
     },
     "apps/cli/main.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of the drafter-recall instrument: the CLI prints recall@1 and recall@16 by position from the vectors decode.cpp accumulates, and the per-position denominators are what make the two rates readable."
     },
     "apps/perplexity/main.cpp": {
       "status": "M",
@@ -61,7 +61,7 @@
     "apps/serve/main.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Engine-failure reporting: the engine latches failure permanently (fail_all_locked sets failed_ once and nothing clears it), so without this check the process stays alive forever after an engine-wide failure, indistinguishable from a healthy one at the process level. Exit code 3 is kept distinct from 1 (configuration, bind or warmup error) so a supervisor can tell them apart."
     },
     "bench/README.md": {
       "status": "M",
@@ -76,7 +76,7 @@
     "bench/fixtures/ttft/manifest.json": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The LF fix recorded in AGENTS.md: build_fixtures.py digested CRLF bytes on Windows, so 18 of 26 TTFT digests described bytes no LF checkout produces and the corpus gate passed here and failed everywhere else. The digests in manifest.json are the regenerated LF ones."
     },
     "bench/fixtures/ttft/text/long_64k_independent.json": {
       "status": "M",
@@ -126,7 +126,7 @@
     "bench/ops/candidate_selector_bench.cu": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The bench builds the selector's codebooks as Weight, matching the Op's signature after the codebooks became real weights. Same change as src/ops/wrapper/candidate_selector.cpp."
     },
     "cmake/Dependencies.cmake": {
       "status": "M",
@@ -146,17 +146,17 @@
     "docs/maintainer/op-development.md": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The perturbation-coverage section of the Op development contract: a passing test is not evidence that the test can fail, and an Op whose wrong answer is well formed -- a selection returning the wrong k entries, a tie broken the wrong way, a sort that orders ascending -- needs a deliberate perturbation to be distinguishable from a correct one. That is what the NINFER_OP_TEST_MUTATIONS seam in src/ops/CMakeLists.txt exists for."
     },
     "docs/maintainer/paged-kv-cache.md": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "An anchor fix for the port's own gate: check_doc_links.py resolves every link target including its fragment, and these two maintainer documents are written in Chinese upstream, so the anchors are the full heading text rather than the English stubs the links used."
     },
     "docs/maintainer/qwen3_5-model.md": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "An anchor fix for the port's own gate: check_doc_links.py resolves every link target including its fragment, and these two maintainer documents are written in Chinese upstream, so the anchors are the full heading text rather than the English stubs the links used."
     },
     "docs/performance.md": {
       "status": "M",
@@ -211,17 +211,17 @@
     "include/ninfer/ops/attn_input_proj.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The Op contract updated for the NVFP4 drafter route: the parent stores rows in physical order [query, key, value] and the three-output specialization no longer assumes the Q8 parent's layout. Same route as src/ops/wrapper/attn_input_proj.cpp."
     },
     "include/ninfer/ops/candidate_selector.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Declares the selector codebooks as weights of logical shape [256,248320] in either format, which is what lets candidate_selector_path take them as Weight rather than as a raw pointer -- the change that lets an NVFP4 drafter artifact be served at all."
     },
     "include/ninfer/ops/linear_swiglu.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The Op contract updated for the ungated FP8 bands (docs/active-work.md item 12): A16Only and AllowA8 now hold at every positive T rather than only through T=16, with the linear-then-silu_mul decomposition materializing the gate/up projection above the fused small-T family."
     },
     "include/ninfer/types.h": {
       "status": "M",
@@ -336,7 +336,7 @@
     "src/artifact/materializer.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "plan_transfer extracts the copy-range plan from the transfer path so the same ordering and merging rule serves every caller. A deduplication of the same class as the others in this list."
     },
     "src/artifact/materializer.h": {
       "status": "M",
@@ -346,22 +346,22 @@
     "src/artifact/reader.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The other half of the Reader widening: Reader::object and Reader::component forward to the Directory it owns, so the config parser can reach metadata without every caller holding the inner type. Both Directory and Reader exist on both sides."
     },
     "src/artifact/reader.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The other half of the Reader widening: Reader::object and Reader::component forward to the Directory it owns, so the config parser can reach metadata without every caller holding the inner type. Both Directory and Reader exist on both sides."
     },
     "src/core/paged_kv_cache.h": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Documents the plane order as a contract: kv_cache_append and causal_softmax_attention walk these planes positionally, and which planes exist is a property of the resolved storage layout rather than of the Op."
     },
     "src/core/weight_view.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A validation fix: a native Weight input with RowScale layout now requires a complete FP8 parent, and says so by name, instead of reading a partial plane as though it were whole."
     },
     "src/models/qwen3_5/config.cpp": {
       "status": "M",
@@ -821,7 +821,7 @@
     "src/product/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The media-acquire wire-source classification: data URIs and HTTP(S) URLs, with libcurl linked behind NINFER_HAVE_LIBCURL and the CMake option NINFER_BUILD_MEDIA_ACQUIRE. prompt_input.cpp uses classify_wire_source to decide a message part's SourceKind, so the same prefix rule serves every wire endpoint instead of each parsing its own."
     },
     "src/product/logging/logging.cpp": {
       "status": "M",
@@ -841,12 +841,12 @@
     "src/product/media_acquire/source.h": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The media-acquire wire-source classification: data URIs and HTTP(S) URLs, with libcurl linked behind NINFER_HAVE_LIBCURL and the CMake option NINFER_BUILD_MEDIA_ACQUIRE. prompt_input.cpp uses classify_wire_source to decide a message part's SourceKind, so the same prefix rule serves every wire endpoint instead of each parsing its own."
     },
     "src/product/prompt_input/prompt_input.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The media-acquire wire-source classification: data URIs and HTTP(S) URLs, with libcurl linked behind NINFER_HAVE_LIBCURL and the CMake option NINFER_BUILD_MEDIA_ACQUIRE. prompt_input.cpp uses classify_wire_source to decide a message part's SourceKind, so the same prefix rule serves every wire endpoint instead of each parsing its own."
     },
     "src/runtime/contract/resources.h": {
       "status": "M",
@@ -866,7 +866,7 @@
     "src/runtime/engine/context_cache/resource_manager.h": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Windows necessity: MSVC has no __int128, so core/uint128.h provides the type -- a real 128-bit builtin under GCC and a two-word struct with the needed operators under MSVC. Here it replaces upstream's cast in a comparison whose product overflows 64 bits. Pinned by the port-delta baseline and protected by src/core/uint128.h's own tests."
     },
     "src/runtime/engine/engine.cpp": {
       "status": "M",
@@ -876,7 +876,7 @@
     "src/runtime/engine/kv_capacity.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A deduplication: the two execution cores held identical copies of this, and the header's own comment says why it lives in one place now -- the resolution is published into the summary both cores report, so two copies could disagree. The same class as ops/common/validation.h and the route catalog."
     },
     "src/serve/generation_service.cpp": {
       "status": "M",
@@ -901,12 +901,12 @@
     "src/serve/openai_chat_request.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Media URL validation using product::media_acquire::classify_wire_source, so every wire endpoint rejects a part that is neither HTTP(S) nor a data URI with a named error rather than passing it downstream. Same rule as src/product/media_acquire/source.h."
     },
     "src/serve/openai_responses_request.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Media URL validation using product::media_acquire::classify_wire_source, so every wire endpoint rejects a part that is neither HTTP(S) nor a data URI with a named error rather than passing it downstream. Same rule as src/product/media_acquire/source.h."
     },
     "src/serve/operational_log.cpp": {
       "status": "M",
@@ -916,7 +916,7 @@
     "src/serve/operational_log.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Engine-failure reporting: the engine latches failure permanently (fail_all_locked sets failed_ once and nothing clears it), so without this check the process stays alive forever after an engine-wide failure, indistinguishable from a healthy one at the process level. Exit code 3 is kept distinct from 1 (configuration, bind or warmup error) so a supervisor can tell them apart."
     },
     "src/serve/request_log.cpp": {
       "status": "M",
@@ -926,17 +926,17 @@
     "src/serve/serve_options.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Windows necessity: MSVC has no __int128, so core/uint128.h provides the type -- a real 128-bit builtin under GCC and a two-word struct with the needed operators under MSVC. Here it replaces upstream's cast in a comparison whose product overflows 64 bits. Pinned by the port-delta baseline and protected by src/core/uint128.h's own tests."
     },
     "src/text/jinja.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A real fix, and the comment records the incident: a byte-order mark is an encoding artifact rather than template content, the lexer would emit it as the first character of every render -- costing a token in every prompt and putting a zero-width character in front of the chat control tokens -- and an artifact has shipped with one embedded. Stripped here rather than trusting every source file to be clean."
     },
     "tests/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/README.md": {
       "status": "M",
@@ -956,12 +956,12 @@
     "tests/artifact/test_container.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/artifact/test_reader.cpp": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/artifact/tests.cmake": {
       "status": "M",
@@ -971,7 +971,7 @@
     "tests/artifact/writer_interop.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/cmake/BenchSupportTests.cmake": {
       "status": "M",
@@ -986,27 +986,27 @@
     "tests/cmake/ProductTests.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/convert/test_cli.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/convert/test_qwen3_5.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/convert/test_sources.py": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/models/qwen3_5/test_engine_dflash_real.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/models/qwen3_5/test_engine_prefix_real.cpp": {
       "status": "M",
@@ -1026,12 +1026,12 @@
     "tests/ops/linear/test_nvfp4_a16.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/ops/linear_swiglu/test_fp8.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for the ungated FP8 bands: the token list is the band boundaries themselves (1, 64, 65, 129, 192, 193, 257, 513), so a ladder that reads the wrong bound fails here. That is the defect class the named constants in fp8_linear_add_a8.cu exist to prevent."
     },
     "tests/ops/softmax_attention/main.cpp": {
       "status": "M",
@@ -1046,7 +1046,7 @@
     "tests/ops/test_attn_input_proj.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/ops/test_candidate_selector.cpp": {
       "status": "M",
@@ -1056,7 +1056,7 @@
     "tests/ops/test_context_kv_materialize.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/ops/test_gated_delta_net_replay_record.cpp": {
       "status": "M",
@@ -1086,7 +1086,7 @@
     "tests/test_cli_options.cpp": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/test_gdn_replay_records.cpp": {
       "status": "M",
@@ -1106,7 +1106,7 @@
     "tests/test_kv_cache.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/test_ninfer_bench_support.cpp": {
       "status": "M",
@@ -1116,7 +1116,7 @@
     "tests/test_openai_schema.cpp": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for the OpenAI prompt-cache write policy: the protocol defines its own, so it never uses the Engine's structural shared boundaries -- allow_engine_automatic_shared_prefixes is cleared and the automatic boundary is placed at the end of the last message instead."
     },
     "tests/test_pretty_logging.cpp": {
       "status": "M",
@@ -1131,7 +1131,7 @@
     "tests/test_serve_corpus.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
     "tests/test_tool_call_parser.cpp": {
       "status": "M",
@@ -1176,37 +1176,37 @@
     "tools/artifact/reader.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The Python half of the Win32 file I/O work: pread, pwrite and the binary-mode flag come from tools/artifact/file_io.py, which branches on sys.platform because POSIX page-cache controls have no Windows equivalent. src/artifact/file_io.cpp carries the C++ half."
     },
     "tools/artifact/writer.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The Python half of the Win32 file I/O work: pread, pwrite and the binary-mode flag come from tools/artifact/file_io.py, which branches on sys.platform because POSIX page-cache controls have no Windows equivalent. src/artifact/file_io.cpp carries the C++ half."
     },
     "tools/bench/ttft/build_fixtures.py": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The LF fix recorded in AGENTS.md: build_fixtures.py digested CRLF bytes on Windows, so 18 of 26 TTFT digests described bytes no LF checkout produces and the corpus gate passed here and failed everywhere else. The digests in manifest.json are the regenerated LF ones."
     },
     "tools/bench/ttft/cases.py": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A bench case for the resource underflow reported as issue 5: three concurrent conversations that grow, at the reporter's configuration. The failure is state released that was not held, which needs several lanes active at once and a cache serving a shared prefix."
     },
     "tools/bench/ttft/execution.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A dead assignment removed: self.completed_ns was written to a local that nothing read."
     },
     "tools/chat_templates/qwen3_8.jinja": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The shipped chat template's port changes: client reasoning-effort aliases mapped onto the three the template renders, and tool-result histories accepted whose original user turn was removed. The engine hands the template one of none|minimal|low|medium|high|xhigh|max and the template renders three, so the mapping has to live here."
     },
     "tools/convert/__main__.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Windows necessity in the converter's entry point: the drive letter is not the `file.py:function` separator, so a spec like C:/x.py:f is split with os.path.splitdrive before rpartition. Without it the drive letter is read as the function name."
     },
     "tools/convert/official_recipes.py": {
       "status": "M",
@@ -1216,22 +1216,22 @@
     "tools/convert/pipeline.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A fix on top of the annotations. pipeline.py's own comment states it: entry 0 is the artifact itself and lives at `path`, every later entry is a part beside it, and a part without a name is a writer bug rather than a path of None. resources.py guards vision_config before reading it."
     },
     "tools/convert/qwen3_5.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The _fixed helper gained a `required` flag so the draft config must state is_causal. Recorded in docs/active-work.md: DFlash v1's published config omits the key, our converter's check only raised when it was present, and the runtime never reads it -- so a converted v1 drafter silently got a uniformly non-causal block. The runtime applies one causality to the whole draft stack, so a config that omits the key leaves the converter assuming a uniformity it cannot verify, and a config this layer cannot represent is refused rather than converted. Both directions are pinned."
     },
     "tools/convert/recipe.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Type annotations, which the port's own gate requires: .githooks/pre-commit runs 'mypy tools/release tools/convert tests', so an unannotated container in the converter fails the commit rather than merely reading worse."
     },
     "tools/convert/resources.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A fix on top of the annotations. pipeline.py's own comment states it: entry 0 is the artifact itself and lives at `path`, every later entry is a part beside it, and a part without a name is a writer bug rather than a path of None. resources.py guards vision_config before reading it."
     },
     "tools/convert/sources/compressed_tensors.py": {
       "status": "M",
@@ -1241,7 +1241,7 @@
     "tools/convert/sources/safetensors.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A security fix for untrusted input: a community artifact supplies index.json, so the file names in it are not trustworthy -- an anchored path, or ../.., would replace the root when joined. The root is resolved and the names are checked against it."
     },
     "tools/upgrade_ninfer_v2_to_v3.py": {
       "status": "M",

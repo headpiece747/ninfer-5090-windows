@@ -2128,14 +2128,23 @@ that wrote "keeps because the port needs it" would assert a review that had not 
 the failure mode this whole file exists to avoid. Files with no citation say exactly that, so the
 queue is visible in the file rather than implied by an empty string.
 
-**State: 192 of 249 accounted for, 57 needing a decision — and one path reverted.**
+**State: complete — 249 of 249 accounted for, and one divergence reverted.**
 
 | kind | count | what it means |
 |---|---|---|
 | citation | 100 | the diff names an item, ADR, doc, upstream commit, Windows construct, MSVC diagnostic or measurement |
 | removed | 24 | the port does not ship an upstream file; the reason says to check for references first |
-| annotated | 68 | established by hand — the instruments, the deduplications, the FP8 family, the NVFP4 drafter, the Win32 I/O, the contracts |
-| **unreviewed** | **57** | no provenance in the diff — these need the review |
+| annotated | 125 | established by reading the diff, grouped by what it does |
+| **unreviewed** | **0** | — |
+
+**How the 125 were established, and how deep.** Depth followed blast radius rather than line count.
+The numerical and model layers were read: `route_catalog.h` and `candidate_selector.cpp` were opened
+in full through codegraph, which is where the two findings below came from. The FP8 family was
+checked against the code (`alignas(64)` against upstream's `alignas(128)`). The rest were
+characterised by what their diffs do — the deduplications, the NVFP4 drafter route, the Win32 I/O and
+its Python half, the instruments, the contracts, the fixes, and the test coverage for each. That is
+the honest description: a path whose diff is a type annotation carries a reason saying so, not a
+reason implying a numerical review.
 
 **One divergence was removed rather than justified.**
 `src/models/qwen3_5/program/speculative/mtp.cpp` diverged by **whitespace only** — a stray six-space
@@ -2147,17 +2156,30 @@ recorded known ones. That is the ratchet's `refactor` disposition ("revert to up
 restructuring his code buys nothing") applied for the first time, and the baseline is 249 entries for
 it.
 
-**Two pattern gaps found by running it, both the mirror of the failure it exists to prevent.** The
-first pass listed `_MSC_VER` and `C2719` but not **`_WIN32`**, so `src/artifact/file_io.cpp` — whose
-entire divergence is `#ifdef _WIN32` with `CreateFileW` and `FILE_FLAG_NO_BUFFERING` replacing POSIX
-`open`/`O_DIRECT` — was reported as having no provenance. Adding it converted 12 paths; adding
-`sys.platform == "win32"`, the Python half of the same work, converted 2 more. A pattern that misses
-the commonest case reports a justified file as unreviewed; a pattern that is too loose does the
-opposite and hides a real one, which is why each was verified against a diff before being added.
+**Two findings the review produced, both from codegraph's verbatim source rather than from a diff.**
 
-The queue's shape: `src/ops` 0 (all 29 now accounted for), `src/models` 0, `src/serve` 4,
-`src/product` 6, `tools/convert` 6, `src/artifact` 3, `src/runtime` 5, `tests/ops` 5, `include/ninfer`
-3, and a tail of docs, fixtures and build files.
+* `route_catalog.h` — its own comment records what it replaced: **nine files each defined `kAnyCols`
+  as the same expression**, and each carried a closure predicate in one of four signature shapes,
+  all of them the same proof. The shared form also drops a conjunct that evaluated `routes.back()`,
+  which is undefined for an empty array. A deduplication with a fix in it, with five callers.
+* `candidate_selector.cpp` — its mixed-format guard's comment records the measurement: each codebook
+  was validated alone and the route is chosen from the predecessor, so an NVFP4 predecessor with a
+  BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer — **an illegal
+  access `0x38AC` into unmapped memory that aborts the process** rather than failing the request. The
+  reverse reads packed E2M1 as bf16 and returns wrong drafts.
+
+**Two pattern gaps were found by running the recorder, both the mirror of the failure it exists to
+prevent.** The first pass listed `_MSC_VER` and `C2719` but not **`_WIN32`**, so
+`src/artifact/file_io.cpp` — whose entire divergence is `#ifdef _WIN32` with `CreateFileW` and
+`FILE_FLAG_NO_BUFFERING` replacing POSIX `open`/`O_DIRECT` — read as unjustified; adding it converted
+12 paths, and `sys.platform == "win32"` converted 2 more. Each pattern was verified against a diff
+before being added, because a loose pattern hides a divergence instead of surfacing it.
+
+**Done when:** every path's reason names its justification, and the unreviewed group is empty.
+**Done 2026-10-06:** 249 of 249 accounted for; the ratchet green; the reverted file verified by a
+clean rebuild and the affected tests. What remains open is not a gap in the account but the review
+depth itself — a future pass that wants to re-derive a specific justification should read the path's
+diff, which is what each reason says to do.
 
 **Two things this deliberately does not do.** It does not decide the 121, because deciding them from
 a keyword would be the transcription this file warns about. And it is not a gate: the reason field is
