@@ -40,7 +40,10 @@ it: at HEAD `can_release_continuation` and the reclaim have zero occurrences, an
 on 2026-10-06 with `tools/release/repro_251.py`, and **the cliff is back when the pools fill**: reuse
 holds for 1 conversation with no host backing, for 2 with a ~2-image host quota, and for all six only
 because 8 GiB of quota is more than six conversations need -- which is capacity, not reclamation
-(`docs/research/prefix-state-eviction.md`, last section). So the cliff is bounded by
+(`docs/research/prefix-state-eviction.md`, last section). The cause is a policy rather than a missing
+path: probes located every rejection at the value gate that forbids displacing a reused endpoint for an
+admission with no demonstrated reuse, so it is a stream of *distinct* conversations that hits it, not a
+single agent session with many turns. So the cliff is bounded by
 `--host-context-mib` now rather than by `--device-state-slots`, and this file's own quotas have not
 been re-derived against that. A larger value buys retained-state
 capacity for interleaved conversations, which nothing in this repo measures -- treat raising it as an

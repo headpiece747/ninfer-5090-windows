@@ -2095,9 +2095,15 @@ full.
   host quota it holds for **2** and then stops; with the shipped 8192 MiB quota it holds for all six,
   which is capacity and not reclamation -- the old finding, reproduced on the new code. So the
   shipped `--device-state-slots 1` is an unverified setting whose cliff is now bounded by
-  `--host-context-mib`, and the fix's home in the new architecture is the open question this item
-  ends on: the replacement has reclaim machinery (`begin_reclaim`, `victims`, `ReclaimRights`,
-  `may_revoke`, `retention`) and why it does not fire for this traffic is to be instrumented, not read.
+  `--host-context-mib`, and the cause is located rather than suspected: probes on that run (temporary,
+  reverted) show the shortage carrying the state slot, `plan_reclaim` offering one demotion and one
+  release, and **every action rejected by the value gate at
+  `src/runtime/engine/context_cache/resource_manager.h:1282`** (`victim.reused=1 admission.reused=0`)
+  -- a reused endpoint may not be displaced by an admission that has demonstrated no reuse. So the
+  replacement evicts by policy and the port's `d05ee90a` evicted by LRU; the cliff is that policy's
+  consequence for a stream of distinct conversations, and what is left is a decision (size the pools
+  for this port's workload, or ask for the LRU behaviour back), not a diagnosis. Both are written up
+  in `docs/research/prefix-state-eviction.md`.
 * `src/runtime/engine/context_cache/{materialization_budget.h,materialization_planner.h}` and
   `tests/test_materialization_budget.cpp` -- superseded. The port's 250 ms grant ceiling (`e92cd9d7`)
   patched a mechanism upstream's rewrite deleted; `MaterializationSearchBudget` has zero occurrences

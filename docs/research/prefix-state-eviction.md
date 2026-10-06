@@ -861,4 +861,44 @@ Consequences for this port, which the note has to state because it ships the set
   for this traffic is the next question**, to be instrumented the way this note's sections were --
   not read.
 
+## LOCATED 2026-10-06: the replacement refuses by policy, not through a missing path
+
+Probes on the same fast loop (temporary `std::fprintf`, reverted before commit) logged the shortage,
+the reclaim cursor, the plans the Program offers, and every gate the admission runs:
+
+```
+[probe] reclaim: state=1 main=0 backend=0 host=0 victims=1        <- the shortage DOES carry the slot
+[probe] reclaim: actions=0 demotions=1 releases=1 rejected_by_admits=2 -> Blocked
+[probe] admits: rejected by the value gate
+        (victim.reused=1 admission.reused=0 victim.last=4 admission.last=0)
+```
+
+So: the state slot is demanded, the cursor enumerates candidates, `Program::plan_reclaim` offers one
+demotion **and** one release, and then `admits` rejects both. The rejection is always the same gate,
+`resource_manager.h:1282-1285`:
+
+```cpp
+if (victim.reused && (!admission->priority.reused ||
+                      victim.last_demand >= admission->priority.last_demand)) {
+    return false;
+}
+```
+
+**A reused endpoint may not be displaced by an admission that has demonstrated no reuse.** The
+replacement does have eviction; it declines to spend a hot entry on a cold capture. The port's
+`d05ee90a` did the opposite -- it reclaimed the oldest unpinned continuation regardless -- so this is
+a policy difference between the two caches, and the measured cliff is that policy's consequence for a
+stream of distinct conversations, not an unwired path.
+
+What that leaves for this port is a decision, not a diagnosis:
+
+1. **Size the pools so they do not fill for this port's workload.** The cliff needs *many distinct
+   conversations*; a single agent session with many turns keeps its own endpoints hot and is served
+   by the policy. The number to measure is the count of live conversations a lane keeps, not prompt
+   size, and the knob is `--host-context-mib` (~147 MiB of state per retained conversation).
+2. **Or ask for the LRU behaviour back** -- the port's own reason to want it is recorded above and was
+   measured, but the change is now a value-policy change in upstream-owned code, so it needs its own
+   justification rather than a restore.
+
+
 
