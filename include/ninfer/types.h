@@ -293,8 +293,22 @@ struct OutputConstraint {
     bool operator==(const OutputConstraint&) const = default;
 };
 
+enum class ToolChoiceMode : std::uint8_t { Auto, None, Required };
+// Basic protects every tool call. Automatic applies constraints only for strict tools or an
+// explicit selection/count policy.
+enum class ToolConstraintMode : std::uint8_t { Automatic, Basic };
+
+// Declarations belong to PromptOptions. Selection and cardinality affect this generation only.
+struct ToolChoice {
+    ToolChoiceMode mode = ToolChoiceMode::Auto;
+    std::optional<std::vector<std::string>> allowed_names;
+    bool parallel                  = true;
+    ToolConstraintMode constraints = ToolConstraintMode::Basic;
+};
+
 struct RequestOptions {
     std::optional<OutputConstraint> constraint;
+    ToolChoice tool_choice;
     ExecutionOptions execution;
     StopPolicy stop;
     OutputOptions output;
@@ -330,9 +344,9 @@ struct GeneratedToolCall {
     std::string arguments_json;
 };
 
-// Terminal interpretation of model-origin tool-call markup. Parameter schemas guide JSON
-// normalization but do not validate the call; only a structure/identity failure can return a
-// complete marker region to ordinary content.
+// Diagnostics for model-origin tool-call markup. Free generation uses schema-guided value
+// normalization and can return malformed markup as text. Constrained calls use the model's
+// parameter encoding contract and publish only complete calls.
 enum class ToolCallParseFallbackReason : std::uint8_t {
     None,
     MalformedStructure,
@@ -526,6 +540,7 @@ struct PromptInput {
 };
 
 enum class RequestErrorKind : std::uint8_t {
+    InvalidToolConstraint,
     InvalidGrammar,
     InvalidJsonSchema,
     UnsupportedJsonSchema,

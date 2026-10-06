@@ -153,7 +153,7 @@ def test_is_registered(test: str) -> bool:
         [str(CTEST), "--test-dir", "build-test", "-N", "-R", f"^{re.escape(test)}$"],
         env=environment,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         check=False,
     )
     return bool(CTEST_TEST_LINE.search(completed.stdout + completed.stderr))
@@ -184,7 +184,7 @@ def targets_are_current(targets: list[str]) -> tuple[bool, str]:
         [str(CTEST.parent / "cmake.exe"), "--build", "build-test", "--target", *targets, "--", "-n"],
         env=environment,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         check=False,
     )
     if completed.returncode != 0:
@@ -221,7 +221,7 @@ def run_once(test: str, env_value: str | None) -> tuple[bool, str, float]:
         [str(CTEST), "--test-dir", "build-test", "-R", f"^{re.escape(test)}$"],
         env=environment,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         check=False,
     )
     elapsed = time.monotonic() - started

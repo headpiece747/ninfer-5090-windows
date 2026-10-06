@@ -61,7 +61,7 @@ def tracked_files() -> list[str]:
     import subprocess
 
     listed = subprocess.run(
-        ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=False
+        ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, encoding="utf-8", check=False
     )
     if listed.returncode != 0:
         return []

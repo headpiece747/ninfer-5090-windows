@@ -156,7 +156,6 @@ struct PreparedPromptData {
     PreparedContextCache context_cache;
     std::shared_ptr<const frontend::ToolCallOutputContract> tool_call_output;
     bool starts_in_reasoning = false;
-    bool has_active_tools    = false;
     std::string continuation_content;
     PrepareStats prepare;
 

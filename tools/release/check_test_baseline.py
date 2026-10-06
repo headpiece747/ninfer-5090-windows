@@ -15,11 +15,18 @@ The third check exists because the first two cannot see it: a run that executed 
 reports no failures and no fixed baseline entries, so it passed. Any future scoping of the suite
 depends on this being asserted.
 
+A fourth check covers the run itself: the build tree is identified before and after the suite,
+because a build that races the run leaves a verdict about no single tree and the ctest log cannot
+show it.
+
 Reuse: the suite executes the built test executables, so their size and modification time identify
 the code under test more precisely than a source hash -- a rebuild changes both, and a stale build
-is exactly the case a cached verdict must not cover. When every test executable is unchanged since
-a green run, that verdict is reused instead of re-running the suite; the baseline comparison below
-is still applied, so a changed baseline still takes effect. Pass --no-cache to force a run.
+is exactly the case a cached verdict must not cover. The generated CTestTestfile.cmake files are
+hashed with them, because those carry the suite's SHAPE: a configure that adds or removes a
+registration relinks nothing, so an executable-only key would reuse a verdict about a different
+suite. When every test executable and every registration is unchanged since a green run, that verdict
+is reused instead of re-running the suite; the baseline comparison below is still applied, so a
+changed baseline still takes effect. Pass --no-cache to force a run.
 
 The ctest log is kept at build-test/Testing/Temporary/gate-ctest.log, so the run is auditable and
 the per-test timings survive.
@@ -73,16 +80,40 @@ def find_ctest() -> str | None:
 
 
 def binary_key() -> str | None:
-    """Identify the built test executables, or None when the build tree is absent."""
+    """Identify the built test executables AND the generated test list, or None when absent.
+
+    Both are needed, and the second is not redundant. The executables identify the code under test;
+    the `CTestTestfile.cmake` files identify the suite's SHAPE. A configure that adds or removes a
+    registration relinks nothing, so an executable-only key reuses a verdict about a different suite
+    -- on 2026-10-07 that reused a 145-test log against a 149-test tree and read green, and the
+    suite-size assertion below could not see it because the stale log and the baseline agreed.
+    """
     executables = sorted(BUILD.rglob("*.exe"))
     if not executables:
         return None
     digest = hashlib.sha256()
-    for executable in executables:
-        stat = executable.stat()
-        digest.update(f"{executable.relative_to(REPO).as_posix()}:{stat.st_size}:{stat.st_mtime_ns}\n"
+    for path in executables + sorted(BUILD.rglob("CTestTestfile.cmake")):
+        stat = path.stat()
+        digest.update(f"{path.relative_to(REPO).as_posix()}:{stat.st_size}:{stat.st_mtime_ns}\n"
                       .encode("utf-8"))
     return digest.hexdigest()
+
+
+def binary_key_changed_reason(before: str | None, after: str | None) -> str | None:
+    """Why a verdict must be discarded, or None when it describes one tree.
+
+    A suite takes minutes and so does a build. Two ways to lose that race are already recorded in
+    this repository: relinking a test executable that ctest is executing fails the link with
+    LNK1104, and a relink that lands mid-run means the failures describe no single tree. Neither
+    leaves a trace in the ctest log, so the tree's identity is compared before and after the run
+    rather than assumed. A missing key is not a reason to discard: --from-log and a host without
+    binaries both legitimately have none.
+    """
+    if before is None or after is None or before == after:
+        return None
+    return ("the build tree changed while the suite ran (a build or configure raced it), so this "
+            "verdict describes no single tree. Build first, then run the suite with nothing else "
+            "writing to build-test.")
 
 
 def run_ctest() -> str:
@@ -92,10 +123,16 @@ def run_ctest() -> str:
             "  GATE ERROR: ctest was not found. Run this from a Visual Studio developer prompt, "
             "or pass --from-log with a captured ctest log.")
     print("  running ctest (this takes several minutes)...")
+    # The same flags tools/scripts/test_v3.cmd uses, because a verdict must describe the run the
+    # recipe defines: `-j 8` is safe for the reason recorded there (the real-model tests carry
+    # RUN_SERIAL, so nothing runs alongside them) and it saves minutes, and --schedule-random is how
+    # order-dependence is covered at all -- a fixed order hides a test that poisons the ones after it,
+    # which is exactly what happened on 2026-09-25. The baseline compares test NAMES, so the order
+    # changes nothing about the verdict.
     result = subprocess.run(
-        [ctest, "--test-dir", "build-test", "--output-on-failure",
+        [ctest, "--test-dir", "build-test", "--output-on-failure", "--schedule-random", "-j", "8",
          "--timeout", str(TEST_TIMEOUT_SECONDS)],
-        cwd=REPO, capture_output=True, text=True, check=False)
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", check=False)
     # ctest exits non-zero when tests fail, which is expected here; the log is what matters.
     log = result.stdout + result.stderr
     LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -172,12 +209,20 @@ def main() -> int:
     baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
     known = set(baseline.get("known_failures", {}))
 
-    key = None if (args.from_log or args.no_cache) else binary_key()
-    log = cached_log(key) if key else None
+    # The key is computed even under --no-cache: it identifies the tree this verdict will describe,
+    # and it is re-checked after the run so a build that raced it is caught rather than certified.
+    key = binary_key()
+    log = cached_log(key) if key and not (args.from_log or args.no_cache) else None
     reused = log is not None
     if log is None:
-        log = args.from_log.read_text(encoding="utf-8", errors="replace") \
-            if args.from_log else run_ctest()
+        if args.from_log:
+            log = args.from_log.read_text(encoding="utf-8", errors="replace")
+        else:
+            log = run_ctest()
+            raced = binary_key_changed_reason(key, binary_key())
+            if raced:
+                print(f"  GATE FAILED: {raced}")
+                return 1
 
     total = parse_total(log)
     failing = parse_failures(log)
@@ -243,7 +288,7 @@ def main() -> int:
 
     if key and not reused:
         store_cache(key, log, subprocess.run(["git", "log", "-1", "--format=%h %cI"], cwd=REPO,
-                                             capture_output=True, text=True,
+                                             capture_output=True, text=True, encoding="utf-8",
                                              check=False).stdout.strip())
     print("\n  GATE PASSED: no regression against the recorded baseline")
     return 0

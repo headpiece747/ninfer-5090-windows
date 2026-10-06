@@ -367,7 +367,7 @@ def run_command(command: Sequence[str], stdout_path: Path, stderr_path: Path) ->
         process = subprocess.run(
             list(command),
             cwd=REPO_ROOT,
-            text=True,
+            text=True, encoding="utf-8",
             stdout=stdout,
             stderr=stderr,
             check=False,

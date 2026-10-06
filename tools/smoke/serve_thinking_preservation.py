@@ -324,7 +324,7 @@ def main() -> None:
                 command,
                 stdout=output,
                 stderr=subprocess.STDOUT,
-                text=True,
+                text=True, encoding="utf-8",
             )
             try:
                 wait_for_server(base_url, process, args.startup_timeout)

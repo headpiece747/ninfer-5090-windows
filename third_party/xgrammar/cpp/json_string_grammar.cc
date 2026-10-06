@@ -71,7 +71,7 @@ std::string schema_characters(const std::string& pattern) {
   const std::string space =
       R"(\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000\ufeff)";
   const std::string nonspace =
-      R"(\u0000-\u0008\u000e-\u001f\u0021-\u009f\u00a1-\u167f\u1681-\u1fff\u200b-\u2027\u202a-\u202e\u2030-\u205e\u2060-\u2fff\u3001-\ufefe\uff00-\U0010ffff)";
+      R"(\u0000-\u0008\u000e-\u001f\u0021-\u009f\u00a1-\u167f\u1681-\u1fff\u200b-\u2027\u202a-\u202e\u2030-\u205e\u2060-\u2fff\u3001-\ufefe\uff00-\u{10ffff})";
   std::string result;
   bool in_class = false;
   for (size_t i = 0; i < pattern.size(); ++i) {
@@ -177,15 +177,20 @@ std::string search_pattern(const std::string& pattern) {
         throw std::invalid_argument("pattern anchors must bound a top-level alternative");
     }
     if (!result.empty()) result += "|";
-    result += (start ? "" : "[^]*") + std::string("(?:") + branch + ")" + (end ? "" : "[^]*");
+    const std::string any = R"([^\uD800-\uDFFF]*)";
+    result += (start ? "" : any) + std::string("(?:") + branch + ")" + (end ? "" : any);
   }
   return result;
 }
 }  // namespace
 
+std::string SchemaStringPattern(const std::string& pattern) {
+  return search_pattern(schema_characters(pattern));
+}
+
 Grammar JSONStringPattern(const std::string& pattern) {
   return GrammarNormalizer::Apply(
-      JSONEncoder().Apply(Grammar::FromRegex(search_pattern(schema_characters(pattern)))));
+      JSONEncoder().Apply(Grammar::FromRegex(SchemaStringPattern(pattern))));
 }
 
 Grammar JSONStringLength(int minimum, int maximum) {

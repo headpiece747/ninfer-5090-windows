@@ -590,12 +590,7 @@ void parse_tools(const Json& body, GenerationRequest& output) {
             if (!function.at("strict").is_boolean()) {
                 bad_request("function strict must be a boolean", "tools");
             }
-            if (function.at("strict").get<bool>()) {
-                bad_request(
-                    "strict=true requires generated function arguments to satisfy the declared "
-                    "JSON Schema, which NInfer cannot guarantee",
-                    "tools", "strict_tools_not_supported");
-            }
+            tool.strict = function.at("strict").get<bool>();
         }
         output.tools.push_back(std::move(tool));
     }
@@ -640,18 +635,8 @@ void apply_allowed_tools(const Json& config, GenerationRequest& output) {
         }
     }
 
-    if (mode == "required") {
-        bad_request(
-            "tool_choice.allowed_tools mode='required' requires at least one tool call, which "
-            "NInfer cannot guarantee",
-            "tool_choice", "tool_choice_not_supported");
-    }
-
-    std::erase_if(output.tools, [&](const ToolDefinition& tool) {
-        return std::find(allowed_names.begin(), allowed_names.end(), tool.name) ==
-               allowed_names.end();
-    });
-    output.tool_choice.mode = ToolChoiceMode::Auto;
+    output.tool_choice.allowed_names = std::move(allowed_names);
+    output.tool_choice.mode = mode == "required" ? ToolChoiceMode::Required : ToolChoiceMode::Auto;
 }
 
 void parse_tool_choice(const Json& body, GenerationRequest& output) {
@@ -664,10 +649,7 @@ void parse_tool_choice(const Json& body, GenerationRequest& output) {
         } else if (value == "none") {
             output.tool_choice.mode = ToolChoiceMode::None;
         } else if (value == "required") {
-            bad_request(
-                "tool_choice='required' requires at least one tool call, which NInfer cannot "
-                "guarantee",
-                "tool_choice", "tool_choice_not_supported");
+            output.tool_choice.mode = ToolChoiceMode::Required;
         } else {
             bad_request("tool_choice must be 'auto', 'none', 'required', or a function choice",
                         "tool_choice");
@@ -684,11 +666,10 @@ void parse_tool_choice(const Json& body, GenerationRequest& output) {
             if (!choice.contains("function") || !choice.at("function").is_object()) {
                 bad_request("function tool_choice must contain a function object", "tool_choice");
             }
-            const std::string name = require_function_name(choice.at("function"), "tool_choice");
-            bad_request(
-                "tool_choice for function '" + name +
-                    "' requires that exact function to be called, which NInfer cannot guarantee",
-                "tool_choice", "tool_choice_not_supported");
+            const std::string name  = require_function_name(choice.at("function"), "tool_choice");
+            output.tool_choice.mode = ToolChoiceMode::Required;
+            output.tool_choice.allowed_names = std::vector<std::string>{name};
+            output.tool_choice.parallel      = false;
         } else if (type == "custom") {
             bad_request(
                 "custom tool_choice requires custom tool output, which NInfer does not provide",
@@ -701,19 +682,14 @@ void parse_tool_choice(const Json& body, GenerationRequest& output) {
     }
 }
 
-void parse_parallel_tool_calls(const Json& body, const GenerationRequest& output) {
+void parse_parallel_tool_calls(const Json& body, GenerationRequest& output) {
     if (!body.contains("parallel_tool_calls") || body.at("parallel_tool_calls").is_null()) {
         return;
     }
     if (!body.at("parallel_tool_calls").is_boolean()) {
         bad_request("parallel_tool_calls must be a boolean", "parallel_tool_calls");
     }
-    if (!body.at("parallel_tool_calls").get<bool>() && output.uses_tools()) {
-        bad_request(
-            "parallel_tool_calls=false requires the model to emit at most one tool call, which "
-            "NInfer cannot guarantee while tools are enabled",
-            "parallel_tool_calls", "parallel_tool_calls_not_supported");
-    }
+    output.tool_choice.parallel &= body.at("parallel_tool_calls").get<bool>();
 }
 
 void parse_stop(const Json& body, GenerationRequest& output) {

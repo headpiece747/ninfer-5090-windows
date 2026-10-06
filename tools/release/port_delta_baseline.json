@@ -1225,13 +1225,19 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Port goldens for the artifact frontend check. exercise_artifact_frontend is upstream's and asserts upstream's artifacts (16 thinking / 18 no-thinking); this port's artifacts measure 58/18, because their embedded template emits the reasoning-effort instruction as a synthetic system message -- exactly the 40-token delta -- and upstream's predates it. Upstream's 16 also returned early, hiding every other scenario in this file. The port now asserts its own goldens and names the actual count on failure. Change these numbers only against a fresh measurement, and prefer the shipping path: `ninfer --messages` reports prompt tokens directly."
+      "reason": "Port edits in an upstream test file: artifact goldens, a guarded main, and the model's default stops where a tool is declared. (1) exercise_artifact_frontend is upstream's and asserts upstream's artifacts (16 thinking / 18 no-thinking); this port's artifacts measure 58/18, because their embedded template emits the reasoning-effort instruction as a synthetic system message -- exactly the 40-token delta -- and upstream's predates it. Upstream's 16 also returned early, hiding every other scenario in this file. The port asserts its own goldens and names the actual count on failure; change these only against a fresh measurement, and prefer the shipping path (`ninfer --messages` reports prompt tokens directly). (2) main() guards the scenario dispatch and reports the failing scenario and its reason, because an uncaught throw reached std::terminate and exited 0xC0000409 with no message -- which reads as a crash in the code under test, and did, for one session. (3) Six scenarios keep the model's default EOS stops where they declare a tool. Upstream 41e50d0d made a tool-declaring request take a constrained contract, and src/models/qwen3_5/frontend/frontend.cpp:915 rejects include_model_defaults=false for it; that commit did not update its own scenarios. Measured 2026-10-07 over all 13 scenarios: those six failed with 'constraints require default EOS, text output, no custom stops, and one output language', while shared-rewrite-materialization also declares tools and passed because it never disabled them. No assertion changed."
     },
     "tests/models/qwen3_5/test_frontend.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
       "reason": "Cited in the diff -- ADR: 0010. Open it before changing this path."
+    },
+    "tests/models/qwen3_5/test_tool_schema.py": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Subprocess call states encoding='utf-8'. Upstream's new tool-schema oracle uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII (ensure_ascii=False), so the first case raised UnicodeEncodeError before the probe ran. The same defect and the same fix as tests/text/test_json_schema.py, which upstream wrote the same way; upstream has no CI, so neither had been run anywhere but the maintainer's machine. No assertion changed."
     },
     "tests/models/qwen3_5/tests.cmake": {
       "status": "M",
@@ -1431,6 +1437,18 @@
       "review": "windows",
       "reason": "The Python half of the Win32 file I/O work: pread, pwrite and the binary-mode flag come from tools/artifact/file_io.py, which branches on sys.platform because POSIX page-cache controls have no Windows equivalent. src/artifact/file_io.cpp carries the C++ half."
     },
+    "tools/bench/run_ninfer_bench_matrix.py": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Subprocess call states encoding='utf-8'. Upstream's call uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII. Windows necessity, found by the subprocess-encoding gate (check_subprocess_encoding.py), which exists because upstream wrote the same defect twice. No assertion changed."
+    },
+    "tools/bench/run_serve_ttft_campaign.py": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Subprocess call states encoding='utf-8'. Upstream's call uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII. Windows necessity, found by the subprocess-encoding gate (check_subprocess_encoding.py), which exists because upstream wrote the same defect twice. No assertion changed."
+    },
     "tools/bench/ttft/build_fixtures.py": {
       "status": "M",
       "disposition": "windows",
@@ -1502,6 +1520,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "A security fix for untrusted input: a community artifact supplies index.json, so the file names in it are not trustworthy -- an anchored path, or ../.., would replace the root when joined. The root is resolved and the names are checked against it."
+    },
+    "tools/smoke/serve_thinking_preservation.py": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Subprocess call states encoding='utf-8'. Upstream's call uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII. Windows necessity, found by the subprocess-encoding gate (check_subprocess_encoding.py), which exists because upstream wrote the same defect twice. No assertion changed."
     },
     "tools/upgrade_ninfer_v2_to_v3.py": {
       "status": "M",

@@ -410,7 +410,7 @@ def _run_client(command: Sequence[str], progress_path: Path) -> int:
         process = subprocess.Popen(
             list(command),
             cwd=REPO_ROOT,
-            text=True,
+            text=True, encoding="utf-8",
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             bufsize=1,

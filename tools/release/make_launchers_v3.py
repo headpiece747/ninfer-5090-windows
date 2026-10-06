@@ -51,7 +51,7 @@ REM  TDR (Timeout Detection and Recovery): the RTX 5090 is a GeForce, so it runs
 REM  2-second TDR budget. No single GPU operation in any measured profile approaches this
 REM  (prefill is chunked, decode uses CUDA graphs with a handful of tokens per round, weight
 REM  upload is DMA). If a future profile ever contains a launch that could exceed 2 s, set
-REM  TdrDelay in the registry (HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers) to
+REM  TdrDelay in the registry (HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers) to
 REM  raise the threshold. A TDR surfaces as a CUDA error and the engine's fail-stop latch
 REM  terminates the process rather than continuing with a lost device.
 REM ============================================================================

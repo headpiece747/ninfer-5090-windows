@@ -15,6 +15,8 @@ its miss factory covers validation, conversion and output framing within the col
 JSON adaptations preserve literal data in cache keys, reject unsupported unions, resolve local
 JSON Pointers and carry typed errors with schema locations. String grammars constrain decoded
 Unicode values before JSON encoding; property-name exclusion also covers escaped spellings.
+The Qwen converter uses canonical tool framing, preserves raw-string assertions with delimiter
+exclusion, and emits argument numbers that the protocol JSON adapters can represent.
 
 The CPU dependency closure includes Lark and all format converters referenced by the shared
 factories. `cpp/testing.cc` also supplies token-formatting diagnostics used by the matcher and

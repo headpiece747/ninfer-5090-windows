@@ -1,11 +1,12 @@
 #!/bin/sh
-# Twelve checks, all seconds: documentation links resolve, documentation citations still point
+# Thirteen checks, all seconds: documentation links resolve, documentation citations still point
 # inside the files they name, tracked text is byte-preserved UTF-8, the
 # profile tables match the profile module and the generated launchers, the calibration corpus is
 # still the one the artifact's creator used, the set of production functions defaulting a CUDA stream
 # has not widened, no first-party type is declared and never named again, no copy-paste has been
 # added past the recorded baseline, no divergence from upstream inside an upstream-owned
 # file has gone unrecorded, every skill in this repository is discoverable and advertised,
+# no subprocess is spawned without an explicit text encoding,
 # and the converter tests
 # pass. Each has caught a real drift in this repository --
 # a README quoting a digest the pins had moved past, 181 lines of documentation re-encoded by a
@@ -83,6 +84,7 @@ gate "new duplication" "$PY" tools/release/check_duplication.py
 if git rev-parse --verify --quiet upstream/dev >/dev/null; then
     gate "port delta" "$PY" tools/release/check_port_delta.py --check
 gate "skills" "$PY" tools/release/check_skills.py
+gate "subprocess encoding" "$PY" tools/release/check_subprocess_encoding.py
 else
     echo "pre-commit: SKIPPED port delta -- upstream/dev is not a local ref (run: git fetch upstream)"
 fi
@@ -95,6 +97,10 @@ fi
 # failing every commit for a C++ contributor, while its presence runs the check.
 if command -v node >/dev/null 2>&1; then
     gate "opencode plugin load" node --experimental-strip-types tools/opencode/test_plugin_loads.mjs
+    # The load check asks whether the plugins would run at all; this one asks whether what they deny
+    # is right. It needs no install and no stub, and without it the deny rules are exercised only by
+    # hand -- which is how a rule that refuses nothing can look like a rule that works.
+    gate "opencode claims-gate logic" node --experimental-strip-types tools/opencode/test_claims_gate.mjs
 else
     echo "pre-commit: SKIPPED opencode plugin load -- node not on PATH (npm install --prefix .opencode/plugins)"
 fi
@@ -103,7 +109,7 @@ echo "pre-commit: converter tests"
 # so collecting the directory would abort the run instead of adding to it. The calibration-corpus and
 # perturbation tests are named for the same reason, and because a gate whose failure paths have never
 # been run is indistinguishable from one that always passes.
-"$PY" -m pytest tests/convert tests/release/test_doc_links.py tests/release/test_text_encoding.py tests/release/test_calibration_corpus.py tests/release/test_test_mutation.py -q
+"$PY" -m pytest tests/convert tests/release/test_doc_links.py tests/release/test_text_encoding.py tests/release/test_calibration_corpus.py tests/release/test_test_mutation.py tests/release/test_subprocess_encoding.py tests/release/test_test_baseline_cache.py -q
 echo "pre-commit: ruff"
 "$PY" -m ruff check tools tests --quiet
 echo "pre-commit: mypy"

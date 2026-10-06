@@ -18,6 +18,7 @@ struct ResolvedExecutionOptions {
 
 struct ResolvedRequestOptions {
     std::optional<OutputConstraint> constraint;
+    ToolChoice tool_choice;
     ResolvedExecutionOptions execution;
     StopPolicy stop;
     OutputOptions output;

@@ -119,6 +119,16 @@ cmake --build build --parallel --target \
 ctest --test-dir build -R '^ninfer_linear_(q4|q5|q6|q8)_a16_test$' --output-on-failure
 ```
 
+For a change confined to one Q8 geometry, use the same public conformance cases with
+`./build/tests/ninfer_linear_q8_a16_test --shape N K`. The default CTest invocation still covers
+all registered Q8 geometries.
+
+For a change confined to a newly supported BF16 geometry, use
+`./build/tests/ninfer_linear_bf16_a16_test --shape N K`. These cases use the common full-K FP64
+oracle with exact BF16 weights, complete output checks for small N, route boundaries, changed-input
+Graph replay, both public overloads, workspace domains, and preservation/guard checks. The small
+control projections also cover terminal-K pulses and paired cancellation.
+
 All Linear files use `ops/linear/linear_test_common.{h,cpp}` and the same
 `ops/quantized_weight.h` fixture as the fused projection tests. The fixture produces the complete
 packed GPU payload and exact-decodes the logical float rows used by the one
@@ -128,6 +138,12 @@ rounding. Each activation compute path selects one centrally defined comparison 
 whole suite; private kernel, schedule, launcher, and T selection do not change it. Individual test
 files call public `linear()` and contain no private selector, launcher, schedule, or kernel
 assertions.
+
+The Q8 suite includes `[2560,6144]`, `[6144,2560]`, `[10240,2560]`, `[12288,2560]`, and
+`[16384,2560]`: full-output FP64 comparisons at T=1/4/8,
+sampled-output checks at larger extents including 512/1024 and 129/1025, production boundaries,
+changed-input Graph replay, both public overloads, permissive policies, input/weight preservation,
+output guards, and valid/invalid workspace intervals.
 
 The Linear, LinearAdd and LinearSwiGLU common `.cpp` implementations each compile once into a
 test support library. Both those libraries and the Op test executables receive the oracle's
@@ -221,6 +237,15 @@ physical state/KV ownership, binding, capture, reclamation and abort; their posi
 `none`, `mtp`, `dflash` or `dflash2`. Each backend requires an artifact containing that component.
 Public-HTTP latency and output gaps are measured separately by the
 [TTFT campaign](../tools/bench/ttft/README.md).
+
+`ninfer_qwen3_5_tools_real_test [none|mtp|dflash|dflash2] [graph|eager|basic|snapshot|replay|cancel] [concurrency]`
+uses `NINFER_TEST_ARTIFACT` for strict tools, thinking, raw continuation, mixed batches, and
+call/result prefix reuse. `basic` checks default constraints with open/complex schemas, continuation,
+streaming and mixed strict/basic/free rows. Snapshot/Replay modes force resource pressure and
+validate the completed argument value after recovery; `cancel` interrupts the paused request.
+`NINFER_TEST_TOOL_REPORT` appends schema/output/timing JSONL.
+`python3 tests/models/qwen3_5/test_tool_schema.py` checks the native Qwen grammar and decoder against
+`jsonschema` (dependencies in `tests/text/requirements.txt`).
 
 `ninfer_qwen3_5_grammar_real_test [none|mtp|dflash|dflash2] [graph|eager] [concurrency] [vision]` uses
 `NINFER_TEST_ARTIFACT` to check GBNF/JSON/schema content, sampling, thinking, continuation, prefix reuse

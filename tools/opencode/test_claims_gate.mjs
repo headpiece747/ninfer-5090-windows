@@ -128,6 +128,18 @@ await check("allow external citation (target under docs/research)", await call("
 await check("allow non-markdown file", await call("write", { path: resolve(REPO, "zz.cpp"), content: "see x.cpp:999999" }), false)
 await check("allow safe WriteAllText", await call("shell", { command: "[System.IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($false)))" }), false)
 await check("allow ordinary git", await call("shell", { command: "git log --oneline -1" }), false)
+
+// ---- inline scripts: measured on PowerShell 5.1, not judged ----
+// A backslash does not escape a quote in PowerShell; the backtick does. The first case is the exact
+// shape that cost four turns in one session -- the argument is truncated at the backslash, so the
+// program receives a partial script and can succeed while writing nothing. The four allow cases are
+// the scope: each was measured to work, and denying any of them would be the gate being wrong.
+await check("deny  python -c with a backslash-escaped quote", await call("shell", { command: 'python -c "print(\\"AAA\\")"' }), true)
+await check("deny  cdb -c carrying a command list", await call("shell", { command: 'cdb -z dump.dmp -c "sxe av; g"' }), true)
+await check("allow python -c with single-quoted inner text", await call("shell", { command: `python -c "print('BBB')"` }), false)
+await check("allow a multi-line inline script", await call("shell", { command: 'python -c "\nimport sys\nsys.stdout.write(1)\n"' }), false)
+await check("allow cdb -cf with a command file", await call("shell", { command: "cdb -z dump.dmp -cf cmds.txt" }), false)
+await check("allow a backslash-quote inside a search pattern", await call("shell", { command: `rg 'a\\"b' src` }), false)
 await check("allow a read-only tool", await call("read", { path: AGENTS }), false)
 
 // ---- the edit that removes a bad citation must be allowed ----

@@ -1,6 +1,6 @@
 {
-  "recorded": "2026-10-05",
-  "suite_size": 149,
+  "recorded": "2026-10-07",
+  "suite_size": 152,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -57,6 +57,11 @@
       "date": "2026-10-05",
       "count": 4,
       "note": "upstream five commits add four ctest entries and remove none: ninfer_grammar_test, ninfer_json_schema_test, ninfer_json_schema_oracle_test, ninfer_qwen3_5_grammar_real_test. Measured with ctest -N against the merged tree (149) and attributed from git diff 68c54356..upstream/dev on tests/. 145 -> 149."
+    },
+    {
+      "date": "2026-10-07",
+      "count": 3,
+      "note": "upstream constrained tool calling adds three ctest entries and removes none: ninfer_qwen3_5_tool_constraints_test, ninfer_qwen3_5_tool_schema_oracle_test, ninfer_qwen3_5_tools_real_test. Measured with ctest -N against the merged tree (152) and attributed from the previous run list (149). 149 -> 152."
     }
   ]
 }

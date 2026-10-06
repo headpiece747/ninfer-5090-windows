@@ -19,6 +19,14 @@
 //   2. A shell command matching Set-Content / Out-File / Add-Content with `-Encoding utf8`. Under
 //      PowerShell 5.1 that writes a BOM and Get-Content decodes with the console codepage; the pair
 //      destroyed 181 lines of docs/active-work.md in one session while every other gate passed.
+//   3. A shell command that hands an inline script to an interpreter with a backslash-escaped
+//      quote, and a `cdb -c` command list. A backslash does not escape a quote in PowerShell -- the
+//      backtick does -- so the argument is truncated at the backslash. Measured on PowerShell 5.1:
+//      `python -c "print(\"x\")"` hands Python `print(\`. This cost four turns in one session, and
+//      the failure is silent in both directions: the command can succeed while writing an empty
+//      file, so its exit code is not the thing to check. The scope is deliberate -- a single-quoted
+//      inner string, a multi-line script and a `\"` inside a search pattern all still pass, because
+//      each of those was measured to work.
 //
 // WHAT THIS CANNOT DO: nothing observes what the agent SAYS. No hook covers assistant prose, so "do
 // not assert before reading" is not enforceable by any plugin.
@@ -172,6 +180,39 @@ function reencodingCommand(cmd: string): string | null {
   return null
 }
 
+/** Inline-script shapes whose quoting does not survive the shell. Measured, not judged.
+ *
+ *  PowerShell escapes with a backtick, not a backslash, so `\"` inside a double-quoted string ends
+ *  the string and the native command receives a truncated argument. Measured on PowerShell 5.1:
+ *
+ *      & python -c "print(\"AAA\")"   ->  Python receives `print(\`      (SyntaxError)
+ *      & python -c "print('BBB')"    ->  Python receives `print('BBB')`  (works)
+ *
+ *  The scope is what makes this provable rather than a style opinion. A single-quoted inner string
+ *  works, a multi-line double-quoted script works, and `\"` inside a search pattern such as
+ *  `rg 'a\"b'` is literal data for the program rather than a quoting mistake -- so the deny requires
+ *  an interpreter's inline-script flag as well as the escape.
+ */
+function inlineScriptQuoting(cmd: string): string | null {
+  const interpreter = /\b(?:python3?|py|node|perl|ruby)\b[^|]*?\s(?:-c|-e|--eval)\b/
+  if (interpreter.test(cmd) && /\\["']/.test(cmd)) {
+    return (
+      "a backslash does not escape a quote in PowerShell -- it truncates the argument at the " +
+      "backslash, so the program receives a partial script. Write the script to a file and run the " +
+      "file. Check the output's size, not its exit code: this fails silently in both directions."
+    )
+  }
+  // cdb takes a command LIST in -c, and a list is exactly what the shell splits. The single-command
+  // form is left alone; -cf <file> is the form that worked on this machine.
+  if (/\bcdb\b/.test(cmd) && /\s-c\s/.test(cmd) && /;/.test(cmd)) {
+    return (
+      "cdb -c carries a command list whose separators the shell splits. Write the commands to a " +
+      "file and pass -cf <file>, which is the form confirmed to work here."
+    )
+  }
+  return null
+}
+
 /**
  * The incoming payload, from whichever key the tool used.
  *
@@ -204,8 +245,8 @@ function checkCall(tool: string, input: unknown, repo: string): string | null {
     const args = (input ?? {}) as Record<string, unknown>
 
     if (tool === "shell" || tool === "bash") {
-      const problem = reencodingCommand(typeof args.command === "string" ? args.command : "")
-      return problem
+      const command = typeof args.command === "string" ? args.command : ""
+      return reencodingCommand(command) ?? inlineScriptQuoting(command)
     }
 
     if (tool !== "write" && tool !== "edit" && tool !== "patch") return null

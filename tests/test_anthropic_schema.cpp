@@ -381,28 +381,33 @@ int test_tools() {
     int failures = check(request.uses_tools() && rendered["function"]["name"] == "weather" &&
                              rendered["function"]["input_examples"].is_array(),
                          "Anthropic tool schema/examples did not reach the Qwen prompt");
+    failures += check(request.constrains_tools() &&
+                          !to_request_options(request, {}, semantics(request), true)
+                               .output.preserve_special_tokens,
+                      "ordinary Anthropic tools did not select constrained output");
 
     body["tools"] = Json::array({ordinary_tool(true)});
-    failures += check(api_code([&] { (void)parse(body); }) == "strict_tools_not_supported",
-                      "active strict tool was accepted without constrained decoding");
+    failures += check(parse(body).generation.tools[0].strict, "strict reaches generation");
     body["tool_choice"]               = Json{{"type", "none"}, {"disable_parallel_tool_use", true}};
     body["tools"][0]["defer_loading"] = true;
     body["tools"][0]["allowed_callers"] = Json::array({"code_execution"});
     const GenerationRequest disabled    = parse(body).generation;
-    failures += check(!disabled.uses_tools() && prompt(disabled).options.tool_jsons.empty(),
-                      "tool_choice:none did not neutralize inactive tool guarantees");
+    failures += check(!disabled.uses_tools() && prompt(disabled).options.tool_jsons.size() == 1,
+                      "tool_choice:none keeps prompt declarations");
 
     body                = base_request();
     body["tools"]       = Json::array({ordinary_tool()});
     body["tool_choice"] = Json{{"type", "any"}};
-    failures += check(api_code([&] { (void)parse(body); }) == "tool_choice_not_supported",
-                      "forced any-tool choice was silently downgraded");
+    failures += check(parse(body).generation.tool_choice.mode == ToolChoiceMode::Required,
+                      "any requires at least one invocation");
     body["tool_choice"] = Json{{"type", "tool"}, {"name", "weather"}};
-    failures += check(api_code([&] { (void)parse(body); }) == "tool_choice_not_supported",
-                      "named tool choice was silently downgraded");
+    failures += check(parse(body).generation.tool_choice.mode == ToolChoiceMode::Required &&
+                          parse(body).generation.tool_choice.allowed_names ==
+                              std::vector<std::string>{"weather"},
+                      "named choice requires the selected function");
     body["tool_choice"] = Json{{"type", "auto"}, {"disable_parallel_tool_use", true}};
-    failures += check(api_code([&] { (void)parse(body); }) == "parallel_tool_use_not_supported",
-                      "active single-tool-call guarantee was silently downgraded");
+    failures += check(!parse(body).generation.tool_choice.parallel,
+                      "disable_parallel_tool_use reaches generation");
 
     body          = base_request();
     body["tools"] = Json::array({Json{{"type", "web_search_20250305"}, {"name", "web_search"}}});
@@ -687,6 +692,10 @@ int test_tool_call_presentation() {
     }
     failures += check(saw_edit_start && saw_arguments && saw_tool_stop,
                       "Anthropic stream did not terminate the recovered Edit as tool_use");
+    outcome.finish_reason = ninfer::FinishReason::OutputLimit;
+    const auto partial    = Json::parse(make_anthropic_messages_response(identity, outcome));
+    failures += check(partial["stop_reason"] == "max_tokens" && partial["content"].size() == 2,
+                      "completed tool before truncation lost its call or stop reason");
     return failures;
 }
 

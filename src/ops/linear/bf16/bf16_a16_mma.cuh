@@ -29,7 +29,7 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void bf16_a16_m
     const int warp = tid >> 5;
     const int lane = tid & 31;
 
-    const int tiles_m = M / BM;
+    const int tiles_m = bf16_predicated_rows<Schedule> ? (M + BM - 1) / BM : M / BM;
     const int tiles_n = count / BN + static_cast<int>(count % BN != 0);
     int tile_m        = 0;
     int tile_n        = 0;
@@ -50,9 +50,16 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void bf16_a16_m
             const int row = item / (BK / 8);
             const int k8  = item - row * (BK / 8);
             const int kk  = k8 * 8;
-            cp_async<16, Schedule::kWeightCache>(
-                &a_stage[row * BK + bf16_mma_shared_col<Schedule>(row, kk)],
-                &weight[static_cast<std::int64_t>(m0 + row) * K + k0 + kk]);
+            auto* dst     = &a_stage[row * BK + bf16_mma_shared_col<Schedule>(row, kk)];
+            if constexpr (bf16_predicated_rows<Schedule>) {
+                const bool valid = m0 + row < M;
+                cp_async_zfill<16, Schedule::kWeightCache>(
+                    dst, &weight[static_cast<std::int64_t>(valid ? m0 + row : 0) * K + k0 + kk],
+                    valid ? 16 : 0);
+            } else {
+                cp_async<16, Schedule::kWeightCache>(
+                    dst, &weight[static_cast<std::int64_t>(m0 + row) * K + k0 + kk]);
+            }
         }
 
 #pragma unroll 1

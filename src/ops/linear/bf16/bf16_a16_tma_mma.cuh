@@ -72,7 +72,8 @@ inline CUtensorMap bf16_tma_map(const __nv_bfloat16* pointer, int rows, int k, i
 template <class Schedule>
 Bf16TmaDescriptors make_bf16_tma_descriptors(const Bf16A16Operands& p) {
     validate_bf16_operands<Schedule>(p);
-    if (p.rows % Schedule::kBlockRows || p.k % Schedule::kBlockK)
+    if ((!bf16_predicated_rows<Schedule> && p.rows % Schedule::kBlockRows) ||
+        p.k % Schedule::kBlockK)
         throw std::invalid_argument("BF16 TMA requires complete row/K tiles");
     return {bf16_tma_map(p.weight, p.rows, p.k, Schedule::kBlockRows, Schedule::kBlockK),
             bf16_tma_map(p.x, p.tokens, p.k, Schedule::kBlockTokens, Schedule::kBlockK)};
@@ -103,7 +104,8 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void bf16_a16_t
     constexpr int BR = Schedule::kBlockRows, BT = Schedule::kBlockTokens, BK = Schedule::kBlockK;
     constexpr int S   = Schedule::kStages;
     const int K       = Schedule::kStaticK ? Schedule::kStaticK : input_rows;
-    const int tiles_r = rows / BR, tiles_t = (count + BT - 1) / BT;
+    const int tiles_r = bf16_predicated_rows<Schedule> ? (rows + BR - 1) / BR : rows / BR;
+    const int tiles_t = (count + BT - 1) / BT;
     int tile_r, tile_t;
     bf16_mma_tile_coordinates<Schedule>(blockIdx.x, tiles_r, tiles_t, tile_r, tile_t);
     const int row_begin = tile_r * BR, token_begin = token_offset + tile_t * BT;
@@ -159,7 +161,9 @@ void launch_bf16_a16_tma_mma(const Bf16A16Operands& p, Output output, Epilogue e
     // Descriptors are launch-owned values, copied into kernel parameters during Graph capture.
     const auto descriptors = make_bf16_tma_descriptors<Schedule>(p);
     for_each_token_slice(p.tokens, Schedule::kBlockTokens, [&](int offset, int count) {
-        const auto blocks = static_cast<std::int64_t>(p.rows / Schedule::kBlockRows) *
+        const auto blocks = static_cast<std::int64_t>(bf16_predicated_rows<Schedule>
+                                                          ? div_up(p.rows, Schedule::kBlockRows)
+                                                          : p.rows / Schedule::kBlockRows) *
                             div_up(count, Schedule::kBlockTokens);
         if (blocks > 2147483647LL)
             throw std::invalid_argument("BF16 TMA grid exceeds CUDA grid.x capacity");

@@ -558,7 +558,7 @@ int exercise_explicit_prefix(const char* artifact) {
     ninfer::RequestOptions request;
     request.execution.requested_output_tokens = 3;
     request.execution.sampling.temperature    = 0.0F;
-    request.stop.include_model_defaults       = false;
+    request.stop.include_model_defaults       = true; // a declared tool implies a constraint that requires the model's EOS
 
     std::string description;
     for (std::uint32_t index = 0; index < 120; ++index) { description += "stable-schema "; }
@@ -653,7 +653,7 @@ int exercise_nested_tool_markers(const char* artifact) {
     request.execution.requested_output_tokens = 1;
     request.execution.sampling.temperature    = 0.0F;
     request.execution.allow_prefix_reuse      = true;
-    request.stop.include_model_defaults       = false;
+    request.stop.include_model_defaults       = true; // a declared tool implies a constraint that requires the model's EOS
 
     // A single source creates both markers. Each probe changes the user suffix so the
     // private response/endpoint cannot satisfy the shared-prefix conformance check.
@@ -782,7 +782,7 @@ int exercise_anthropic_prefix_regression(const char* artifact) {
         return input;
     };
 
-    const ninfer::RequestOptions one_token = generation_options(1, false);
+    const ninfer::RequestOptions one_token = generation_options(1, true);
     const ninfer::GenerationResult seed    = engine.generate(
         engine.prepare(nested_tool_prompt({alpha, bravo}, "Use one listed function.")), one_token);
     const ninfer::GenerationResult first_filler = engine.generate(
@@ -1127,7 +1127,7 @@ int exercise_rewrite_checkpoints(ninfer::Engine& engine) {
         result.execution.requested_output_tokens = 4;
         result.execution.sampling.temperature    = 0.0F;
         result.execution.allow_prefix_reuse      = reuse;
-        result.stop.include_model_defaults       = false;
+        result.stop.include_model_defaults       = true; // a declared tool implies a constraint that requires the model's EOS
         return result;
     };
 
@@ -1232,7 +1232,7 @@ int exercise_agent_continuation(const char* artifact) {
     request.execution.requested_output_tokens = 4;
     request.execution.sampling.temperature    = 0.0F;
     request.execution.allow_prefix_reuse      = true;
-    request.stop.include_model_defaults       = false;
+    request.stop.include_model_defaults       = true; // a declared tool implies a constraint that requires the model's EOS
     const auto opener_tokens =
         static_cast<std::uint32_t>(engine.tokenize_text("<|im_start|>assistant\n<think>\n").size());
     const auto closing_tokens =
@@ -1387,7 +1387,7 @@ int exercise_rewrite_branch(const char* artifact) {
         value.execution.requested_output_tokens = 4;
         value.execution.sampling.temperature    = 0.0F;
         value.execution.allow_prefix_reuse      = reuse;
-        value.stop.include_model_defaults       = false;
+        value.stop.include_model_defaults       = true; // a declared tool implies a constraint that requires the model's EOS
         return value;
     };
 
@@ -1990,6 +1990,12 @@ int main() {
     const char* selected            = std::getenv("NINFER_PREFIX_REAL_SCENARIO");
     const std::string_view scenario = selected ? selected : "all";
     int result                      = 0;
+    // The whole dispatch is guarded. A scenario that throws used to reach std::terminate and exit
+    // 0xC0000409 with no message, which reads as a crash in the code under test rather than as a
+    // scenario that failed: one session spent hours on that, and a scenario-sweep harness then
+    // reported five removed scenarios as still failing. Upstream already catches in the `attention`
+    // branch for the same reason; this generalises it rather than adding a second convention.
+    try {
     if (scenario == "attention") {
         try {
             result = exercise_attention_integration(artifact);
@@ -2030,7 +2036,17 @@ int main() {
         ninfer::Engine engine(std::move(options));
         result = exercise_stream_observations(engine);
     } else {
-        throw std::invalid_argument("unknown prefix integration scenario");
+        std::cerr << "unknown prefix integration scenario: " << scenario << '\n'
+                  << "  valid: all, agent-continuation, anthropic-prefix-regression, attention,"
+                     " concurrent, explicit-anchor, explicit-prefix, late-instructions,"
+                     " nested-tool-markers, rewrite-checkpoint, shared-rewrite-materialization,"
+                     " stream-observations, vision\n";
+        return 1;
+    }
+    } catch (const std::exception& error) {
+        std::cerr << "prefix integration scenario '" << scenario << "' failed: " << error.what()
+                  << '\n';
+        return 1;
     }
     if (result == 0) { std::cout << "ok\n"; }
     return result;

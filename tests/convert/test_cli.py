@@ -80,7 +80,7 @@ def configure(model, recipe, sources):
         command,
         cwd=root,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     check=False)
     assert result.returncode == 0, result.stderr

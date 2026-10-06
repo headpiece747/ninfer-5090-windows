@@ -44,6 +44,11 @@ ApiError request_error_to_api_error(const ninfer::RequestError& exception,
     error.param   = "messages";
     error.message = exception.what();
     switch (exception.kind()) {
+    case ninfer::RequestErrorKind::InvalidToolConstraint:
+        error.status = 400;
+        error.code   = "invalid_tool_constraint";
+        error.param  = "tools" + exception.pointer();
+        break;
     case ninfer::RequestErrorKind::InvalidGrammar:
     case ninfer::RequestErrorKind::ConstraintDeadEnd:
         error.status = 400;
@@ -56,12 +61,14 @@ ApiError request_error_to_api_error(const ninfer::RequestError& exception,
     case ninfer::RequestErrorKind::UnsupportedJsonSchema:
     case ninfer::RequestErrorKind::UnsatisfiableJsonSchema:
         error.status = 400;
-        error.param  = std::string(constraint_param) + exception.pointer();
-        error.code   = exception.kind() == ninfer::RequestErrorKind::InvalidJsonSchema
-                           ? "invalid_json_schema"
-                       : exception.kind() == ninfer::RequestErrorKind::UnsupportedJsonSchema
-                           ? "unsupported_json_schema"
-                           : "unsatisfiable_json_schema";
+        error.param =
+            (constraint_param.empty() ? std::string("tools") : std::string(constraint_param)) +
+            exception.pointer();
+        error.code = exception.kind() == ninfer::RequestErrorKind::InvalidJsonSchema
+                         ? "invalid_json_schema"
+                     : exception.kind() == ninfer::RequestErrorKind::UnsupportedJsonSchema
+                         ? "unsupported_json_schema"
+                         : "unsatisfiable_json_schema";
         break;
     case ninfer::RequestErrorKind::ContextLengthExceeded:
         error.status = 400;
@@ -380,8 +387,8 @@ PreparedRequest GenerationService::prepare_impl(const GenerationRequest& request
             request_options.execution.thinking.budget.reset();
             prepared.thinking_budget.reset();
         }
-        prepared.prompt_tokens = static_cast<int>(prompt.summary().prompt_tokens);
-        prepared.preparation   = prompt.preparation_stats();
+        prepared.prompt_tokens           = static_cast<int>(prompt.summary().prompt_tokens);
+        prepared.preparation             = prompt.preparation_stats();
         prepared.service_prepare_seconds = std::max(
             0.0, std::chrono::duration<double>(Clock::now() - prepared.lifetime->started).count() -
                      prepared.preparation.seconds);
@@ -482,7 +489,7 @@ GenerationOutcome GenerationService::run(PreparedRequest& prepared, const Stream
     outcome.metrics.prompt_wall_seconds     = result.timings.prompt_wall_seconds;
     outcome.metrics.generation_wall_seconds = result.timings.generation_wall_seconds;
     outcome.metrics.total_seconds = prepared.service_prepare_seconds + result.timings.total_seconds;
-    outcome.metrics.engine_timing               = result.engine_timing;
+    outcome.metrics.engine_timing = result.engine_timing;
     outcome.metrics.first_output_timing         = std::move(result.first_output_timing);
     outcome.metrics.scheduling                  = result.scheduling;
     outcome.metrics.admission                   = result.admission;

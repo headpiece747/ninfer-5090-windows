@@ -202,7 +202,7 @@ public:
         try {
             auto output = instance_.frontend.make_output_session(
                 prompt, options.stop, options.output, options.execution.thinking,
-                options.constraint);
+                options.constraint, options.tool_choice);
             if (Clock::now() >= pending_deadline) {
                 throw RequestError(RequestErrorKind::QueueTimeout,
                                    "inference request expired during grammar preparation");

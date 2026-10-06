@@ -1,8 +1,6 @@
 # Constrained decoding 设计
 
-本文定义 NInfer 约束解码的架构、功能语义与执行合同。当前已实现 GBNF、JSON object 和 JSON Schema，
-经 `RequestOptions::constraint`、CLI 和三个 HTTP 协议使用，覆盖普通解码、MTP、DFlash、DFlash2。
-regex/choice 和严格工具调用的产品入口仍是后续设计。
+本文定义 NInfer 约束解码的架构、功能语义与执行合同。当前已实现 GBNF、JSON object、JSON Schema 和工具约束，覆盖普通解码、MTP、DFlash、DFlash2。正文约束经 `RequestOptions::constraint`、CLI 和三个 HTTP 协议使用；工具声明属于 Prompt，调用策略属于 `RequestOptions::tool_choice`。regex/choice 的独立产品入口仍是后续设计。
 
 目标是让 GBNF、JSON、JSON Schema 和工具调用共用一套 token 约束机制，接入现有普通采样、MTP、DFlash、DFlash2、thinking、流式输出与抢占恢复。NInfer 保持单 GPU、固定 resident lanes、原生 C++/CUDA 执行。
 
@@ -211,15 +209,19 @@ oneOf 的类型域判定要计入 integer 是 number 的子域；对象 discrimi
 
 JSON 使用紧凑的 `,` / `:` 分隔符及声明字段顺序。字符串长度与 pattern grammar 使用规范的 JSON 转义；continuation 须属于这一生成语言的前缀。`pattern` 按字符串值做搜索，支持字符类、分组、分支、重复以及顶层分支两端的 `^` / `$`。点号和空白类遵循 ECMAScript 字符集合；反向引用、零宽断言、Unicode 属性类、surrogate escape 和未识别转义返回不支持，Unicode 字符可以直接书写。
 
-这些规则作为响应 schema 的当前合同，也供后续工具参数和 structural tag 内嵌 schema 复用。允许后续扩展支持范围，每项扩展同时补齐语义和独立验证；不需要改变运行时结构。
+这些规则是响应 schema 与 strict 工具参数共用的合同。允许后续扩展支持范围，每项扩展同时补齐语义和独立验证；不需要改变运行时结构。
 
-### 4.3 Strict tools
+### 4.3 工具约束
 
-工具约束构造完整的模型输出语言。auto 可以生成普通正文或调用；required 至少包含一个调用；named 限定为指定工具；禁止 parallel 时最多一个调用。auto 非 strict 且没有调用策略限制时，保持现有自由生成路线。
+工具约束分为三个独立选择：封装/名称等基础结构、逐工具 strict 参数 schema、调用选择与数量。`ToolChoice` 拥有 Auto/None/Required、可选的 allowed_names、parallel 和 Automatic/Basic；三个 HTTP 协议将其字段映射到这个共同合同。
 
-调用数量按以下规则确定：auto 为零到多个，required 为一到多个，named 为指定工具的恰好一次；禁止 parallel 时，auto 变为零或一次、required 变为恰好一次。工具序列前允许正文，进入调用序列后只允许后续调用、格式空白和结束，符合现有工具 parser 对末尾调用区的解释。
+默认 Basic 对有工具的请求启用结构约束，包括普通 Auto + 非 strict。模型自行选择正文或工具调用；一旦进入调用，函数名和封装受约束。显式 Automatic 只执行请求提出的 strict、allowed_names、Required、None 或 parallel=false 等要求，普通 Auto + 非 strict 可以自由生成。
 
-启用工具约束后，工具封装与名称必须合法。每个 strict 工具的最终 `arguments_json` 满足其参数 schema；非 strict 工具的值沿现有归一化合同处理，不额外宣称 schema 保证。
+非 strict 的基础参数语言允许任意顺序及可表示的参数名；不根据 properties 封闭参数集合，不强制 required 或参数值断言。复杂根 schema 与开放对象不会触发 strict 编译器。参数值沿用原有归一化提示；重复参数取最后一个值并保持第一次出现的字段位置，发布对象中每个 key 仅出现一次。严格参数继续按声明顺序生成并禁止重复。
+
+Auto 允许零到多次调用；Required 至少一次；parallel=false 将上限设为一次。OpenAI named 映射为 Required + 单名称 + parallel=false；Anthropic named 使用单名称并遵守 disable_parallel_tool_use。None 保留 prompt 声明并禁止生成 `<tool_call>`；与正文约束组合时由正文约束拥有输出语言。所有选择都保留完整声明与缓存标记位置，不通过删改 prompt 工具列表实现。
+
+Auto 的普通正文可在工具序列之前，Required 直接开始调用。进入调用序列后只允许后续调用与 EOS；调用间使用单个换行。每个 strict 工具的最终 `arguments_json` 满足其参数 schema。
 
 Qwen 工具语法采用现有 `<tool_call>`、`<function=...>`、`<parameter=...>` 表示。Frontend 从同一份已解析工具定义构造两项产物：生成 grammar 和输出值解码合同，避免两边分别解释类型。
 
@@ -233,13 +235,15 @@ Qwen 工具语法采用现有 `<tool_call>`、`<function=...>`、`<parameter=...
 
 Qwen raw string 与 JSON 值的选择必须无歧义。纯字符串参数使用 raw string；不含 string 的类型联合使用 JSON 值。包含 string 与其他类型的同一 raw 参数若无法从模型格式确定分支，在准备阶段拒绝严格组合；现有“只要允许 string 就都按 string 解释”不能用于宣称其他分支也已正确执行。
 
-Raw string 中的参数结束分隔符有实际表示限制。Grammar 与 parser 使用相同的分隔符规则，严格输出只生成可无损表示的值；const/enum 等要求的值无法表示时返回明确错误，不修改值。额外分隔符限制不能使 schema 的 pattern/长度断言被忽略。
+Raw string 的参数结束分隔符是 `\n</parameter>`，这段文本不能出现在值中。Grammar 与 parser 使用相同的分隔符规则，严格输出只生成可无损表示的值；const/enum 等要求的值无法表示时返回明确错误，不修改值。字符串的 pattern/长度与分隔符排除同时成立。外围 framing 没有可选空白，避免把值的空白划到 schema 之外。嵌套 JSON 使用模板的 `, ` / `: ` 分隔符，包括 const/enum 对象；integer 限 signed 64-bit，number 使用有限 binary64 可解析表示。
 
-工具参数根节点为 object。严格路线采用声明的有限参数名：要求 additionalProperties=false，不接受未知名称参数。普通 JSON 响应仍支持表中定义的 additionalProperties。工具定义中的重复名称、同名参数冲突在准备阶段拒绝。
+工具参数根节点解析为一个 type=object 声明（可经本地 $ref 或单项 allOf）。严格路线采用声明的有限参数名与属性顺序：要求 additionalProperties=false；根 const/enum/anyOf/oneOf 返回不支持。普通 JSON 响应仍支持表中定义的 additionalProperties。工具定义中的重复名称在准备阶段拒绝。
 
-Strict tool 的结构化事件只能来自完整解析并提交的调用。截断时保留已经完成的调用，不把半个 strict 调用包装成合法 `arguments_json`。现有普通文本与完整工具调用发布机制继续使用；新增增量工具参数事件不属于本设计的必要条件。
+受约束工具的结构化事件来自完整解析并提交的调用。工具结果在终态解析与发布；截断时保留已经完成的调用和实际中断原因，未完成调用不产生 `arguments_json`。
 
-对严格路线，grammar 已确认完整调用但 parser 无法按同一合同解释，属于实现不一致，不能回落成普通 content 掩盖。非严格路线保留既有的畸形文本处理行为。
+对受约束路线，grammar 已确认完整调用但 parser 无法按同一合同解释，属于实现不一致，不能回落成普通 content 掩盖。自由生成路线保留既有的畸形文本处理行为。
+
+实现所有权：`tool_contract` 解析声明并选择当前合同；`tool_grammar` 将合同编译为模型语言；`tool_call_parser` 按相同参数编码规则解码已提交文本。Compiled grammar 沿用 Frontend 的共享预算与冷编译限制。非 strict grammar 的身份只使用名称和封装/调用策略；schema 归一化提示仍由每请求合同持有，不进入共享 grammar 的语义。Continuation 可以推进到第一个未完成调用；包含已完成调用的 raw assistant 前缀被拒绝，避免重新发布历史调用。
 
 ## 5. Thinking、正文与 continuation
 

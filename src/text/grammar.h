@@ -4,11 +4,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+namespace xgrammar {
+class Grammar;
+}
 
 namespace ninfer::text {
 
@@ -41,6 +46,10 @@ public:
     [[nodiscard]] std::unique_ptr<GrammarSession> compile(const OutputConstraint& constraint,
                                                           std::string_view reasoning_close,
                                                           std::string_view continuation);
+    // Model-owned composition, built only on a miss in the same bounded compiler cache.
+    [[nodiscard]] std::unique_ptr<GrammarSession>
+    compile_model(std::string_view identity, const std::function<xgrammar::Grammar()>& build,
+                  std::string_view reasoning_close, std::string_view continuation);
 
 private:
     class Impl;

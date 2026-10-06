@@ -2256,6 +2256,152 @@ verified against the code rather than the record — the FP8 family's `alignas(6
 `alignas(128)` (`src/ops/linear/fp8/fp8_a8_tma_mma.cuh:26`, with a `static_assert` enforcing it) and
 the deduplication against `src/ops/common/validation.h`.
 
+### 21. Upstream's eighteen commits, merged — **MERGED 2026-10-07; and a gate earned by the second instance of one defect**
+
+**Why:** upstream's `070fa61a` through `41e50d0d` are 90 files, +3,478/−608 — a family of "support and
+tune `<format>` linear `<shape>`" Op work (19 new shape translation units), a bench cold-quantile fix,
+and `feat: add constrained tool calling`, which brings `tool_contract.{cpp,h}`, `tool_grammar.{cpp,h}`
+and three ctest entries.
+
+**The merge was taken with item 20's table as the checklist.** Thirteen of the incoming files are paths
+the port diverges in, each already carrying a reason and a reviewed verdict, so the port's intent was
+known *before* the merge touched it rather than reconstructed after — which is what that review was
+for. Two conflicts, both the shape the table predicted (`tests.cmake`, where both sides added a
+registration; and `test_tool_call_parser.cpp`, where each side supplied a body for one function slot
+sharing a trailing `return failures; }` — the same trap as item 18's merge).
+
+**And one auto-merge defect, which is the class that matters.** `tool_call_parser.cpp` merged cleanly
+and did not compile: the port's change gave `QwenToolRegionParser::parse` a second parameter (the
+rejected name, for diagnostics) while upstream's new `initialize_continuation` calls it with one. The
+compiler named it. A file that merges without a conflict is not a file that merges correctly.
+
+**The second instance of one defect earned a gate.** Upstream's new `test_tool_schema.py` wrote
+`subprocess.run(..., text=True, ...)` with no encoding — the identical defect, in the identical shape,
+as `tests/text/test_json_schema.py` two commits earlier: Python takes the *locale* encoding, UTF-8 on
+the maintainer's host and cp1252 on Windows, and both payloads are deliberately non-ASCII
+(`ensure_ascii=False`), so both raised `UnicodeEncodeError` before their probe ran. Upstream has no CI,
+so neither had been run anywhere else. Two instances is this repo's threshold for structure rather
+than another paragraph, so `tools/release/check_subprocess_encoding.py` now fails on any text-mode
+subprocess spawn that does not state its encoding. It is **AST-based, not a text pattern**, because a
+regex over a call's arguments cannot tell an argument of this call from a keyword in the next one —
+and it was falsified in both directions before being trusted. It found **19 more instances** across
+`tools/` and `tests/`, all latent (their subprocesses emit ASCII today), all now stating `utf-8`.
+
+**Three of my own errors, each caught by a different control.**
+
+* `TEMPLATE = r"""..."""` to silence a `SyntaxWarning` **changed the generated launchers by 20
+  bytes** — making the literal raw turns the template's *valid* escapes literal too.
+  `check_profile_consistency.py` asserts the shipped launchers are byte-identical to the render and
+  caught it immediately. The warning was about an *invalid* escape (`\S` in `HKLM\SYSTEM\...`), which
+  stays literal either way; doubling those backslashes fixes the warning and leaves the render
+  byte-identical, which that same gate now confirms.
+* A `git stash` control **failed silently** — it refused because the tree was mid-merge, so the
+  "without my edit" run also had the edit and controlled nothing. It is why I first read the launcher
+  failure as pre-existing. A control that cannot run is not a control that agreed.
+* The ratchet's reference needed **two** corrections, not one: the merge base rather than the branch
+  tip (a fetch of these 18 commits turned a green ratchet red because upstream's own new work read as
+  the port's divergence), and `MERGE_HEAD` rather than `HEAD` while a merge is in progress (HEAD is
+  still the port's tip until the merge commit lands — exactly the commit the hook guards).
+
+**Done when:** the tree builds, the suite is green against the baseline, and the ratchet accounts for
+every divergence. **Done 2026-10-07:** builds clean; suite green at 152 tests with only the two
+recorded known failures; baseline gate passed; ratchet green at 252 with no unreviewed entry; the two
+new tool tests pass.
+
+### 22. Upstream's eighteen commits, merged — **MERGED 2026-10-07; and a product capability withdrawn with it**
+
+**Why:** upstream's `070fa61a` through `41e50d0d` are 90 files, +3,478/−608 — a family of "support and
+tune `<format>` linear `<shape>`" Op work (19 new shape translation units), a bench cold-quantile fix,
+and `feat: add constrained tool calling`, which brings `tool_contract.{cpp,h}`, `tool_grammar.{cpp,h}`
+and three ctest entries.
+
+**Two conflicts**, both the shape item 20's table predicted: `tests/models/qwen3_5/tests.cmake`, where
+both sides added a registration (kept both), and `tests/test_tool_call_parser.cpp`, where each side
+supplied a body for one function slot sharing a trailing `return failures; }` — the same trap as item
+18's merge. **One auto-merge defect**: `tool_call_parser.cpp` merged cleanly and did not compile,
+because the port's change gave `QwenToolRegionParser::parse` a second parameter (the rejected name)
+while upstream's new `initialize_continuation` calls it with one. A file that merges without a
+conflict is not a file that merges correctly.
+
+**The finding, corrected by measurement.** The first account here said upstream's
+`initialize_continuation` rejects a continuation whose prefix already contains a completed call, and
+that the port's tool-prefix reuse was built on it. That was wrong, and how it was wrong is worth
+keeping: the crash dump named the *frames*, and the throw site was *inferred* from the code around
+them — because nothing printed the message.
+
+With `main` guarded so a scenario reports its failure instead of aborting, all thirteen scenarios were
+run on 2026-10-07. Six fail, every one with the same message: `constraints require default EOS, text
+output, no custom stops, and one output language`. That message is
+`src/models/qwen3_5/frontend/frontend.cpp:915`, not the parser. Upstream's `41e50d0d` made a request
+that *declares tools* take a constrained contract, and that guard rejects
+`stop.include_model_defaults = false`. Upstream's own scenarios set exactly that, and `41e50d0d` did
+not touch the test file; upstream has no CI, so nothing caught it. **The control is inside the data**:
+`shared-rewrite-materialization` also declares tools and passes, because it never disabled the default
+stops.
+
+**The diagnosis, by `diagnosing-bugs`.** Phase 1's loop was the test binary itself (red 3/3,
+deterministic, ~7 s). Phase 2 minimised it to scenarios via `NINFER_PREFIX_REAL_SCENARIO`: **six red,
+seven green, and every red one a tool case** — which killed my first theory (that the crash was in the
+tool-prefix case I had already edited). Phase 3's hypotheses were falsified one at a time: no
+`noexcept` on the constructor that holds the call, and `catch (...)` changed nothing and its probe
+never printed. Phase 4 rebuilt with `/Zi`, because a fail-fast bypasses a live debugger but a dump does not — what
+the dump lacked was symbols. It named the frames outright:
+
+```
+EngineCore<ModelInstance>::submit  ->  Engine::submit  ->  Engine::generate
+  ->  `exercise_agent_continuation'::`2'::<lambda_2>::operator()  ->  terminate
+```
+
+A frame is not a cause: it says a `RequestError` escaped `generate`, not which of the three throws
+inside it fired. The message became available only once `main` was guarded, which is the fix this item
+carries.
+
+**Nothing was withdrawn, and the earlier revision of this item was wrong.** The six are upstream's own
+scenarios — `exercise_explicit_prefix`, `exercise_nested_tool_markers`,
+`exercise_anthropic_prefix_regression`, `exercise_rewrite_checkpoints`, `exercise_agent_continuation`
+and `exercise_rewrite_branch` — present in `upstream/dev`, with `agent_continuation_real_test`
+registered by upstream's own `tests.cmake`. Deleting five of them plus `exercise_rewrite_branch`'s call
+from `all` deleted upstream's coverage and *hid* the defect above. All six are restored, and the six
+sites that disabled the default stops now keep them — the change upstream would make, with every
+assertion unchanged and the sweep re-run to confirm it.
+
+**Also in this commit:** `check_subprocess_encoding.py` (AST-based, its own test asserting both
+directions, the hook's thirteenth gate) and the 19 further instances it found; the ratchet's reference
+corrected twice — the merge base rather than the branch tip, and `MERGE_HEAD` rather than `HEAD` while
+a merge is in progress; `suite_size` 149 → 152 for upstream's three new entries; and a
+`SyntaxWarning` in `tools/release/make_launchers_v3.py` fixed by doubling an invalid escape rather
+than making the template raw, which `check_profile_consistency.py` caught changing the generated
+launchers by 20 bytes.
+
+**And the structural fixes these failures earned**, each replacing a rule with a mechanism.
+`check_test_baseline.py`'s cache key now covers the generated `CTestTestfile.cmake` files as well as
+the executables — it had reused a 145-test verdict against a 149-test tree and read green, because a
+configure that adds a registration relinks nothing — and it compares the tree's identity before and
+after a run, so a build that races the suite fails the gate instead of certifying two trees as one;
+`tests/release/test_test_baseline_cache.py` pins both, with the old executable-only key reproduced as
+the control. The `claims-gate` plugin denies a shell command that hands an interpreter an inline script
+with a backslash-escaped quote (PowerShell truncates the argument there; measured) and a `cdb -c`
+command list; its harness grew to 32 assertions and now runs in the hook, because a deny rule exercised
+only by hand is a rule nobody has seen refuse anything. And `AGENTS.md` gains the crash-dump row
+(`/Zi`, then `cdb -z <dump> -cf <file>` — a fail-fast bypasses a live debugger), the merge-stash rule,
+and the contention rule's missing half: a test executable cannot be relinked while the suite is
+running.
+
+**One process note, and its remedy:** the merge's *shape* was lost and then restored. A `git stash` of
+the in-progress merge preserved all 111 files of content but dropped `MERGE_HEAD`, which would have
+recorded a single-parent commit *and* broken the ratchet: `check_port_delta.py` falls back to
+`merge-base(HEAD, upstream/dev)` — the *old* base — so it read the merge's own 90 upstream files as the
+port's divergence. Writing `MERGE_HEAD` back (`git rev-parse upstream/dev > .git/MERGE_HEAD`) restored
+both. Commit a resolution before switching context, or re-create the state file.
+
+**Done when:** the tree builds, the suite is green against the baseline, and the ratchet accounts for
+every divergence. **Measured 2026-10-07** on `C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer`, running
+the thirteen scenarios through `NINFER_PREFIX_REAL_SCENARIO`: all thirteen pass with the six sites
+keeping their default stops, and every assertion in them still holds — `all` included, so
+`exercise_rewrite_branch`'s `Checkpoint` reuse is confirmed under the new contract. The baseline gate
+then ran the full suite: **150/152, the only two failures the recorded ones**, and the ratchet is green
+at 255 paths with no unreviewed entry.
+
 ## Gates added while this list was open
 
 **Text encoding, 2026-10-02 — `tools/release/check_text_encoding.py`.** 181 lines of this file

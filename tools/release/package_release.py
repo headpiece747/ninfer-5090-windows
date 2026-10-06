@@ -197,7 +197,7 @@ def main() -> int:
     archive = RELEASES / f"ninfer-windows-{version}-rtx5090.zip"
     archive.unlink(missing_ok=True)
     result = subprocess.run(["tar", "-a", "-c", "-f", str(archive), "-C", str(stage), "."],
-                            capture_output=True, text=True, check=False)
+                            capture_output=True, text=True, encoding="utf-8", check=False)
     if result.returncode != 0 or not archive.exists():
         print(f"  ARCHIVE FAILED: {result.stderr[:300]}")
         return 1

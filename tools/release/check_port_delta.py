@@ -141,7 +141,12 @@ def collect(against: str) -> list[Entry]:
     # on 2026-10-06 a fetch of 18 commits turned a green ratchet red for that reason alone. What the
     # ratchet is for is what the port changed relative to what it was based on, and that is the
     # merge base.
-    base = git("merge-base", "HEAD", against).strip()
+    #
+    # During a merge the tree is based on MERGE_HEAD, not on HEAD: HEAD is still the port's tip until
+    # the merge commit lands, so a HEAD-based base would be stale for exactly the commit this hook is
+    # guarding and would read the incoming branch's own files as divergences.
+    based_on = "MERGE_HEAD" if (REPO / ".git" / "MERGE_HEAD").exists() else "HEAD"
+    base = git("merge-base", based_on, against).strip()
     counts: dict[str, tuple[int, int]] = {}
     for line in git("diff", "--numstat", base).splitlines():
         parts = line.split("\t")

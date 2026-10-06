@@ -116,9 +116,9 @@ The endpoint supports:
 - `stream_options.include_usage`;
 - llama.cpp-compatible terminal `timings`, plus opt-in `timings_per_token` and
   streaming `return_progress` observations;
-- non-strict function tools with `tool_choice` `auto`, `none`, or `allowed_tools` in `auto` mode,
-  parallel calls enabled, assistant tool-call history, tool-result messages, and legacy
-  function-call history;
+- function tools, optional `strict:true` argument schemas, `tool_choice` `auto`/`none`/`required`,
+  named selection, `allowed_tools`, and `parallel_tool_calls`; assistant tool-call history,
+  tool-result messages, and legacy function-call history;
 - the top-level `reasoning_effort` field;
 - `enable_thinking` and `preserve_thinking`, either at top level or in
   `chat_template_kwargs`;
@@ -126,8 +126,7 @@ The endpoint supports:
 
 Options whose observable behavior the Engine cannot provide are rejected when they request that
 behavior. This includes nonzero `logit_bias`, requested log probabilities,
-audio/file input or audio output, strict function tools, required or named tool choice,
-`parallel_tool_calls:false` with enabled tools, explicit low/high image detail, web search,
+audio/file input or audio output, explicit low/high image detail, web search,
 moderation, low/high verbosity, stored Chat Completions, and non-empty legacy `functions`.
 Each capability rejection identifies the affected field and the guarantee NInfer cannot provide.
 
@@ -192,7 +191,7 @@ The request `model` must equal the public model ID: the artifact `metadata.name`
 (falling back to its architecture name when absent), or the explicit `--model-id` override.
 Reasoning is returned separately as `reasoning_content`; answer text remains in `content`.
 
-Across Chat Completions, Responses, and Anthropic Messages, a direct top-level tool-parameter
+For non-strict tools, a direct top-level tool-parameter
 `type`, or an `anyOf`/`oneOf` composed entirely of explicit primitive types, guides conversion of
 Qwen's untyped parameter text. It does not decide whether structurally complete markup is a tool
 call. String-admitting values remain strings, including the empty string. An empty block for a
@@ -201,12 +200,62 @@ case-insensitive boolean text is normalized to `true` or `false`. A nonempty sch
 a structured call: valid JSON retains its represented type and other text becomes a JSON string so
 the tool consumer can report the validation error and continue the agent loop. Schemas without a
 supported explicit type retain untyped inference. NInfer does not apply defaults, enforce required
-properties, perform recursive JSON Schema validation, or use constrained decoding.
+properties, or perform recursive JSON Schema validation on this route.
 
-String parameters preserve function/tool-call markers and balanced nested
+On the unconstrained route, string parameters preserve function/tool-call markers and balanced nested
 `<parameter=...>...</parameter>` text as value bytes. The Qwen wire format has no delimiter escape,
 so an unmatched nested parameter opener or a standalone `</parameter>` cannot be represented
 unambiguously; either causes the complete tool-call region to fall back to ordinary content.
+
+### Tool constraints
+
+The three protocols share one constrained tool implementation:
+
+| Choice | Generated calls |
+|---|---|
+| `auto` | Text or calls; zero to many |
+| `none` | No tool calls; declarations remain in the prompt |
+| OpenAI `required` / Anthropic `any` | One or more calls |
+| OpenAI named function | Exactly one call to that function |
+| Anthropic named `tool` | One or more calls to that tool |
+| OpenAI `parallel_tool_calls:false` / Anthropic `disable_parallel_tool_use:true` | At most one call; exactly one when a call is required |
+
+OpenAI `allowed_tools` supports `auto` and `required`. Selection changes generation permissions,
+while all declarations retain their original order in the prompt. Requests with tools enable
+**basic structural constraints by default**, including ordinary `auto` calls without `strict`.
+The model can answer normally or start a tool call; a call must use the model's tool framing and a
+declared function name.
+
+Non-strict parameter names and order remain open. Their schema supplies the existing value
+normalization hints; it is not compiled as a strict constraint. Open objects, root unions, and
+unsupported schema assertions therefore remain usable. Repeated parameter names use the last
+value, retaining the first key position; the published JSON object contains each key once.
+`strict:true` additionally enforces the parameter contract below.
+
+Top-level `tool_constraints:"auto"` opts into request-driven constraints: ordinary non-strict
+`tool_choice:"auto"` then uses free generation. Strict tools, selection/count restrictions, and
+`tool_choice:"none"` still enforce their requirements. `tool_constraints:"basic"` is the default.
+
+A function's `strict:true` also constrains its argument values against its schema. Its parameter
+root must resolve to a single `type:"object"` declaration with `additionalProperties:false`.
+Properties are emitted in declaration order; optional properties may be omitted. Root
+const/enum/unions are not supported. Values use the supported JSON Schema subset described above.
+Top-level pure string parameters use raw text and preserve whitespace. Other values use JSON;
+a top-level string/non-string union (such as string/null) is rejected because the Qwen parameter
+format cannot distinguish those branches. Such unions inside JSON objects or arrays are supported.
+Raw values cannot contain the delimiter `\n</parameter>`; unsatisfiable required values are rejected.
+Integer arguments use signed 64-bit values; number arguments use finite binary64-compatible
+representations. Unsupported schemas fail with HTTP 400 before generation.
+
+For `auto`, text can precede the first call. Required/named choices start directly with calls
+(after thinking, if enabled). Once a constrained call starts, the suffix consists of complete calls
+and model EOS. Active tool constraints require model EOS and reject custom stop strings.
+For ordinary non-strict auto calls that need custom stops, select `tool_constraints:"auto"`.
+Token limits and cancellation can still stop generation: only completed calls are published.
+A later call truncated by the token limit keeps `length`/`max_tokens`/Responses `incomplete` as the
+terminal status. Streaming publishes each completed call in the terminal event sequence;
+arguments are not streamed incrementally.
+Assistant continuation may finish a partial call; a prefix containing a completed call is rejected.
 
 Messages enter the selected template in their input order. The maintained Qwen templates keep
 system/developer messages at their original positions.
@@ -217,6 +266,7 @@ retain that member order in aggregate and streaming responses, so an unmodified 
 the same ordered tool call. NInfer does not canonicalize semantically equivalent JSON: if a client
 reorders members, inserts defaults, or otherwise rewrites a tool object, the changed rendered input
 does not match the model-held endpoint and can reuse only an earlier exact checkpoint.
+Generated token segmentation can also differ from re-encoding the same text, limiting prefix reuse.
 
 `--chat-template FILE` selects a local Jinja template; by default, the server uses the template
 stored in the artifact. See the [CLI guide](cli.md#text-input) for an example.
@@ -452,8 +502,8 @@ wire response contains typed `output` Items.
 | `preserve_thinking` | alias for `chat_template_kwargs.preserve_thinking`; conflicting values are rejected |
 | `text.format` | `text` (default), `json_object`, or `json_schema`; see output constraints above |
 | `tools` | direct function definitions or namespace groups containing function definitions; see below |
-| `tool_choice` | `auto`, `none`, or function-only `allowed_tools` with mode `auto`; a namespaced selection carries both `namespace` and `name` |
-| `parallel_tool_calls` | `true` by default; `false` is accepted only when no effective tool is callable |
+| `tool_choice` | `auto`, `none`, `required`, a named function, or function-only `allowed_tools` with mode `auto`/`required`; namespaced selection carries both `namespace` and `name` |
+| `parallel_tool_calls` | `true` by default; `false` enforces at most one call |
 | `max_tool_calls` | non-negative integer accepted as a hosted-tool no-op; NInfer does not execute hosted tools |
 | `truncation` | omitted or `disabled`; overlong input fails instead of silently dropping Items |
 | `top_logprobs` | omitted or `0` |
@@ -520,9 +570,10 @@ nested `function` object:
   "parameters": {
     "type": "object",
     "properties": {"city": {"type": "string"}},
-    "required": ["city"]
+    "required": ["city"],
+    "additionalProperties": false
   },
-  "strict": false
+  "strict": true
 }
 ```
 
@@ -545,15 +596,10 @@ client-executed functions; this does not add a remote MCP executor.
 NInfer renders these definitions in the Qwen prompt and parses model output into separate
 `function_call` output Items. Each output has a protocol Item `id` (`fc_...`) and a distinct
 `call_id` (`call_...`). The client executes the function and sends a `function_call_output` Item in
-a later request. Only functions in the current effective tool set can become structured calls;
-undeclared model output remains ordinary text. `allowed_tools` with mode `auto` filters that set
-without changing declaration order, while `tool_choice:"none"` disables structured tool output even
-when the history contains earlier calls.
+a later request. Selection and strict argument enforcement follow the common tool contract above.
 
-NInfer does not execute functions or constrain tool arguments to their schemas, so
-`strict:true`, required or named tool choice, hosted tools, remote MCP tools, and custom free-form
-tools are rejected. Deferred loading, output schemas, and caller restrictions that exclude direct
-invocation are also rejected because their semantics cannot be honored.
+Hosted tools, remote MCP tools, custom free-form tools, deferred loading, output schemas, and
+caller restrictions that exclude direct invocation remain unsupported.
 
 ### Response object and usage
 
@@ -611,7 +657,7 @@ Function arguments use `response.function_call_arguments.delta` and `.done`. IDs
 and content indices remain stable, and concatenated deltas equal the terminal Item. Responses SSE
 does not emit the Chat Completions `[DONE]` sentinel. With tools enabled, ordinary answer text still
 streams immediately; only an ambiguous `<tool_call>` suffix or the structured tool region is held.
-Malformed tool markup is flushed back as ordinary text without losing bytes.
+On the unconstrained route, malformed tool markup is flushed back as ordinary text without losing bytes.
 
 ### Local response state and resources
 
@@ -722,11 +768,11 @@ encrypted hidden-reasoning restore semantics. `preserve_thinking` remains a NInf
 closed-turn reasoning history. `output_config.effort` passes its protocol-validated value to the
 selected template. `output_config.format` accepts JSON Schema output as described above.
 
-User-defined, non-strict tools support `name`, `description`, object `input_schema`, and
-`input_examples`. `tool_choice:auto` and `none` are executable. Forced or named choice,
-`strict:true`, active single-call enforcement, deferred tools, tools that exclude direct model
-calls, Anthropic-provided/server tools, toolsets, MCP, and containers are rejected because their
-required constraint or executor is absent. `tool_result` preserves text/image order and marks
+User-defined tools support `name`, `description`, object `input_schema`, `input_examples`, and
+`strict`. `tool_choice` accepts `auto`, `none`, `any`, or named `tool`; `disable_parallel_tool_use`
+enforces a single-call limit. See the common tool contract above for schema and framing details.
+Deferred tools, tools that exclude direct model calls, Anthropic-provided/server tools, toolsets,
+MCP, and containers remain unsupported. `tool_result` preserves text/image order and marks
 `is_error:true` explicitly in the model prompt. For a visible Assistant tool-use turn, the next
 User turn must provide exactly one leading result for every declared ID; valid results are matched
 by ID and normalized to call order. A history that begins with results remains valid as a truncated

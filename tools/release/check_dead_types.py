@@ -50,7 +50,7 @@ def first_party_headers() -> list[Path]:
         ["git", "ls-files", "--", "*.h", "*.hpp", "*.cuh"],
         cwd=REPO,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         check=False,
     )
     if listed.returncode != 0:
@@ -85,7 +85,7 @@ def occurrences(names: list[str]) -> dict[str, int]:
         ["git", "grep", "-o", "-w", "-h", "-e", r"[A-Za-z_][A-Za-z0-9_]*", "--"] + GIT_PATHS,
         cwd=REPO,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         check=False,
     )
     for line in found.stdout.splitlines():

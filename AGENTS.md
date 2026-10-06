@@ -176,7 +176,7 @@ something, and each is named here so it gets used rather than rediscovered.
 
 | situation | tool |
 |---|---|
-| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. **Twelve** gate scripts (`check_doc_links.py`, `check_doc_citations.py`, `check_text_encoding.py`, `check_fp8_band_ladders.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`, `check_rule_count.py`, `check_dead_types.py`, `check_duplication.py`, `check_port_delta.py`, `check_skills.py`), plus the opencode plugin load check when `node` is on PATH, then `pytest tests/convert` plus four named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the twelve steps** — it omitted the calibration-corpus gate, the stream-default ratchet, the rule count, the citation gate, the dead-type ratchet, the duplication baseline, the port-delta ratchet, the skill-discovery gate, ruff and mypy |
+| every commit | `.githooks/pre-commit` — enable once with `git config core.hooksPath .githooks`. **Thirteen** gate scripts (`check_doc_links.py`, `check_doc_citations.py`, `check_text_encoding.py`, `check_fp8_band_ladders.py`, `check_profile_consistency.py`, `check_calibration_corpus.py`, `check_production_stream_defaults.py`, `check_rule_count.py`, `check_dead_types.py`, `check_duplication.py`, `check_port_delta.py`, `check_skills.py`, `check_subprocess_encoding.py`), plus the opencode plugin load check and the claims-gate logic harness when `node` is on PATH, then `pytest tests/convert` plus six named test files, then `ruff check` and `mypy`: seconds, no network. **This row previously said "Doc links, profile consistency, converter tests", which is three of the thirteen steps** — it omitted the calibration-corpus gate, the stream-default ratchet, the rule count, the citation gate, the dead-type ratchet, the duplication baseline, the port-delta ratchet, the skill-discovery gate, the subprocess-encoding gate, ruff and mypy. **Counts in this row have gone stale twice, so read them as a summary and the hook as the authority** |
 | a declared type nothing can reach | `check_dead_types.py` — a `struct`/`class`/`enum` whose name occurs exactly once in the tree, at its own declaration. **Types only**: "no textual reference" stops meaning "no use" for a macro or a template instantiation, and a gate that guesses gets muted. It found the copy-drafting withdrawal, and it is a **ratchet**, not a detector: it stops the surface growing rather than proving the code reachable |
 | copy-paste, and whether it is *new* | `check_duplication.py` — jscpd 5.4.0 over `src/` and `include/`, against `.jscpd-baseline.json`. **The baseline is the point**: 378 clones already exist here (3.86% of lines), so a threshold gate would fail on every commit and get muted. It fails only past 5 *new* clones, and names them. Three exits, and the middle one matters: 0 clean, 1 new duplication, 2 **jscpd missing or analyzed nothing** — a scan that did not run is not a pass. Install with `uv tool install jscpd==5.4.0`. Measured: 490 files in ~65 ms; at `--min-lines 20`, 9 clones (0.36% of C++ lines) |
 | a document cites `file.ext:LINE` | `check_doc_citations.py` gates the resolvable ones; it names a citation pointing past the end of a file that exists, and only *reports* one naming no tracked file, because `docs/research/` cites other projects by construction and a gate that cannot tell an external reference from a dead one is guessing |
@@ -189,6 +189,7 @@ something, and each is named here so it gets used rather than rediscovered.
 | whether a first request is slower than later identical ones | `tools/bench/first_request_lane.py`. `--temperature` picks the question and `--seed` must be pinned, because an omitted seed is replaced per request with a fresh random one |
 | whether a prefix cache is serving a shared prefix | `tools/bench/check_shared_prefix_reuse.py`. **Never conclude from zero hits alone**: it needs an exact repeat that hits (else it exits 2) and a shuffled conversation that does not. **Read a lane's `path`, not its hit count**: `/v1/chat/completions` reuses through `private_response_replay` whether or not a shared candidate was published, so only a `shared_stable_prefix` path settles it, and an unmarked OpenAI arm correctly reads `root`. Both boundary locations resolve on the native path as of 2026-10-03, so the marker location is no longer a candidate explanation. And the two requests must be *different conversations*: seeding with a shorter version of the same one takes `private_response_replay`, which never decodes |
 | a host-side lifetime question | `tools/scripts/test_v3_asan.cmd` — ASan cannot instrument device code, which is why the two recipes are separate |
+| a crash with no message (`0xC0000409`, event `BEX64`) | build the target with `/Zi` and read the dump in `%LOCALAPPDATA%\CrashDumps` with `cdb -z <dump> -cf <file>`. **A fail-fast bypasses a live debugger**: `cdb -c "sxe ..."` never fires for it, which is how one session spent hours unable to interrupt a process that a dump then explained in a single read. Pass `-cf <file>`, never `-c` — a command list is exactly what the shell splits |
 | a kernel's performance | the `ncu-report` skill, records under `profiles/ncu/` and `profiles/nsys/`. **`profiles/ncu/` exists on this machine (`gdn_decode`); `profiles/nsys/` does not, and `profiles/` is gitignored in full, so its absence here is not evidence the layout is wrong — the path is unverifiable from the tree and is kept on the skill's own authority** |
 | a host-side C++ question | `clang-tidy -p build src/text/jinja.cpp` — `.clang-tidy` sets a narrow check set and `build/compile_commands.json` already exists; run it from the Visual Studio environment so the MSVC headers resolve |
 | Python tooling, before committing it | `ruff check tools tests` and `mypy tools/release tools/convert tests` — both clean, both enforced by the hook, so a new finding is a regression rather than a cost |
@@ -321,7 +322,7 @@ which of the four it means.
   cache capacity, which changes the prefill the plan chooses. A harness that does not record its own
   configuration cannot be compared with one that does, and a repeated run does not test that.
 
-Sixty-four rules, each earned by a failure rather than chosen:
+Sixty-five rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
@@ -441,7 +442,18 @@ Sixty-four rules, each earned by a failure rather than chosen:
   while `build-test` was reading it -- survived only because that phase had not yet begun. Stop the
   server before rebuilding it, and do not edit a source while a build is compiling it. The same
   applies to a script while it runs: cmd reads a batch file by byte offset, so an edit mid-run hands
-  it shifted text, and `test_v3.cmd` was edited while its own suite was running on 2026-09-25.
+  it shifted text, and `test_v3.cmd` was edited while its own suite was running on 2026-09-25. A test
+  executable cannot be relinked while the suite is executing it either: `LNK1104` on
+  `ninfer_qwen3_5_prefix_real_test.exe`, twice in one session, reads as a broken build rather than as
+  a held file. Stop the suite before a rebuild, and stop the rebuild before a suite — and note that
+  `check_test_baseline.py` now identifies the build tree before and after its run, so a build that
+  races the suite fails the gate instead of silently certifying two trees as one.
+- **A merge's shape is lost by `git stash`, and restorable.** `git stash` on an in-progress merge
+  preserves every byte and drops `MERGE_HEAD`, which records a single-parent commit *and* breaks
+  `check_port_delta.py`: it falls back to `merge-base(HEAD, upstream/dev)`, the OLD base, and reads the
+  incoming branch's own files as the port's divergence -- 90 of them for an 18-commit merge. Writing
+  the state file back (`git rev-parse <upstream-ref> > .git/MERGE_HEAD`) restores both, and the commit
+  then records two parents. Commit a resolution before switching context, or re-create the state file.
 - **Never edit a file from memory.** Five edits failed in one session because the anchor was
   reconstructed rather than read -- twice in the same file, and once after the same lesson had already
   been written down. Read the block, or anchor on a unique substring that omits the leading whitespace,

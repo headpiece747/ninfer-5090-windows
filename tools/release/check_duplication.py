@@ -99,7 +99,7 @@ def main() -> int:
             ],
             cwd=REPO,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
             check=False,
         )
         if seed.returncode != 0 or not BASELINE.exists():
@@ -131,7 +131,7 @@ def main() -> int:
         ],
         cwd=REPO,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         check=False,
     )
 

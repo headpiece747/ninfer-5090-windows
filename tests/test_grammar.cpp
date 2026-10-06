@@ -5,6 +5,7 @@
 #include <future>
 #include <iostream>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 
 namespace {
@@ -99,12 +100,47 @@ void check_compiled_grammar_lifetime() {
     session->confirm();
     require(allows(mask(*session), 2), "evicted grammar did not complete");
 }
+
+void check_draft_lookahead() {
+    // IDs: a=0, b=1, c=2, EOS=3, forbidden special=4.
+    ninfer::text::GrammarCompiler compiler({"a", "b", "c", "", ""}, {3}, 1024 * 1024);
+    auto session       = compile(compiler, "root ::= \"ab\" | \"ac\"", {}, {});
+    const auto initial = mask(*session);
+    std::ostringstream diagnostics;
+    auto* previous = std::cerr.rdbuf(diagnostics.rdbuf());
+    try {
+        for (int invalid : {0, 3, 4, -1, 5}) {
+            const std::array<std::int32_t, 2> drafts{0, invalid};
+            std::vector<std::uint32_t> words(3 * session->mask_words());
+            require(session->masks(drafts, words) == 0, "invalid draft must not fail request");
+            require(words[0] == (1u << 0) && words[1] == ((1u << 1) | (1u << 2)),
+                    "invalid draft changed the target's legal correction tokens");
+            require(mask(*session) == initial, "rejected draft did not restore matcher state");
+        }
+        const std::array<std::int32_t, 4> drafts{0, 1, 3, 4};
+        std::vector<std::uint32_t> words(5 * session->mask_words());
+        require(session->masks(drafts, words) == 0, "draft past EOS must not fail request");
+        require(words[2] == (1u << 3), "complete draft must allow EOS");
+        require(mask(*session) == initial, "lookahead through EOS did not restore matcher state");
+    } catch (...) {
+        std::cerr.rdbuf(previous);
+        throw;
+    }
+    std::cerr.rdbuf(previous);
+    require(diagnostics.str().empty(), "expected draft rejection emitted diagnostics");
+    session->accept(0);
+    session->confirm();
+    session->accept(2);
+    session->confirm();
+    require(allows(mask(*session), 3), "generation failed after rejected draft lookahead");
+}
 } // namespace
 
 int main() {
     try {
         check_finite_language_masks();
         check_compiled_grammar_lifetime();
+        check_draft_lookahead();
         std::vector<std::string> vocab;
         for (int byte = 0; byte < 256; ++byte) { vocab.emplace_back(1, static_cast<char>(byte)); }
         vocab.emplace_back();                        // EOS
@@ -115,10 +151,6 @@ int main() {
         auto literal = compile(compiler, "root ::= \"ab\" | \"ac\"", {}, {});
         require(allows(mask(*literal), 'a') && !allows(mask(*literal), 256),
                 "initial literal mask");
-        std::array<std::int32_t, 2> drafts{'a', 'x'};
-        std::vector<std::uint32_t> lookahead(literal->mask_words() * 3);
-        require(literal->masks(drafts, lookahead) == 0, "invalid draft must not fail request");
-        require(allows(mask(*literal), 'a'), "lookahead changed accepted state");
         literal->accept('a');
         literal->discard();
         require(allows(mask(*literal), 'a'), "discard did not restore matcher");

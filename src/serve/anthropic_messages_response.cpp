@@ -58,7 +58,9 @@ struct StopPresentation {
 };
 
 StopPresentation stop_presentation(const GenerationOutcome& outcome) {
-    if (!outcome.tool_calls.empty()) { return StopPresentation{.reason = "tool_use"}; }
+    if (!outcome.tool_calls.empty() && (outcome.finish_reason == ninfer::FinishReason::StopToken ||
+                                        outcome.finish_reason == ninfer::FinishReason::None))
+        return StopPresentation{.reason = "tool_use"};
     switch (outcome.finish_reason) {
     case ninfer::FinishReason::OutputLimit:
         return StopPresentation{.reason = "max_tokens"};

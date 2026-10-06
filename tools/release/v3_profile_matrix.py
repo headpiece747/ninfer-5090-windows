@@ -314,7 +314,7 @@ def domain_prompt(name: str) -> str:
 
 def gpu_used_mib() -> int:
     out = subprocess.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader"],
-                         capture_output=True, text=True, check=False).stdout
+                         capture_output=True, text=True, encoding="utf-8", check=False).stdout
     return int("".join(c for c in out if c.isdigit()) or 0)
 
 

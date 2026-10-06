@@ -77,7 +77,8 @@ public:
     make_output_session(const PreparedPrompt& prompt, const StopPolicy& caller_stop,
                         const OutputOptions& output                       = {},
                         const ThinkingControlOptions& thinking            = {},
-                        const std::optional<OutputConstraint>& constraint = {}) const;
+                        const std::optional<OutputConstraint>& constraint = {},
+                        const ToolChoice& tool_choice                     = {}) const;
     [[nodiscard]] const StopPolicy& default_stop_policy() const noexcept;
     [[nodiscard]] const ModelSamplingDefaults& sampling_defaults() const noexcept;
 

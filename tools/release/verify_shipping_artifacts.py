@@ -105,7 +105,7 @@ def structure(name: str, directory: Path) -> tuple[bool, str]:
         argv += ["--recipe", recipe[0], "--recipe-base", recipe[1]]
         for key, value in recipe[2].items():
             argv += ["--source", f"{key}={value}"]
-    done = subprocess.run(argv, capture_output=True, text=True, cwd=str(ROOT), check=False)
+    done = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT), check=False)
     tail = [line.strip() for line in (done.stdout + done.stderr).splitlines() if line.strip()]
     evidence = next((line for line in reversed(tail) if "PASS" in line or "FAIL" in line),
                     tail[-1] if tail else "no output")
@@ -124,7 +124,7 @@ def quality(name: str, tag: str, directory: Path) -> tuple[bool, str, float | No
     done = subprocess.run(
         [str(PERPLEXITY), str(path), "--corpus", str(CORPUS), "--kv-dtype", "fp8",
          "--output", str(out_dir)],
-        capture_output=True, text=True, cwd=str(ROOT), check=False)
+        capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT), check=False)
     report = out_dir / "report.json"
     if not report.exists():
         tail = [line.strip() for line in done.stderr.splitlines() if line.strip()]

@@ -73,6 +73,24 @@ void parse_json_output_format(const RequestJson& format, GenerationRequest& requ
 }
 
 void parse_structured_outputs(const RequestJson& body, GenerationRequest& request) {
+    if (body.contains("tool_constraints") && !body["tool_constraints"].is_null()) {
+        if (!body["tool_constraints"].is_string())
+            bad_request("tool_constraints must be auto or basic", "tool_constraints");
+        const auto mode = body["tool_constraints"].get<std::string>();
+        if (mode == "basic")
+            request.tool_choice.constraints = ToolConstraintMode::Basic;
+        else if (mode == "auto")
+            request.tool_choice.constraints = ToolConstraintMode::Automatic;
+        else
+            bad_request("tool_constraints must be auto or basic", "tool_constraints");
+    }
+    if (request.tool_choice.allowed_names)
+        for (const auto& name : *request.tool_choice.allowed_names)
+            if (std::none_of(request.tools.begin(), request.tools.end(),
+                             [&](const auto& tool) { return tool.name == name; }))
+                bad_request("tool choice refers to undeclared tool: " + name, "tool_choice");
+    if (request.tool_choice.mode == ToolChoiceMode::Required && !request.uses_tools())
+        bad_request("required tool choice has no callable tools", "tool_choice");
     for (const char* alias :
          {"grammar", "guided_json", "guided_regex", "guided_choice", "guided_grammar"}) {
         if (body.contains(alias) && !body[alias].is_null())
@@ -90,6 +108,8 @@ void parse_structured_outputs(const RequestJson& body, GenerationRequest& reques
     if (request.constraint && (request.uses_tools() || !request.stop_strings.empty()))
         bad_request("output constraints cannot be combined with active tools or custom stops",
                     request.constraint_param);
+    if (request.constrains_tools() && !request.stop_strings.empty())
+        bad_request("constrained tools require model EOS and cannot use custom stops", "stop");
 }
 
 [[noreturn]] void bad_request(std::string message, std::string param, std::string code) {

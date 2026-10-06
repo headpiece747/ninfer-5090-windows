@@ -117,6 +117,25 @@ GrammarCompiler::GrammarCompiler(std::vector<std::string> vocab, std::vector<std
 
 GrammarCompiler::~GrammarCompiler() = default;
 
+std::unique_ptr<GrammarSession>
+GrammarCompiler::compile_model(std::string_view identity,
+                               const std::function<xgrammar::Grammar()>& build,
+                               std::string_view close, std::string_view continuation) {
+    const std::string key =
+        "model:" + std::to_string(close.size()) + ":" + std::string(close) + std::string(identity);
+    auto compiled = impl_->compiler.CompileCachedGrammar(key, [&] {
+        auto grammar = build();
+        return close.empty() ? grammar
+                             : xgrammar::Grammar::Concat({reasoning_prefix(close), grammar});
+    });
+    auto session =
+        std::make_unique<GrammarSession::Impl>(compiled, static_cast<int>(impl_->vocab.size()));
+    if (!continuation.empty() && !session->matcher.AcceptString(std::string(continuation)))
+        throw RequestError(RequestErrorKind::InvalidToolConstraint,
+                           "assistant continuation is not a prefix of the tool grammar");
+    return std::unique_ptr<GrammarSession>(new GrammarSession(std::move(session)));
+}
+
 std::unique_ptr<GrammarSession> GrammarCompiler::compile(const OutputConstraint& constraint,
                                                          std::string_view close,
                                                          std::string_view continuation) {
@@ -199,15 +218,19 @@ std::uint32_t GrammarSession::masks(std::span<const std::int32_t> drafts,
                 impl_->fill(mask);
                 if (std::all_of(mask.begin(), mask.end(), [](auto word) { return word == 0; })) {
                     dead |= 1u << position;
-                    mask[0] = 1;
+                    reachable = false;
+                    mask[0]   = 1;
                 }
             } else {
                 std::fill(mask.begin(), mask.end(), 0);
                 mask[0] = 1;
             }
             if (position == drafts.size()) { break; }
-            if (reachable && !impl_->matcher.IsTerminated() &&
-                impl_->matcher.AcceptToken(drafts[position])) {
+            // Rejected proposals are expected; advance only through the allowed token set.
+            const auto draft = drafts[position];
+            if (reachable && !impl_->matcher.IsTerminated() && draft >= 0 &&
+                draft < impl_->vocabulary && (mask[draft / 32] & (1u << (draft % 32))) != 0 &&
+                impl_->matcher.AcceptToken(draft)) {
                 ++advanced;
             } else {
                 reachable = false;
