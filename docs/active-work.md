@@ -2110,6 +2110,51 @@ pre-commit gates pass; the hook's pytest scope passes (108); ruff and mypy are c
 `check_host_kv.py` starts a lane on `--host-context-mib 8192` and reports **5/5 cache hits at 98.7%**
 — which also confirms the merged engine retains prefixes at the shipped quota.
 
+### 20. 250 divergences, and 245 of them said nothing about why — **RECORDED 2026-10-06; 121 need a decision**
+
+**Why:** `port_delta_baseline.json` is the port's list of every upstream-owned file it diverges from,
+and the ratchet fails when one appears or disappears. That makes the *list* safe and leaves the
+*account* empty: five entries carried a reason, so the next session reading it had 245 paths and no
+statement of what any of them was. The policy the ratchet exists to enforce — a divergence is a
+Windows necessity or a measurably better implementation, or it reverts — cannot be applied to a list
+that does not say which paths are which.
+
+**The method, and what it deliberately is not.** A 250-path review cannot be 250 readings, and it
+must not become 250 plausible sentences. Most divergences already say why they exist, in the diff:
+a comment naming a `docs/active-work.md` item, an ADR, a document, an upstream commit, an `UNGATED`
+marker, an MSVC diagnostic, a measurement. So the reason field is filled with a **citation** —
+"Cited in the diff — item: 12" — which says what is there and leaves the reader to open it. A tool
+that wrote "keeps because the port needs it" would assert a review that had not happened, which is
+the failure mode this whole file exists to avoid. Files with no citation say exactly that, so the
+queue is visible in the file rather than implied by an empty string.
+
+**State: 129 of 250 accounted for, 121 needing a decision.**
+
+| kind | count | what it means |
+|---|---|---|
+| citation | 88 | the diff names an item, ADR, doc, upstream commit, MSVC diagnostic or measurement |
+| removed | 24 | the port does not ship an upstream file; the reason says to check for references first |
+| annotated | 17 | established by hand: the port's instruments, plus five older reasons |
+| **unreviewed** | **121** | no provenance in the diff — these need the review |
+
+The queue's shape, which is what makes the remainder tractable: `src/ops` 32, `src/models` 17,
+`src/serve` 8, `src/product` 6, `tools/convert` 6, `src/artifact` 5, `src/runtime` 5, `tests/ops` 5,
+`include/ninfer` 4, and a tail of docs, fixtures and build files. The largest single entries are the
+port's own test coverage (`tests/ops/test_candidate_selector.cpp`, 353 lines) and its instruments,
+so the *risk-weighted* remainder is smaller than the count suggests — depth follows blast radius
+rather than line count.
+
+**Two things this deliberately does not do.** It does not decide the 121, because deciding them from
+a keyword would be the transcription this file warns about. And it is not a gate: the reason field is
+prose a human wrote or a tool cited, and a gate over prose is the class `AGENTS.md` records four
+separate times.
+
+**Done when:** every path's reason names its justification, and the unreviewed group is empty.
+**Measured 2026-10-06:** 129 accounted for as above; the ratchet green at 250; and the two groups
+verified against the code rather than the record — the FP8 family's `alignas(64)` against upstream's
+`alignas(128)` (`src/ops/linear/fp8/fp8_a8_tma_mma.cuh:26`, with a `static_assert` enforcing it) and
+the deduplication against `src/ops/common/validation.h`.
+
 ## Gates added while this list was open
 
 **Text encoding, 2026-10-02 — `tools/release/check_text_encoding.py`.** 181 lines of this file
