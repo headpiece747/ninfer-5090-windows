@@ -2128,14 +2128,23 @@ that wrote "keeps because the port needs it" would assert a review that had not 
 the failure mode this whole file exists to avoid. Files with no citation say exactly that, so the
 queue is visible in the file rather than implied by an empty string.
 
-**State: 129 of 250 accounted for, 121 needing a decision.**
+**State: 150 of 250 accounted for, 100 needing a decision.**
 
 | kind | count | what it means |
 |---|---|---|
-| citation | 88 | the diff names an item, ADR, doc, upstream commit, MSVC diagnostic or measurement |
+| citation | 100 | the diff names an item, ADR, doc, upstream commit, Windows construct, MSVC diagnostic or measurement |
 | removed | 24 | the port does not ship an upstream file; the reason says to check for references first |
-| annotated | 17 | established by hand: the port's instruments, plus five older reasons |
-| **unreviewed** | **121** | no provenance in the diff — these need the review |
+| annotated | 26 | established by hand — the port's instruments, the deduplication, the FP8 family, the Win32 I/O, and the diagnostics/error-envelope contracts |
+| **unreviewed** | **100** | no provenance in the diff — these need the review |
+
+**Two pattern gaps found by running it, both the mirror of the failure it exists to prevent.** The
+first pass listed `_MSC_VER` and `C2719` but not **`_WIN32`**, so `src/artifact/file_io.cpp` — whose
+entire divergence is `#ifdef _WIN32` with `CreateFileW` and `FILE_FLAG_NO_BUFFERING` replacing POSIX
+`open`/`O_DIRECT` — was reported as having no provenance. Adding it converted 12 paths. The second
+missed `sys.platform == "win32"`, the Python half of the same work, which converted 2 more. A
+pattern that misses the commonest case reports a justified file as unreviewed; a pattern that is too
+loose does the opposite and hides a real one, which is why each was verified against a diff before
+being added.
 
 The queue's shape, which is what makes the remainder tractable: `src/ops` 32, `src/models` 17,
 `src/serve` 8, `src/product` 6, `tools/convert` 6, `src/artifact` 5, `src/runtime` 5, `tests/ops` 5,

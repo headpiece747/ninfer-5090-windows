@@ -21,7 +21,7 @@
     ".gitignore": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "AGENTS.md": {
       "status": "M",
@@ -36,7 +36,7 @@
     "CONTRIBUTING.md": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "README.md": {
       "status": "M",
@@ -46,12 +46,12 @@
     "apps/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "apps/cli/main.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "apps/perplexity/main.cpp": {
       "status": "M",
@@ -61,7 +61,7 @@
     "apps/serve/main.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "bench/README.md": {
       "status": "M",
@@ -76,7 +76,7 @@
     "bench/fixtures/ttft/manifest.json": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "bench/fixtures/ttft/text/long_64k_independent.json": {
       "status": "M",
@@ -126,7 +126,7 @@
     "bench/ops/candidate_selector_bench.cu": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "cmake/Dependencies.cmake": {
       "status": "M",
@@ -146,17 +146,17 @@
     "docs/maintainer/op-development.md": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "docs/maintainer/paged-kv-cache.md": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "docs/maintainer/qwen3_5-model.md": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "docs/performance.md": {
       "status": "M",
@@ -211,17 +211,17 @@
     "include/ninfer/ops/attn_input_proj.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "include/ninfer/ops/candidate_selector.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "include/ninfer/ops/linear_swiglu.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "include/ninfer/types.h": {
       "status": "M",
@@ -326,17 +326,17 @@
     "src/artifact/file_io.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/artifact/file_io.h": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/artifact/materializer.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/artifact/materializer.h": {
       "status": "M",
@@ -346,47 +346,47 @@
     "src/artifact/reader.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/artifact/reader.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/core/paged_kv_cache.h": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/core/weight_view.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/config.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/config.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/execution/draft.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/execution/parameters.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/execution/parameters.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/frontend/chat_template.cpp": {
       "status": "M",
@@ -396,7 +396,7 @@
     "src/models/qwen3_5/frontend/prepared_prompt.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/frontend/tokenizer.cpp": {
       "status": "M",
@@ -411,22 +411,22 @@
     "src/models/qwen3_5/frontend/tool_call_parser.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Fallback diagnostics now name the subject they rejected. Its comment states the contract: 'undeclared tool' with no subject cannot distinguish a model that misspelled a declared name from one that invented a tool, and those need opposite responses. Covered by tests/test_tool_call_parser.cpp."
     },
     "src/models/qwen3_5/load.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/load/dflash2.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/load/prepare.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/program/decode.cpp": {
       "status": "M",
@@ -436,7 +436,7 @@
     "src/models/qwen3_5/program/planning/startup.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/program/program.cpp": {
       "status": "M",
@@ -456,12 +456,12 @@
     "src/models/qwen3_5/program/program_impl.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/program/speculative/mtp.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/program/storage/kv_address_space.h": {
       "status": "M",
@@ -471,17 +471,17 @@
     "src/models/qwen3_5/state/decoder_state.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/models/qwen3_5/weights.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/attn_input_proj/fp8/fp8_attn_input_a8.cu": {
       "status": "M",
@@ -491,47 +491,47 @@
     "src/ops/attn_input_proj/nvfp4/nvfp4_attn_input_plan.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/attn_input_proj/q8/q8_attn_input_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/attn_input_proj/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/basic_sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path.cu": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path_kernels.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path_plan.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/candidate_selector/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/context_kv_materialize/context_kv_materialize.cpp": {
       "status": "M",
@@ -541,27 +541,27 @@
     "src/ops/context_kv_materialize/launch.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/context_kv_materialize/materialize.cu": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Extraction, not a behaviour change: context_column, DeviceLayerView, DeviceLayers and store_key_head moved to src/ops/context_kv_materialize/context_kv_common.cuh so the route and the non-TMA path share one definition. Same class as the ops/common/validation.h deduplication, and protected the same way -- check_duplication.py fails on new clones, so a merge that restores upstream's copies is caught rather than silent."
     },
     "src/ops/context_kv_materialize/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/dynamic_grouped_conv/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/gdn_input_proj/fp8/fp8_gdn_input_a8.cu": {
       "status": "M",
@@ -571,12 +571,12 @@
     "src/ops/gdn_input_proj/q4_q5/q4_q5_gdn_input_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/gdn_input_proj/q8/q8_gdn_input_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear/bf16/bf16_a16_tma_mma.cuh": {
       "status": "M",
@@ -586,7 +586,7 @@
     "src/ops/linear/fp8/fp8_a8_mma.cuh": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear/fp8/fp8_a8_tma_mma.cuh": {
       "status": "M",
@@ -601,17 +601,17 @@
     "src/ops/linear/fp8/fp8_launch.cuh": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear/fp8/fp8_schedule.cuh": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Split-K geometry moved to the schedule BASE, because it is a property of a schedule and not of a transport -- Fp8A8TmaMmaSchedule used to declare it, so a plain MMA schedule had no split-K geometry at all. Part of the same FP8 work as the nine UNGATED files: without a non-TMA schedule carrying split-K there is nothing for the ungated bands to select."
     },
     "src/ops/linear/fp8/fp8_template_launch.cuh": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: GetLastError. Open it before changing this path."
     },
     "src/ops/linear/fp8/shapes/n14336_k5120.cu": {
       "status": "M",
@@ -651,7 +651,7 @@
     "src/ops/linear/nvfp4/nvfp4_dispatch.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear/nvfp4/nvfp4_format.cpp": {
       "status": "M",
@@ -661,17 +661,17 @@
     "src/ops/linear/nvfp4/nvfp4_launch.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear/nvfp4/nvfp4_shapes.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear/nvfp4/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear_add/fp8/fp8_linear_add_a8.cu": {
       "status": "M",
@@ -681,12 +681,12 @@
     "src/ops/linear_add/q5/q5_linear_add_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear_add/q8/q8_linear_add_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear_attention/gated_delta_net/replay.cpp": {
       "status": "M",
@@ -706,17 +706,17 @@
     "src/ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_plan.cpp": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear_swiglu/q4/q4_linear_swiglu_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear_swiglu/q8/q8_linear_swiglu_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/linear_topk/linear_topk.cpp": {
       "status": "M",
@@ -736,7 +736,7 @@
     "src/ops/weight_input.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/wrapper/argmax.cpp": {
       "status": "M",
@@ -746,7 +746,7 @@
     "src/ops/wrapper/attn_input_proj.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/ops/wrapper/candidate_selector.cpp": {
       "status": "M",
@@ -826,32 +826,32 @@
     "src/product/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/product/logging/logging.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/product/logging/startup_log.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/product/media_acquire/acquire.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/product/media_acquire/source.h": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/product/prompt_input/prompt_input.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/runtime/contract/resources.h": {
       "status": "M",
@@ -866,12 +866,12 @@
     "src/runtime/engine/context_cache/context_cost.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/runtime/engine/context_cache/resource_manager.h": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/runtime/engine/engine.cpp": {
       "status": "M",
@@ -881,7 +881,7 @@
     "src/runtime/engine/kv_capacity.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/serve/generation_service.cpp": {
       "status": "M",
@@ -896,7 +896,7 @@
     "src/serve/http_server.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Unrouted HTTP statuses now leave as a JSON error envelope. Its own comment gives the reason: a client that parses every response as JSON -- the SDK-backed harnesses -- otherwise crashes on httplib's plain-text page. Covered by tests/test_http_error_handler.cpp."
     },
     "src/serve/http_transport.cpp": {
       "status": "M",
@@ -906,42 +906,42 @@
     "src/serve/openai_chat_request.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/serve/openai_responses_request.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/serve/operational_log.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Reports the prepare phase for every request, media or not, because preparation is host-side prompt work regardless: building the tool-call contract, converting the messages, rendering the chat template and tokenizing the whole prompt. The phase field is what tools/bench/report_serve_phases.py reads, and its definition is recorded in AGENTS.md (prepare_seconds spans the whole frontend, not just the render)."
     },
     "src/serve/operational_log.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/serve/request_log.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "src/serve/serve_options.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "src/text/jinja.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/README.md": {
       "status": "M",
@@ -961,12 +961,12 @@
     "tests/artifact/test_container.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/artifact/test_reader.cpp": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/artifact/tests.cmake": {
       "status": "M",
@@ -976,7 +976,7 @@
     "tests/artifact/writer_interop.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/cmake/BenchSupportTests.cmake": {
       "status": "M",
@@ -991,27 +991,27 @@
     "tests/cmake/ProductTests.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/convert/test_cli.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/convert/test_qwen3_5.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/convert/test_sources.py": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/models/qwen3_5/test_engine_dflash_real.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/models/qwen3_5/test_engine_prefix_real.cpp": {
       "status": "M",
@@ -1031,12 +1031,12 @@
     "tests/ops/linear/test_nvfp4_a16.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/ops/linear_swiglu/test_fp8.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/ops/softmax_attention/main.cpp": {
       "status": "M",
@@ -1051,7 +1051,7 @@
     "tests/ops/test_attn_input_proj.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/ops/test_candidate_selector.cpp": {
       "status": "M",
@@ -1061,7 +1061,7 @@
     "tests/ops/test_context_kv_materialize.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/ops/test_gated_delta_net_replay_record.cpp": {
       "status": "M",
@@ -1086,17 +1086,17 @@
     "tests/runtime/test_context_cost.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "tests/test_cli_options.cpp": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/test_gdn_replay_records.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "tests/test_host_timing.cpp": {
       "status": "M",
@@ -1106,12 +1106,12 @@
     "tests/test_http_error_handler.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The test for the JSON error envelope above: it parses the body of every unrouted status rather than checking the status code alone, which is the property the change exists for."
     },
     "tests/test_kv_cache.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/test_ninfer_bench_support.cpp": {
       "status": "M",
@@ -1121,27 +1121,27 @@
     "tests/test_openai_schema.cpp": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/test_pretty_logging.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "tests/test_request_log.cpp": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "tests/test_serve_corpus.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tests/test_tool_call_parser.cpp": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The test for the fallback diagnostics above."
     },
     "tests/text/test_chat_templates.py": {
       "status": "M",
@@ -1176,42 +1176,42 @@
     "tools/artifact/file_io.py": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The Python side of the Win32 I/O work: sys.platform == 'win32' branches, because sysconf, posix_fadvise and fdatasync are POSIX page-cache and durability controls with no Windows equivalent. src/artifact/file_io.cpp carries the C++ half."
     },
     "tools/artifact/reader.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/artifact/writer.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/bench/ttft/build_fixtures.py": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/bench/ttft/cases.py": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/bench/ttft/execution.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/chat_templates/qwen3_8.jinja": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/convert/__main__.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/convert/official_recipes.py": {
       "status": "M",
@@ -1221,22 +1221,22 @@
     "tools/convert/pipeline.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/convert/qwen3_5.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/convert/recipe.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/convert/resources.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/convert/sources/compressed_tensors.py": {
       "status": "M",
@@ -1246,12 +1246,12 @@
     "tools/convert/sources/safetensors.py": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
     },
     "tools/upgrade_ninfer_v2_to_v3.py": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, MSVC diagnostic or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The same Win32 branching as tools/artifact/file_io.py, for the same reason."
     }
   }
 }
