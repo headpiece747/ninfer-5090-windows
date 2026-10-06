@@ -477,6 +477,12 @@
       "review": "product",
       "reason": "The per-phase timings the request log and the serve phase report read: render_seconds, convert_seconds, contract_seconds and context_cache_seconds. Their definitions are recorded in AGENTS.md -- prepare_seconds spans the whole frontend, so reading one of these as 'the render' was a measured error once."
     },
+    "src/models/qwen3_5/frontend/processor.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "The frontier ledger, restored 2026-10-06 after item 16 found the b9114396 merge had taken the port's version of it. encode_rendered_chat built a bare byte_boundaries vector and read it back with a running boundary_index, so the push order and the read order were two independent traversals of the same fields agreeing only by convention; the port replaced that with a FrontierEntry ledger (kind + ordinal + offset) written and read by label. Upstream's own b9114396 change added a SIXTH field to both traversals (rewrite_checkpoint->recovery_offset), which is the pattern the ledger exists to make safe -- a change reaching one side and missing the other mislabels every later frontier silently, and the count check saw only the totals differing. The restoration carries RewriteRecovery as its own BoundaryKind. Verified by ninfer_qwen3_5_frontend_test, ninfer_qwen3_5_prefix_real_test and the full suite."
+    },
     "src/models/qwen3_5/frontend/tokenizer.cpp": {
       "status": "M",
       "disposition": "product",
@@ -1046,6 +1052,12 @@
       "disposition": "product",
       "review": "product",
       "reason": "Engine::score_topk, the public entry point for the top-k instrument, dispatched to the resident core's program."
+    },
+    "src/runtime/engine/engine_core.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Two port changes, both restored 2026-10-06 after item 16 found the b9114396 merge had taken them. First, the other half of the kv_capacity.h deduplication: that header is still present and still included by model_instance.h and causal_score_core.h, but its caller in memory_summary() had been reverted to the inline publication it replaced, so the dedup was half-applied. Second, a settle-order fix: 'Free the slot and publish the post-release snapshot before waking the caller, so a runtime_stats() read after generate() returns reflects the released lane instead of the last decode boundary.' It has three coupled parts, and the third is what makes it safe -- cancel_active_requests held const auto& request = slots_[lane] and remove_completed_slot resets that slot, so reordering without taking a copy is a use-after-free. Restored at the two sites the port's change covered, with the deferred publish removed. Verified by the full suite and the baseline gate."
     },
     "src/runtime/engine/kv_capacity.h": {
       "status": "M",

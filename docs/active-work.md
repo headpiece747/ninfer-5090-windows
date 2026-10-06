@@ -1924,25 +1924,80 @@ actual count on failure.
 **Done when:** the `C=8` assertion is attributed and either fixed or recorded with its cause. —
 **satisfied 2026-10-05.**
 
-### 16. The `b9114396` merge took upstream's version of 40 files the port had work in — **A HYPOTHESIS, twice falsified**
+### 16. The `b9114396` merge took upstream's version of 40 files the port had work in — **RUN 2026-10-06: one real loss found and restored, 18 still to read**
 
 **Why:** for every file upstream's `b9114396` changed, the merge result equals upstream's exact blob
 while the port's pre-merge blob differed from upstream's pre-merge blob — 40 files, against a control
 arm of 53 where the port's version was kept. An instrument that flagged everything would have put the
 control near zero, so 40 is a real signal.
 
-**But it is a candidate list, not a list of losses, and two of the failures it appeared to predict
-were not losses at all.** `src/serve/request_log.h` was the port being *behind*: upstream's version
-was newer and the merge correctly took it. `src/serve/http_server.cpp` was not on the list at all,
-while the merge's change there was an improvement. `tokenizer.cpp` is not on it either — its loss
-happened on the earlier branch merge — so the true total is at least 40 and not exactly 40.
+**The mechanical test, run.** The merge is `355dda55` ("merge: upstream b9114396, the context-cache
+replacement, with the port's work preserved"), port side `c42406ab`, upstream side `a8e212ac`, merge
+base `75a89050`. The question is the one this item left open: **at HEAD, is the port's change still
+gone?**
 
-**What is worth doing** is the mechanical version rather than 40 manual reviews: for each file, does
-the divergence the port *once had* survive at HEAD? That is the difference between a hypothesis and a
-fact, and it is the only way to find a silent loss that no test covers.
+**Three instrument errors, each caught by a different control, and that is the part worth keeping.**
+
+1. The port's own change is its diff from the **merge base**, not from `b9114396~1`. Comparing
+   against the latter counts every file where the port was merely *older* as a divergence — the tell
+   was 28 files reported as "taken" with no port change at all.
+2. The `taken`/`behind` labels were **inverted**: a file upstream had *not* touched between the base
+   and `b9114396~1` is the one whose change was the port's own, and therefore the loss candidate.
+3. "Upstream changed" is everything upstream changed between the base and its **tip**, not
+   `b9114396`'s own diff — the merge took the tip. This one changed the set from 176 to 183 files
+   and the result not at all, which is worth knowing rather than assuming.
+
+**Result: at the merge 40 were taken; at HEAD 19 are still gone.** The other 21 were restored by the
+port's own later work. Of the 19:
+
+* **One was a real loss, and it is restored.** `src/models/qwen3_5/frontend/processor.cpp`'s
+  `encode_rendered_chat` built a bare `byte_boundaries` vector and read it back with a running
+  `boundary_index`, so the push order and the read order were two independent traversals of the same
+  fields agreeing only by convention — a change reaching one side and missing the other mislabels
+  every later frontier *silently*, and the count check saw only the cases where the totals differed.
+  The port replaced that with a `FrontierEntry` ledger written and read **by label**, and the merge
+  took upstream's version of it. Upstream's own `b9114396` change then added a **sixth** field to
+  both traversals (`rewrite_checkpoint->recovery_offset`), which is the pattern the ledger exists to
+  make safe. Restored, carrying `RewriteRecovery` as its own kind; verified by
+  `ninfer_qwen3_5_frontend_test`, `ninfer_qwen3_5_prefix_real_test` and the full suite.
+* **A second loss, also restored, and it is a correctness fix.** `src/runtime/engine/engine_core.h`
+  had two port changes and the merge took both. The first is the other half of the `kv_capacity.h`
+  deduplication — that header is still present and still included by `model_instance.h` and
+  `causal_score_core.h`, but its *caller* in `memory_summary()` had been reverted to the inline
+  publication it replaced, so the dedup was half-applied. The second is a settle-order fix whose
+  comment states the defect: *"Free the slot and publish the post-release snapshot before waking the
+  caller, so a `runtime_stats()` read after `generate()` returns reflects the released lane instead
+  of the last decode boundary."* It has three coupled parts, and the third is the one that makes it
+  safe: `cancel_active_requests` held `const auto& request = slots_[lane]` and `remove_completed_slot`
+  resets that slot, so reordering without taking a copy is a use-after-free. The port's comment says
+  exactly that. Both restored; `remove_completed_slot` → `publish_runtime_stats` → `complete_success`
+  at both sites, and the deferred `if (changed) { publish_runtime_stats(); }` removed with them.
+  A third settle site exists (the batch terminal path in a `catch (...)`) that upstream's newer code
+  added and the port never touched; it is left as upstream has it, and named here rather than
+  silently left inconsistent.
+* **And the cascade, which is the part worth remembering.** This session earlier diagnosed a
+  *stats-freshness race in a test* — "settlement precedes `complete_success`, `publish_runtime_stats`
+  lags" — and fixed it **in the test**. With the engine fix restored, that race is fixed where it
+  lived. The test-side workaround was the port working around a loss it had not yet found, which is
+  what a silent merge loss looks like from downstream.
+* **The patch test is not a classifier.** All 19 "do not apply", and `processor.cpp` is proof that
+  this does not mean superseded: the code had moved *and* the fix was still needed. A conflict is
+  evidence that the region changed, never that the port's intent is obsolete. `engine_core.h` is the
+  same lesson a second time, in the same 19.
+* **Two are false positives of the HEAD-equality test**: `mtp.cpp`, which this session reverted for
+  being whitespace-only, and `chat_template.h`, which converged when the native renderer was
+  withdrawn. Both equal upstream at HEAD for reasons that have nothing to do with this merge.
+
+**What is left is reading, not scripting**: `docs/serving.md`, the five model-card READMEs,
+`tools/bench/ttft/{README.md,profiles.py}`, and eight source files (`execution/text.{cpp,h}`,
+`frontend/frontend.cpp`, `program/prefill.cpp`, `program/transactions/commit.cpp`,
+`runtime/engine/{engine_core.h,model_instance.cpp}`), with `request_log.h` already classified above
+as the port having been behind.
 
 **Done when:** every one of the 40 is classified as a loss (restore it), a superseded port change
 (drop it), or the port having been behind (nothing to do), with the classification recorded.
+**Partially done 2026-10-06:** the instrument is corrected and recorded, the one confirmed loss is
+restored and verified, and the remaining 18 are named above rather than left implied by a count.
 
 ### 17. The suite runs 3.0x faster, and the remaining 1.6x is a coverage decision — **DONE 2026-10-05; the second half is open**
 

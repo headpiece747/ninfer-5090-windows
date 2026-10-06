@@ -7,6 +7,7 @@
 #include "ninfer/types.h"
 #include "runtime/contract/execution.h"
 #include "runtime/contract/resources.h"
+#include "runtime/engine/kv_capacity.h"
 #include "runtime/engine/request_record.h"
 #include "runtime/engine/context_cache/resource_manager.h"
 #include "runtime/engine/scheduler.h"
@@ -242,18 +243,8 @@ public:
 
     [[nodiscard]] MemorySummary memory_summary() const {
         std::scoped_lock lock(execution_mutex_);
-        MemorySummary out                      = instance_.program->memory_summary();
-        const KvCapacityResolution& resolution = instance_.kv_capacity_resolution;
-        out.kv_capacity_mode                   = resolution.mode;
-        out.kv_capacity_page_groups            = resolution.main_page_groups;
-        out.kv_capacity_max_page_groups        = resolution.maximum_main_page_groups;
-        out.minimum_runtime_reservation_bytes  = resolution.minimum_runtime_reservation_bytes;
-        out.kv_capacity_increment_bytes        = resolution.bytes_per_additional_main_page_group;
-        out.runtime_reservation_bytes          = resolution.runtime_reservation_bytes;
-        out.available_after_weights_bytes      = resolution.available_after_weights_bytes;
-        out.available_after_startup_bytes      = resolution.available_after_startup_bytes;
-        out.kv_capacity_headroom_bytes         = resolution.automatic_headroom_bytes;
-        out.planned_slack_bytes                = resolution.planned_slack_bytes;
+        MemorySummary out = instance_.program->memory_summary();
+        publish_kv_capacity(instance_.kv_capacity_resolution, out);
         return out;
     }
 
@@ -873,21 +864,25 @@ private:
             request->terminal_reason.reset();
 
             finish_engine_phase(boundary, EngineHostPhase::Boundary);
-            complete_success(request, reason);
+            // Free the slot and publish the post-release snapshot before waking the caller, so a
+            // runtime_stats() read after generate() returns reflects the released lane instead of
+            // the last decode boundary.
             remove_completed_slot(lane);
+            publish_runtime_stats();
+            complete_success(request, reason);
             boundary = begin_host_phase();
             changed  = true;
         }
-        if (changed) { publish_runtime_stats(); }
         return changed;
     }
 
     void cancel_active_requests(const std::array<bool, kMaximumConcurrency>& cancelled_at_boundary,
                                 HostPhaseMeasurement& boundary) {
         if (instance_.program->has_context_transaction()) { return; }
-        bool changed = false;
         for (std::uint32_t lane = 0; lane < max_concurrency_; ++lane) {
-            const auto& request = slots_[lane];
+            // Copy the slot before remove_completed_slot below resets it, so complete_success keeps
+            // the record alive across the release.
+            const auto request = slots_[lane];
             if (request == nullptr || !cancelled_at_boundary[lane]) { continue; }
             if (request->capture_pending) { continue; }
             if (!request->sequence || !request->lane || request->lane->value != lane) {
@@ -899,12 +894,14 @@ private:
             request->speculative_stats  = std::move(aborted.speculative);
             finish_engine_phase(boundary, EngineHostPhase::Boundary);
             append_output(request, request->output.commit_preview());
-            complete_success(request, FinishReason::Cancelled);
+            // Free the slot and publish the post-release snapshot before waking the caller, so a
+            // runtime_stats() read after generate() returns reflects the released lane instead of
+            // the last decode boundary.
             remove_completed_slot(lane);
+            publish_runtime_stats();
+            complete_success(request, FinishReason::Cancelled);
             boundary = begin_host_phase();
-            changed  = true;
         }
-        if (changed) { publish_runtime_stats(); }
     }
 
     [[nodiscard]] bool expire_pending_requests() {
