@@ -31,6 +31,11 @@
 # The URL is versioned on purpose: `releases/latest/download/actions-runner-win-x64.zip` 404s,
 # because the released asset carries the version in its name. Check the current one with
 # `gh api repos/actions/runner/releases/latest --jq '.tag_name, (.assets[].name)'`.
+#
+# The schedule fires only while a runner is up: `run.cmd` is a foreground listener that dies with the
+# shell that started it, so a machine that must serve the nightly job needs the service form (from an
+# elevated shell) or a startup task. Registered and left running on this machine 2026-10-06 as
+# `5090-box`, online.
 name: gpu-suite
 
 on:
