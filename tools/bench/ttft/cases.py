@@ -1778,8 +1778,13 @@ def _reporter_concurrency3(context: CaseContext, corpus: Corpus) -> None:
     # never exercises reuse -- which is why an earlier version of this reported `cache 0.0%` through a
     # complete, constructed run and meant nothing by it.
     #
-    # 60 rounds at this corpus size takes each lane well past 8,000 tokens, the ceiling a default
-    # `--max-context` would impose, so growth is demonstrated rather than assumed.
+    # 60 rounds at this corpus size was written as "well past 8,000 tokens, the ceiling a default
+    # `--max-context` would impose, so growth is demonstrated rather than assumed". **The first
+    # end-to-end run of this case, 2026-10-06, measured 2,078 -> 5,804 tokens (lane a; b 5,421,
+    # c 5,232), so it does not cross that ceiling and the claim was an assumption.** Growth is still
+    # demonstrated, and the measured numbers are here rather than the projection; crossing 8,000 from
+    # this corpus needs about 100 rounds. The comment is corrected rather than the workload changed,
+    # because this run is the case's first recorded baseline and moving its parameters would move it.
     for turn in range(60):
         requests = []
         for label, history in lanes:
@@ -1795,7 +1800,7 @@ def _reporter_concurrency3(context: CaseContext, corpus: Corpus) -> None:
         context.wait_all(handles)
         _require_successes(context, handles)
         for index, (_label, history) in enumerate(lanes):
-            history.append(_assistant(handles[index * 2]))
+            history.append(_assistant(context, handles[index * 2]))
 
 
 _DEFINITIONS = (

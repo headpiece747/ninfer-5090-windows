@@ -1868,8 +1868,9 @@ acceptable; leaving it undocumented is not, because the bench currently compensa
 `known_failures` of two, under a note reading "Green since 2026-09-19" — while the suite it describes
 had five failures it did not mention. That file was last touched by `af5890b3`, which is HEAD, so the
 claim was false at the commit that wrote it. Nothing had run the suite: `.github/workflows/gpu.yml`
-is published and wired correctly, but **no self-hosted runner is registered**, so the GPU tier has
-never executed. The four failures had four different causes, which is why each was attributed before
+was published and wired correctly, but **no self-hosted runner was registered**, so the GPU tier had
+never executed — see item 23, which records the three blockers that had to be fixed and the first
+run on 2026-10-06. The four failures had four different causes, which is why each was attributed before
 it was touched rather than fixed as a group.
 
 - `ninfer_qwen3_5_frontend_test` — **lost port work.** Upstream's `b9114396` rewrote `tokenizer.cpp`
@@ -2041,6 +2042,15 @@ full.
   `--host-state-slots`, `--host-kv-mib`, `--max-shared-prefixes`, `--max-private-continuations` or
   `--max-long-anchors-per-continuation` (host state and KV are one `--host-context-mib` quota now and
   the descriptor counts are derived); the reporter's values keep the same 40% scaling.
+  **Run end to end for the first time on 2026-10-06**, and getting there needed three more fixes the
+  case could not have revealed before it ran: the campaign controller staged its artifact under
+  `/dev/shm` with `os.statvfs` and copied it with `dd` (all POSIX-only, so the case could not run on
+  this machine at all), and the case called `_assistant()` with one argument where it takes two.
+  Result: **360/360 requests succeeded, `constructed=true`, `admission_fallback_reason: none` and
+  `revoked_checkpoints: 0` on every one, `cached_tokens` a median 98.9% of the prompt** (max 99.8%) —
+  the first measurement of this profile under the new context cache, and it says the cache serves a
+  growing three-lane conversation there. It is **not** the #251 re-test: that defect needs independent
+  conversations saturating the pool, and this run has reuse working throughout.
 * **The five upstream model cards.** `1b53a301` deleted them deliberately ("this port ships none of
   those checkpoints") and the merge restored upstream's `README.md` into each of the five directories
   -- because upstream changed that one file in the merge range while the card's other five files did
@@ -2122,11 +2132,12 @@ each reporting its own cause) and `ninfer_qwen3_5_loading_real_test` skipped by 
 `ninfer_request_log_test`, `ninfer_qwen3_5_frontend_test` and `ninfer_pretty_logging_test` pass, with
 the new phase assertion falsified in both directions (the render bracket disabled makes it fail with
 its own message); the ratchet is green at 268 paths with the 13 new entries carrying reasons and
-verdicts; `check_profile_consistency.py` reports 0 disagreements; ruff and mypy are clean. End to end
-on a serving lane started with the restored reporter profile (`qwen3_8_27b_nvfp4qat`, `--max-context
-104857 --kv-capacity 117964 --max-concurrency 3 --device-state-slots 2 --host-context-mib
-12179.05078125`): the engine pinned 11.9 GiB of host context, answered `/health`, completed a
-request (`prompt 58 | output 24 | TTFT 74.8 ms`), and printed
+verdicts; `check_profile_consistency.py` reports 0 disagreements; ruff and mypy are clean. The GPU
+tier's first execution and the reporter case's first end-to-end run are item 23 and the bullet above.
+End to end on a serving lane started with the restored reporter profile (`qwen3_8_27b_nvfp4qat`,
+`--max-context 104857 --kv-capacity 117964 --max-concurrency 3 --device-state-slots 2
+--host-context-mib 12179.05078125`): the engine pinned 11.9 GiB of host context, answered `/health`,
+completed a request (`prompt 58 | output 24 | TTFT 74.8 ms`), and printed
 
     req#1 started | openai-chat non-stream | 1 message | max output 24 | thinking template default |
     prepared 240 us, contract 0 us, convert 1 us, render 196 us, tokenize 39 us, positions 0 us,
@@ -2546,6 +2557,46 @@ because it never disabled the default stops, the reproduction, and the searches 
 upstream reports it and that no upstream commit has touched either file since `41e50d0d`. It is kept
 there rather than posted, because the port does not file on the upstream tracker without the owner's
 decision; it is written to be pasted as an issue as-is.
+
+### 23. The GPU tier had never executed — **RESOLVED 2026-10-06: three blockers, and the first run passed**
+
+**Why:** `gpu.yml` was recorded as "published and wired correctly, but no self-hosted runner is
+registered" (`:1871`), and the same sentence sat beside the artifact-on-both-steps fix (`:2253`). Both
+were true and both were incomplete: the missing runner was one of **three** independent blockers, and
+none of them had been checked against a primary source.
+
+**The three, each measured:**
+
+1. **No runner.** `gh api .../actions/runners` read `total_count: 0`. Registered `5090-box` on this
+   machine (labels `self-hosted`, `Windows`, `X64`, `gpu-5090`) and it is online. The header's
+   registration commands carried a download URL that 404s — `releases/latest/download/…` — because
+   the released asset is versioned (`actions-runner-win-x64-2.338.0.zip`); the header now names the
+   versioned URL and the command that finds the current one.
+2. **The file could not be triggered at all.** `schedule` and `workflow_dispatch` only fire when the
+   workflow file exists on the **default branch** — GitHub's own note, and the direct evidence was
+   `gh workflow run gpu.yml` answering `HTTP 404: workflow gpu.yml not found on the default branch`.
+   The default branch was `main`: a v1.1.0-era release cut 1774 commits behind, carrying no
+   `.github/workflows/` at all, so a scheduled run would also have tested that stale tree rather than
+   the one this job exists for. The default branch is now `dev`, and `gh workflow list` shows
+   `gpu-suite active` where it was previously invisible.
+3. **A fresh checkout could not build.** `ffmpeg/` is gitignored (`.gitignore:74`) and the Windows
+   CMake layer locates FFmpeg through that tree instead of pkg-config, so the configure fails without
+   it — and `actions/checkout` runs `git clean -ffdx`, which deletes a pre-staged copy inside the
+   workspace. The workflow now stages `C:\AI\ffmpeg` into the checkout before configuring and fails
+   with a message naming the prerequisite; the directory is in place as a junction to a working
+   checkout's `ffmpeg/`.
+
+**The first execution, and it passed.** Dispatched on `dev` (run `37541172269`), every step green in
+**17m18s**: checkout, the FFmpeg staging step, the suite (cold configure + build + ctest), the
+baseline gate, and the dispatch-only compute-sanitizer subset. One annotation is left standing rather
+than hidden: `actions/checkout@v4` targets Node 20, which the runner forces onto Node 24 — a
+deprecation warning, not a failure.
+
+**One inefficiency recorded, not fixed:** the job runs the suite twice — `test_v3.cmd` runs ctest,
+then the gate finds no `.gate-cache.json` in a fresh workspace and runs it again (~7 minutes of an
+otherwise idle nightly GPU). Removing it means changing the recipe or the gate's cache contract.
+
+**Done when:** the tier runs. **Done:** the run above, every step green.
 
 ## Gates added while this list was open
 

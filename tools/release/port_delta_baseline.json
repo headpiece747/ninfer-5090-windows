@@ -1519,7 +1519,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "windows",
-      "reason": "Subprocess call states encoding='utf-8'. Upstream's call uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII. Windows necessity, found by the subprocess-encoding gate (check_subprocess_encoding.py), which exists because upstream wrote the same defect twice. No assertion changed."
+      "reason": "Subprocess call states encoding='utf-8'. Upstream's call uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII. Windows necessity, found by the subprocess-encoding gate (check_subprocess_encoding.py), which exists because upstream wrote the same defect twice. No assertion changed. Three more Windows necessities, found by the same run, which had never been possible here: the artifact staging root was `/dev/shm/ninfer-artifacts` and its capacity check used `os.statvfs`, neither of which exists on Windows, and the one-read staging copy used `dd` with `iflag=direct`. The root is now the temporary directory on Windows, capacity comes from `shutil.disk_usage` (portable, same question), the copy is `shutil.copyfile` there with the trade recorded in place, and `SERVE`'s default path gains the `.exe` this port's tree actually builds."
     },
     "tools/bench/ttft/build_fixtures.py": {
       "status": "M",
@@ -1531,7 +1531,7 @@
       "status": "M",
       "disposition": "product",
       "review": "product",
-      "reason": "A bench case for the resource underflow reported as issue 5: three concurrent conversations that grow, at the reporter's configuration. The failure is state released that was not held, which needs several lanes active at once and a cache serving a shared prefix."
+      "reason": "A bench case for the resource underflow reported as issue 5: three concurrent conversations that grow, at the reporter's configuration. The failure is state released that was not held, which needs several lanes active at once and a cache serving a shared prefix. Its first end-to-end run, 2026-10-06, found two things the case could not have revealed before it ran: `_assistant()` was called with one argument where it takes two, so the run failed with `TypeError: _assistant() missing 1 required positional argument: 'handle'` before round 2; and the comment claiming 60 rounds take each lane past 8,000 tokens was an assumption -- the run measured 2,078 -> 5,804 (lane a). Both corrected in place; the workload was left alone because that run is the case's first recorded baseline."
     },
     "tools/bench/ttft/execution.py": {
       "status": "M",

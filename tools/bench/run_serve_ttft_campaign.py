@@ -8,9 +8,11 @@ import datetime as dt
 import http.client
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Sequence
@@ -26,9 +28,17 @@ from tools.bench.ttft.report import ReportError
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SERVE = REPO_ROOT / "build/apps/ninfer-serve"
+SERVE = REPO_ROOT / "build/apps" / ("ninfer-serve.exe" if os.name == "nt" else "ninfer-serve")
 WEIGHTS = REPO_ROOT / "out/qwen3_8_27b_nvfp4.ninfer"
-RAM_WEIGHTS_ROOT = Path("/dev/shm/ninfer-artifacts")
+# The staging root gives every fresh Serve process one immutable, already-read copy of the artifact.
+# On Linux that is tmpfs; Windows has no /dev/shm, so it falls back to the temporary directory,
+# where the same reuse rule applies: one read per source identity, then served from the copy.
+RAM_WEIGHTS_ROOT = (
+    Path("/dev/shm/ninfer-artifacts")
+    if os.name != "nt"
+    else Path(tempfile.gettempdir()) / "ninfer-artifacts"
+)
+RAM_WEIGHTS_KIND = "tmpfs" if os.name != "nt" else "temp"
 RUNNER = REPO_ROOT / "tools/bench/run_serve_ttft.py"
 OUTPUT_ROOT = REPO_ROOT / "profiles/bench/ttft/qwen3_8_27b_nvfp4-fp8"
 HOST = "127.0.0.1"
@@ -126,7 +136,7 @@ def _ensure_port_free() -> None:
 
 
 def _stage_weights(source: Path) -> tuple[Path, dict[str, Any]]:
-    """Materialize the immutable artifact once in tmpfs for all fresh Serve processes."""
+    """Materialize the immutable artifact once in the staging root for all fresh Serve processes."""
 
     source = source.resolve()
     status = source.stat()
@@ -140,7 +150,7 @@ def _stage_weights(source: Path) -> tuple[Path, dict[str, Any]]:
     cache_prefix = f"{source.stem}-"
     cached = RAM_WEIGHTS_ROOT / f"{cache_prefix}{fingerprint}.ninfer"
     record: dict[str, Any] = {
-        "kind": "tmpfs",
+        "kind": RAM_WEIGHTS_KIND,
         "source": str(source),
         "path": str(cached),
         "source_device": status.st_dev,
@@ -174,11 +184,10 @@ def _stage_weights(source: Path) -> tuple[Path, dict[str, Any]]:
 
     staging = RAM_WEIGHTS_ROOT / f".{cached.name}.staging-{os.getpid()}"
 
-    filesystem = os.statvfs(RAM_WEIGHTS_ROOT)
-    available = filesystem.f_bavail * filesystem.f_frsize
+    available = shutil.disk_usage(RAM_WEIGHTS_ROOT).free
     if available < status.st_size:
         raise CampaignError(
-            "insufficient /dev/shm capacity for the selected artifact: "
+            f"insufficient space under {RAM_WEIGHTS_ROOT} for the selected artifact: "
             f"need {status.st_size / 1024**3:.2f} GiB, "
             f"available {available / 1024**3:.2f} GiB"
         )
@@ -189,23 +198,30 @@ def _stage_weights(source: Path) -> tuple[Path, dict[str, Any]]:
         f"({status.st_size / 1024**3:.2f} GiB, one SSD read)",
         flush=True,
     )
-    command = [
-        "dd",
-        f"if={source}",
-        f"of={staging}",
-        "bs=16M",
-        "iflag=direct",
-        "conv=fsync",
-        "status=progress",
-    ]
     try:
-        completed = subprocess.run(command, cwd=REPO_ROOT, check=False)
-        if completed.returncode != 0:
-            raise CampaignError(f"artifact tmpfs staging failed with status {completed.returncode}")
+        if os.name == "nt":
+            # No dd(1) on Windows, and the direct-I/O flag has no portable equivalent in the standard
+            # library. This is the one read the cache exists to amortise, and every Serve process
+            # then reads the staged copy, so a buffered copy is the right trade here rather than a
+            # regression to be worked around.
+            shutil.copyfile(source, staging)
+        else:
+            command = [
+                "dd",
+                f"if={source}",
+                f"of={staging}",
+                "bs=16M",
+                "iflag=direct",
+                "conv=fsync",
+                "status=progress",
+            ]
+            completed = subprocess.run(command, cwd=REPO_ROOT, check=False)
+            if completed.returncode != 0:
+                raise CampaignError(f"artifact staging failed with status {completed.returncode}")
         staged_size = staging.stat().st_size
         if staged_size != status.st_size:
             raise CampaignError(
-                f"artifact tmpfs staging produced {staged_size} bytes, expected {status.st_size}"
+                f"artifact staging produced {staged_size} bytes, expected {status.st_size}"
             )
         staging.chmod(0o600)
         os.replace(staging, cached)
