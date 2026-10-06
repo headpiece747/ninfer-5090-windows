@@ -2128,30 +2128,36 @@ that wrote "keeps because the port needs it" would assert a review that had not 
 the failure mode this whole file exists to avoid. Files with no citation say exactly that, so the
 queue is visible in the file rather than implied by an empty string.
 
-**State: 150 of 250 accounted for, 100 needing a decision.**
+**State: 192 of 249 accounted for, 57 needing a decision — and one path reverted.**
 
 | kind | count | what it means |
 |---|---|---|
 | citation | 100 | the diff names an item, ADR, doc, upstream commit, Windows construct, MSVC diagnostic or measurement |
 | removed | 24 | the port does not ship an upstream file; the reason says to check for references first |
-| annotated | 26 | established by hand — the port's instruments, the deduplication, the FP8 family, the Win32 I/O, and the diagnostics/error-envelope contracts |
-| **unreviewed** | **100** | no provenance in the diff — these need the review |
+| annotated | 68 | established by hand — the instruments, the deduplications, the FP8 family, the NVFP4 drafter, the Win32 I/O, the contracts |
+| **unreviewed** | **57** | no provenance in the diff — these need the review |
+
+**One divergence was removed rather than justified.**
+`src/models/qwen3_5/program/speculative/mtp.cpp` diverged by **whitespace only** — a stray six-space
+indent on `configure_text_card` and one line losing a space — and the port's version was the worse
+one. `git diff --ignore-all-space` is the exact test, and a sweep of all 226 modified paths found
+this was the only one in the tree, so it is a one-off rather than a habit. Reverted to upstream;
+verified by a clean rebuild and the speculative and real-model tests, whose only failures are the two
+recorded known ones. That is the ratchet's `refactor` disposition ("revert to upstream's version --
+restructuring his code buys nothing") applied for the first time, and the baseline is 249 entries for
+it.
 
 **Two pattern gaps found by running it, both the mirror of the failure it exists to prevent.** The
 first pass listed `_MSC_VER` and `C2719` but not **`_WIN32`**, so `src/artifact/file_io.cpp` — whose
 entire divergence is `#ifdef _WIN32` with `CreateFileW` and `FILE_FLAG_NO_BUFFERING` replacing POSIX
-`open`/`O_DIRECT` — was reported as having no provenance. Adding it converted 12 paths. The second
-missed `sys.platform == "win32"`, the Python half of the same work, which converted 2 more. A
-pattern that misses the commonest case reports a justified file as unreviewed; a pattern that is too
-loose does the opposite and hides a real one, which is why each was verified against a diff before
-being added.
+`open`/`O_DIRECT` — was reported as having no provenance. Adding it converted 12 paths; adding
+`sys.platform == "win32"`, the Python half of the same work, converted 2 more. A pattern that misses
+the commonest case reports a justified file as unreviewed; a pattern that is too loose does the
+opposite and hides a real one, which is why each was verified against a diff before being added.
 
-The queue's shape, which is what makes the remainder tractable: `src/ops` 32, `src/models` 17,
-`src/serve` 8, `src/product` 6, `tools/convert` 6, `src/artifact` 5, `src/runtime` 5, `tests/ops` 5,
-`include/ninfer` 4, and a tail of docs, fixtures and build files. The largest single entries are the
-port's own test coverage (`tests/ops/test_candidate_selector.cpp`, 353 lines) and its instruments,
-so the *risk-weighted* remainder is smaller than the count suggests — depth follows blast radius
-rather than line count.
+The queue's shape: `src/ops` 0 (all 29 now accounted for), `src/models` 0, `src/serve` 4,
+`src/product` 6, `tools/convert` 6, `src/artifact` 3, `src/runtime` 5, `tests/ops` 5, `include/ninfer`
+3, and a tail of docs, fixtures and build files.
 
 **Two things this deliberately does not do.** It does not decide the 121, because deciding them from
 a keyword would be the transcription this file warns about. And it is not a gate: the reason field is

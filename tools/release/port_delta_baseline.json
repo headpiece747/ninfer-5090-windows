@@ -1,6 +1,6 @@
 {
   "against": "upstream/dev",
-  "recorded": "2026-10-05",
+  "recorded": "2026-10-06",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -366,27 +366,27 @@
     "src/models/qwen3_5/config.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The config parser takes artifact::Reader instead of artifact::Directory, so it can reach the artifact's metadata: load.cpp populates EngineInfo::name and metadata_json from reader.metadata(), which Directory does not expose. Both types exist on both sides -- this is a widening for the metadata, not a rename."
     },
     "src/models/qwen3_5/config.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The config parser takes artifact::Reader instead of artifact::Directory, so it can reach the artifact's metadata: load.cpp populates EngineInfo::name and metadata_json from reader.metadata(), which Directory does not expose. Both types exist on both sides -- this is a widening for the metadata, not a rename."
     },
     "src/models/qwen3_5/execution/draft.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
     "src/models/qwen3_5/execution/parameters.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
     "src/models/qwen3_5/execution/parameters.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
     "src/models/qwen3_5/frontend/chat_template.cpp": {
       "status": "M",
@@ -396,7 +396,7 @@
     "src/models/qwen3_5/frontend/prepared_prompt.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The per-phase timings the request log and the serve phase report read: render_seconds, convert_seconds, contract_seconds and context_cache_seconds. Their definitions are recorded in AGENTS.md -- prepare_seconds spans the whole frontend, so reading one of these as 'the render' was a measured error once."
     },
     "src/models/qwen3_5/frontend/tokenizer.cpp": {
       "status": "M",
@@ -416,17 +416,17 @@
     "src/models/qwen3_5/load.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The config parser takes artifact::Reader instead of artifact::Directory, so it can reach the artifact's metadata: load.cpp populates EngineInfo::name and metadata_json from reader.metadata(), which Directory does not expose. Both types exist on both sides -- this is a widening for the metadata, not a rename."
     },
     "src/models/qwen3_5/load/dflash2.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
     "src/models/qwen3_5/load/prepare.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The config parser takes artifact::Reader instead of artifact::Directory, so it can reach the artifact's metadata: load.cpp populates EngineInfo::name and metadata_json from reader.metadata(), which Directory does not expose. Both types exist on both sides -- this is a widening for the metadata, not a rename."
     },
     "src/models/qwen3_5/program/decode.cpp": {
       "status": "M",
@@ -436,7 +436,7 @@
     "src/models/qwen3_5/program/planning/startup.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The per-layer KV plane geometry is built once by storage_planes(layer_storage, kv_heads) and repeated per layer, instead of the four push_back calls being written out per layer. A deduplication of the same class as ops/common/validation.h and the route catalog, and the same gate protects it."
     },
     "src/models/qwen3_5/program/program.cpp": {
       "status": "M",
@@ -456,12 +456,7 @@
     "src/models/qwen3_5/program/program_impl.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
-    },
-    "src/models/qwen3_5/program/speculative/mtp.cpp": {
-      "status": "M",
-      "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The top-k instrument's host landing buffer and its declaration: causal_score_topk with score_topk_host sized for a full tile at the Op's documented maximum K (2 MiB), planned for the maximum rather than for the k a caller asks for, because k is a runtime choice here."
     },
     "src/models/qwen3_5/program/storage/kv_address_space.h": {
       "status": "M",
@@ -471,17 +466,17 @@
     "src/models/qwen3_5/state/decoder_state.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The per-layer KV plane geometry is built once by storage_planes(layer_storage, kv_heads) and repeated per layer, instead of the four push_back calls being written out per layer. A deduplication of the same class as ops/common/validation.h and the route catalog, and the same gate protects it."
     },
     "src/models/qwen3_5/weights.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "A comment recording that the draft attention consumes one fused query+key+value parent while the artifact declares only the three logical parameters: parameters.cpp assembles the parent with ops::prepare_attn_input_proj_weights, and requiring a fused parameter of its own would reject every upstream-generated artifact, since the converter groups the three."
     },
     "src/ops/CMakeLists.txt": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The perturbation seam: Op kernels may carry small mutation branches behind NINFER_OP_TEST_MUTATIONS, selected per run by NINFER_OP_MUTATION, and tools/release/check_test_mutation.py asserts the suite actually goes red when one is selected. Scoped to the test tree, because build/ and build-test/ are separate configurations and BUILD_TESTING is what gates it. The recipe runs the gate as part of test_v3.cmd."
     },
     "src/ops/attn_input_proj/fp8/fp8_attn_input_a8.cu": {
       "status": "M",
@@ -491,47 +486,47 @@
     "src/ops/attn_input_proj/nvfp4/nvfp4_attn_input_plan.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Feeds the DFlash2 NVFP4 route above: the companion weights' attention-input projection, whose own plan and translation unit this registers."
     },
     "src/ops/attn_input_proj/q8/q8_attn_input_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h). That header records what this replaced: nine files each defined kAnyCols as the same expression, and each carried a closure predicate in one of four signature shapes, all of them the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array -- so this is a deduplication with a fix in it, not a restyle. Five callers; check_duplication.py protects the dedup the way it protects ops/common/validation.h."
     },
     "src/ops/attn_input_proj/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Feeds the DFlash2 NVFP4 route above: the companion weights' attention-input projection, whose own plan and translation unit this registers."
     },
     "src/ops/basic_sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Registers the topk_logprobs Op (launcher and wrapper). It is the instrument behind Engine::score_topk and ProgramImpl::causal_score_topk -- per-domain KL against a reference that cannot be resident on this machine -- and it is declared in include/ninfer/ops/topk_logprobs.h."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path.cu": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path_kernels.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/candidate_selector/bf16/candidate_selector_path_plan.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/candidate_selector/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
     },
     "src/ops/context_kv_materialize/context_kv_materialize.cpp": {
       "status": "M",
@@ -541,7 +536,7 @@
     "src/ops/context_kv_materialize/launch.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The context_kv_materialize NVFP4 route: a second storage format for the same Op, with its own launch entry and translation unit. Part of the port's NVFP4 work alongside the DFlash2 linear shapes."
     },
     "src/ops/context_kv_materialize/materialize.cu": {
       "status": "M",
@@ -551,17 +546,17 @@
     "src/ops/context_kv_materialize/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The context_kv_materialize NVFP4 route: a second storage format for the same Op, with its own launch entry and translation unit. Part of the port's NVFP4 work alongside the DFlash2 linear shapes."
     },
     "src/ops/dynamic_grouped_conv/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h). That header records what this replaced: nine files each defined kAnyCols as the same expression, and each carried a closure predicate in one of four signature shapes, all of them the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array -- so this is a deduplication with a fix in it, not a restyle. Five callers; check_duplication.py protects the dedup the way it protects ops/common/validation.h."
     },
     "src/ops/gdn_input_proj/fp8/fp8_gdn_input_a8.cu": {
       "status": "M",
@@ -571,12 +566,12 @@
     "src/ops/gdn_input_proj/q4_q5/q4_q5_gdn_input_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h). That header records what this replaced: nine files each defined kAnyCols as the same expression, and each carried a closure predicate in one of four signature shapes, all of them the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array -- so this is a deduplication with a fix in it, not a restyle. Five callers; check_duplication.py protects the dedup the way it protects ops/common/validation.h."
     },
     "src/ops/gdn_input_proj/q8/q8_gdn_input_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h). That header records what this replaced: nine files each defined kAnyCols as the same expression, and each carried a closure predicate in one of four signature shapes, all of them the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array -- so this is a deduplication with a fix in it, not a restyle. Five callers; check_duplication.py protects the dedup the way it protects ops/common/validation.h."
     },
     "src/ops/linear/bf16/bf16_a16_tma_mma.cuh": {
       "status": "M",
@@ -586,7 +581,7 @@
     "src/ops/linear/fp8/fp8_a8_mma.cuh": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of the FP8 ungating work (docs/active-work.md item 12): split-K geometry and the identity row policy threaded through the MMA launch, so the ungated token bands have a schedule that can carry partials. Same family as the nine UNGATED files."
     },
     "src/ops/linear/fp8/fp8_a8_tma_mma.cuh": {
       "status": "M",
@@ -601,7 +596,7 @@
     "src/ops/linear/fp8/fp8_launch.cuh": {
       "status": "M",
       "disposition": "windows",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Part of the FP8 ungating work (docs/active-work.md item 12): split-K geometry and the identity row policy threaded through the MMA launch, so the ungated token bands have a schedule that can carry partials. Same family as the nine UNGATED files."
     },
     "src/ops/linear/fp8/fp8_schedule.cuh": {
       "status": "M",
@@ -651,7 +646,7 @@
     "src/ops/linear/nvfp4/nvfp4_dispatch.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/linear/nvfp4/nvfp4_format.cpp": {
       "status": "M",
@@ -661,17 +656,17 @@
     "src/ops/linear/nvfp4/nvfp4_launch.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/linear/nvfp4/nvfp4_shapes.h": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/linear/nvfp4/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
     "src/ops/linear_add/fp8/fp8_linear_add_a8.cu": {
       "status": "M",
@@ -681,12 +676,12 @@
     "src/ops/linear_add/q5/q5_linear_add_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h), whose own comment records what it replaced: nine files each defined kAnyCols as the same expression and each carried a closure predicate in one of four shapes, all the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array. A deduplication with a fix in it, protected by check_duplication.py."
     },
     "src/ops/linear_add/q8/q8_linear_add_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h), whose own comment records what it replaced: nine files each defined kAnyCols as the same expression and each carried a closure predicate in one of four shapes, all the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array. A deduplication with a fix in it, protected by check_duplication.py."
     },
     "src/ops/linear_attention/gated_delta_net/replay.cpp": {
       "status": "M",
@@ -706,17 +701,17 @@
     "src/ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_plan.cpp": {
       "status": "M",
       "disposition": "product",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The DFlash2 NVFP4 drafter route. wrapper/attn_input_proj.cpp records why it exists: the NVFP4-encoded drafter is port-only, because upstream three-output drafter projection is Q8 only and its NVFP4 registry carries no drafter geometry, so neither serves an artifact whose draft module is NVFP4. Weight-only A16, as every drafter projection is."
     },
     "src/ops/linear_swiglu/q4/q4_linear_swiglu_plan.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h), whose own comment records what it replaced: nine files each defined kAnyCols as the same expression and each carried a closure predicate in one of four shapes, all the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array. A deduplication with a fix in it, protected by check_duplication.py."
     },
     "src/ops/linear_swiglu/q8/q8_linear_swiglu_plan.cpp": {
       "status": "M",
       "disposition": "refactor",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "Uses the shared route catalog (src/ops/common/route_catalog.h), whose own comment records what it replaced: nine files each defined kAnyCols as the same expression and each carried a closure predicate in one of four shapes, all the same proof. The shared form also drops a conjunct that evaluated routes.back() -- undefined for an empty array. A deduplication with a fix in it, protected by check_duplication.py."
     },
     "src/ops/linear_topk/linear_topk.cpp": {
       "status": "M",
@@ -736,7 +731,7 @@
     "src/ops/weight_input.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The DFlash2 NVFP4 drafter route. wrapper/attn_input_proj.cpp records why it exists: the NVFP4-encoded drafter is port-only, because upstream three-output drafter projection is Q8 only and its NVFP4 registry carries no drafter geometry, so neither serves an artifact whose draft module is NVFP4. Weight-only A16, as every drafter projection is."
     },
     "src/ops/wrapper/argmax.cpp": {
       "status": "M",
@@ -746,7 +741,7 @@
     "src/ops/wrapper/attn_input_proj.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "reason": "No provenance in the diff: it names no docs/active-work.md item, ADR, document, port guard, UNGATED marker, Windows or MSVC construct, extraction, or measurement. Needs a review against the port's rule -- Windows necessity, or measurably better, or revert to upstream."
+      "reason": "The DFlash2 NVFP4 drafter route. wrapper/attn_input_proj.cpp records why it exists: the NVFP4-encoded drafter is port-only, because upstream three-output drafter projection is Q8 only and its NVFP4 registry carries no drafter geometry, so neither serves an artifact whose draft module is NVFP4. Weight-only A16, as every drafter projection is."
     },
     "src/ops/wrapper/candidate_selector.cpp": {
       "status": "M",
