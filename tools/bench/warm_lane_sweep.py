@@ -101,9 +101,9 @@ def main() -> int:
     if request_log.exists():
         request_log.unlink()
 
-    command, dropped = serve_command(arguments.exe, arguments.artifact, arguments.port, False, request_log)
-    if dropped:
-        print(f"  dropped {len(dropped)} flag(s) with prefix reuse ON: {', '.join(dropped)}")
+    command = serve_command(
+        arguments.exe, arguments.artifact, arguments.port, False, request_log
+    )
 
     print(f"  starting one lane on port {arguments.port}", flush=True)
     handle = server_log.open("wb")

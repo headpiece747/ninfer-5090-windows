@@ -325,15 +325,17 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # decode on QUASAR DFlash2. A larger value buys retained-state capacity for interleaved
     # conversations, which nothing here measures -- see the module docstring.
     #
-    # --host-state-slots is the bound that decides whether a conversation's prefixes survive at all,
-    # and it has to cover the live shared prefixes plus the live private continuations: the five-prompt
-    # resend test gives 3/5 hits at 59.1% at 8 with the private bound at 8 (five prefixes plus five
-    # continuations against eight slots, so the last two prefixes are evicted), 5/5 at 98.5% at 12, and
-    # 5/5 at 98.6% either way when the private bound drops to 2 -- the private bound is the wrong knob,
-    # because an agent session forks on every tool call and each fork is a continuation that needs a
-    # slot. Measured 2026-09-21 through start_bounds.cmd; raising this costs nothing at startup (the
-    # same 2,740 MiB free and 10,996 MiB reserved at 8, 12 and 16) because it only decides how much of
-    # the already-pinned 8 GiB host KV may be used.
+    # The ladder below was measured on the superseded slot model: it varied --host-state-slots, which
+    # upstream b9114396 replaced with --host-context-mib. It is kept because the finding is about the
+    # *shape* of the bound rather than its unit -- what has to be covered is the live shared prefixes
+    # plus the live private continuations, and the private side is the pressure, because an agent
+    # session forks on every tool call and each fork is a continuation that needs a slot. The
+    # five-prompt resend test gives 3/5 hits at 59.1% at 8 with the private bound at 8 (five prefixes
+    # plus five continuations against eight slots, so the last two prefixes are evicted), 5/5 at 98.5%
+    # at 12, and 5/5 at 98.6% either way when the private bound drops to 2. Measured 2026-09-21 through
+    # start_bounds.cmd; raising it cost nothing at startup (the same 2,740 MiB free and 10,996 MiB
+    # reserved at 8, 12 and 16) because it only decided how much of the already-pinned 8 GiB host KV
+    # may be used. The collapsed quota has not been re-laddered.
     #
     # Which states occupy the pool, from the request log at 8/8: private_owners_evicted 7,
     # shared_owners_evicted 0, peak host_state_slots 8. The shared prefixes are never evicted, they are

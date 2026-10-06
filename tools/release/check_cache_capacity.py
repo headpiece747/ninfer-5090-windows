@@ -92,9 +92,9 @@ def main() -> int:
         prompts = sum(record["result"]["prompt_tokens"] for record in resends)
         rate = 100.0 * cached / prompts if prompts else 0.0
         bounds = dict(profiles.ordered_flags(profile))
-        print("  bounds  host-state-slots=%s private=%s shared=%s"
-              % (bounds.get("--host-state-slots"), bounds.get("--max-private-continuations"),
-                 bounds.get("--max-shared-prefixes")))
+        # One shared Host quota. The five slot and prefix bounds this printed collapsed into it in
+        # upstream b9114396, so the old names reported None for every lane.
+        print("  bounds  host-context-mib=%s" % bounds.get("--host-context-mib"))
         print("  resend  %d/5 hits, token-level %.1f%%" % (hits, rate))
         if hits < REQUIRED_HITS:
             print("  FAIL: the shipped bounds retain fewer prefixes than they are documented to")

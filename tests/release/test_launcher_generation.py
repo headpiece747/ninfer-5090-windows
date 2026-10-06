@@ -72,8 +72,8 @@ expect(len(args) == sum(1 if value is None and " " not in flag
                         for flag, value in flags),
        "each ordered flag flattens to its tokens, or to one token with its value")
 
-server_only = {"--host", "--port", "--model-id", "--max-concurrency", "--host-state-slots",
-               "--host-kv-mib", "--pending-timeout-ms"}
+server_only = {"--host", "--port", "--model-id", "--max-concurrency", "--host-context-mib",
+               "--device-state-slots", "--pending-timeout-ms"}
 cli = cli_args(profile(vision=True, spec="mtp", draft=4, lm_head=True))
 expect(not (set(cli) & server_only), "the CLI flag set names no server-only flag")
 expect("--lm-head-draft" in cli, "the CLI flag set includes the proposal head it accepts")

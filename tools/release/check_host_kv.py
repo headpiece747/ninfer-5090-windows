@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Did v2 know something about host KV? Compare v2's 16 GiB / 16 slots with v3's 8 GiB / 8.
+"""How much host context does a lane need before its conversations keep their prefixes?
 
-Host KV is pinned system RAM, not VRAM, so it costs the GPU nothing. It holds offloaded and
-cached conversation states, which is what a prefix hit reuses. v2 allocated twice ours over
-16 slots; v3 runs the documented defaults.
+Host context is pinned system RAM, not VRAM, so it costs the GPU nothing. It holds offloaded and
+cached conversation states, which is what a prefix hit reuses. Upstream b9114396 replaced the old
+slot and prefix bounds -- --host-state-slots, --host-kv-mib, --max-shared-prefixes,
+--max-private-continuations and --max-long-anchors-per-continuation -- with one shared quota, so the
+knob this harness varies is --host-context-mib and the shipped value is profiles.py's 8192 MiB.
 
 Method mirrors the prefix-cache test that produced the 99.1% figure: five distinct ~530
 token prompts, sent then resent, counting how many get a cache hit and what fraction of
 prompt tokens were cached.
 
-Usage: check_host_kv.py <host-kv-mib> <host-state-slots>
+Usage: check_host_kv.py [host-context-mib]
 """
 from __future__ import annotations
 
@@ -49,16 +51,15 @@ from engine import kill_servers, stop_engine  # noqa: E402
 
 
 def main() -> int:
-    host_kv = sys.argv[1] if len(sys.argv) > 1 else "8192"
-    slots = sys.argv[2] if len(sys.argv) > 2 else "8"
+    host_mib = sys.argv[1] if len(sys.argv) > 1 else "8192"
 
     kill_servers()
     time.sleep(3)
-    log = Path(r"C:\AI\bench") / f"hostkv_{host_kv}_{slots}.txt"
-    # The profile's shipped flags, with this harness's own port and model id. The two host
-    # values under test are appended, since they are what this script varies.
+    log = Path(r"C:\AI\bench") / f"hostkv_{host_mib}.txt"
+    # The profile's shipped flags, with this harness's own port and model id. The quota under test is
+    # appended, since it is what this script varies.
     args = [EXE, MODEL] + launcher_args(PROFILE, port=PORT, model_id=MODEL_ID) + [
-        "--host-state-slots", slots, "--host-kv-mib", host_kv]
+        "--host-context-mib", host_mib]
     handle = log.open("w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(args, cwd=CWD, stdin=subprocess.DEVNULL, stdout=handle,
                             stderr=subprocess.STDOUT,
@@ -75,7 +76,7 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             time.sleep(2)
     if not ready:
-        print(f"   host-kv-mib={host_kv} slots={slots}: FAILED TO START")
+        print(f"   host-context-mib={host_mib}: FAILED TO START")
         stop_engine(proc)
         return 1
 
@@ -110,7 +111,7 @@ def main() -> int:
 
     tail = cache_line.split("states")[-1].strip() if "states" in cache_line else cache_line[-60:]
     rate = 100.0 * cached_total / prompt_total if prompt_total else 0.0
-    print(f"   host-kv-mib={host_kv:<6} slots={slots:<3} hits {hits}/5  "
+    print(f"   host-context-mib={host_mib:<6} hits {hits}/5  "
           f"token hit rate {rate:5.1f}%   | {tail[:60]}")
 
     stop_engine(proc)

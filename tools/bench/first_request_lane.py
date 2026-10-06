@@ -15,7 +15,7 @@ serving lane is what has to be measured.
 
 The comparison is two arms, one fresh server each, differing in exactly one flag:
 
-    reuse     the shipped default, --max-shared-prefixes and the rolling policy
+    reuse     the shipped default, including the shared Host quota
     no-reuse  --no-prefix-reuse
 
 Everything else is held fixed, because each of these has been the confound in a version of this
@@ -75,38 +75,6 @@ PROMPT = (
 )
 MAX_TOKENS = 256
 
-# The engine refuses --no-prefix-reuse alongside any context-cache CAPACITY option, and says so by
-# name: "--no-prefix-reuse cannot be combined with context-cache capacity options". These six are the
-# set it checks, read from serve_options.cpp rather than guessed from the help text, because the help
-# does not list which options are capacities. --kv-capacity is NOT among them -- it has its own
-# kv_capacity_explicit flag -- and --context-cache-policy is deliberately exempt, the source noting it
-# reserves nothing.
-CONTEXT_CAPACITY_FLAGS: tuple[str, ...] = (
-    "--device-state-slots",
-    "--host-state-slots",
-    "--host-kv-mib",
-    "--max-private-continuations",
-    "--max-shared-prefixes",
-    "--max-long-anchors-per-continuation",
-)
-
-
-def without_context_capacity(args: list[str]) -> tuple[list[str], list[str]]:
-    """Drop the capacity flags and their values; return the survivors and what was removed."""
-    kept: list[str] = []
-    removed: list[str] = []
-    skip_next = False
-    for arg in args:
-        if skip_next:
-            skip_next = False
-            continue
-        if arg in CONTEXT_CAPACITY_FLAGS:
-            skip_next = True
-            removed.append(arg)
-            continue
-        kept.append(arg)
-    return kept, removed
-
 
 def request_body(temperature: float, seed: int) -> dict[str, Any]:
     return {
@@ -163,14 +131,17 @@ def stop_lane(process: subprocess.Popen[bytes], timeout_s: float = 30.0) -> None
 
 def serve_command(
     exe: Path, artifact: Path, port: int, no_reuse: bool, request_log: Path
-) -> tuple[list[str], list[str]]:
+) -> list[str]:
     """The shipped QUASAR dflash2 lane, verbatim from tools/release/profiles.py, plus one flag.
 
     Regenerating the flags from profiles.py rather than transcribing them is the point: a hand-typed
     serve line is how a lane stops being the shipped one without anything noticing.
 
-    Returns the command and the capacity flags that had to be dropped for the no-reuse arm, so the
-    difference between the two arms is recorded rather than left implicit.
+    Exactly one flag differs between the arms. It used to be two: the engine refused
+    --no-prefix-reuse alongside the context-cache capacity options, so those were dropped for the
+    no-reuse arm. Upstream's b9114396 replaced the cache and that refusal with it, so they are kept in
+    both arms now -- which is what this harness's own rule asks for, because a second difference is a
+    confound rather than a controlled comparison.
     """
     sys.path.insert(0, str(REPO_ROOT / "tools" / "release"))
     import profiles  # noqa: PLC0415
@@ -179,9 +150,6 @@ def serve_command(
         item for item in profiles.PROFILES if str(item["file"]).startswith("start_quasar_v3_dflash2")
     )
     args = profiles.launcher_args(profile, port=port)
-    removed: list[str] = []
-    if no_reuse:
-        args, removed = without_context_capacity(args)
     # The artifact is positional: `ninfer-serve <model.ninfer> [flags]`. Passing it as --artifact
     # would have been a guess from the CLI's other tools, and the usage line is the authority.
     command = [
@@ -193,7 +161,7 @@ def serve_command(
     ]
     if no_reuse:
         command.append("--no-prefix-reuse")
-    return command, removed
+    return command
 
 
 def wait_until_ready(port: int, process: subprocess.Popen[bytes], timeout_s: float) -> bool:
@@ -254,13 +222,7 @@ def run_arm(
     if request_log.exists():
         request_log.unlink()
 
-    command, dropped = serve_command(exe, artifact, port, no_reuse, request_log)
-    if dropped:
-        print(
-            f"  [{label}] dropped {len(dropped)} context-cache capacity flag(s) the engine refuses "
-            f"with --no-prefix-reuse: {', '.join(dropped)}",
-            flush=True,
-        )
+    command = serve_command(exe, artifact, port, no_reuse, request_log)
     print(f"  [{label}] starting on port {port} (log: {log_path.name})", flush=True)
     with log_path.open("wb") as stream:
         process = subprocess.Popen(  # noqa: S603
@@ -315,7 +277,6 @@ def run_arm(
         "arm": label,
         "port": port,
         "no_prefix_reuse": no_reuse,
-        "dropped_capacity_flags": dropped,
         "command": command,
         "log": str(log_path),
         "request_log": str(request_log),

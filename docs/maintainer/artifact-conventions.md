@@ -216,10 +216,12 @@ draft.
 | port | one per profile, from `profiles.py` |
 
 Shared by every lane, in `INVARIANT_FLAGS`: `--kv-capacity auto`, `--kv-dtype fp8`,
-`--prefill-chunk 8192`, `--max-concurrency 1`, `--host-state-slots 16`, `--host-kv-mib 8192`,
-`--max-shared-prefixes 7`, `--max-private-continuations 8`,
-`--max-long-anchors-per-continuation 4`, `--context-cache-policy rolling`, `--preserve-thinking`,
+`--prefill-chunk 8192`, `--max-concurrency 1`, `--host-context-mib 8192`, `--preserve-thinking`,
 `--default-thinking-budget 4096`, `--pending-timeout-ms 600000`, and the explicit `--chat-template`.
+Upstream b9114396 replaced the five context-cache bounds this list used to name
+(`--host-state-slots`, `--host-kv-mib`, `--max-shared-prefixes`, `--max-private-continuations`,
+`--max-long-anchors-per-continuation`) and `--context-cache-policy` with that one quota; the new
+cache has no policy field.
 
 `--kv-dtype` is currently a shared invariant, so no lane can differ on it without a new per-profile
 field. ADR-0005 permits that: route, depth and per-profile flags are measurements, never convention.

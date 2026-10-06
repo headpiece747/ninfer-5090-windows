@@ -243,7 +243,7 @@ def main() -> int:
                  "--kv-capacity", "--kv-dtype"):
         check(f"QUASAR_ARGS passes {flag}", flag in tokens)
     for flag in ("--host", "--port", "--model-id", "--max-concurrency",
-                 "--host-kv-mib", "--pending-timeout-ms"):
+                 "--host-context-mib", "--pending-timeout-ms"):
         check(f"QUASAR_ARGS omits the server-only {flag}", flag not in tokens)
 
     print("\n=== retired launchers absent from the tree ===")
@@ -273,7 +273,7 @@ def main() -> int:
         body = read(WT / "tools" / "release" / name)
         check(f"{name} imports from profiles", "from profiles import" in body)
         check(f"{name} does not hand-write the cache bounds",
-              "--max-shared-prefixes" not in body or "INVARIANT_FLAGS" in body
+              "--host-context-mib" not in body or "INVARIANT_FLAGS" in body
               or "launcher_args" in body)
 
     # The matrix explores combinations no profile covers, so it composes the invariants rather

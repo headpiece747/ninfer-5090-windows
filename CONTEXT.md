@@ -53,8 +53,9 @@ is what bounds a ceiling.
 trades precision for room.
 
 **prefix cache** — retention of prepared context so a later request reuses it instead of
-re-prefilling. Retention is bounded by three budgets: **shared prefixes**, **private
-continuations**, and **anchors**. These, not the host pool's size, are what limit it.
+re-prefilling. Retention is bounded by one shared **Host quota** (`--host-context-mib`), which
+upstream b9114396 put in place of the separate shared-prefix, private-continuation and anchor
+budgets this glossary used to name. That quota, not the host pool's size, is what limits it.
 
 ## Practices
 

@@ -281,9 +281,9 @@ where you feel it.
 
 Queuing is only harmless if the queued request's context survives the wait. Each subagent is a
 distinct conversation, so its state must be retained or it re-prefills when it runs. That is what
-the launchers' `--host-state-slots 8` and `--host-kv-mib 8192` are for: eight conversations kept in
-host RAM, which covers a main session plus several subagents. The device keeps one extra state
-(`--device-state-slots 1`).
+the launchers' `--host-context-mib 8192` is for: a shared quota of pinned host RAM for retained
+conversation state, which covers a main session plus several subagents. The device keeps one extra
+state (`--device-state-slots 1`).
 
 Raise it when you want subagents to run *concurrently* rather than queue, and lower the context
 ceiling at the same time, because each active lane needs its own state: `--max-concurrency 4` at

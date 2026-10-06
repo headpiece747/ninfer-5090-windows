@@ -2066,6 +2066,50 @@ clean; **149 tests, 99% passed, 2 failed** — both the recorded known failures 
 gate green; the mutation gate green; the ratchet green at 250 recorded paths; all twelve pre-commit
 gates pass; and the port's own recipe passes end to end.
 
+### 19. Ten live references to six flags that no longer exist — **FIXED 2026-10-06**
+
+**Why:** upstream's `b9114396` replaced the context cache and collapsed five bounds into one shared
+Host quota — `--host-state-slots`, `--host-kv-mib`, `--max-shared-prefixes`,
+`--max-private-continuations` and `--max-long-anchors-per-continuation` became `--host-context-mib`,
+and `--context-cache-policy` went with them because the new `ContextCacheOptions` has no policy
+field. `profiles.py` recorded that in the same commit, and `README.md` and
+`docs/maintainer/README.md` describe it — but ten live references kept the old names, and
+`serve_options.cpp` throws `unknown argument` for anything it does not parse, so the class is not
+cosmetic.
+
+**The worst was a tool that could never run.** `tools/release/check_host_kv.py` appended
+`--host-state-slots <n> --host-kv-mib <n>` to a shipped launcher's flags, so every invocation died at
+startup and the harness had no way to report anything but failure. It now varies the one quota.
+
+**The one worth reading twice** is `tools/bench/first_request_lane.py`, which dropped the capacity
+flags for its `--no-prefix-reuse` arm to pre-empt a refusal ("cannot be combined with context-cache
+capacity options") that no longer exists in `serve_options.cpp`. Its own docstring says the arms
+differ in exactly one flag and that a second difference is the confound every version of that
+question has had — so the workaround had become the defect it warns about. Removed: the arms differ
+in one flag again.
+
+**Two checks had gone vacuous**, both guarding on a dead name:
+`check_profile_consistency.py`'s "does not hand-write the cache bounds" looked for
+`--max-shared-prefixes`, and its server-only list named `--host-kv-mib`; `test_launcher_generation.py`'s
+`server_only` set named two dead flags. All three now name live ones, and `--device-state-slots` was
+added where the set was incomplete. `check_cache_capacity.py` printed `None` for every lane's bounds
+and now prints the quota.
+
+**Also fixed:** the pre-commit hook skipped the port-delta gate on `upstream/master` while the gate
+now compares `upstream/dev`, so the skip condition guarded a different ref than the gate reads.
+
+**Docs:** `CONTEXT.md`'s three-budget model, `docs/maintainer/artifact-conventions.md`'s
+`INVARIANT_FLAGS` list, and `docs/opencode-settings.md`'s explanation of why a lane retains state.
+The historical records (`docs/adr/0007`, `docs/research/*`, `docs/v2-v3-flag-diff.md`) keep the old
+names, because they are measurements taken on the model that had them.
+
+**Done when:** no live reference to a superseded flag remains, and the repaired tool starts a lane.
+**Done 2026-10-06:** the survey is clean (only comments naming them as superseded remain); all twelve
+pre-commit gates pass; the hook's pytest scope passes (108); ruff and mypy are clean;
+`tests/release/test_launcher_generation.py` passes as a script with the live flag set; and
+`check_host_kv.py` starts a lane on `--host-context-mib 8192` and reports **5/5 cache hits at 98.7%**
+— which also confirms the merged engine retains prefixes at the shipped quota.
+
 ## Gates added while this list was open
 
 **Text encoding, 2026-10-02 — `tools/release/check_text_encoding.py`.** 181 lines of this file
