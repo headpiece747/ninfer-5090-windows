@@ -56,7 +56,9 @@ jobs:
   suite:
     runs-on: [self-hosted, windows, gpu-5090]
     steps:
-      - uses: actions/checkout@v4
+      # checkout v7, not v4: v4 runs on Node 20, which this runner forces onto Node 24 and reports as
+      # a deprecation on every run. v7 needs runner v2.327.1 or newer; this machine runs v2.338.0.
+      - uses: actions/checkout@v7
 
       # `ffmpeg/` is gitignored and `actions/checkout` cleans the workspace, so the tree is staged
       # from outside it. See the header: without this the configure cannot find FFmpeg at all.

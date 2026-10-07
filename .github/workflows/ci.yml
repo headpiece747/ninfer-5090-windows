@@ -27,11 +27,13 @@ jobs:
       # pinned base revision (its DEFAULT_BASE) with `git show <rev>:<file>`. The default shallow
       # clone holds one commit, so that revision is absent, and the gate fails here while passing
       # in any full checkout -- which is how this tier sat red from 2026-10-04 unremarked.
-      - uses: actions/checkout@v4
+      # v7 on both actions, not v4/v5: those majors run on Node 20, which the runners now force onto
+      # Node 24 and report as a deprecation on every run. checkout v7 needs runner v2.327.1 or newer.
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
