@@ -2096,8 +2096,8 @@ full.
   and no host backing reuse holds for **1** conversation and then stops permanently; with a ~2-image
   host quota it holds for **2** and then stops; with the shipped 8192 MiB quota it holds for all six,
   which is capacity and not reclamation -- the old finding, reproduced on the new code. So the
-  shipped `--device-state-slots 1` is an unverified setting whose cliff is now bounded by
-  `--host-context-mib`, and the cause is located rather than suspected: probes on that run (temporary,
+  shipped `--device-state-slots 1` rests on the quota it is paired with rather than on the reclaim,
+  and the cause is located rather than suspected: probes on that run (temporary,
   reverted) show the shortage carrying the state slot, `plan_reclaim` offering one demotion and one
   release, and **every action rejected by the value gate at
   `src/runtime/engine/context_cache/resource_manager.h:1282`** (`victim.reused=1 admission.reused=0`)

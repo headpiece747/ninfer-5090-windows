@@ -334,10 +334,12 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # active-capture reclaim landed on 2026-09-19 and measured the cliff gone -- 12/12 conversations
     # reusing at 1, 2, 4 and 8 alike, while 8 costs ~1.3 GiB of runtime and 13.6% of decode on
     # QUASAR DFlash2. That reclaim was a change to the pre-b9114396 context cache, and upstream's
-    # replacement does not carry it (see the module docstring), so under the replacement the value is
-    # an unverified setting rather than a measured trade: the twelve-conversation run has not been
-    # re-taken. A larger value buys retained-state capacity for interleaved conversations, which
-    # nothing here measures.
+    # replacement does not carry it (see the module docstring), so what the value rests on now is the
+    # quota it is paired with: measured 2026-10-06, the shipped acceptance shape (12 conversations x
+    # ~20,000 tokens) reuses 99.8% x12 and interleaved conversations hold to 52 and fail at 56 -- the
+    # host quota in state images, ~55 x 147 MiB. This port's workload is 8, so 1 stands with the
+    # numbers beside it rather than as a carried-forward trade. A larger value buys retained-state
+    # capacity for interleaved conversations, which is now measured at the shipped quota only.
     #
     # The ladder below was measured on the superseded slot model: it varied --host-state-slots, which
     # upstream b9114396 replaced with --host-context-mib. It is kept because the finding is about the
