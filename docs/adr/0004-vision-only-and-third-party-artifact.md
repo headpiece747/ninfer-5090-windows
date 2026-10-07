@@ -53,3 +53,11 @@ absolute figures are superseded by `tools/release/profiles.py`, whose values are
 the shipped launcher flag sets by the `profile` mode of `v3_profile_matrix.py`. That raise turned
 out to be temporary: the reclaim landed on 2026-09-19, every profile ships
 `--device-state-slots 1` again, and the shipped flag set matches this comparison's once more.
+
+**Correction (2026-10-06): the reclaim that sentence rests on is gone.** It was a change to the
+context cache upstream `b9114396` replaced, and the merge took upstream's version, so the cliff is
+back when the pools fill -- measured, and the replacement refuses by policy rather than through a
+missing path (`docs/research/prefix-state-eviction.md`). What keeps `--device-state-slots 1` safe now
+is the host quota it ships beside: 12 conversations of ~20,000 tokens reuse at 99.8%, and interleaved
+conversations hold to 52 and fail at 56, against a port workload of 8. The flag set still matches;
+the reason it is safe is not the one this amendment gave.

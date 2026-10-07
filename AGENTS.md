@@ -181,6 +181,7 @@ something, and each is named here so it gets used rather than rediscovered.
 | copy-paste, and whether it is *new* | `check_duplication.py` — jscpd 5.4.0 over `src/` and `include/`, against `.jscpd-baseline.json`. **The baseline is the point**: 378 clones already exist here (3.86% of lines), so a threshold gate would fail on every commit and get muted. It fails only past 5 *new* clones, and names them. Three exits, and the middle one matters: 0 clean, 1 new duplication, 2 **jscpd missing or analyzed nothing** — a scan that did not run is not a pass. Install with `uv tool install jscpd==5.4.0`. Measured: 490 files in ~65 ms; at `--min-lines 20`, 9 clones (0.36% of C++ lines) |
 | a document cites `file.ext:LINE` | `check_doc_citations.py` gates the resolvable ones; it names a citation pointing past the end of a file that exists, and only *reports* one naming no tracked file, because `docs/research/` cites other projects by construction and a gate that cannot tell an external reference from a dead one is guessing |
 | a check that passes here and fails in CI | `tools/scripts/verify_as_ci.cmd` **first**, before forming any hypothesis. It reproduces the runner's conditions — Python 3.11, CI's package set, `NINFER_PYTHON` as a command name, a scratch venv. On 2026-09-25 six serious hypotheses were formed against a failing CI gate without once reproducing the runner's conditions, and five were wrong; the sixth was found in one run of this script |
+| a change to a workflow file | **dispatch it** — the runner's shell is part of the change, and running the same commands locally does not reproduce it. A `run:` block on Windows is PowerShell, so cmd syntax needs `shell: cmd`; the 2026-10-06 `REM` failure was found only because the tier was dispatched, while the local run of the same commands (from a `.cmd`) passed |
 | a C++ or upstream change reaching the suite | `tools/scripts/test_v3.cmd`, then `tools/release/check_test_baseline.py` — **with `NINFER_TEST_ARTIFACT` set**: without it the four required real-model tests skip and the gate fails on missing coverage rather than on a regression, which is how it was misread once |
 | anything that could be order- or state-dependent | the suite recipe passes `--schedule-random`; run it twice before believing a fixed order |
 | a device-side memory, race or synchronisation question | `tools/scripts/test_v3_compute_sanitizer.cmd` — memcheck on a small subset; `racecheck`/`initcheck`/`synccheck` and the wider method are in the `cuda-debugging` skill |
@@ -203,10 +204,15 @@ the fast gates have one definition and CI cannot drift from the hook. `.github/w
 runs `test_v3.cmd` and then the baseline gate on a **self-hosted** runner labelled `gpu-5090`, on a
 nightly cron and on dispatch, serialised against measurements by its `concurrency` group.
 GitHub-hosted runners cannot take the second tier: they have no GPU and no CUDA toolkit.
-**As of 2026-10-04 no self-hosted runner is registered on this machine** (no `actions.runner.*`
-service), so the GPU tier has never executed and cannot have caught anything; `gpu.yml`'s header
-carries the registration commands. This paragraph previously read "Not installed deliberately: CI",
-which the two-tier commit `88ee28f0` had already made false.
+**The runner is registered and the tier has run** (2026-10-06: `5090-box`, online, two dispatches
+green — the gate reads the recipe's own captured log, so the suite runs once). Two preconditions are
+easy to lose: the workflow must exist on the **default branch** for `schedule`/`workflow_dispatch` to
+fire at all, which is why the default branch is `dev` rather than the release-only `main`; and the
+runner is a process, so a reboot takes the nightly cron with it until `svc.cmd install` runs from an
+elevated shell. `gpu.yml`'s header carries both, the FFmpeg staging the checkout needs, and the
+registration commands. This paragraph previously read "Not installed deliberately: CI", which the
+two-tier commit `88ee28f0` had already made false, and then "no self-hosted runner is registered …
+never executed", which the first dispatch falsified.
 
 ### Skills, and when to reach for one
 
