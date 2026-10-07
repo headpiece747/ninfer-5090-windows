@@ -19,6 +19,9 @@
 #     the default branch"), and until 2026-10-06 the default branch was `main`, which carried no
 #     workflows at all -- so this file could not be scheduled or dispatched from `dev`. The default
 #     branch is now `dev`, which is also the branch whose tree the job is meant to test.
+#   * A `run:` block on Windows defaults to POWERSHELL, not cmd. A block written in cmd syntax fails
+#     as a ParserError on its first line, which is what the suite step did in 15 seconds on
+#     2026-10-06 until it declared `shell: cmd`; the steps here that use cmd syntax say so.
 #
 # Register a runner with:
 #   mkdir actions-runner && cd actions-runner
@@ -77,6 +80,10 @@ jobs:
           Write-Host 'staged C:\AI\ffmpeg into the checkout'
 
       - name: the suite (configure, build, ctest with --schedule-random)
+        # shell: cmd, because this block is cmd: a `run:` on Windows defaults to PowerShell, and
+        # `REM` is a ParserError there. The first version of this step shipped without it and failed
+        # in 15 seconds -- the trap is silent until the job runs.
+        shell: cmd
         env:
           # The artifact belongs on THIS step, not only on the gate: the four required real-model
           # tests skip without it, and the gate then fails on missing coverage rather than on a
@@ -96,6 +103,7 @@ jobs:
       # The artifact is outside the checkout: the four required real-model tests read
       # C:\AI\models, which is why this runs here rather than anywhere else.
       - name: baseline gate
+        shell: cmd
         env:
           NINFER_TEST_ARTIFACT: C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer
         run: |
