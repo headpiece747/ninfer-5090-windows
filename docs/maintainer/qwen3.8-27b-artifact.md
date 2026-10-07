@@ -1681,7 +1681,9 @@ python3 -m tools.convert \
 ```
 
 `tools/convert/verify_artifact.py --only all` passes 4424 checks on this build, and a rebuild from the
-same sources and recipe reproduces it apart from the embedded template (§22).
+same sources and recipe reproduces every object apart from the embedded template (§22) -- the 16-byte
+artifact id is a random `uuid4()` (`tools/artifact/writer.py:141`), so two builds of identical content
+are not byte-identical files.
 
 ## 21. The Swift 1.5 line: `nvfp4swift15`
 

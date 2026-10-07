@@ -17,7 +17,7 @@ consumed, and the `sources` block there is the authority -- this list mirrors th
 
     qwen3_8_27b_nvfp4full.v3.ninfer.conversion.json
       "converter": "ninfer-v3",
-      "recipe": "qwen3_8_27b_nvfp4_unsloth_noex",
+      "recipe": "qwen3_8_27b_nvfp4_unsloth",
       "sources": { base: ...\\hf-src\\Qwen3.8-27B,
                    dflash2: ...\\hf-src\\Qwen3.8-27B-DFlash2,
                    quantized: ...\\hf-src\\Qwen3.8-27B-NVFP4-unsloth }

@@ -88,13 +88,20 @@ def main() -> int:
     check("launcher verifier drains VRAM before starting", "wait_free()" in verifier,
           "an accounting line taken with a leftover process resident is not comparable")
 
-    print("\n=== artifact pins match the README ===")
-    download = read(WT / "download_model.py")
-    readme = read(WT / "README.md")
-    for match in re.finditer(r'"sha256":\s*"([0-9a-f]{64})"', download):
-        digest = match.group(1)
-        check(f"README quotes the pinned digest {digest[:8]}...", digest[:8] in readme,
-              "a republished artifact changes the pin; the README's table has to move with it")
+    print("\n=== the recorded digests agree across the documents ===")
+    # The downloader pins no digest any more, so the digests live in three documents and nothing
+    # compared them; a digest quoted in one of them that the reference does not record is either
+    # stale or invented. The reference's identity blocks are the source.
+    reference = read(WT / "docs" / "maintainer" / "qwen3.8-27b-artifact.md")
+    recorded = {m[:8] for m in re.findall(r"sha256\s*=\s*([0-9a-f]{64})", reference)}
+    check("the reference records the shipping digests", len(recorded) >= 5,
+          "one identity block per artifact")
+    quoted = set(re.findall(r"`([0-9a-f]{8})…`", read(WT / "README.md")))
+    quoted |= set(re.findall(r"`([0-9a-f]{8})…`", read(WT / "RELEASE_NOTES.md")))
+    for short in sorted(quoted):
+        check(f"{short} quoted in a doc is a digest the reference records",
+              short in recorded, "a digest no identity block records is stale or invented")
+    check("the docs quote at least one digest", bool(quoted), "or the check above is vacuous")
 
     print("\n=== doc tables quote the table ===")
     for doc_path in (WT / "README.md", WT / "RELEASE_NOTES.md"):
@@ -193,6 +200,9 @@ def main() -> int:
     # The converter travels with the archive, or a fresh install can fetch sources and not build them.
     check("packager stages the converter packages",
           "TOOL_PACKAGES" in packager and '"convert"' in packager and '"artifact"' in packager)
+    check("the converter packages land under tools/ in the archive",
+          'stage / "tools"' in packager,
+          "staged at the root they are not importable as tools.convert")
     check("packager derives the launcher list from the module",
           "from profiles import PROFILES" in packager)
     check("packager does not restate the launcher file names",

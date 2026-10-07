@@ -16,8 +16,9 @@ which is what the engine scores today (verified 2026-10-07). Separately, the *lo
 the retired image (133,296 -> 129,906) and 3,675 nats on `nvfp4full` (137,248 -> 133,574). That domain is
 the control: a token stream that did not change cannot move under the tokenizer, so an engine-side
 numerics change is present too, and it is **unattributed**. Both effects point the same way, and neither
-is the artifacts: their weights are unchanged, and the five images rebuilt on 2026-10-07 are
-byte-identical to the ones before them apart from the embedded chat template. The serving lanes moved in
+is the artifacts: their weights are unchanged -- every object of the five images rebuilt on 2026-10-07 is
+byte-identical to its predecessor, and only the embedded chat template differs, with the 16-byte artifact
+id random per build (`tools/artifact/writer.py:141`). The serving lanes moved in
 the same window and are recorded separately in
 [the lane regression record](research/lane-regression-2026-10-07.md); whether the two share a cause is open.
 
@@ -30,6 +31,19 @@ not by itself evidence that drafter work is correct. For that, the drafter's rou
 `ninfer_dflash2_nvfp4_routes_test` (oracle over the NVFP4 routes) and
 `ninfer_qwen3_5_dflash2_real_test` (real artifact, end to end, at `K=15 B=8` so the drafter's SwiGLU
 is driven at `T=128`).
+
+The values the shipping gate records, re-taken 2026-10-07 on the engine at `HEAD` (full corpus, fp8 KV,
+`verify_shipping_artifacts.py --tolerance 0.01`). The gate's own table is a copy of this one:
+
+| artifact | KV | PPL (2026-10-07) | notes |
+|---|---|---|---|
+| `qwen3_8_27b_nvfp4qat.v3.ninfer` | fp8 | 4.684860 | the recommended line |
+| `qwen3_8_27b_nvfp4full.v3.ninfer` | fp8 | 4.724219 | the MTP-lane image of the unsloth line |
+| `qwen3_8_27b_nvfp4full_noex.v3.ninfer` | fp8 | 4.727636 | the DFlash2-lane image; +0.07% against `full` |
+| `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | fp8 | 4.686759 | |
+| `qwen3_8_27b_nvfp4swift15.v3.ninfer` | fp8 | 4.755739 | |
+| `qwen3_8_27b_nvfp4swift.v3.ninfer` (superseded) | fp8 | 4.725703 | verified from `_superseded` |
+| `qwen3_8_27b_nvfp4.v3.ninfer` (retired) | fp8 | 4.615687 | verified from `_superseded` |
 
 **Reading the 2026-09-26 pair against the band.** The acceptance criterion recorded before the
 upstream `e31bc99b` merge was ±1% around the 2026-09-24 figures. The full corpus lands at -0.098%,

@@ -8,7 +8,7 @@ published in order and never skipped, and `1.2.0` has never been published. Ship
 would leave a `1.1.0 → 1.3.0` gap in the public list, which reads as a withdrawn release. Everything
 below is what a user on `v1.1.0` gets.
 
-Three artifacts are now built by this port from their published sources rather than fetched from
+All five artifacts are now built by this port from their published sources rather than fetched from
 `cometkim`, and one draft rule replaces another across every line. All eight launchers change, and two
 are new.
 
@@ -170,13 +170,12 @@ in [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md)).
 
 ## Getting a model
 
-`download_model.bat` fetches the QUASAR QAT artifact by default and verifies its SHA-256.
-The QUASAR profile comes from `cometkim/Qwen3.8-27B-nvfp4qat-NInfer` and the NVFP4-full
-profiles from `cometkim/Qwen3.8-27B-nvfp4full-NInfer`; both repositories ship a v3 container, so
-either downloads and runs directly. Both are SHA-256 verified by `download_model.bat`, which
-offers the choice. The pinned size and hash are the published artifact's: if a download is
-refused on size, the repository republished and the pin needs updating from HuggingFace's blob
-metadata (a republish is how the previous pin went stale).
+`download_model.bat` offers the five images, fetches the source checkpoints the one you choose needs at
+the revisions pinned in `download_model.py`, and builds it with the converter this archive ships under
+`tools/`. There is no prebuilt download and no SHA-256 pin to go stale: the only `.ninfer` is the one
+this machine builds. `build_model.py --list` shows each line's recipe and sources without building
+anything. Plan for roughly 75-80 GiB of source checkpoints (they are shared between lines) and minutes
+of GPU time per image.
 
 Put the `.ninfer` file at `C:\AI\models\` (the path `launcher_env.bat` expects), then double
 click the launcher you want. Each launcher checks the engine and the artifact exist before

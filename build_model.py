@@ -31,8 +31,9 @@ from download_model import HF_SRC, SOURCES, fetch, report  # noqa: E402
 
 # line -> the recipe, the source that is `--model`, the named sources, and the image's identity.
 #
-# The recipes and their source sets are the ones the artifact reference records per line; `--name` is
-# the value the shipped image carries, so a rebuild is byte-comparable with what this port ships.
+# The recipes and their source sets are the ones the artifact reference records per line, and `--name` is
+# the value the shipped image carries, so a rebuild differs from what this port ships only in the 16-byte
+# artifact id -- a random `uuid4()` (tools/artifact/writer.py:141) -- if it differs at all.
 LINES: dict[str, dict[str, object]] = {
     "quasar": {
         "recipe": "qwen3_8_27b_nvfp4_qat",
