@@ -245,7 +245,12 @@ def main() -> int:
               f"root for the rest of the engine's life unless it is restarted")
         return 1
     if not healthy:
-        print("\n  INCONCLUSIVE: no request reused at all, which is a different failure")
+        print("\n  NO REUSE AT ALL: not one request reused. Two causes look like this and a run "
+              "cannot tell them apart on its own: the cache is off, or the pools cannot hold the "
+              "live set -- which is what the interleaved shape produces past ~52 conversations at "
+              "the shipped 8 GiB quota, where every request reports preferred_reused_tokens 0 "
+              "(docs/research/prefix-state-eviction.md). Rerun with fewer conversations or a larger "
+              "--host-context-mib to find out which.")
         return 1
     print(f"\n  not reproduced: every later turn reused ({len(later)} request(s), "
           f"minimum {min(reuse):.1%})")
