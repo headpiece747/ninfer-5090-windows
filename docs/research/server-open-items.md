@@ -99,6 +99,35 @@ the flag unreachable, and a user who passes 2 gets a wedged engine that stays do
 correct fixes are upstream (#339 is the venue) and, locally, deciding whether this port should reject
 or loudly warn on `--max-concurrency > 1` until upstream lands a fix.
 
+**CORRECTION 2026-10-06: the site this entry names no longer exists in this tree, and the symptom it
+watches can no longer be produced.** Upstream's context-cache replacement (the port merged it on
+2026-10-04, and the eighteen commits on 2026-10-06) removed `checked_resource_difference` with the
+subsystem it belonged to: `git grep checked_resource_difference` returns nothing across `src/` and
+`include/`, `src/models/qwen3_5/program/context_work.cpp` is 71 lines rather than 214+, and no string
+`resource subtraction underflow` is emitted anywhere in the tree — the only remaining `underflow`
+throws are byte-accounting guards in `src/serve/openai_responses_store.cpp`, which are unrelated.
+So:
+
+- **The mutation target named above cannot be exercised**: there is no guard to force, because the
+  guard is gone. The "answerable in one build" experiment this entry proposed is now unanswerable as
+  written, and the paragraph above describing the site as "verified present" was true when written on
+  2026-10-04 and false from the day the rewrite landed.
+- **What the test still proves, and what it does not.** `tests/models/qwen3_5/test_engine_issue5_race.cpp`
+  still constructs the race and still asserts the reporter's *other* half — that the engine accepts work
+  afterwards rather than latching (`:290`) — so it remains a liveness probe for a cache-hitting
+  continuation submitted while another lane generates. Its symptom branch (`:273-279`) matches
+  `underflow`/`subtraction` on a failed request, and since no code path emits that message, the branch
+  is now a *reintroduction* detector: it can only fire if that guard comes back. That is worth keeping
+  and worth saying, because a reader who sees the branch assumes the message is live.
+- **The `--max-concurrency > 1` decision this entry asks for is no longer driven by this defect.** The
+  subsystem that threw is gone, so a guard or warning would need a reason from the replacement's own
+  failure modes — of which the one measured so far is a full pool refusing a cold capture
+  (`docs/research/prefix-state-eviction.md`), which is a silent reuse loss rather than a wedged engine.
+- **Upstream is still the venue for #339 itself**, and the maintainer's #366 asks reporters to re-test
+  their cases against the rewrite; this port has not re-tested the reporter's own concurrency-3 workload
+  against the new cache, and that re-test is the only thing that would close this entry rather than
+  restate it.
+
 ---
 
 ## 2. Fail-stop exit code

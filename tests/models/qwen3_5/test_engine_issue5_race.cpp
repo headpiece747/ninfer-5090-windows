@@ -270,6 +270,10 @@ int exercise_concurrent_cache_hit(const char* artifact) {
 
     if (!failure.empty()) {
         std::cerr << "a request failed: " << failure << '\n';
+        // No code path in this tree emits this message since upstream replaced the context cache and
+        // took `checked_resource_difference` with it (docs/research/server-open-items.md item 1,
+        // correction 2026-10-06), so this branch is a reintroduction detector rather than a live
+        // symptom check. It stays because it costs nothing and would catch that guard coming back.
         underflow = failure.find("underflow") != std::string::npos ||
                     failure.find("subtraction") != std::string::npos;
     }
