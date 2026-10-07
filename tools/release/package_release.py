@@ -177,8 +177,12 @@ def main() -> int:
                 missing.append(f"{name} (from {location})")
                 continue
             if source.is_dir():
-                shutil.copytree(source, dest / name, dirs_exist_ok=True)
-                total += sum(f.stat().st_size for f in source.rglob("*") if f.is_file())
+                # Bytecode is version-specific and never ships; the converter's package tree carries
+                # __pycache__ from whatever interpreters have imported it on this machine.
+                shutil.copytree(source, dest / name, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+                total += sum(f.stat().st_size for f in source.rglob("*")
+                             if f.is_file() and "__pycache__" not in f.parts and f.suffix != ".pyc")
             else:
                 shutil.copy2(source, dest / name)
                 total += source.stat().st_size

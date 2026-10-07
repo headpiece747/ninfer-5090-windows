@@ -79,6 +79,12 @@ def main() -> int:
         extras = sorted(set(by_name) - set(REQUIRED))
         for name in extras:
             print(f"   extra: {name}")
+        # Bytecode is never legitimate in an archive: it is version-specific, and it is what staging
+        # the converter's package directory dragged in the first time the packager shipped one. The
+        # gate printed it as an "extra" and still passed, which is a muted check.
+        for name in sorted(by_name):
+            if "__pycache__" in name or name.endswith(".pyc"):
+                failures.append(f"bytecode in the archive: {name}")
 
         if "SHA256SUMS" in by_name:
             listed = {}
