@@ -291,16 +291,22 @@ ceiling at the same time, because each active lane needs its own state: `--max-c
 `opencode-concurrency-limit` plugin, `options.concurrency` on the model) so the two agree instead
 of one queueing behind the other.
 
-What *is* measured now, as of 2026-10-06: 60 distinct conversations, each asked twice at the shipped
-`--host-context-mib 8192 --device-state-slots 1`, all reused their own second request at ~96%
-(`tools/release/repro_251.py`; the run and its configuration are in
-`docs/research/prefix-state-eviction.md`'s last section). So the quota covers far more conversations
-than a main session plus subagents, and the reuse the host-retention path recovers for this shape is
-measured rather than assumed. What is still not measured is *interleaved* subagents whose states
-compete for the quota while all are active, and the cliff's position at other quotas: at
-`--host-context-mib 300` the same run stops reusing from the third conversation, and the cause is the
-replacement cache's value gate (a reused endpoint is not displaced for a cold admission), not a
-missing eviction path.
+What *is* measured now, as of 2026-10-06, with `tools/release/repro_251.py` (which starts its own lane
+and takes `--interleave`; the runs are in `docs/research/prefix-state-eviction.md`'s last section):
+
+- **Sequential**, each conversation asked twice back to back at the shipped
+  `--host-context-mib 8192 --device-state-slots 1`: 60 distinct conversations, all ~96%.
+- **Interleaved** round-robin, which is this page's shape: 8, 16, 32, 48 and 52 conversations all
+  reuse at ~95.7%; **56 and 60 reuse nothing at all**. The bound is the host quota in state images
+  (~55 x 147 MiB = 8 GiB), so the quota holds roughly 52-55 live conversations.
+- The shipped acceptance shape (12 conversations x ~20,000 tokens on the QUASAR DFlash2 lane) is
+  **99.8% for all twelve**, the result the retired reclaim achieved.
+
+So the concurrency answer this page gives rests on a measured number: a main session plus subagents
+(8 here, and the quota reaches 52) sits far inside the host quota, and the cliff only appears when
+live conversations exceed it. At `--host-context-mib 300` the same sequential run stops reusing from
+the third conversation, and the cause there is the replacement cache's value gate (a reused endpoint
+is not displaced for a cold admission), not a missing eviction path.
 
 ## Caveats
 

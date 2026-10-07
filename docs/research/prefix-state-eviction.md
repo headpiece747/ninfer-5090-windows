@@ -900,5 +900,45 @@ What that leaves for this port is a decision, not a diagnosis:
    measured, but the change is now a value-policy change in upstream-owned code, so it needs its own
    justification rather than a restore.
 
+## MEASURED 2026-10-06: both options, and the interleaved shape
+
+Option 1 is the one that holds, and the two shapes a workload can have answer it differently.
+`repro_251.py` now starts its own lane (`--serve --artifact`, printing the command) and takes
+`--rounds` and `--interleave`, so all of this is reproducible from the file alone.
+
+**The port's own acceptance shape passes at the shipped configuration.** 12 conversations of ~20,000
+tokens, asked twice back to back, on the shipped QUASAR DFlash2 lane (`--device-state-slots 1
+--host-context-mib 8192 --kv-capacity auto --spec dflash2 --draft-tokens 7 --lm-head-draft`):
+**99.8% reuse for all twelve** -- the same result the port's `d05ee90a` achieved with its reclaim, so
+the shipped setting is adequate for the shape it was chosen on, and option 2 is not needed for it.
+
+**Interleaving is the shape that bites, and its bound is the host quota.** Round-robin across N
+conversations (each round sends one new turn to every conversation -- what a main session plus
+subagents actually produces, and what `docs/opencode-settings.md` recorded as unmeasured):
+
+| conversations, interleaved | reuse on the later turn |
+|---|---|
+| 8, 16, 32, 48, 52 | ~95.7% for every conversation |
+| 56, 60 | **0.0% for every conversation** |
+
+52 pass and 56 do not, which is the host quota in state images: 8 GiB / 147 MiB ~ 55. So the
+interleaved capacity is ~52-55 conversations, and the port's own workload (a session plus subagents,
+call it 8) sits far inside it. The sequential shape reaches further (60 measured) because only the
+conversations adjacent in time need their state at once, where interleaved traffic needs one live
+state per conversation for the whole round.
+
+**The interleaved failure is a different mechanism from the value gate**, and the log says so: at 56
+every request reports `preferred_reused_tokens: 0` with `fallback_reason: "none"`, so no checkpoint
+existed to prefer. A conversation's state is retained between its turns only while the host quota has
+room for it; once it does not, the next turn finds nothing to capture from and re-prefills. That is
+state lifetime, not eviction policy -- the value gate above is what refuses a *cold* admission when
+the pool is full, and this is what happens when the pool simply cannot hold the live set.
+
+**Consequence for this port's documents:** the OpenCode answer ("`--max-concurrency 1` is fine because
+the host quota retains the states a main session plus subagents need") is now measured rather than
+assumed, at 8 conversations and with a wide margin, and the number it rests on is in
+`docs/opencode-settings.md` rather than implied.
+
+
 
 

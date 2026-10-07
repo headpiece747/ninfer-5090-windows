@@ -316,9 +316,10 @@ Point an OpenAI-compatible provider at a running launcher, using the model id fr
 header. [docs/opencode-settings.md](docs/opencode-settings.md) carries the `opencode.json`, the four
 model entries, the compaction settings, and the concurrency answer: the launchers run
 `--max-concurrency 1` deliberately, and that only works because the launchers' 8 GiB host quota
-retains conversation state — measured 2026-10-06 with `repro_251.py`: 60 distinct conversations, each
-asked twice, all reused their own second request at ~96%, which covers a main session plus parallel
-subagents.
+retains conversation state — measured 2026-10-06 with `repro_251.py`: interleaved across 8, 16, 32, 48
+and 52 conversations every one reused its later turns at ~96%, 56 does not, and the shipped acceptance
+shape (12 conversations of ~20,000 tokens) reuses at 99.8%. That covers a main session plus subagents
+with a wide margin.
 
 ## Capabilities and limits
 
