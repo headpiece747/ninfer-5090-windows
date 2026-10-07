@@ -4,6 +4,15 @@
 **Severity:** low (misleading error surface), user-visible as a 400 on a value the engine
 itself said was valid.
 
+**This port is not affected, and the reason is worth stating so nobody re-checks it:** the launchers
+all pass `--chat-template` (see `tools/release/profiles.py`, `INVARIANT_FLAGS`) pointing at
+`tools/chat_templates/qwen3_8.jinja`, and that template already resolves the aliases before its own
+check — `high`, `max`, `ultracode` and `extreme` become `xhigh`, `minimal` becomes `low`, and only
+`xhigh|medium|low` then has to pass (`tools/chat_templates/qwen3_8.jinja:54-68`, read 2026-10-07). So
+a port user who sends `minimal` gets a low-effort request rather than a 400, and
+`docs/serving.md:340-341`'s "interprets the other standard values" is true here. The report below is
+against upstream's own embedded `chat_template.jinja`, which does not do the mapping.
+
 ## Summary
 
 The engine validates `reasoning_effort` against six values and says so in its rejection
