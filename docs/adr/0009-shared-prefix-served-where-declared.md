@@ -107,6 +107,14 @@ Accepted: keep both behaviours.
   shared path's behaviour under `rolling` is a consequence nobody has measured.** Read the triad as
   describing the projection, and treat capture-time standing as an open question rather than a
   settled one.
+  **Correction (2026-10-06): the flag this paragraph names no longer exists.** `--context-cache-policy`
+  went with the rewrite the parenthetical above already points at — the new `ContextCacheOptions` has
+  no policy field and the launchers pass no such flag — so every `rolling` clause here describes the
+  pre-`b9114396` cache. What the new cache does with an undeclared automatic candidate is a *different*
+  open question, and one probe has since bounded it: a capture with no demonstrated reuse cannot
+  displace a reused endpoint, refused at the value gate in
+  `src/runtime/engine/context_cache/resource_manager.h:1282`
+  (`docs/research/prefix-state-eviction.md`). The triad's projection rule is unaffected.
 - The three counters are permanent. `shared_stable_prefix_selections` alone cannot distinguish "the
   runtime never offered a shared prefix" from "it offered one and the planner chose otherwise", and
   that distinction is what this record cost the most to establish.
