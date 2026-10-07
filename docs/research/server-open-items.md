@@ -128,6 +128,14 @@ So:
   against the new cache, and that re-test is the only thing that would close this entry rather than
   restate it.
 
+**What the re-test already covers, 2026-10-06:** `tools/bench/ttft/cases.py`'s
+`reporter-concurrency3-growth` runs the reporter's *settings* — three lanes, `--max-concurrency 3`, host
+state and KV enabled, their pending values — against the new cache, and it completed
+**360/360 requests with no failure and no underflow** (`constructed=true`,
+`admission_fallback_reason: none`, `revoked_checkpoints: 0` on every request; 98.9% median cache reuse).
+It is not the reporter's case: the prompts are ~2,000 tokens rather than 60,000-70,000, and it declares
+no tools and no reasoning effort. Those three are what an actual re-test would have to match.
+
 ---
 
 ## 2. Fail-stop exit code

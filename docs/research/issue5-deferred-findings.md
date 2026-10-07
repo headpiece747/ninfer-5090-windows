@@ -79,3 +79,27 @@ They offered to run variants: *"the reproduction takes two minutes."* Their tabl
 **Does `repro_dsh.py` underflow at `--max-concurrency 2`?** That single run discriminates a threshold at
 ≥2 from something specific to 3, on the hardware and artifact where it actually happens — which is the
 only environment where this question can be answered.
+
+## Correction 2026-10-06: three claims in this note have been overtaken
+
+The note is otherwise still the record it claims to be, but these three no longer hold, and a reader
+who takes them as current would be misled in the same way this note accuses the earlier one of being.
+
+1. **"Why a faithful reproduction cannot be run here" is out of date, and the sibling note already says
+   so.** `server-open-items.md` re-measured on 2026-10-04: 30.9 GiB of 32.6 GiB VRAM free and 36.4 GB of
+   47.8 GB RAM free, so the 15,289,286,656-byte ceiling quoted here no longer describes this machine.
+   The *reason* the reproduction was not run is now the reporter's client shape (their tools, their
+   reasoning effort, their 60,000-70,000-token prompts), not capacity.
+2. **The context-cache line this note matches "feature for feature" is the pre-`b9114396` one.** `3
+   active + 3 cached device states | host 16 states | private 8 | shared 7 | anchors 4` describes a
+   cache whose separate budgets and flags (`--host-kv-mib`, `--host-state-slots`,
+   `--max-private-continuations`, `--max-shared-prefixes`) no longer exist; they are one
+   `--host-context-mib` quota now. The comparison to the reporter's instance still says something about
+   *their* build, not about this one.
+3. **"It has never gone red, so red-capability is unproven" is now weaker than that: for the symptom it
+   names, the test cannot go red at all.** Upstream's replacement removed `checked_resource_difference`
+   and its throw with the subsystem they belonged to, so no code path in this tree emits `resource
+   subtraction underflow`; the test's match on that string is a reintroduction detector. What the loop
+   still asserts — the engine accepts work after the race rather than latching — is the reporter's other
+   half and remains live (`docs/research/server-open-items.md` item 1, correction 2026-10-06, which also
+   records the concurrency-3 case that has since run against the new cache: 360/360, no failure).
