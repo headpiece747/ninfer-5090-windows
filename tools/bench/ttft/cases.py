@@ -18,7 +18,7 @@ from tools.bench.ttft.execution import (
     RequestHandle,
 )
 from tools.ninfer_serve.anthropic import anthropic_request
-from tools.ninfer_serve.openai_chat import chat_request
+from tools.ninfer_serve.openai_chat import chat_request, openai_tools
 from tools.ninfer_serve.openai_responses import responses_request
 
 
@@ -1803,6 +1803,52 @@ def _reporter_concurrency3(context: CaseContext, corpus: Corpus) -> None:
             history.append(_assistant(context, handles[index * 2]))
 
 
+def _reporter_tools_64k_concurrency2(context: CaseContext, corpus: Corpus) -> None:
+    """Two 64k conversations with tools and reasoning effort, staggered at the reporter's trigger.
+
+    Upstream #339's reporter ran `--max-concurrency 2` with two 60k-70k-token conversations, 24 tools
+    and `reasoning_effort: medium`, and the fault was a cache-hitting continuation submitted while the
+    other lane was still generating. This is that shape on this port's shipped lane flags, and it
+    answers two questions the port's records leave open: whether anything fails or latches at their
+    scale, and whether a continuation that has a reuse target ever takes the root path instead
+    (upstream #229's symptom, whose named mechanism is gone from the rewritten cache).
+
+    Fidelity, stated rather than assumed: the prompts are the corpus's 64k shape, the tools are the
+    corpus's 32-tool payload (the reporter declared 24), and the assistant turn is echoed as content
+    because that is what the harness captures -- the reporter's client echoes `reasoning_content` as
+    its own field, which this case does not reproduce. A barrier would not produce the trigger, because
+    it waits for both lanes before either continuation is submitted.
+    """
+    context.notes.update({
+        "workload_shape": {"requests": 4, "nominal_input_tokens": 64 * 1024,
+                           "max_output_tokens": 32, "eos_policy": "normal"},
+    })
+    tools = openai_tools(corpus.client_tools())
+    lanes: dict[str, list[dict[str, Any]]] = {}
+    for label in ("a", "b"):
+        history = list(corpus.shape_messages("long-64k-32"))
+        history[0] = dict(history[0])
+        history[0]["content"] = str(history[0]["content"]) + f" Lane {label} of this session."
+        lanes[label] = history
+
+    def turn(role: str, label: str, first: RequestHandle | None) -> RequestHandle:
+        history = list(lanes[label])
+        if first is not None:
+            history.append(_assistant(context, first))
+            history.append({"role": "user", "content": "Continue with one short sentence."})
+        return context.start(role,
+                             chat_request(context.model, history, 32, tools=tools,
+                                          reasoning_effort="medium"))
+
+    a1 = turn("a-turn1", "a", None)
+    b1 = turn("b-turn1", "b", None)
+    a1.wait_done(context.timeout)
+    a2 = turn("a-turn2", "a", a1)
+    b1.wait_done(context.timeout)
+    b2 = turn("b-turn2", "b", b1)
+    _require_successes(context, (a1, a2, b1, b2))
+
+
 _DEFINITIONS = (
     _definition(
         "shared-growth-recovery", "openai_chat", "shared-growth-recovery", "scheduling",
@@ -1882,6 +1928,18 @@ _DEFINITIONS = (
         "uses. The reported resource underflow releases state that was not held, which needs state to be "
         "published and dropped while several lanes are active.",
         _reporter_concurrency3,
+    ),
+    _definition(
+        "reporter-tools-64k-concurrency2",
+        "openai_chat",
+        "reporter-tools-64k-concurrency2",
+        "resource",
+        ("long-64k-32",),
+        "Two 64k conversations with tools and reasoning effort at the reporter's --max-concurrency 2, "
+        "staggered so each lane's continuation is submitted while the other lane is still generating: "
+        "upstream #339's client shape, and the shape upstream #229 describes (a large continuation "
+        "whose reuse target exists) at the shipped lane flags.",
+        _reporter_tools_64k_concurrency2,
     ),
     _definition(
         "session-rotation-55k-two-cohort-stream",

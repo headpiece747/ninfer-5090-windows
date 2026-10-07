@@ -2120,6 +2120,15 @@ full.
   patched a mechanism upstream's rewrite deleted; `MaterializationSearchBudget` has zero occurrences
   at HEAD. Upstream issue #229 is still OPEN and its reporter is deploying the same widening on
   current master, so the port's evidence belongs on that issue rather than in a restore.
+  **And the replacement's own behaviour was measured 2026-10-07: the symptom does not appear.** #229's
+  shape is a large continuation whose reuse target exists, admitted anyway from the root; the case
+  `reporter-tools-64k-concurrency2` runs exactly that (two 69,798-token conversations, a continuation
+  submitted while the other lane generates) and **no request preferred a target and took `root`** —
+  both continuations took `checkpoint` with `preferred_reused_tokens` 69,791 (99.9% cached),
+  `fallback_reason: none`, `revoked_checkpoints: 0`. So the wall-clock budget that pinned the old
+  search is gone with its mechanism, and the value budget the replacement keeps did not refuse a
+  reuse action in this shape. The same run answers #339's client shape (item 1 of
+  `docs/research/server-open-items.md`): nothing failed, nothing latched.
 * `src/runtime/engine/model_instance.cpp` -- superseded. The port forced `cache.policy = Default` when
   the cache is disabled and defaulted `max_shared_prefixes` from
   `kMaximumPreparedPromptCacheCandidatesPerRequest`; upstream's new `ContextCacheOptions` has neither

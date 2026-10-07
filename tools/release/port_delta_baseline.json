@@ -1605,6 +1605,12 @@
       "review": "product",
       "reason": "A security fix for untrusted input: a community artifact supplies index.json, so the file names in it are not trustworthy -- an anchored path, or ../.., would replace the root when joined. The root is resolved and the names are checked against it."
     },
+    "tools/ninfer_serve/openai_chat.py": {
+      "status": "M",
+      "disposition": "product",
+      "review": "product",
+      "reason": "Port harness capability, added 2026-10-07 for the #339/#229 re-test case. Two additions to `chat_request`: an optional `reasoning_effort`, which replaces the explicit `enable_thinking: false` rather than sitting beside it, because the engine refuses a request that states both; and `openai_tools`, which converts the corpus's Anthropic-shaped tool fixtures (`input_schema`) to the OpenAI wire (`type: \"function\"` with `parameters`), which the engine otherwise refuses with \"tools entries must contain a string type\" -- measured, one 400 per request. Both are additive: the 32 existing callers keep their behaviour, and the default path is unchanged."
+    },
     "tools/smoke/serve_thinking_preservation.py": {
       "status": "M",
       "disposition": "unknown",

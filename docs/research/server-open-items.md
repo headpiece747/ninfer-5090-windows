@@ -141,6 +141,29 @@ state and KV enabled, their pending values — against the new cache, and it com
 It is not the reporter's case: the prompts are ~2,000 tokens rather than 60,000-70,000, and it declares
 no tools and no reasoning effort. Those three are what an actual re-test would have to match.
 
+**The re-test at their client shape, 2026-10-07 — and it is clean.** A new case,
+`reporter-tools-64k-concurrency2`, closes the three gaps the paragraph above names: two conversations of
+**69,798 tokens** each (the corpus's 64k shape), **32 tools** declared (they declared 24), and
+`reasoning_effort: medium`, at `--max-concurrency 2` on the shipped QUASAR DFlash2 lane
+(`--device-state-slots 1 --host-context-mib 8192 --kv-capacity auto --preserve-thinking
+--chat-template tools/chat_templates/qwen3_8.jinja`). Each lane's continuation is submitted **while the
+other lane is still generating** — their named trigger, which a barrier cannot produce. Measured:
+
+| request | prompt | cache | reuse path | preferred | fallback |
+|---|---:|---:|---|---:|---|
+| a-turn1 / b-turn1 (concurrent) | 69,798 | 0 | `root` | 0 | `none` |
+| a-turn2 (while b-turn1 generated) | 69,851 | **69,791 (99.9%)** | `checkpoint` | 69,791 | `none` |
+| b-turn2 | 69,851 | **69,791 (99.9%)** | `checkpoint` | 69,791 | `none` |
+
+**Nothing failed and nothing latched**: 4/4 requests 200, the case constructed, and a request sent
+afterwards completed. The first turns took 19.1 s each of prefill (they ran together — two lanes), the
+continuations 224/275 ms.
+
+**Fidelity, stated rather than assumed:** the assistant turn is echoed as `content` because that is what
+the harness captures, where their client echoes `reasoning_content` as its own field; the tools are the
+corpus's 32, not their 24; and the artifact is this port's QUASAR build, not the one they run. So this
+establishes the shape, not their exact client.
+
 ---
 
 ## 2. Fail-stop exit code

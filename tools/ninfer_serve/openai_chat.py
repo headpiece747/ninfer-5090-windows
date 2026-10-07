@@ -16,6 +16,7 @@ def chat_request(
     *,
     stream: bool = True,
     tools: Sequence[dict[str, Any]] | None = None,
+    reasoning_effort: str | None = None,
 ) -> ProtocolRequest:
     if max_output_tokens <= 0:
         raise ValueError("Chat max_output_tokens must be positive")
@@ -24,9 +25,15 @@ def chat_request(
         "messages": list(messages),
         "max_completion_tokens": max_output_tokens,
         "temperature": 0,
-        "enable_thinking": False,
         "stream": stream,
     }
+    if reasoning_effort is None:
+        payload["enable_thinking"] = False
+    else:
+        # The engine refuses a request that states both, so an effort value replaces the explicit
+        # `enable_thinking: false` rather than sitting beside it. Thinking is then on, which is the
+        # shape a client that sends `reasoning_effort` has.
+        payload["reasoning_effort"] = reasoning_effort
     if stream:
         payload["stream_options"] = {"include_usage": True}
     if tools is not None:
@@ -38,6 +45,29 @@ def chat_request(
         payload=payload,
         stream=stream,
     )
+
+
+def openai_tools(anthropic_tools: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The OpenAI wire shape for tools the corpus stores in Anthropic's.
+
+    `bench/fixtures/ttft/text/client_tools_32.json` is Anthropic-shaped (`input_schema`), and the
+    Anthropic request builder takes it as it stands; the OpenAI wire wants `type: "function"` with the
+    schema under `parameters`, and the engine refuses anything else with "tools entries must contain a
+    string type" (measured 2026-10-07, one 400 per request). One place converts, so a case does not
+    have to.
+    """
+    converted: list[dict[str, Any]] = []
+    for tool in anthropic_tools:
+        name = tool.get("name")
+        if not isinstance(name, str) or not name:
+            raise ServeProtocolError("tool fixture entry has no name")
+        function: dict[str, Any] = {"name": name}
+        if isinstance(tool.get("description"), str):
+            function["description"] = tool["description"]
+        if isinstance(tool.get("input_schema"), dict):
+            function["parameters"] = tool["input_schema"]
+        converted.append({"type": "function", "function": function})
+    return converted
 
 
 class ChatStreamAdapter:
