@@ -51,8 +51,9 @@ BASELINE = Path(__file__).resolve().parent / "test_baseline.json"
 BUILD = REPO / "build-test"
 LOG = BUILD / "Testing" / "Temporary" / "gate-ctest.log"
 CACHE = BUILD / ".gate-cache.json"
-# The slowest test measured 262 s (ninfer_context_kv_materialize_test) and ctest has no timeout by
-# default, so this fails a hanging test rather than letting it stall a release indefinitely.
+# The slowest entry measured 166.1 s (ninfer_context_kv_materialize_test, since split into four
+# batch-partitioned entries whose longest is 82 s) and ctest has no timeout by default, so this fails a
+# hanging test rather than letting it stall a release indefinitely.
 TEST_TIMEOUT_SECONDS = 900
 # ctest reports a failing test as "(Failed)" or, when the process aborted, as "(Exit code 0xc0000409)".
 # Matching only the first form hid four of five failures in one run.

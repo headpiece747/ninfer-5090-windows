@@ -100,9 +100,34 @@ ninfer_add_op_test(ninfer_rmsnorm_rope_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_rmsnorm_rope.cpp"
   LIBRARIES ninfer_ops)
 
-ninfer_add_op_test(ninfer_context_kv_materialize_test
-  SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_context_kv_materialize.cpp"
-  LIBRARIES ninfer_ops)
+# Split across four entries by batch, for the reason the softmax sweep above is split by KV format:
+# this test is host-oracle-bound, so the card idles while one process walks the whole sweep (measured
+# 166.1 s as one entry, the suite's longest).
+#
+# Unlike that sweep's filter, this one does not change what is asserted, and that is the point of
+# choosing the batch as the axis: the check at the end of main compares each batch's workspace
+# capacity against the peak that batch's own cases reached, and a batch's cases are exactly the ones
+# --batches keeps or drops. The peak is a maximum over them, so a filtered run computes the number the
+# whole-sweep run does. Verified by running all four here: the peaks match the unparameterised
+# binary's batch for batch (41,943,040 / 655,360 / 983,040 / 1,310,720 / 1,638,400 / 1,966,080 /
+# 1,863,680 / 1,966,080), and the four entries cost 82 / 25 / 21 / 33 s against 166 s in one.
+#
+# The batches are grouped so the heaviest (8, which carries the narrow cases and the graph replays,
+# 82 s) stands alone; the rest are grouped by cost. A bare invocation still runs all eight, which is
+# what a developer gets from the binary directly, so no entry re-runs another's work.
+set(ninfer_context_kv_materialize_batch_groups "8" "1" "2,3,4" "5,6,7")
+add_executable(ninfer_context_kv_materialize_test
+  "${CMAKE_CURRENT_LIST_DIR}/test_context_kv_materialize.cpp")
+ninfer_test_includes(ninfer_context_kv_materialize_test)
+target_link_libraries(ninfer_context_kv_materialize_test PRIVATE ninfer_ops)
+ninfer_op_oracle_options(ninfer_context_kv_materialize_test)
+foreach(batch_group IN LISTS ninfer_context_kv_materialize_batch_groups)
+  string(REPLACE "," "_" batch_suffix "${batch_group}")
+  add_test(NAME "ninfer_context_kv_materialize_test_b${batch_suffix}"
+    COMMAND ninfer_context_kv_materialize_test --batches "${batch_group}")
+  set_tests_properties("ninfer_context_kv_materialize_test_b${batch_suffix}"
+    PROPERTIES SKIP_RETURN_CODE 77)
+endforeach()
 
 add_test(NAME ninfer_kv_cache_append_nvfp4_test
   COMMAND ninfer_kv_cache_append_test --nvfp4-only)

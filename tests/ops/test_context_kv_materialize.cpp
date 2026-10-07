@@ -404,8 +404,38 @@ int run_case(Fixture& fixture, const std::string& label, int width, int batch,
 
 } // namespace
 
-int main() {
+// The batches this invocation runs, so one sweep can be spread across ctest entries. The check at the
+// end of main compares each batch's capacity against the peak its own cases reached, and a batch's
+// cases are exactly the ones this filter keeps or drops -- the peak is a maximum over them, so the
+// filtered run computes the same number the whole-sweep run does. The filter defaults to all eight,
+// which is what the bare binary keeps doing for anyone running it by hand; the registered entries
+// partition the eight between them, so none of the work is run twice.
+std::array<bool, 9> batches_from(int argc, char** argv) {
+    std::array<bool, 9> selected{};
+    selected.fill(true);
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view argument(argv[i]);
+        if (argument != "--batches" || i + 1 >= argc) {
+            throw std::invalid_argument("unknown argument: " + std::string(argument));
+        }
+        selected.fill(false);
+        std::string_view list(argv[++i]);
+        while (!list.empty()) {
+            const std::size_t comma = list.find(',');
+            const int batch         = std::stoi(std::string(list.substr(0, comma)));
+            if (batch < 1 || batch > 8) {
+                throw std::invalid_argument("--batches takes a comma-separated list of 1..8");
+            }
+            selected[static_cast<std::size_t>(batch)] = true;
+            list = comma == std::string_view::npos ? std::string_view{} : list.substr(comma + 1);
+        }
+    }
+    return selected;
+}
+
+int main(int argc, char** argv) {
     try {
+        const std::array<bool, 9> selected = batches_from(argc, argv);
         if (cuda_unavailable()) {
             std::cout << "context_kv_materialize: SKIP (CUDA unavailable)\n";
             return 77;
@@ -416,6 +446,7 @@ int main() {
         const std::vector<int> widths{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
         for (int width : widths)
             for (int batch = 1; batch <= 8; ++batch) {
+                if (!selected[static_cast<std::size_t>(batch)]) continue;
                 std::vector<int> counts(batch), slots(batch), positions(width * batch, -12345);
                 for (int b = 0; b < batch; ++b) {
                     counts[b] = b == batch - 1 || b % 3 == 2 ? width
@@ -432,6 +463,7 @@ int main() {
             }
         for (int width : widths)
             for (int count : {0, 1, std::max(1, width / 2)}) {
+                if (!selected[8]) continue;
                 fixture.reset_cache();
                 std::vector<int> positions(width * 8, -1), counts(8, count), slots(8, -1);
                 for (int b = 0; b < 8; ++b) {
@@ -445,6 +477,7 @@ int main() {
                                      width, 8, counts, slots, positions, 0x704U, true);
             }
         for (int width : {17, 81, 85, 86, 97, 128, 129, 256, 257, 2048}) {
+            if (!selected[1]) continue;
             fixture.reset_cache();
             std::vector<int> positions(width);
             for (int i = 0; i < width; ++i) positions[i] = 262140 + i;
@@ -452,16 +485,21 @@ int main() {
                                  {7}, positions, 0x702U);
         }
         for (int count : {0, 1, 96, 128, 257}) {
+            if (!selected[1]) continue;
             fixture.reset_cache();
             std::vector<int> positions(2048, -1);
             for (int i = 0; i < count; ++i) positions[i] = 262140 + i;
             failures += run_case(fixture, "wide narrow count=" + std::to_string(count), 2048, 1,
                                  {count}, {count ? 3 : -1}, positions, 0x705U, true);
         }
-        fixture.reset_cache();
-        failures += run_case(fixture, "zero projection", 3, 3, {0, 1, 3}, {-1, 7, 2},
-                             {-1, -1, -1, 2047, -1, -1, 262142, 262143, 262144}, 0, true, true);
+        if (selected[3]) {
+            fixture.reset_cache();
+            failures += run_case(fixture, "zero projection", 3, 3, {0, 1, 3}, {-1, 7, 2},
+                                 {-1, -1, -1, 2047, -1, -1, 262142, 262143, 262144}, 0, true,
+                                 true);
+        }
         for (int batch = 1; batch <= 8; ++batch) {
+            if (!selected[static_cast<std::size_t>(batch)]) continue;
             const auto capacity = ops::context_kv_materialize_workspace_capacity_bytes(
                 batch, 1, batch == 1 ? 2048 : 16);
             if (capacity != fixture.observed_peak[batch]) {

@@ -52,10 +52,11 @@ and renumbering them would break every cross-reference to it. Each heading carri
   cache rather than a missing path, measured at both workload shapes and adequate for the shipped
   configuration. The counts this item first recorded (40 taken / 53 kept / 19 gone) are not
   reproducible and were dropped.
-- **item 17** — **the suite runs 3.0x faster; the remaining 1.6x is a coverage decision, not a
-  mechanical one.** 1430.9 s → 471.0 s. Splitting `context_kv_materialize` would take it to about
-  300 s, but that test's workspace check is a whole-sweep postcondition and cannot be relocated
-  without changing what it asserts.
+- **item 17** — **both halves done.** The suite runs 3.0x faster, and the remaining 1.6x turned out
+  not to be a coverage trade: `context_kv_materialize` is split into four entries filtered by batch,
+  which keeps its workspace-interval assertion exactly (the peaks match the unparameterised binary
+  batch for batch), taking the suite from 471.0 s to **333.9 s** on the same tree. 1430.9 s → 471.0 s
+  came from the `-j 8` and softmax splits; the 381.9 → 333.9 s step is this one.
 
 **That summary was wrong on all three counts until 2026-10-04**, and the reason is worth keeping:
 the three bullets were written when the items were open and never revisited, while the items
@@ -2197,14 +2198,26 @@ failed. It is registered in its own block and was never added to `ninfer_qwen3_5
 carried neither `RUN_SERIAL` nor a label while every other real-model test did. 142 serial runs never
 showed it, which is the argument for the repeat-run rather than a reason to skip it.
 
-**Open, and it is a coverage decision.** `context_kv_materialize` is host-bound too (median 6%) and
-its four groups measure 175 / 49 / 24 / 4 s, so splitting it would take the suite to about 300 s. It
-cannot be split as it stands: its workspace-interval check compares the computed capacity for each
-batch against `fixture.observed_peak[batch]`, which is last-write-wins, so the check is a whole-sweep
-postcondition over the exact sequence. Relocating it changed what it asserted and broke the bare
-binary — `failures=1` with no arguments, where the same binary had passed — which is why the attempt
-was reverted rather than adjusted. Making the check per-group, each group validating the peaks it
-recorded, would be more checks but a **different assertion** than today's. That trade is the owner's.
+**DONE 2026-10-06: it is split, and the premise above was wrong — the assertion does not have to
+change.** The check compares each batch's capacity against the peak *that batch's own cases* reached,
+and a batch's cases are exactly the ones a batch filter keeps or drops. The peak is a maximum over
+them, so a run filtered by batch computes the same number the whole sweep does; what would change the
+assertion is the per-*group* variant this item considered, where a group's cases are not a batch's
+cases. `--batches` filters by batch for that reason, and the four registered entries partition the
+eight between them so none of the work runs twice.
+
+Measured before the split (temporary probe, reverted): per-batch cost 25.7 / 4.8 / 7.1 / 8.8 / 8.8 /
+10.8 / 12.8 / 81.7 s for batches 1-8 — batch 8 carries the narrow cases and the graph replays and is
+half the sweep, and batch 1 carries the prefill W=2048 cases. Groups are therefore {8}, {1},
+{2,3,4}, {5,6,7}: 98.8 / 37.6 / 31.4 / 25.7 s under `-j 8` (82 / 26 / 22 / 34 s in isolation)
+against 166.1 s as one entry. Verified both ways: each filtered entry reports the same peak per batch
+as the unparameterised binary (41,943,040 / 655,360 / 983,040 / 1,310,720 / 1,638,400 / 1,966,080 /
+1,863,680 / 1,966,080), and the bare binary still passes.
+
+**Suite effect, measured: 381.9 s -> 333.9 s** on the same tree at the same `-j 8`, with the critical
+path moving from the materialize entry (166.1 s) to `ninfer_softmax_attention_fp8_test` (116.9 s).
+`test_baseline.json`'s `suite_size` moved 152 -> 155 for the three extra registrations, and
+`check_test_baseline.py` reports GATE PASSED with the two baselined failures.
 
 ### 18. Upstream's five commits, merged — **MERGED 2026-10-05; the speculative path converged on upstream**
 
