@@ -126,10 +126,11 @@ and every profile reaches the full native context.
 | `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 210 tok/s | 53.1% |
 
 **These eight figures are the 2026-09-30 measurement, and a 2026-10-07 re-measurement of the same
-profiles on the same protocol read 12-49% lower on seven of them** (quasar dflash2 flat: 321.8 against
-319), with the run-to-run spread widened from within +/-1% to up to +/-30% and the speculative **round
-cost** -- normalised for acceptance, so the generated content cannot explain it -- up 22-60%. The
-numbers, their runs, the ruled-out causes and the candidate set are in
+profiles on the same protocol read 10.3-48.7% lower on seven of them** (quasar dflash2 reads +0.9%
+against this table and -11.4% against its own most recent record -- see the note), with the run-to-run
+spread widened from within +/-1% to up to +/-30% and the speculative **round cost** -- normalised for
+acceptance, so the generated content cannot explain it -- up 22-60%. The numbers, their runs, the
+ruled-out causes and the candidate set are in
 [the lane regression record](docs/research/lane-regression-2026-10-07.md); the change is unattributed
 and open.
 

@@ -31,10 +31,12 @@ quasar mtp4 `[221.4, 220.6, 221.5]`, swift dflash2 `[363.8, 359.3, 362.7]`, nvid
 and `[141.9, 230.4, 148.3]`, up to +/-30% on the same protocol. A three-run mean is a weak statistic
 under that spread, which is why the runs are printed here rather than only the mean.
 
-**Ruled out.** The CI runner did not take the card: the newest worker log is `12:31Z`, before the run,
-and no workflow ran today. Nothing else was serving. The artifacts are not the cause: all five were
-rebuilt the same day and every weight object is byte-identical to the 2026-09-30 build (their only
-difference is the embedded chat template, §22 of the artifact reference). The card is not contended.
+**Ruled out.** The CI runner did not take the card *during the run*: the newest worker log ends at
+`12:31Z`, the sweep ran at `17:11-17:14Z`, and nothing else was serving. (Two `gpu.yml` jobs did run
+earlier the same day, `10:56Z` and `12:18Z`; both finished hours before this measurement.) The artifacts
+are not the cause: all five were rebuilt the same day and every weight object is byte-identical to the
+2026-09-30 build (their only difference is the embedded chat template, §22 of the artifact reference).
+The card is not contended.
 
 **Not ruled out, and the candidate set.** 252 files under `src/` changed between the two dates across
 three merges (`b9114396`/`355dda55`, `809296dd`, `423f0117`), and two attention launch-plan commits
@@ -42,6 +44,17 @@ landed on 2026-09-30 itself (`107b174e` "stop splitting a saturated tiled launch
 launch plans from device sm count"), so whether the 2026-09-30 table was measured before or after those
 two is not established. A bisect would settle it: build at each candidate and run one lane's round cost
 interleaved against the current build.
+
+**The baseline matters for two of the eight lanes.** The table above uses the published table's
+2026-09-30 figures. For six lanes the most recent pre-today *record* in `matrix_v3.jsonl` agrees with
+them to within a token per second; for two it does not, and in both cases the published figure is the
+more favourable one. `start_quasar_v3_dflash2_vision` last recorded 363.0 tok/s at 66.5% acceptance
+against the published 319 at 55.0%, so against its own record that lane reads **-11.4%**, not the +0.9%
+the table implies. `start_nvidia_v3_mtp4_vision` last recorded 202.6 against the published 210, so its
+drop is -20.8% against the record and -23.6% against the table. The remaining six: -10.3%, -23.5%,
+-33.4%, -33.6%, -35.2%, -48.7% against the published figures. Both baselines are printed here because
+neither has been reconciled to a date; the records are the like-for-like measurement, the table is the
+published claim.
 
 **What this does not say.** It does not say the artifacts are worse -- their weights are unchanged --
 and it does not say the engine is wrong, only slower and less steady on these lanes. It also does not

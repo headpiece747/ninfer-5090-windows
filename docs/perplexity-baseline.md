@@ -2,18 +2,24 @@
 
 The protocol, so a number is comparable: `ninfer-perplexity.exe <artifact> --corpus
 eval/corpora/perplexity-1m/manifest.json --kv-dtype <dtype>`. That is upstream's fixed corpus
-(`ninfer-ppl-1m-v1`: 1,044,573 scored tokens, 496 windows, 4096/2048 context and stride). Every row
-carries the date it was taken; all of them are this machine, which is a different box and clock from
-any published figure. Removing `--quick` gives the full corpus.
+(`ninfer-ppl-1m-v1`: 16 streams, 1,044,573 input tokens of which 1,044,557 are scored, 496 windows,
+4096/2048 context and stride). Every row carries the date it was taken; all of them are this machine,
+which is a different box and clock from any published figure. Removing `--quick` gives the full corpus.
 
-**Rows taken before 2026-10-04 are not comparable with later ones.** Upstream rewrote the tokenizer in
-`b9114396`/`a8e212ac` (merged 2026-10-04), and the rewrite *fixed* an over-segmentation: the old
-tokenizer produced 319 more tokens on this corpus (12 / 186 / 121 / 0 across the four domains), while
-the current one matches the reference tokenizer exactly -- `tokenizers` on the artifact's own
-`tokenizer.json` yields 262,022 / 261,408 / 261,223 / 259,904 scored tokens per domain, which is what
-the engine scores today (verified 2026-10-07). Perplexity is only comparable under one tokenization, so
-every figure dated before 2026-10-04 describes a different token stream: comparisons *within* one date
-still mean what they meant, and comparisons across that date do not.
+**Rows taken before 2026-10-04 are not comparable with later ones, for two separate reasons.** Upstream
+rewrote the tokenizer in `b9114396`/`a8e212ac` (merged 2026-10-04), and the rewrite *fixed* an
+over-segmentation: the old tokenizer produced 319 more tokens on this corpus (12 / 186 / 121 / 0 across
+the four domains), while the current one matches the reference tokenizer exactly -- `tokenizers` on the
+artifact's own `tokenizer.json` yields 262,022 / 261,408 / 261,223 / 259,904 scored tokens per domain,
+which is what the engine scores today (verified 2026-10-07). Separately, the *logits* moved:
+`ninfer_code` scores the **same 259,904 tokens in both engines** and still reads lower by 3,390 nats on
+the retired image (133,296 -> 129,906) and 3,675 nats on `nvfp4full` (137,248 -> 133,574). That domain is
+the control: a token stream that did not change cannot move under the tokenizer, so an engine-side
+numerics change is present too, and it is **unattributed**. Both effects point the same way, and neither
+is the artifacts: their weights are unchanged, and the five images rebuilt on 2026-10-07 are
+byte-identical to the ones before them apart from the embedded chat template. The serving lanes moved in
+the same window and are recorded separately in
+[the lane regression record](research/lane-regression-2026-10-07.md); whether the two share a cause is open.
 
 **What this measurement cannot see.** `ninfer-perplexity` has no `--spec` or draft option at all --
 `apps/perplexity/main.cpp` contains no reference to either -- so it scores the target model only.

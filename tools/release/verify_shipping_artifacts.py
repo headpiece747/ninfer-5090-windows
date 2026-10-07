@@ -52,12 +52,14 @@ OUTPUT_ROOT = ROOT / "profiles" / "perplexity"
 
 # artifact filename -> (label, recorded overall perplexity, directory, shipping lane?)
 #
-# The recorded values were re-taken 2026-10-07 on the post-merge engine, under the corrected tokenizer:
-# every one of them had read 4.3-6.2% below its 2026-09-29 value, and the cause was the instrument, not
-# the models -- upstream's tokenizer rewrite (b9114396/a8e212ac, merged 2026-10-04) fixed an
-# over-segmentation of 319 tokens on this corpus, and the engine now matches the reference tokenizer
-# exactly (see the note at the top of docs/perplexity-baseline.md). Values from before that merge are
-# not comparable with these. `directory` is where the file actually lives: superseded images are verified from
+# The recorded values were re-taken 2026-10-07, after every one of them had read 4.3-6.2% below its
+# 2026-09-29 value. That change has TWO causes and neither is the artifacts: upstream's tokenizer rewrite
+# (b9114396/a8e212ac, merged 2026-10-04) fixed an over-segmentation of 319 tokens on this corpus -- the
+# engine now matches the reference tokenizer exactly, per domain -- and an engine-side numerics change is
+# present as well, proven by `ninfer_code`, which scores the same 259,904 tokens in both engines and still
+# reads 3,390 nats lower on the retired image. The second cause is UNATTRIBUTED and open; see the note at
+# the top of docs/perplexity-baseline.md. Values from before that merge are not comparable with these.
+# `directory` is where the file actually lives: superseded images are verified from
 # `_superseded`, because the instruction this script answers is "check all previous models", and a
 # superseded build that is not checked is a build whose drift nobody would notice. `shipping` says
 # whether a launcher starts it -- qwen3_8_27b_nvfp4 is the retired image that still sits in the models
@@ -72,6 +74,7 @@ SUPERSEDED = MODELS / "_superseded"
 ARTIFACTS: dict[str, tuple[str, float, Path, bool]] = {
     "qwen3_8_27b_nvfp4qat.v3.ninfer": ("QUASAR QAT", 4.684860, MODELS, True),
     "qwen3_8_27b_nvfp4full.v3.ninfer": ("NVFP4-full", 4.724219, MODELS, True),
+    "qwen3_8_27b_nvfp4full_noex.v3.ninfer": ("NVFP4-full no-exception", 4.727636, MODELS, True),
     "qwen3_8_27b_nvfp4nvidia.v3.ninfer": ("NVIDIA ModelOpt", 4.686759, MODELS, True),
     "qwen3_8_27b_nvfp4swift15.v3.ninfer": ("Swift 1.5", 4.755739, MODELS, True),
     "qwen3_8_27b_nvfp4swift.v3.ninfer": ("Swift 1.0", 4.725703, SUPERSEDED, False),
