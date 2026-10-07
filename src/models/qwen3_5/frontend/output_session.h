@@ -79,6 +79,9 @@ public:
     [[nodiscard]] PublishedOutput commit_preview();
     void discard_preview();
     [[nodiscard]] bool constrained() const noexcept;
+    void observe_constraint(bool timings, double prepare_seconds) noexcept;
+    void constraint_uploaded(std::size_t bytes) noexcept;
+    [[nodiscard]] std::optional<ConstraintObservation> constraint_observation() const;
     [[nodiscard]] std::uint32_t grammar_masks(std::span<const TokenId> drafts,
                                               std::span<std::uint32_t> words);
     [[nodiscard]] std::vector<GeneratedToolCall> take_tool_calls() noexcept;
@@ -94,7 +97,7 @@ private:
                   std::shared_ptr<const std::vector<TokenId>> thinking_control_tokens,
                   std::shared_ptr<const frontend::ToolCallOutputContract> tool_call_output,
                   std::unique_ptr<text::GrammarSession> grammar = {},
-                  std::string_view continuation                 = {});
+                  std::string_view continuation = {}, bool combined = false);
     std::unique_ptr<Impl> impl_;
 
     friend class Frontend;

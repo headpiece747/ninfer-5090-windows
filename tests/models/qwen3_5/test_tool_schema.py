@@ -74,12 +74,37 @@ class ToolSchema(unittest.TestCase):
             "</parameter>",
         ]
         cases = [
+            (schema({"type": "number", "exclusiveMinimum": 0.1, "maximum": 0.2}),
+             [{"x": x} for x in [0.1, 0.10000000000000002, 0.15, 0.2, 0.21]]),
+            (schema({"type": "number", "minimum": 1e-8, "maximum": 2e-8}),
+             [{"x": x} for x in [0, 1e-8, 1.5e-8, 2e-8, 3e-8]]),
+            (schema({"type": "array", "prefixItems": [{"type": "string"},
+                        {"type": "number", "minimum": 0, "maximum": 1}], "minItems": 2, "items": False}),
+             [{"x": x} for x in [[], ["x"], ["x", 0.5], ["x", 2], ["x", 0.5, 0]]]),
+            (
+                schema({"type": "integer", "enum": [1.0, 2.0]}),
+                [{"x": value} for value in [0, 1, 2, 3]],
+            ),
             (schema({"type": "string"}), [{"x": s} for s in strings]),
             (
                 schema({"type": "string", "minLength": 1, "maxLength": 2}),
                 [{"x": s} for s in strings],
             ),
             (schema({"type": "string", "pattern": "p"}), [{"x": s} for s in strings]),
+            (
+                schema(
+                    {
+                        "type": "string",
+                        "pattern": "你|😀",
+                        "minLength": 2,
+                        "maxLength": 3,
+                    }
+                ),
+                [
+                    {"x": s}
+                    for s in ["你", "你好", "😀ab", "你abc", "abc", "\n</parameter>"]
+                ],
+            ),
             (
                 schema({"type": "string", "pattern": "^a(b|c){1,2}$"}),
                 [{"x": s} for s in ["ab", "abc", "abbc", "zab"]],
@@ -204,9 +229,17 @@ class ToolSchema(unittest.TestCase):
     def test_prepare_rejections(self):
         specs = [
             schema({"type": ["string", "null"]}),
+            schema({"type": ["string", "integer"], "enum": ["1.0", 1.0]}),
+            schema(
+                {
+                    "anyOf": [
+                        {"type": "string", "const": "0"},
+                        {"type": "integer", "const": -0.0},
+                    ]
+                }
+            ),
             schema({"type": "string", "const": "x\n</parameter>y"}),
-            schema({"type": "string", "pattern": "x", "maxLength": 5}),
-            schema({"type": "number", "minimum": 1}),
+            schema({"type": "number", "multipleOf": 1}),
             {"type": "object", "additionalProperties": True},
         ]
         # At least one candidate asks the probe to compile the grammar.

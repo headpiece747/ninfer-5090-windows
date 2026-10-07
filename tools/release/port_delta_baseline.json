@@ -1,6 +1,6 @@
 {
   "against": "upstream/dev",
-  "recorded": "2026-10-06",
+  "recorded": "2026-10-07",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -769,7 +769,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path. MSVC alignment necessity, measured by tools/scripts/probe_tma_align.cmd and quoted in the file's own comment: CUtensorMap carries no alignment attribute under this build (cuda.h applies alignas(TENSOR_MAP_ALIGN) only when __cplusplus >= 201103L, and nvcc's MSVC host pass reports 199711L), so the by-value descriptor needs an explicit `alignas(64)`, and 128 is rejected with C2719. The struct above it declares no override for the same reason. Kept through the 2026-10-07 merge alongside upstream's new predicated-K block, which mutates the descriptor arrays and is why they are no longer const."
     },
     "src/ops/linear/fp8/fp8_a8_mma.cuh": {
       "status": "M",
@@ -1147,7 +1147,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Carries speculative_proposed_per_position, speculative_recall1_per_position and speculative_recall16_per_position out of the engine, so a served lane reports its drafter's recall rather than only its accept rate."
+      "reason": "Carries speculative_proposed_per_position, speculative_recall1_per_position and speculative_recall16_per_position out of the engine, so a served lane reports its drafter's recall rather than only its accept rate. Carries speculative_proposed_per_position, speculative_recall1_per_position and speculative_recall16_per_position out of the engine, so a served lane reports its drafter's recall rather than only its accept rate, and adds `#include <span>`, which upstream's own request_error_to_api_error signature needs and its header does not include. That is a Windows necessity measured 2026-10-07: with the include absent, MSVC fails the four serve translation units with C2039 'span is not a member of std' and cascades, while upstream's libstdc++ build pulls the header transitively and upstream has no CI to notice."
     },
     "src/serve/http_server.cpp": {
       "status": "M",
@@ -1467,6 +1467,12 @@
       "review": "windows",
       "reason": "Subprocess calls state encoding='utf-8'. With text=True and no encoding, Python uses the locale encoding: UTF-8 on Linux, cp1252 on Windows, which cannot encode the CJK and emoji the payload deliberately carries (ensure_ascii=False) -- so the oracle raised UnicodeEncodeError on its first case and the probe never ran. Four call sites; no assertion changed."
     },
+    "tests/text/test_regex_choice.py": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Subprocess call states encoding='utf-8'. Upstream's new file spawns its probe with text=True and no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and this payload is not ASCII by construction. Windows necessity, found by check_subprocess_encoding.py, the gate that exists because upstream wrote the same defect twice before. No assertion changed."
+    },
     "third_party/llama-jinja/jinja/runtime.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -1517,7 +1523,7 @@
     },
     "tools/bench/run_serve_ttft_campaign.py": {
       "status": "M",
-      "disposition": "unknown",
+      "disposition": "windows",
       "review": "windows",
       "reason": "Subprocess call states encoding='utf-8'. Upstream's call uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII. Windows necessity, found by the subprocess-encoding gate (check_subprocess_encoding.py), which exists because upstream wrote the same defect twice. No assertion changed. Three more Windows necessities, found by the same run, which had never been possible here: the artifact staging root was `/dev/shm/ninfer-artifacts` and its capacity check used `os.statvfs`, neither of which exists on Windows, and the one-read staging copy used `dd` with `iflag=direct`. The root is now the temporary directory on Windows, capacity comes from `shutil.disk_usage` (portable, same question), the copy is `shutil.copyfile` there with the trade recorded in place, and `SERVE`'s default path gains the `.exe` this port's tree actually builds."
     },

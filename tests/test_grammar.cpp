@@ -148,6 +148,36 @@ int main() {
         vocab.emplace_back("\n</think>\n\n answer"); // One token crosses the channel boundary.
         ninfer::text::GrammarCompiler compiler(std::move(vocab), {256}, 4 * 1024 * 1024);
 
+        auto observed = compiler.compile(ninfer::OutputConstraint::regex("a+"), {}, {});
+        observed->observe(true, 0.25);
+        require(observed->observation().cache == ninfer::ConstraintCacheAccess::Built &&
+                    !observed->observation().complete,
+                "cold constraint observation");
+        const auto initial_positions = observed->observation().mask_positions;
+        std::vector<std::uint32_t> lookahead(2 * observed->mask_words());
+        observed->masks(std::array<std::int32_t, 1>{'a'}, lookahead);
+        require(!observed->observation().complete &&
+                    observed->observation().mask_positions == initial_positions + 2,
+                "lookahead completion escaped rollback or lost real work");
+        observed->accept('a');
+        observed->confirm();
+        require(observed->observation().complete && !observed->observation().terminated,
+                "complete prefix was confused with EOS");
+        observed->accept(256);
+        observed->discard();
+        require(observed->observation().complete && !observed->observation().terminated,
+                "discarded EOS changed committed completion");
+        observed->accept(256);
+        observed->confirm();
+        observed->uploaded(64);
+        require(observed->observation().terminated &&
+                    observed->observation().mask_upload_bytes == 64,
+                "termination or transfer observation missing");
+        auto reused = compiler.compile(ninfer::OutputConstraint::regex("a+"), {}, "a");
+        require(reused->observation().cache == ninfer::ConstraintCacheAccess::Hit &&
+                    reused->observation().complete && reused->observation().mask_positions == 0,
+                "cache reused request state or lost continuation completion");
+
         auto literal = compile(compiler, "root ::= \"ab\" | \"ac\"", {}, {});
         require(allows(mask(*literal), 'a') && !allows(mask(*literal), 256),
                 "initial literal mask");

@@ -8,7 +8,12 @@
 #include <string>
 #include <string_view>
 
+namespace ninfer::text {
+struct ParsedJsonNumbers;
+}
+
 namespace ninfer::serve {
+void validate_schema_number_input(const text::ParsedJsonNumbers& parsed);
 
 [[noreturn]] void bad_request(std::string message, std::string param = {}, std::string code = {});
 

@@ -1,4 +1,5 @@
 #include "ninfer_bench_support.h"
+#include "product/constraint_observation.h"
 #include "product/speculative_options.h"
 
 #include <algorithm>
@@ -24,10 +25,24 @@ std::string_view constraint_name(const std::optional<OutputConstraint>& constrai
         return "json_object";
     case OutputConstraintKind::JsonSchema:
         return "json_schema";
+    case OutputConstraintKind::Choice:
+        return "choice";
+    case OutputConstraintKind::Regex:
+        return "regex";
     }
     throw std::logic_error("unknown output constraint");
 }
 
+std::string constraint_choices(const std::optional<OutputConstraint>& constraint) {
+    std::string result = "[";
+    if (constraint) {
+        for (std::size_t i = 0; i < constraint->choices.size(); ++i) {
+            if (i) result += ',';
+            result += '"' + json_escape(constraint->choices[i]) + '"';
+        }
+    }
+    return result + ']';
+}
 
 int parse_int(std::string_view text, const char* label) {
     if (text.empty()) { throw std::invalid_argument(std::string(label) + " is empty"); }
@@ -366,6 +381,8 @@ std::string usage_text(std::string_view program) {
         << "  --grammar-file <path>      constrain output with GBNF\n"
         << "  --json-object              constrain output to a JSON object\n"
         << "  --json-schema-file <path>  constrain output with JSON Schema\n"
+        << "  --regex <pattern>          constrain the complete output with regex\n"
+        << "  --choice <text>            literal output candidate; repeat to supply choices\n"
         << "  --mixed-constraints        apply constraints to alternate requests; requires "
            "concurrency "
            ">= 2\n"
@@ -418,14 +435,22 @@ BenchOptions parse_args(int argc, char** argv) {
         } else if (arg == "--concurrency") {
             options.concurrency = parse_u32(value("--concurrency"), "concurrency");
         } else if (arg == "--grammar-file" || arg == "--json-schema-file" ||
-                   arg == "--json-object") {
-            if (options.constraint_kind)
+                   arg == "--json-object" || arg == "--regex" || arg == "--choice") {
+            if (options.constraint &&
+                !(arg == "--choice" && options.constraint->kind == OutputConstraintKind::Choice))
                 throw std::invalid_argument("select only one output constraint");
-            options.constraint_kind = arg == "--grammar-file" ? OutputConstraintKind::Grammar
-                                      : arg == "--json-schema-file"
-                                          ? OutputConstraintKind::JsonSchema
-                                          : OutputConstraintKind::JsonObject;
-            if (arg != "--json-object") options.constraint_file = value(arg);
+            if (arg == "--choice") {
+                if (!options.constraint) options.constraint = OutputConstraint::choice({});
+                options.constraint->choices.push_back(value(arg));
+            } else if (arg == "--regex") {
+                options.constraint = OutputConstraint::regex(value(arg));
+            } else if (arg == "--json-object") {
+                options.constraint = OutputConstraint::json_object();
+            } else {
+                options.constraint      = arg == "--grammar-file" ? OutputConstraint::grammar({})
+                                                                  : OutputConstraint::json_schema({});
+                options.constraint_file = value(arg);
+            }
         } else if (arg == "--mixed-constraints") {
             options.mixed_constraints = true;
         } else if (arg == "-p" || arg == "--n-prompt") {
@@ -480,7 +505,7 @@ BenchOptions parse_args(int argc, char** argv) {
     if (options.concurrency > kMaximumConcurrency) {
         throw std::invalid_argument("--concurrency must be in [1,8]");
     }
-    if (options.mixed_constraints && (!options.constraint_kind || options.concurrency < 2)) {
+    if (options.mixed_constraints && (!options.constraint || options.concurrency < 2)) {
         throw std::invalid_argument(
             "--mixed-constraints requires an output constraint and concurrency >= 2");
     }
@@ -831,6 +856,7 @@ std::string format_json(const BenchEnvironment& env, const std::string& command,
         << "    \"constraint_type\": \"" << constraint_name(env.constraint) << "\",\n"
         << "    \"constraint_source\": \""
         << json_escape(env.constraint ? env.constraint->source : "") << "\",\n"
+        << "    \"constraint_choices\": " << constraint_choices(env.constraint) << ",\n"
         << "    \"mixed_constraints\": " << (env.mixed_constraints ? "true" : "false") << ",\n"
         << "    \"max_context\": " << env.max_context << ",\n"
         << "    \"prefill_chunk\": " << env.prefill_chunk << ",\n"
@@ -903,6 +929,10 @@ std::string format_json(const BenchEnvironment& env, const std::string& command,
                 << (result.test.has_decode() ? std::to_string(decode_engine_tokens(result, rep))
                                              : "null")
                 << ",\n";
+            out << "          \"constraint\": "
+                << product::constraint_observation_json(rep.constraint).dump() << ",\n"
+                << "          \"constraint_draft_wait_exposed_seconds\": "
+                << number(rep.constraint_draft_wait_exposed_seconds) << ",\n";
             append_timings_json(out, rep.timings, "          ");
             out << ",\n";
             append_speculative_json(out, rep.speculative, "          ");
@@ -929,7 +959,8 @@ std::string csv_field(std::string_view value) {
 std::string format_csv(const BenchEnvironment& env, const std::vector<TestResult>& results) {
     std::ostringstream out;
     out << "label,kind,n_prompt,n_gen,architecture,prefill_signature,model_name,artifact_path,max_"
-           "context,prefill_chunk,concurrency,constraint_type,constraint_file,mixed_constraints,"
+           "context,prefill_chunk,concurrency,constraint_type,constraint_file,constraint_source,"
+           "constraint_choices,mixed_constraints,"
            "speculative_"
            "backend,draft_tokens,"
            "proposal_head,decode_path,kv_cache,kv_payload_bytes,load_host_to_device_bytes,"
@@ -969,8 +1000,11 @@ std::string format_csv(const BenchEnvironment& env, const std::vector<TestResult
             << ',' << env.load.prefill_signature << ',' << csv_field(env.load.model_name) << ','
             << csv_field(env.artifact_path) << ',' << env.max_context << ',' << env.prefill_chunk
             << ',' << env.concurrency << ',' << constraint_name(env.constraint) << ','
-            << csv_field(env.constraint_file) << ',' << (env.mixed_constraints ? "true" : "false")
-            << ',' << product::speculative_backend_name(env.speculative.backend) << ','
+            << csv_field(env.constraint_file) << ','
+            << csv_field(env.constraint ? env.constraint->source : "") << ','
+            << csv_field(constraint_choices(env.constraint)) << ','
+            << (env.mixed_constraints ? "true" : "false") << ','
+            << product::speculative_backend_name(env.speculative.backend) << ','
             << env.speculative.draft_tokens << ','
             << proposal_head_name(env.speculative.proposal_head) << ','
             << decode_path_name(env.use_cuda_graph, env.speculative) << ','

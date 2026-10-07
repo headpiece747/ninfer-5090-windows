@@ -1,9 +1,11 @@
 #include "ninfer/engine.h"
 
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <regex>
 #include <stdexcept>
 
 namespace {
@@ -45,6 +47,93 @@ struct Sink final : ninfer::OutputSink {
         if (delta.channel == ninfer::OutputChannel::Content) { content += delta.text; }
     }
 };
+
+void choice_and_regex(ninfer::Engine& engine, unsigned concurrency, bool speculative) {
+    const std::vector<std::string> choices{"route_search", "route_calculate", "route_answer"};
+    const std::regex pattern("(BUG|TASK)-[0-9]{4}");
+    auto choice             = literal("unused", 0.8f);
+    choice.constraint       = ninfer::OutputConstraint::choice(choices);
+    auto regex              = choice;
+    regex.constraint        = ninfer::OutputConstraint::regex("(BUG|TASK)-[0-9]{4}");
+    const auto valid_choice = [&](const std::string& value) {
+        return std::find(choices.begin(), choices.end(), value) != choices.end();
+    };
+    for (const auto& request : {choice, regex}) {
+        Sink sink;
+        const auto result = engine.generate(engine.prepare(prompt()), request, &sink);
+        require(result.finish_reason == ninfer::FinishReason::StopToken &&
+                    sink.content == result.content,
+                "choice/regex streaming or completion changed");
+        require(request.constraint->kind == ninfer::OutputConstraintKind::Choice
+                    ? valid_choice(result.content)
+                    : std::regex_match(result.content, pattern),
+                "choice/regex produced content outside its language");
+        if (speculative)
+            require(result.speculative.rounds > 0, "choice/regex bypassed speculation");
+    }
+    const std::string literal_bytes = " 你好 \"a|b\\c\"\n";
+    auto exact                      = choice;
+    exact.constraint                = ninfer::OutputConstraint::choice({literal_bytes});
+    require(engine.generate(engine.prepare(prompt()), exact).content == literal_bytes,
+            "choice changed Unicode, whitespace or regex metacharacters");
+    auto thinking                      = choice;
+    thinking.execution.thinking.budget = 2;
+    const auto thought                 = engine.generate(engine.prepare(prompt(true)), thinking);
+    require(valid_choice(thought.content) &&
+                thought.finish_reason == ninfer::FinishReason::StopToken,
+            "choice constrained the thinking channel or lost the content boundary");
+    for (const auto& constraint : {ninfer::OutputConstraint::choice({"TASK-12", "TASK-123"}),
+                                   ninfer::OutputConstraint::regex("(BUG|TASK)-[0-9]{4}")}) {
+        auto input                 = prompt();
+        input.options.continuation = ninfer::PromptContinuationMode::ContinueFinalAssistant;
+        input.context_cache.session_key.reset();
+        input.messages.push_back(
+            {.role  = ninfer::ChatRole::Assistant,
+             .parts = {{.kind = ninfer::MessagePartKind::Text, .text = "TASK-"}}});
+        auto request       = choice;
+        request.constraint = constraint;
+        const auto result  = engine.generate(engine.prepare(input), request);
+        const auto full    = "TASK-" + result.content;
+        require(result.finish_reason == ninfer::FinishReason::StopToken &&
+                    (constraint.kind == ninfer::OutputConstraintKind::Choice
+                         ? full == "TASK-12" || full == "TASK-123"
+                         : std::regex_match(full, pattern)),
+                "choice/regex continuation did not consume its existing prefix");
+    }
+    for (const auto& constraint :
+         {ninfer::OutputConstraint::choice({""}), ninfer::OutputConstraint::regex("")}) {
+        auto request       = choice;
+        request.constraint = constraint;
+        const auto result  = engine.generate(engine.prepare(prompt()), request);
+        require(result.content.empty() && result.finish_reason == ninfer::FinishReason::StopToken,
+                "empty choice/regex did not finish with empty content");
+    }
+    auto limited                              = regex;
+    limited.constraint                        = ninfer::OutputConstraint::regex("[ab]{1000}");
+    limited.execution.requested_output_tokens = 2;
+    const auto partial                        = engine.generate(engine.prepare(prompt()), limited);
+    require(partial.finish_reason == ninfer::FinishReason::OutputLimit &&
+                !partial.content.empty() && partial.content.size() < 1000 &&
+                partial.content.find_first_not_of("ab") == std::string::npos,
+            "regex truncation was reported as a completed match");
+    ninfer::RequestOptions free;
+    free.execution.requested_output_tokens = 8;
+    std::vector<ninfer::GenerationHandle> handles;
+    for (unsigned row = 0; row < concurrency; ++row)
+        handles.push_back(engine.submit(engine.prepare(prompt()), row % 3 == 0   ? choice
+                                                                  : row % 3 == 1 ? regex
+                                                                                 : free));
+    for (unsigned row = 0; row < concurrency; ++row) {
+        const auto result = handles[row].wait();
+        if (row % 3 != 2)
+            require(result.finish_reason == ninfer::FinishReason::StopToken &&
+                        (row % 3 == 0 ? valid_choice(result.content)
+                                      : std::regex_match(result.content, pattern)),
+                    "mixed batch used another row's choice/regex");
+    }
+    std::cout << "choice/regex: literals, fullmatch, thinking, continuation, EOS, truncation and "
+                 "mixed rows passed\n";
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -75,10 +164,12 @@ int main(int argc, char** argv) {
         else
             require(backend == "none", "unknown backend");
         if (backend != "none") {
-            options.speculative.draft_tokens  = 3;
+            const auto draft_tokens           = std::getenv("NINFER_TEST_DRAFT_TOKENS");
+            options.speculative.draft_tokens  = draft_tokens ? std::stoul(draft_tokens) : 3;
             options.speculative.proposal_head = ninfer::ProposalHead::Optimized;
         }
         ninfer::Engine engine(options);
+        choice_and_regex(engine, options.max_concurrency, backend != "none");
         const std::string answer =
             "  {\"value\":\"你好\",\"literal\":\"<tool_call>x</tool_call>\"}";
         for (float temperature : {0.0f, 0.8f}) {
@@ -149,7 +240,7 @@ int main(int argc, char** argv) {
                     "Vision prefill lost first-token grammar binding");
         }
 
-        auto truncated                              = literal(std::string(1024, 'a'));
+        auto truncated       = literal(std::string(1024, 'a'));
         truncated.constraint = ninfer::OutputConstraint::grammar("root ::= \"a\"{1024}");
         truncated.execution.requested_output_tokens = 2;
         auto partial = engine.generate(engine.prepare(prompt()), truncated);
@@ -192,7 +283,10 @@ int main(int argc, char** argv) {
              {{"description", {{"type", "string"}, {"enum", {"你好", "code"}}}},
               {"values",
                {{"type", "array"},
-                {"items", {{"type", "integer"}, {"minimum", 1}, {"maximum", 3}}},
+                {"prefixItems",
+                 {{{"type", "number"}, {"minimum", 1e-8}, {"maximum", 2e-8}},
+                  {{"type", "number"}, {"exclusiveMinimum", 0.1}, {"maximum", 0.2}}}},
+                {"items", false},
                 {"minItems", 2},
                 {"maxItems", 2}}}}},
             {"required", {"description", "values"}},
@@ -215,11 +309,24 @@ int main(int argc, char** argv) {
         record(schema, structured);
         const auto parsed = nlohmann::json::parse(structured.content);
         require(parsed.size() == 2 && parsed.contains("description") &&
-                    parsed["values"].size() == 2,
+                    parsed["values"].size() == 2 && parsed["values"][0] >= 1e-8 &&
+                    parsed["values"][0] <= 2e-8 && parsed["values"][1] > 0.1 &&
+                    parsed["values"][1] <= 0.2,
                 "schema fields missing");
         auto json_thinking                      = json_request;
         json_thinking.execution.thinking.budget = 2;
         record(schema, engine.generate(engine.prepare(prompt(true)), json_thinking));
+        auto numeric_prefix = prompt();
+        numeric_prefix.context_cache.session_key.reset();
+        numeric_prefix.options.continuation =
+            ninfer::PromptContinuationMode::ContinueFinalAssistant;
+        const std::string partial_number = "{\"description\":\"你好\",\"values\":[1.5e-";
+        numeric_prefix.messages.push_back(
+            {.role  = ninfer::ChatRole::Assistant,
+             .parts = {{.kind = ninfer::MessagePartKind::Text, .text = partial_number}}});
+        auto numeric_suffix    = engine.generate(engine.prepare(numeric_prefix), json_request);
+        numeric_suffix.content = partial_number + numeric_suffix.content;
+        record(schema, numeric_suffix);
         auto json_prompt                      = prompt();
         json_prompt.messages[0].parts[0].text = "Return exactly the JSON object {\"ok\":true}.";
         auto object_request                   = json_request;
@@ -267,9 +374,9 @@ int main(int argc, char** argv) {
                     ninfer::FinishReason::OutputLimit,
                 "JSON truncation was reported as normal completion");
 
-        auto invalid    = literal("yes");
+        auto invalid       = literal("yes");
         invalid.constraint = ninfer::OutputConstraint::grammar("root ::= missing");
-        bool rejected   = false;
+        bool rejected      = false;
         try {
             (void)engine.submit(engine.prepare(prompt()), invalid);
         } catch (const ninfer::RequestError& error) {

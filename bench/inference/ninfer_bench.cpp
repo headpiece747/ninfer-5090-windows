@@ -103,7 +103,8 @@ void run_repetition(ninfer::Engine& engine, const ninfer::bench::BenchEnvironmen
             env.constraint.has_value() && (!env.mixed_constraints || row % 2 == 0);
         handles.push_back(
             engine.submit(std::move(prompts[row]),
-                          benchmark_request(test, constrained ? env.constraint : std::nullopt)));
+                          benchmark_request(test, constrained ? env.constraint : std::nullopt),
+                          ninfer::OutputConsumerMode::Aggregate, {.phase_timings = true}));
     }
     for (auto& handle : handles) { generated.push_back(handle.wait()); }
     const double wall_seconds =
@@ -123,7 +124,9 @@ void run_repetition(ninfer::Engine& engine, const ninfer::bench::BenchEnvironmen
                                      " did not finish at its output limit or grammar EOS");
         }
         if (measured) {
-            measured->reps.push_back({result.timings, std::move(result.speculative), count});
+            measured->reps.push_back({result.timings, std::move(result.speculative), count,
+                                      result.constraint,
+                                      result.engine_timing.constraint_draft_wait_exposed_seconds});
         }
     }
     if (measured) { measured->repetition_wall_seconds.push_back(wall_seconds); }
@@ -213,19 +216,15 @@ int main(int argc, char** argv) {
         env.corpus_tokens            = corpus.size();
         env.concurrency              = options.concurrency;
         env.constraint_file          = options.constraint_file;
+        env.constraint               = options.constraint;
         env.mixed_constraints        = options.mixed_constraints;
-        if (options.constraint_kind) {
-            if (*options.constraint_kind == ninfer::OutputConstraintKind::JsonObject) {
-                env.constraint = ninfer::OutputConstraint::json_object();
-            } else {
-                std::ifstream input(options.constraint_file, std::ios::binary);
-                if (!input)
-                    throw std::runtime_error("cannot read constraint: " + options.constraint_file);
-                std::string source(std::istreambuf_iterator<char>(input), {});
-                if (input.bad()) throw std::runtime_error("failed to read constraint file");
-                env.constraint =
-                    ninfer::OutputConstraint{*options.constraint_kind, std::move(source)};
-            }
+        if (env.constraint && (env.constraint->kind == ninfer::OutputConstraintKind::Grammar ||
+                               env.constraint->kind == ninfer::OutputConstraintKind::JsonSchema)) {
+            std::ifstream input(options.constraint_file, std::ios::binary);
+            if (!input)
+                throw std::runtime_error("cannot read constraint: " + options.constraint_file);
+            env.constraint->source.assign(std::istreambuf_iterator<char>(input), {});
+            if (input.bad()) throw std::runtime_error("failed to read constraint file");
         }
         if (options.use_cuda_graph && has_decode_tests(tests)) {
             env.decode_graph_prime_output_tokens =

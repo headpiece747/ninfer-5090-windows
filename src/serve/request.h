@@ -81,6 +81,7 @@ struct ToolDefinition {
     std::string name;
     std::string description;
     std::string input_schema_json;
+    std::string schema_param; // Original protocol path; never included in the model prompt.
     bool strict = false;
     std::optional<std::string> input_examples_json;
     std::optional<CacheBoundary> cache_boundary_after;

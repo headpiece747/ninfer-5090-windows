@@ -2675,6 +2675,49 @@ needs the same elevation).
 read out of the log rather than inferred from the step's colour — and the scheduled path answered as
 "not firing, cause outside this repository" rather than left pending.
 
+### 24. Upstream's ten commits, merged — **MERGED 2026-10-07; and the build caught what the merge hid, a third time**
+
+**Why:** upstream's `7971ff18` through `81c8ce09` are 10 commits, 107 files, +4,527/−1,440 — eight
+"support and tune bf16 linear/vision `<shape>`" Op commits and three constrained-decoding commits
+(choice and regex constraints, tuple schemas and bounded numbers, composition and diagnostics).
+
+**Two conflicts, both "both sides added something", and both resolved to keep both intents.**
+
+- `docs/serving.md`: the port's `rejected_tool_*` paragraph and upstream's new `request_done.constraint`
+  paragraph are independent additions at the same point — kept both.
+- `src/ops/linear/bf16/bf16_a16_tma_mma.cuh`: upstream's new predicated-K block (a logical 2D K axis so
+  TMA zero-fills its partial final sector) and the port's `alignas(64)` descriptor. The port's `const`
+  on the descriptor arrays had to go, because upstream's block mutates them; the alignment stays,
+  because it is the measured MSVC necessity the file's own comment records.
+
+**The build caught what the merge hid, which is this repository's own lesson a third time.**
+`src/serve/generation_service.{h,cpp}` merged without a conflict and did not compile: upstream's new
+`request_error_to_api_error` takes a `std::span<const std::string>`, and its header does not include
+`<span>` — which compiles on the maintainer's libstdc++ through a transitive include and fails on MSVC
+with `C2039: 'span' is not a member of 'std'` plus cascades in four serve translation units. Upstream
+has no CI, so nothing there catches it. The port adds `#include <span>`, and the ratchet's entry for
+that file now records it as a Windows necessity with the measurement.
+
+**Also found by a gate rather than by reading:** upstream's new `tests/text/test_regex_choice.py` and
+two new call sites in `tests/text/test_json_schema.py` spawn their probe with `text=True` and no
+encoding, which `check_subprocess_encoding.py` refused — the gate that exists because upstream wrote
+that defect twice. Three `encoding="utf-8"` additions, no assertion changed; the new file is this
+merge's only new ratchet entry.
+
+**The overlap review, and what it found:** 24 files are both upstream-changed and port-divergent, so
+each is a place the merge reconciled two versions. All 24 were read: every one is a Windows necessity,
+a port feature, or a reviewed refactor, and none is a port change upstream's new code supersedes, so
+nothing was reverted to upstream. The two with net removals — `engine_core.h` and
+`generation_service.cpp` — are the live fixes restored in `393d1f64` and the port's shared wire-source
+classifier, and upstream's tip still carries the older shapes they replace.
+
+**Done when:** the tree builds, the suite is green against the baseline, and the ratchet accounts for
+every divergence. **Measured 2026-10-07:** both trees build (`build-test` and `build`, exit 0);
+**155/157 passed** with only the two baselined failures and `GATE PASSED`; `suite_size` 155 -> 157 for
+upstream's two new registrations (`ninfer_regex_choice_test`, `ninfer_regex_choice_oracle_test`); the
+ratchet green at 269 paths, 268 of them unchanged by this merge; all thirteen hook gates, both opencode
+harnesses, 125 converter tests, ruff and mypy clean.
+
 ## Gates added while this list was open
 
 **Text encoding, 2026-10-02 — `tools/release/check_text_encoding.py`.** 181 lines of this file

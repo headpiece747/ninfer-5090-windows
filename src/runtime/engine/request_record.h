@@ -35,6 +35,7 @@ struct RequestHostTiming {
     std::uint64_t engine_commit_output_exposed_ns = 0;
     std::uint64_t engine_maintenance_exposed_ns   = 0;
     std::uint64_t device_wait_exposed_ns          = 0;
+    std::uint64_t constraint_draft_wait_exposed_ns = 0;
     std::uint64_t decode_host_exposed_ns          = 0;
     std::uint64_t decode_device_wait_exposed_ns   = 0;
     std::uint64_t prefill_units                   = 0;
@@ -61,6 +62,7 @@ struct RequestHostTiming {
         program_submit_exposed_ns += timing.submit_host_ns;
         program_post_exposed_ns += timing.post_host_ns;
         device_wait_exposed_ns += timing.device_wait_ns;
+        constraint_draft_wait_exposed_ns += timing.constraint_draft_wait_ns;
         if (decode_member) {
             decode_host_exposed_ns += timing.host_ns();
             decode_device_wait_exposed_ns += timing.device_wait_ns;
@@ -83,6 +85,8 @@ struct RequestHostTiming {
                 static_cast<double>(engine_maintenance_exposed_ns) * kNanosecondsToSeconds,
             .device_wait_exposed_seconds =
                 static_cast<double>(device_wait_exposed_ns) * kNanosecondsToSeconds,
+            .constraint_draft_wait_exposed_seconds =
+                static_cast<double>(constraint_draft_wait_exposed_ns) * kNanosecondsToSeconds,
             .decode_host_exposed_seconds =
                 static_cast<double>(decode_host_exposed_ns) * kNanosecondsToSeconds,
             .decode_device_wait_exposed_seconds =

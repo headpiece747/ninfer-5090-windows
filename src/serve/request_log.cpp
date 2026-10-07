@@ -1,4 +1,5 @@
 #include "serve/request_log.h"
+#include "product/constraint_observation.h"
 #include "product/logging/pretty_format.h"
 #include "product/speculative_options.h"
 
@@ -400,6 +401,7 @@ Json request_engine_timing_json(const ninfer::GenerationEngineTiming& timing) {
               {"engine_maintenance", timing.engine_maintenance_exposed_seconds},
               {"total", request_host_exposed_seconds(timing)}}},
         {"device_wait_exposed_seconds", timing.device_wait_exposed_seconds},
+        {"constraint_draft_wait_exposed_seconds", timing.constraint_draft_wait_exposed_seconds},
         {"decode", Json{{"host_exposed_seconds", timing.decode_host_exposed_seconds},
                         {"device_wait_exposed_seconds", timing.decode_device_wait_exposed_seconds},
                         {"rounds", timing.decode_rounds}}},
@@ -447,6 +449,8 @@ ninfer::RuntimeHostWorkStats host_work_delta(const ninfer::RuntimeHostWorkStats&
         .engine_maintenance_ns =
             monotonic_delta(previous.engine_maintenance_ns, current.engine_maintenance_ns),
         .device_wait_ns = monotonic_delta(previous.device_wait_ns, current.device_wait_ns),
+        .constraint_draft_wait_ns =
+            monotonic_delta(previous.constraint_draft_wait_ns, current.constraint_draft_wait_ns),
         .decode_host_ns = monotonic_delta(previous.decode_host_ns, current.decode_host_ns),
         .decode_device_wait_ns =
             monotonic_delta(previous.decode_device_wait_ns, current.decode_device_wait_ns),
@@ -665,6 +669,7 @@ std::string format_request_done_json(const std::string& server_instance_id, std:
         {"vision", outcome.metrics.vision_seconds},   {"prefill", outcome.metrics.prefill_seconds},
         {"decode", outcome.metrics.decode_seconds},   {"total", outcome.metrics.total_seconds}};
     record["engine_timing"] = request_engine_timing_json(outcome.metrics.engine_timing);
+    record["constraint"]    = product::constraint_observation_json(outcome.constraint);
     record["first_output_timing"] =
         outcome.metrics.first_output_timing
             ? first_output_timing_json(*outcome.metrics.first_output_timing)
@@ -739,6 +744,7 @@ std::string format_throughput_json(const std::string& server_instance_id, std::u
                  {"engine_maintenance", nanoseconds_to_seconds(host.engine_maintenance_ns)},
                  {"total", nanoseconds_to_seconds(active_host)}}},
            {"device_wait_seconds", nanoseconds_to_seconds(host.device_wait_ns)},
+           {"constraint_draft_wait_seconds", nanoseconds_to_seconds(host.constraint_draft_wait_ns)},
            {"work_class_seconds",
             Json{{"decode_host", nanoseconds_to_seconds(host.decode_host_ns)},
                  {"decode_device_wait", nanoseconds_to_seconds(host.decode_device_wait_ns)},

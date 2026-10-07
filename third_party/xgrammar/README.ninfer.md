@@ -12,9 +12,19 @@ Web code, upstream tests and build machinery are excluded.
 Grammar string escaping preserves embedded NUL bytes, including in compilation cache keys.
 The prepared-grammar cache shares one budget and single-flight mechanism across GBNF and JSON;
 its miss factory covers validation, conversion and output framing within the cold-compile limit.
+Cache access reports hit, build or an in-flight wait to the caller without adding another cache.
 JSON adaptations preserve literal data in cache keys, reject unsupported unions, resolve local
 JSON Pointers and carry typed errors with schema locations. String grammars constrain decoded
 Unicode values before JSON encoding; property-name exclusion also covers escaped spellings.
+String intersections combine patterns, Unicode length and tool-delimiter exclusion in one automaton.
+General schema conjunction reduction and source diagnostics belong to NInfer's text adapter.
+Positional arrays preserve optional prefix positions and impossible-position length caps.
+Bounded numbers use decimal interval compilation and the product JSON serializer's binary64
+round-trip boundaries, with a separate exact int64 path. The numeric adapter shares the
+repository's nlohmann JSON dependency for this contract.
+Regex and schema patterns share character/escape normalization with explicit full/search matching;
+regex hexadecimal escapes consume exactly two digits. Product constraints reject unsupported
+escapes and anchor positions before grammar conversion.
 The Qwen converter uses canonical tool framing, preserves raw-string assertions with delimiter
 exclusion, and emits argument numbers that the protocol JSON adapters can represent.
 

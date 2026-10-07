@@ -663,7 +663,8 @@ struct ParsedFunctionTool {
 ParsedFunctionTool
 parse_function_tool(const Json& item, std::optional<std::string> wire_namespace,
                     std::string_view namespace_description,
-                    std::unordered_map<std::string, OpenAIResponsesFunctionIdentity>& identities) {
+                    std::unordered_map<std::string, OpenAIResponsesFunctionIdentity>& identities,
+                    std::string schema_param) {
     static const std::unordered_set<std::string> allowed_members = {
         "type",          "name",         "description", "parameters", "strict", "allowed_callers",
         "defer_loading", "output_schema"};
@@ -672,6 +673,7 @@ parse_function_tool(const Json& item, std::optional<std::string> wire_namespace,
     const OpenAIResponsesFunctionIdentity identity{.name = require_function_name(item, "tools"),
                                                    .wire_namespace = std::move(wire_namespace)};
     ParsedFunctionTool parsed;
+    parsed.definition.schema_param = std::move(schema_param);
     parsed.engine_name     = lower_function_identity(identity, identities, "tools");
     parsed.definition.name = parsed.engine_name;
 
@@ -775,8 +777,9 @@ void parse_tools(const Json& body, ParsedPromptFields& out) {
         }
         const std::string type = item.at("type").get<std::string>();
         if (type == "function") {
-            out.wire_tools.push_back(
-                append_function(parse_function_tool(item, std::nullopt, {}, out.tool_identities)));
+            out.wire_tools.push_back(append_function(parse_function_tool(
+                item, std::nullopt, {}, out.tool_identities,
+                "tools/" + std::to_string(out.wire_tools.size()) + "/parameters")));
             continue;
         }
         if (type != "namespace") {
@@ -817,7 +820,9 @@ void parse_tools(const Json& body, ParsedPromptFields& out) {
                             "tools", "tool_type_not_supported");
             }
             canonical["tools"].push_back(append_function(parse_function_tool(
-                nested, namespace_name, namespace_description, out.tool_identities)));
+                nested, namespace_name, namespace_description, out.tool_identities,
+                "tools/" + std::to_string(out.wire_tools.size()) + "/tools/" +
+                    std::to_string(canonical["tools"].size()) + "/parameters")));
         }
         out.wire_tools.push_back(std::move(canonical));
     }

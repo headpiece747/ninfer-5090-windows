@@ -284,6 +284,32 @@ int test_prompt_cache_boundaries() {
 int test_constrained_decoding_extensions() {
     int failures               = 0;
     Json body                  = base_request();
+    body["structured_outputs"] = Json{{"choice", {"", "yes", "你好"}}};
+    const auto choice          = options(parse(body).generation).constraint;
+    failures += check(choice == ninfer::OutputConstraint::choice({"", "yes", "你好"}),
+                      "choice literals were changed in Engine translation");
+    body["structured_outputs"] = Json{{"regex", ""}};
+    failures +=
+        check(options(parse(body).generation).constraint == ninfer::OutputConstraint::regex(""),
+              "empty regex was dropped in Engine translation");
+    for (const auto& value : {Json{{"choice", Json::array()}}, Json{{"choice", {"a", 1}}},
+                              Json{{"regex", 7}}, Json{{"regex", "a"}, {"choice", {"a"}}}}) {
+        body["structured_outputs"] = value;
+        failures += check(api_error([&] { (void)parse(body); }).status == 400,
+                          "invalid choice/regex request accepted");
+    }
+    for (const auto kind :
+         {ninfer::RequestErrorKind::InvalidChoice, ninfer::RequestErrorKind::InvalidRegex}) {
+        const auto param = kind == ninfer::RequestErrorKind::InvalidChoice
+                               ? "structured_outputs.choice"
+                               : "structured_outputs.regex";
+        const auto error = request_error_to_api_error(ninfer::RequestError(kind, "invalid"), param);
+        failures += check(error.status == 400 && error.param == param &&
+                              error.code == (kind == ninfer::RequestErrorKind::InvalidChoice
+                                                 ? "invalid_choice"
+                                                 : "invalid_regex"),
+                          "choice/regex error was misclassified");
+    }
     body["structured_outputs"] = Json{{"grammar", "root ::= \"yes\" | \"no\""}};
     const auto parsed          = parse(body);
     failures += check(parsed.generation.constraint->source == "root ::= \"yes\" | \"no\"" &&
@@ -321,6 +347,20 @@ int test_constrained_decoding_extensions() {
                           typed.constraint->source == schema.dump() &&
                           typed.constraint_param == "response_format.json_schema.schema",
                       "JSON schema source/order or diagnostic location lost");
+    body["tools"] = Json::array(
+        {Json{{"type", "function"},
+              {"function", {{"name", "lookup"}, {"parameters", {{"type", "object"}}}}}}});
+    const auto combined = parse(body).generation;
+    failures +=
+        check(combined.constraint && combined.uses_tools(), "JSON output blocked active tools");
+    const std::vector<std::string> schema_paths{combined.tools[0].schema_param};
+    const auto tool_error = request_error_to_api_error(
+        ninfer::RequestError(ninfer::RequestErrorKind::UnsupportedJsonSchema, "bad tool schema",
+                             "/0/parameters/properties/x/format",
+                             ninfer::RequestErrorSource::Tools),
+        combined.constraint_param, schema_paths);
+    failures += check(tool_error.param == "tools/0/function/parameters/properties/x/format",
+                      "combined request attributed tool error to body schema");
     body["structured_outputs"] = Json{{"grammar", "root ::= \"x\""}};
     failures +=
         check(api_error([&] { (void)parse(body); }).status == 400, "conflicting formats accepted");
@@ -780,9 +820,13 @@ int test_aggregate_response() {
             !Json::parse(call["function"]["arguments"].get<std::string>()).contains("replace_all"),
         "OpenAI adapter owns wire tool-call identifiers");
     outcome.finish_reason = ninfer::FinishReason::OutputLimit;
-    response              = Json::parse(make_chat_completion_response(identity(), outcome));
+    outcome.constraint    = ninfer::ConstraintObservation{
+           .branch = ninfer::ConstraintOutputBranch::Tools, .complete = true, .terminated = false};
+    response = Json::parse(make_chat_completion_response(identity(), outcome));
     failures += check(response["choices"][0]["finish_reason"] == "length" &&
-                          response["choices"][0]["message"]["tool_calls"].size() == 1,
+                          response["choices"][0]["message"]["tool_calls"].size() == 1 &&
+                          response["constraint"]["complete"] == true &&
+                          response["constraint"]["terminated"] == false,
                       "length limit lost a completed call or hid the interruption");
     return failures;
 }
@@ -800,7 +844,9 @@ int test_stream_response() {
                           content["choices"][0]["delta"]["content"] == "ans",
                       "stream separates reasoning and content deltas");
 
-    GenerationOutcome outcome             = sample_outcome();
+    GenerationOutcome outcome = sample_outcome();
+    outcome.constraint        = ninfer::ConstraintObservation{
+               .branch = ninfer::ConstraintOutputBranch::Content, .complete = true, .terminated = true};
     const std::vector<std::string> events = stream.finish(outcome);
     failures +=
         check(events.size() == 4, "finish emits buffered suffix, terminal, usage, and done");
@@ -815,6 +861,11 @@ int test_stream_response() {
                           usage["timings"]["predicted_n"] == 7,
                       "dedicated stream usage carries token accounting and terminal timings");
     failures += check(events.back() == "data: [DONE]\n\n", "stream ends with DONE sentinel");
+    failures += check(usage["constraint"]["branch"] == "content" &&
+                          usage["constraint"]["terminated"] == true &&
+                          !parse_sse(events[0]).contains("constraint") &&
+                          !parse_sse(events[1]).contains("constraint"),
+                      "Chat constraint state must appear once, with terminal usage");
 
     OpenAIChatStream mismatch(identity(), false);
     (void)mismatch.start();

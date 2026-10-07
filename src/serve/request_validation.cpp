@@ -1,4 +1,5 @@
 #include "serve/request_validation.h"
+#include "text/json_input.h"
 
 #include <algorithm>
 #include <cctype>
@@ -16,6 +17,42 @@ void set_constraint(GenerationRequest& request, OutputConstraint constraint, std
     request.constraint_param = std::move(param);
 }
 } // namespace
+
+void validate_schema_number_input(const text::ParsedJsonNumbers& parsed) {
+    if (parsed.inexact_numbers.empty() || !parsed.value.is_object()) return;
+    const auto check = [&](const std::string& pointer, const std::string& param) {
+        if (const auto error = text::inexact_schema_number(parsed, pointer))
+            bad_request(
+                "numeric schema value cannot be preserved by the JSON number representation",
+                param + error->substr(pointer.size()), "unsupported_json_schema");
+    };
+    const auto& body = parsed.value;
+    for (const auto& [path, param] :
+         {std::pair{"/response_format/json_schema/schema", "response_format.json_schema.schema"},
+          std::pair{"/text/format/schema", "text.format.schema"},
+          std::pair{"/output_config/format/schema", "output_config.format.schema"}})
+        check(path, param);
+    const auto tools = [&](auto&& self, const RequestJson& list, const std::string& path) -> void {
+        if (!list.is_array()) return;
+        for (std::size_t i = 0; i < list.size(); ++i) {
+            const auto& tool = list[i];
+            if (!tool.is_object()) continue;
+            const auto pointer = path + '/' + std::to_string(i);
+            if (tool.contains("type") && tool["type"] == "namespace" && tool.contains("tools")) {
+                self(self, tool["tools"], pointer + "/tools");
+                continue;
+            }
+            const bool nested      = tool.contains("function") && tool["function"].is_object();
+            const auto& definition = nested ? tool["function"] : tool;
+            if (!definition.contains("strict") || definition["strict"] != true) continue;
+            const std::string key =
+                definition.contains("input_schema") ? "input_schema" : "parameters";
+            const auto schema = pointer + (nested ? "/function/" : "/") + key;
+            check(schema, schema.substr(1));
+        }
+    };
+    if (body.contains("tools")) tools(tools, body["tools"], "/tools");
+}
 
 void parse_json_output_format(const RequestJson& format, GenerationRequest& request,
                               const std::string& param, JsonFormatProtocol protocol) {
@@ -94,19 +131,46 @@ void parse_structured_outputs(const RequestJson& body, GenerationRequest& reques
     for (const char* alias :
          {"grammar", "guided_json", "guided_regex", "guided_choice", "guided_grammar"}) {
         if (body.contains(alias) && !body[alias].is_null())
-            bad_request("use standard JSON output formats or structured_outputs.grammar", alias);
+            bad_request("use standard JSON output formats or structured_outputs", alias);
     }
     if (body.contains("structured_outputs") && !body["structured_outputs"].is_null()) {
         const auto& value = body["structured_outputs"];
-        if (!value.is_object() || value.size() != 1 || !value.contains("grammar") ||
-            !value["grammar"].is_string() || value["grammar"].get_ref<const std::string&>().empty())
-            bad_request("structured_outputs requires one nonempty grammar string",
-                        "structured_outputs.grammar");
-        set_constraint(request, OutputConstraint::grammar(value["grammar"].get<std::string>()),
-                       "structured_outputs.grammar");
+        if (!value.is_object() || value.size() != 1)
+            bad_request("structured_outputs requires exactly one of grammar, regex or choice",
+                        "structured_outputs");
+        const auto& kind   = value.begin().key();
+        const auto& source = value.begin().value();
+        const auto param   = "structured_outputs." + kind;
+        if (kind == "choice") {
+            if (!source.is_array() || source.empty())
+                bad_request("choice requires a nonempty array of strings", param, "invalid_choice");
+            std::vector<std::string> choices;
+            choices.reserve(source.size());
+            for (std::size_t i = 0; i < source.size(); ++i) {
+                if (!source[i].is_string())
+                    bad_request("choice entries must be strings", param + "/" + std::to_string(i),
+                                "invalid_choice");
+                choices.push_back(source[i].get<std::string>());
+            }
+            set_constraint(request, OutputConstraint::choice(std::move(choices)), param);
+        } else if (kind == "regex") {
+            if (!source.is_string()) bad_request("regex must be a string", param, "invalid_regex");
+            set_constraint(request, OutputConstraint::regex(source.get<std::string>()), param);
+        } else if (kind == "grammar") {
+            if (!source.is_string() || source.get_ref<const std::string&>().empty())
+                bad_request("grammar must be a nonempty string", param, "invalid_grammar");
+            set_constraint(request, OutputConstraint::grammar(source.get<std::string>()), param);
+        } else {
+            bad_request("unknown structured_outputs option: " + kind, param);
+        }
     }
-    if (request.constraint && (request.uses_tools() || !request.stop_strings.empty()))
-        bad_request("output constraints cannot be combined with active tools or custom stops",
+    if (request.constraint && !request.stop_strings.empty())
+        bad_request("output constraints require model EOS and cannot use custom stops",
+                    request.constraint_param);
+    if (request.constraint && request.uses_tools() &&
+        request.constraint->kind != OutputConstraintKind::JsonObject &&
+        request.constraint->kind != OutputConstraintKind::JsonSchema)
+        bad_request("active tools can be combined with JSON output constraints",
                     request.constraint_param);
     if (request.constrains_tools() && !request.stop_strings.empty())
         bad_request("constrained tools require model EOS and cannot use custom stops", "stop");

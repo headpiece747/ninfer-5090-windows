@@ -20,6 +20,7 @@ add_library(ninfer_xgrammar STATIC
   cpp/grammar_parser.cc
   cpp/grammar_printer.cc
   cpp/json_schema_converter.cc
+  cpp/json_number.cc
   cpp/json_string_grammar.cc
   cpp/lark_converter.cc
   cpp/regex_converter.cc
@@ -39,4 +40,4 @@ target_include_directories(ninfer_xgrammar SYSTEM
 target_compile_definitions(ninfer_xgrammar PRIVATE
   XGRAMMAR_ENABLE_CPPTRACE=0
   XGRAMMAR_ENABLE_INTERNAL_CHECK=0)
-target_link_libraries(ninfer_xgrammar PRIVATE Threads::Threads)
+target_link_libraries(ninfer_xgrammar PRIVATE Threads::Threads ninfer::json)

@@ -282,9 +282,12 @@ int run_bf16_linear() {
     return failures;
 }
 
+enum class ColumnDomain { Text, RawPatch, Merger };
+
 struct Geometry {
     int n, k;
     std::initializer_list<int> boundaries;
+    ColumnDomain domain = ColumnDomain::Text;
 };
 
 constexpr std::array kNewGeometries{
@@ -299,6 +302,13 @@ constexpr std::array kNewGeometries{
     Geometry{13952, 2560, {1, 8, 16, 32, 48, 64, 96, 128, 512}},
     Geometry{2560, 6144, {1, 8, 16, 32, 64, 96, 128, 512}},
     Geometry{2560, 2560, {1, 8, 32, 48, 64, 96, 128, 512, 2048}},
+    Geometry{1152, 1536, {8, 16, 32, 64, 128, 256, 512, 1024, 2048}, ColumnDomain::RawPatch},
+    Geometry{3456, 1152, {4, 16, 96, 128, 256, 512, 1024}, ColumnDomain::RawPatch},
+    Geometry{1152, 1152, {4, 16, 32, 40, 64, 128, 256, 512, 1024, 2048}, ColumnDomain::RawPatch},
+    Geometry{4304, 1152, {32, 96, 128, 256, 512, 1024, 2048}, ColumnDomain::RawPatch},
+    Geometry{1152, 4304, {16, 32, 40, 64, 116, 128, 256, 512, 1024, 2048}, ColumnDomain::RawPatch},
+    Geometry{4608, 4608, {1, 2, 3, 4, 16, 32, 64, 96, 128, 256, 512}, ColumnDomain::Merger},
+    Geometry{2560, 4608, {1, 2, 8, 24, 64, 96, 128, 256, 512}, ColumnDomain::Merger},
 };
 
 ninfer::test::quantized_weight::PackedWeight cancellation_weight(int n, int k, std::uint32_t seed) {
@@ -318,9 +328,12 @@ ninfer::test::quantized_weight::PackedWeight cancellation_weight(int n, int k, s
 
 int run_new_bf16_geometry(const Geometry& shape) {
     using namespace ninfer::test::linear;
-    constexpr int step    = 1;
-    constexpr int maximum = std::numeric_limits<int>::max();
-    int failures          = 0;
+    const bool raw    = shape.domain == ColumnDomain::RawPatch;
+    const bool text   = shape.domain == ColumnDomain::Text;
+    const int step    = raw ? 4 : 1;
+    const int maximum = raw ? 131072 : text ? std::numeric_limits<int>::max() : 32768;
+    const bool wide   = shape.n == 2560 && shape.k == 2560;
+    int failures      = 0;
     for (const auto policy :
          {ops::LinearPolicy::A16Only, ops::LinearPolicy::AllowA8, ops::LinearPolicy::AllowA4}) {
         if (ops::linear_workspace_capacity_bytes(QType::BF16, shape.n, shape.k, policy, step,
@@ -329,6 +342,8 @@ int run_new_bf16_geometry(const Geometry& shape) {
             ++failures;
         }
         std::vector<std::pair<int, int>> invalid{{0, step}, {-1, step}, {8, 4}};
+        if (!text) invalid.push_back({step, maximum + step});
+        if (raw) invalid.insert(invalid.end(), {{1, 4}, {4, 5}, {3, 8}});
         for (auto [lo, hi] : invalid) {
             try {
                 (void)ops::linear_workspace_capacity_bytes(QType::BF16, shape.n, shape.k, policy,
@@ -337,53 +352,90 @@ int run_new_bf16_geometry(const Geometry& shape) {
                 ++failures;
             } catch (const std::invalid_argument&) {}
         }
+        if (!text) {
+            for (auto [lo, hi] :
+                 {std::pair{step, 128}, std::pair{512, 1024}, std::pair{maximum - step, maximum}}) {
+                const auto capacity = ops::linear_workspace_capacity_bytes(QType::BF16, shape.n,
+                                                                           shape.k, policy, lo, hi);
+                for (int t = lo; t <= hi; t += step) {
+                    if (ops::linear_workspace_capacity_bytes(QType::BF16, shape.n, shape.k, policy,
+                                                             t, t) > capacity) {
+                        std::cerr << "BF16: insufficient vision workspace envelope\n";
+                        ++failures;
+                    }
+                }
+            }
+        }
     }
-    failures += verify_workspace_envelopes(QType::BF16, shape.n, shape.k);
+    if (text) failures += verify_workspace_envelopes(QType::BF16, shape.n, shape.k);
+    if (raw) {
+        DeviceWeight weight(make_patterned(shape.n, shape.k, 503U));
+        DeviceBuffer input(static_cast<std::size_t>(shape.k) * 8 * 2);
+        DeviceBuffer output(static_cast<std::size_t>(shape.n) * 8 * 2);
+        DeviceArena scratch(256);
+        for (int t : {1, 3, 5, 7}) {
+            Tensor x(input.p, DType::BF16, {shape.k, t});
+            Tensor y(output.p, DType::BF16, {shape.n, t});
+            for (bool convenience : {false, true}) {
+                try {
+                    if (convenience)
+                        ops::linear(x, weight.view(), y, nullptr);
+                    else
+                        ops::linear(x, weight.view(), y, ops::LinearPolicy::A16Only, scratch,
+                                    nullptr);
+                    std::cerr << "BF16: accepted an invalid raw-patch extent\n";
+                    ++failures;
+                } catch (const std::invalid_argument&) {}
+            }
+        }
+    }
     std::set<int> points;
-    if (shape.n <= 640) {
+    if (shape.n <= 640 || raw) {
         for (int t = step; t <= 128; t += step) points.insert(t);
     } else {
         for (int t : {1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128})
             points.insert(t);
     }
-    points.insert({129, 256, 512, 1024, 1025});
-    if (shape.n == 2560 && shape.k == 2560) points.insert({2048, 4096});
+    points.insert({raw ? 132 : 129, 256, 512, 1024});
+    if (!raw) points.insert(1025);
+    if (raw || wide) points.insert({2048, 4096});
+    if (!text) points.insert({maximum - step, maximum});
     for (int end : shape.boundaries)
         for (int t : {end - step, end, end + step})
-            if (t >= step && t <= maximum) points.insert(t);
+            if (t >= step && t <= maximum && t % step == 0) points.insert(t);
     std::vector<Invocation> calls;
     for (int t : points) calls.push_back({t});
-    for (int t : {step, 4, 8, 128, 512, 1024})
+    std::set<int> anchors{step, 4, 8, 128, 512, 1024};
+    if (!text) anchors.insert(256);
+    if (raw || wide) anchors.insert({2048, 4096});
+    for (int t : anchors) {
         calls.push_back({t, CallForm::Policy, ops::LinearPolicy::A16Only, true});
+        calls.push_back({t, CallForm::A16Convenience});
+    }
     for (int end : shape.boundaries) {
         for (int t : {end, end + step})
-            if (t >= step && t <= maximum)
+            if (t >= step && t <= maximum && t % step == 0)
                 calls.push_back({t, CallForm::Policy, ops::LinearPolicy::A16Only, true});
-        if (end >= step) calls.push_back({end, CallForm::A16Convenience});
+        if (end >= step && end % step == 0) calls.push_back({end, CallForm::A16Convenience});
     }
-    for (int t : {step, 4, 8, 128, 512, 1024}) calls.push_back({t, CallForm::A16Convenience});
-    if (shape.n == 2560 && shape.k == 2560) {
-        for (int t : {2048, 4096}) {
-            calls.push_back({t, CallForm::Policy, ops::LinearPolicy::A16Only, true});
-            calls.push_back({t, CallForm::A16Convenience});
-        }
-    }
-    calls.push_back({17, CallForm::Policy, ops::LinearPolicy::AllowA8});
+    calls.push_back({raw ? 20 : 17, CallForm::Policy, ops::LinearPolicy::AllowA8});
     calls.push_back({64, CallForm::Policy, ops::LinearPolicy::AllowA4});
     const std::uint32_t seed = static_cast<std::uint32_t>(shape.n + shape.k + 431);
     failures += run_shape("BF16_A16", ActivationCompute::A16, make_bf16_weight,
                           {shape.n, shape.k, seed,
                            shape.n <= 640 ? Comparison::Full : Comparison::Sampled, true, calls});
     if (shape.n > 640) {
-        std::vector<Invocation> full{{4}, {8}};
-        full.insert(full.begin(), {1});
+        std::set<int> full_points{step, 4, 8};
+        std::vector<Invocation> full;
+        for (int t : full_points) full.push_back({t});
         failures += run_shape("BF16_A16 full", ActivationCompute::A16, make_bf16_weight,
                               {shape.n, shape.k, seed + 1, Comparison::Full, true, full});
     }
     if (shape.n <= 640 || shape.k == 320 || shape.k % 64 != 0) {
-        std::vector<Invocation> tail{
-            {4}, {8}, {128}, {128, CallForm::Policy, ops::LinearPolicy::A16Only, true}};
-        tail.insert(tail.begin(), {1});
+        std::set<int> tail_points{step, 4, 8, 128};
+        std::vector<Invocation> tail;
+        for (int t : tail_points) tail.push_back({t});
+        tail.push_back({128, CallForm::Policy, ops::LinearPolicy::A16Only, true});
         failures += run_shape("BF16_A16 K tail", ActivationCompute::A16, make_bf16_weight,
                               {shape.n, shape.k, seed + 2,
                                shape.n <= 640 ? Comparison::Full : Comparison::Sampled, true, tail,

@@ -1006,7 +1006,10 @@ int test_sse_sequence_and_failures() {
     wire.insert(wire.end(), next.begin(), next.end());
     next = encoder.content_delta("ans");
     wire.insert(wire.end(), next.begin(), next.end());
-    OpenAIResponsesStreamFinish finish = encoder.finish(sample_outcome());
+    auto outcome       = sample_outcome();
+    outcome.constraint = ninfer::ConstraintObservation{
+        .branch = ninfer::ConstraintOutputBranch::Content, .complete = true, .terminated = true};
+    OpenAIResponsesStreamFinish finish = encoder.finish(outcome);
     wire.insert(wire.end(), finish.events_before_terminal.begin(),
                 finish.events_before_terminal.end());
     wire.push_back(encoder.terminal(finish.response));
@@ -1028,6 +1031,11 @@ int test_sse_sequence_and_failures() {
                           parse_event(wire.back()).at("type") == "response.completed" &&
                           text_deltas == "answer",
                       "SSE starts, reconstructs output, and terminates canonically");
+    failures +=
+        check(parse_event(wire.back())["response"]["constraint"]["complete"] == true &&
+                  parse_event(wire.back())["response"]["constraint"]["terminated"] == true &&
+                  !parse_event(wire.front())["response"].contains("constraint"),
+              "Responses constraint state must appear in the terminal response");
 
     OpenAIResponsesEventStream failed("resp_failed", 123, std::move(request), {});
     (void)failed.start();
@@ -1096,6 +1104,18 @@ int test_constrained_decoding() {
               {"structured_outputs", {{"grammar", "root ::= \"yes\""}}}};
     const auto request = parse_openai_responses_create_request(body, limits());
     OpenAIResponsesStore store(8, 1024 * 1024);
+    for (const auto& value : {Json{{"choice", {"yes", "no"}}}, Json{{"regex", "[a-z]+"}}}) {
+        auto changed                  = body;
+        changed["structured_outputs"] = value;
+        const auto parsed             = parse_openai_responses_create_request(changed, limits());
+        const auto selected =
+            resolve_openai_responses_prompt(parsed.prompt, store, std::nullopt, false);
+        failures +=
+            check(to_request_options(selected.generation, {}, {}, true).constraint ==
+                      (value.contains("choice") ? ninfer::OutputConstraint::choice({"yes", "no"})
+                                                : ninfer::OutputConstraint::regex("[a-z]+")),
+                  "Responses choice/regex lost through prompt resolution");
+    }
     const auto resolved =
         resolve_openai_responses_prompt(request.prompt, store, std::nullopt, false);
     failures += check(to_request_options(resolved.generation, {}, {}, true).constraint->source ==
@@ -1129,6 +1149,11 @@ int test_constrained_decoding() {
     failures += check(response.body["text"]["format"] == schema_request.text_format &&
                           schema_request.prompt.generation.constraint_param == "text.format.schema",
                       "Responses format echo or source path lost");
+    body["tools"]       = Json::array({Json{{"type", "function"}, {"name", "lookup"}}});
+    const auto combined = parse_openai_responses_create_request(body, limits()).prompt.generation;
+    failures += check(combined.constraint && combined.uses_tools() &&
+                          combined.tools[0].schema_param == "tools/0/parameters",
+                      "Responses JSON/tool composition or diagnostic origin lost");
     return failures;
 }
 

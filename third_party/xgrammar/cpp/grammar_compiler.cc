@@ -1488,11 +1488,23 @@ class GrammarCompiler::Impl {
 
   CompiledGrammar CompileBuiltinJSONGrammar();
   CompiledGrammar CompileCachedGrammar(const std::string& key,
-                                       const std::function<Grammar()>& factory) {
-    if (!cache_enabled_) return no_cache_compiler_.CompilePreparedGrammar(factory);
-    return grammar_level_cache_.Get(
-        GrammarCompilerCacheKeys::PreparedGrammarKey{key},
-        [&](const auto&) { return no_cache_compiler_.CompilePreparedGrammar(factory); });
+                                       const std::function<Grammar()>& factory,
+                                       CompilationCacheAccess* access) {
+    bool built = false, waited = false;
+    auto build = [&] {
+      built = true;
+      return no_cache_compiler_.CompilePreparedGrammar(factory);
+    };
+    auto result = !cache_enabled_
+                      ? build()
+                      : grammar_level_cache_.Get(
+                            GrammarCompilerCacheKeys::PreparedGrammarKey{key},
+                            [&](const auto&) { return build(); }, access ? &waited : nullptr);
+    if (access)
+      *access = built    ? CompilationCacheAccess::kBuilt
+                : waited ? CompilationCacheAccess::kWaited
+                         : CompilationCacheAccess::kHit;
+    return result;
   }
 
   CompiledGrammar CompileJSONSchema(
@@ -1769,7 +1781,8 @@ int64_t GrammarCompiler::GetCacheSizeBytes() const { return pimpl_->GetCacheSize
 int64_t GrammarCompiler::CacheLimitBytes() const { return pimpl_->CacheLimitBytes(); }
 
 CompiledGrammar GrammarCompiler::CompileCachedGrammar(const std::string& key,
-                                                      const std::function<Grammar()>& factory) {
-  return pimpl_->CompileCachedGrammar(key, factory);
+                                                      const std::function<Grammar()>& factory,
+                                                      CompilationCacheAccess* access) {
+  return pimpl_->CompileCachedGrammar(key, factory, access);
 }
 }  // namespace xgrammar

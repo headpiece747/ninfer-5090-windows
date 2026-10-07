@@ -77,7 +77,10 @@ int main(int argc, char** argv) {
                     const auto constraint =
                         input.value("json_object", false)
                             ? Constraint::json_object()
-                            : Constraint::json_schema(input.at("schema").dump());
+                            : Constraint::json_schema(
+                                  input.contains("schema_source")
+                                      ? input["schema_source"].get<std::string>()
+                                      : input.at("schema").dump());
                     auto session         = compiler.compile(constraint, {}, {});
                     response["accepted"] = Json::array();
                     for (const auto& text : input.at("candidates"))

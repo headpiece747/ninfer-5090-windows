@@ -280,6 +280,10 @@ int main(int argc, char** argv) {
         ninfer::RequestOptions request;
         if (cli.json_object)
             request.constraint = ninfer::OutputConstraint::json_object();
+        else if (cli.regex)
+            request.constraint = ninfer::OutputConstraint::regex(*cli.regex);
+        else if (!cli.choices.empty())
+            request.constraint = ninfer::OutputConstraint::choice(cli.choices);
         else if (!cli.grammar_path.empty() || !cli.json_schema_path.empty()) {
             const auto& path = cli.grammar_path.empty() ? cli.json_schema_path : cli.grammar_path;
             std::ifstream file(path, std::ios::binary);

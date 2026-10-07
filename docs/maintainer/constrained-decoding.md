@@ -1,6 +1,6 @@
 # Constrained decoding 设计
 
-本文定义 NInfer 约束解码的架构、功能语义与执行合同。当前已实现 GBNF、JSON object、JSON Schema 和工具约束，覆盖普通解码、MTP、DFlash、DFlash2。正文约束经 `RequestOptions::constraint`、CLI 和三个 HTTP 协议使用；工具声明属于 Prompt，调用策略属于 `RequestOptions::tool_choice`。regex/choice 的独立产品入口仍是后续设计。
+本文定义 NInfer 约束解码的架构、功能语义与执行合同。当前已实现 GBNF、JSON object、JSON Schema、choice、regex 和工具约束，覆盖普通解码、MTP、DFlash、DFlash2。正文约束经 `RequestOptions::constraint`、CLI 和三个 HTTP 协议使用；工具声明属于 Prompt，调用策略属于 `RequestOptions::tool_choice`。
 
 目标是让 GBNF、JSON、JSON Schema 和工具调用共用一套 token 约束机制，接入现有普通采样、MTP、DFlash、DFlash2、thinking、流式输出与抢占恢复。NInfer 保持单 GPU、固定 resident lanes、原生 C++/CUDA 执行。
 
@@ -78,7 +78,7 @@ GBNF 是直接的 grammar 输入，适合作为底层机制的最小完整使用
 |---|---|
 | 第三方 CPU 核心 | Grammar、tokenizer-aware 编译、matcher、合法集合和回退 |
 | NInfer 公共请求合同 | 用户约束类型、正文约束、工具选择与 strict 意图；不暴露第三方类型 |
-| 通用文本约束适配 | C++ 库封装、编译诊断、共享编译资源、CPU 位图和临时 matcher 操作 |
+| 通用文本约束适配 | Schema 校验与组合归约、源定位、共享编译资源、CPU 位图和临时 matcher 操作 |
 | 模型 Frontend | 原始词表与控制 token；thinking/content/tool 封装；continuation 前缀；工具值表示 |
 | 请求 OutputSession | 可变 matcher、输出解析、preview 与正式提交 |
 | Engine | 请求生命周期、每轮 request/row 映射、调用期 mask 服务、批次提交和结果发布 |
@@ -86,7 +86,7 @@ GBNF 是直接的 grammar 输入，适合作为底层机制的最小完整使用
 | Sampling / Speculative Ops | 合法候选筛选、概率归一化、p/q 接受、残差与采样结果 |
 | Gateway / CLI | 文件获取、协议字段翻译、协议错误和响应编码 |
 
-通用适配可置于 `src/text/` 的约束模块；Qwen 语义留在现有 `src/models/qwen3_5/frontend/`。执行数据合同属于 `src/runtime/contract/`，物理消费者沿现有 Program/Ops 目录组织。这是职责边界，具体文件拆分随实现规模确定。
+通用适配位于 `src/text/`；Qwen 输出语义位于 `src/models/qwen3_5/frontend/`。执行数据合同属于 `src/runtime/contract/`，物理消费者由 Program/Ops 拥有。
 
 ## 3. 请求输入与编译
 
@@ -100,13 +100,13 @@ GBNF 是直接的 grammar 输入，适合作为底层机制的最小完整使用
 - regex；
 - 有限字符串 choice。
 
-正文约束使用 `RequestOptions::constraint` 中的 `OutputConstraint`，以枚举区分 Grammar、JsonObject、JsonSchema，并拥有源文本。运行时不读取文件。CLI 的 grammar/schema 文件在输入准备时读取；HTTP 将字段内容直接转换为请求数据。
+正文约束使用 `RequestOptions::constraint` 中的 `OutputConstraint`，以枚举区分 Grammar、JsonObject、JsonSchema、Choice、Regex，并拥有源文本或字面量列表。运行时不读取文件。CLI 的 grammar/schema 文件在输入准备时读取；HTTP 将字段内容直接转换为请求数据。
 
 工具约束来自 owning 工具定义及工具策略：每个工具的 name、参数 schema、strict 标志，以及 auto/none/required/named、是否允许多个调用。它与模板收到的工具定义来自同一请求事实；执行不从渲染后的 prompt 文本反向提取 schema。
 
 沿用 `prepare(PromptInput)` 与 `submit(PreparedPrompt, RequestOptions)` 的分工。PreparedPrompt 保存已解析工具定义、起始输出阶段和必要的 continuation 前缀；工具选择策略与正文约束在 submit 时结合这些事实构造 OutputSession。CompiledGrammar 和 matcher 由该 OutputSession 持有，普通 `count_tokens` 不编译输出约束。
 
-正文约束与活动工具集合同时存在时，在准备阶段拒绝这一组合。`tool_choice=none` 可以与正文约束并用。这样每个请求拥有一个明确的 assistant 输出语言；不隐式丢弃其中一个约束。
+JSON object / JSON Schema 可以与活动工具集合并用。Auto 的输出语言是 JSON 正文与完整工具序列的并集；Required / named 本轮只允许工具序列；None 只允许正文。GBNF、choice、regex 与活动工具集合的组合在准备阶段拒绝。
 
 ### 3.2 准备流程
 
@@ -120,7 +120,7 @@ GBNF 是直接的 grammar 输入，适合作为底层机制的最小完整使用
   → 加入现有 waiting queue
 ```
 
-编译发生在现有 `make_output_session` 所在的调用线程准备边界，位于 Engine worker 之外；不持有 queue/execution mutex 进行编译。占用现有 outstanding 名额，失败时释放。冷编译延迟计入请求准备；编译缓存命中只创建新 matcher。
+编译发生在现有 `make_output_session` 所在的调用线程准备边界，位于 Engine worker 之外；不持有 queue/execution mutex 进行编译。占用现有 outstanding 名额，失败时释放。冷编译延迟计入请求准备；编译缓存命中复用 grammar 并创建新 matcher。严格工具的参数表示分析属于请求准备，使用与 grammar 相同的 schema 归约结果。
 
 submit 仍同步建立请求并返回 handle，冷编译可能延长这次调用。pending deadline 不因编译后移；库调用返回后、入队前重新检查 deadline 和 Engine 状态。取消生成沿既有 handle/consumer 机制处理，不增加一个可抢占编译任务的调度器。
 
@@ -150,7 +150,7 @@ JSON 源以保序方式解析和序列化；声明的属性顺序是生成布局
 
 复用库的一套线程安全编译缓存。并发相同 key 的冷编译共享一个构建结果；缓存锁不覆盖不同 key 的整个编译过程。
 每模型最多两个冷编译同时运行，各自在 submit 调用线程执行，编译内部单线程；缓存命中不占用冷编译名额。
-GBNF、JSON object、JSON Schema 以种类、源文本和模型输出封装作为缓存键。校验、转换、封装和词表编译均在缓存 miss 的同一个受限构建内完成；命中不重新解析或转换。continuation bytes 仅用于初始化 matcher。
+GBNF、JSON object、JSON Schema、regex 以种类、源文本和模型输出封装作为缓存键；choice 使用规范化后的字面量集合。校验、转换、封装和词表编译均在缓存 miss 的同一个受限构建内完成；命中不重新解析或转换。continuation bytes 仅用于初始化 matcher。
 
 设计默认编译缓存预算为 256 MiB，配置为 Engine 启动选项 `grammar_cache_bytes`。该预算限制缓存保留的编译结果；请求正在使用的对象被逐出缓存后仍可存活，因此不是进程 RAM 的总硬上限。词表索引、活跃 matcher 和编译临时内存分别计量，不扣入 KV/GDN Host cache 配额。
 
@@ -168,7 +168,13 @@ GBNF 入口不暴露上游的 `TagDispatch`、`TokenTagDispatch`、`Regex`、`Su
 完整语言由规则正文定义，注解应与后续规则一致。它沿用上游的编译提示语义，不作为独立的正则前瞻约束。
 用户直接 grammar 可以引用普通可生成 token；EOS 与保留的模型控制 token 由外层完成/阶段规则拥有，不作为可见正文终结符。模型封装可以使用相应控制 token 的精确 ID。
 
-regex 按完整输出匹配，使用 vendor 明确支持的方言。choice 通过正确转义的字面量分支构造，支持多 token 选项和共享前缀。两者完成后与 GBNF 使用同一执行路线。
+Choice 通过字面量 grammar 分支构造，精确保留字符串的大小写、空白与 Unicode，支持多 token 选项和共享前缀。候选列表不能为空；允许空字符串，重复候选去重，候选顺序不参与权重。短候选若也是长候选的前缀，匹配短候选后既允许 EOS，也允许继续生成。公共接口为 `OutputConstraint::choice(vector<string>)`。
+
+Regex 按完整正文匹配，公共接口为 `OutputConstraint::regex(string)`；空表达式只允许空正文。支持字面量、Unicode 字符、字符类、分组、分支和 `*`、`+`、`?`、`{m,n}` 重复。贪婪/非贪婪写法描述相同的合法集合；不返回捕获值。字符类沿用 ECMAScript 语义：`\d`/`\w` 为 ASCII 范围，`\s` 包括 Unicode 空白，`.` 排除 `\n`、`\r`、U+2028、U+2029。支持 `\xNN`、`\uNNNN` 等转义；非 BMP 字符直接书写。输出只包含 Unicode scalar values。
+
+`^`/`$` 只接受在表达式或顶层分支两端；其他位置、反向引用、前后向断言、单词边界、Unicode 属性类、flags、surrogate escape 和未知转义返回请求错误。`regex_converter` 共享字符与转义规范化逻辑：regex 使用完整匹配，JSON Schema `pattern` 保留搜索匹配。非法候选或表达式分别使用 `InvalidChoice` / `InvalidRegex`；不可继续的生成前缀沿用 `ConstraintDeadEnd`。
+
+两者共用现有编译缓存和 matcher。Choice 的缓存身份按去重后的字面量集合构造，不依赖 token 切分；完整匹配和 JSON Schema 搜索使用不同的入口身份。运行时、采样和 speculative 后端继续消费同一 mask 合同。
 
 原始 grammar 不自动注入 prompt。约束负责候选空间，用户 prompt 负责任务和字段含义。
 
@@ -176,25 +182,29 @@ regex 按完整输出匹配，使用 vendor 明确支持的方言。choice 通�
 
 `json_object` 编译为根对象语言；不是任意 JSON scalar。`json_schema` 使用用户明确给出的根类型，可以是对象、数组或其他受支持类型。
 
-`src/text/json_schema.cpp` 检查受支持的 schema 合同，vendor 编译器负责转换和有限组合判定。支持范围如下：
+`src/text/json_schema.cpp` 校验源 schema，`schema_composition.cpp` 将支持的组合归约为可编译的 schema 图，并保留源位置。Vendor 负责字符串自动机、JSON / Qwen 参数表示和 grammar 构造。支持范围如下：
 
 | 类别 | 语义 |
 |---|---|
 | 基本类型 | object、array、string、integer、number、boolean、null；类型数组按各分支适用的断言展开 |
 | 对象 | properties、required、additionalProperties（boolean 或子 schema）；required 名称须在 properties 中声明；声明字段按确定顺序生成 |
-| 数组 | 同质 items、minItems、maxItems；基础合同不接收 tuple/prefixItems |
-| 字符串 | minLength/maxLength，或库支持的 pattern；两组并用明确返回不支持，format 暂不作为已支持断言 |
-| 数值 | integer 的 minimum/maximum/exclusive bounds，使用 signed 64-bit 整数界限，exclusive bound 折算后也须在此范围；number 支持普通 JSON 数字，基础合同不接受其范围和 multipleOf |
-| 有限值 | const、enum；整数字面量限 signed 64-bit；允许同时给出 type，并据 type 筛选候选；其他同级值断言不被忽略，而是返回不支持 |
-| 组合 | anyOf；oneOf 只接受类型域不交、有限值集合不交，或共同必填 discriminator 的 const 值不交的分支；allOf 仅接受单分支包装 |
-| 引用 | 文档内 `$ref`、`$defs`/definitions，包括编译器支持的递归；不获取外部文档 |
+| 数组 | 同质 items 或位置 prefixItems、尾部 items、minItems/maxItems；draft-07 的 items 数组与 additionalItems 归约到同一位置合同 |
+| 字符串 | minLength/maxLength 与 pattern 可同时使用，多个 pattern 取交集；format 暂不支持 |
+| 数值 | integer 和 number 支持 minimum/maximum/exclusive bounds；整数区间归约到 signed 64-bit，上下界可由小数折算；有界 number 使用 int64 整数及最多 17 位有效数字的有限 binary64 表示；multipleOf 暂不支持 |
+| 有限值 | const、enum；整数字面量限 signed 64-bit；按同级受支持断言筛选候选，包括类型、范围、字符串、对象/数组及逻辑组合 |
+| 组合 | anyOf 与共同断言分配后取并集；oneOf 要证明分支互斥；allOf 支持类型、范围、字符串、对象字段/required/additionalProperties、数组逐位置及尾部规则、本地引用的交集 |
+| 引用 | 文档内 `$ref`、`$defs`/definitions，包括递归与 2020-12 的引用同级断言；不获取外部文档 |
 | 注释 | title、description、default、examples、`$comment`、readOnly/writeOnly、deprecated 等保留为描述信息，不作为采样断言 |
 
-检查遍历 schema 节点与引用图，识别关键字的组合，不对所有业务 JSON key 做全文扫描。`$ref`、anyOf/oneOf/allOf 节点仅允许定义和注释类兄弟字段；不能完整合并的额外同级断言明确返回不支持。引用图按节点遍历并处理递归，不无限展开 JSON 文档。
+检查只遍历 schema 位置，const/enum 中的业务对象保留为值。组合归约按节点与交集记忆化，递归仍表示为引用图。对象交集逐分支应用 properties 与 additionalProperties：一个分支的封闭对象不能被另一个分支新增的属性重新打开。Required 合并后若某字段不可能出现，整个对象分支不可满足。
 
-oneOf 的类型域判定要计入 integer 是 number 的子域；对象 discriminator 证明要求每个分支都将该字段列为 required。无法完成上述有限判定的分支组合直接拒绝，不尝试通用 schema 可满足性求解。
+prefixItems 只约束已经出现的位置，长度由 minItems/maxItems 决定；items 只作用于同一 schema 对象的前缀之后。位置为 false 或交集不可满足时，数组可以在该位置前结束。只有最低长度要求跨过该位置时，数组分支才不可满足。逐位置交集保留每个分支原有的前缀长度及尾部规则。
 
-空 schema 表示任意 JSON 值。`$schema` 用于声明方言，基础合同接受 draft-07 与 2020-12 的上述共同子集；根节点的 `$id` 只作为文档身份，不触发外部获取；嵌套 `$id` 引入引用作用域，当前拒绝。布尔子 schema 按所在位置解释，例如 additionalProperties=false；遇到编译器不能保持语义的位置时返回不支持，不能将 false 转为空 schema。
+有界 number 同时约束生成的十进制值和协议解析、重新序列化后的值。编译器以十进制数位和指数比较区间，按可发布 binary64 值的舍入边界收紧浮点生成语言；整数保留精确 int64 路径。小数支持科学计数法，常见数量级也允许普通小数写法，最多 17 位有效数字。数学空区间返回不可满足；非空区间没有可发布值时返回不支持。Schema 中会被 JSON 解析舍入的数值断言或 const/enum 值在源输入阶段拒绝；注释字段及非 strict 工具不应用此限制。
+
+oneOf 在合并共同断言后，以类型域、有限值集合或共同必填 discriminator 的有限值证明分支互斥。类型域判定包含 integer 是 number 的子域；无法证明的组合返回不支持。
+
+空 schema 表示任意 JSON 值。未指定 `$schema` 时采用 2020-12 语义，也接受显式 draft-07 的受支持子集。Draft-07 的 `$ref` 同级断言返回不支持，可用 allOf 明确表达交集。根节点 `$id` 只作为文档身份，嵌套 `$id` 当前拒绝。布尔子 schema 按所在位置解释，例如 additionalProperties=false。
 
 具体规则：
 
@@ -208,6 +218,8 @@ oneOf 的类型域判定要计入 integer 是 number 的子域；对象 discrimi
 `pattern` 的 schema 语义是对字符串值的匹配，不能直接套用全文 regex 入口的匹配方式。长度按解码后的 Unicode 字符计数，转义形式不改变值的长度；JSON 字符串的控制字符、引号和反斜杠必须合法转义。Finite const/enum 候选筛选后为空、递归定义明显无生成分支等，在编译或初始 mask 检查处返回不可满足，而不是移除该约束。
 
 JSON 使用紧凑的 `,` / `:` 分隔符及声明字段顺序。字符串长度与 pattern grammar 使用规范的 JSON 转义；continuation 须属于这一生成语言的前缀。`pattern` 按字符串值做搜索，支持字符类、分组、分支、重复以及顶层分支两端的 `^` / `$`。点号和空白类遵循 ECMAScript 字符集合；反向引用、零宽断言、Unicode 属性类、surrogate escape 和未识别转义返回不支持，Unicode 字符可以直接书写。
+
+组合编译有明确上限：一次归约最多 16384 次交集合并；有限值递归检查深度最多 256；字符串自动机交集的显式长度界限最多 8192 个 Unicode 字符，交集结果最多 65536 个状态。超限返回不支持。有限枚举直接筛选、单纯长度约束沿用各自路径，不为它们构造字符串交集自动机。
 
 这些规则是响应 schema 与 strict 工具参数共用的合同。允许后续扩展支持范围，每项扩展同时补齐语义和独立验证；不需要改变运行时结构。
 
@@ -223,6 +235,10 @@ Auto 允许零到多次调用；Required 至少一次；parallel=false 将上限
 
 Auto 的普通正文可在工具序列之前，Required 直接开始调用。进入调用序列后只允许后续调用与 EOS；调用间使用单个换行。每个 strict 工具的最终 `arguments_json` 满足其参数 schema。
 
+同时指定 JSON 输出时，Auto 在 JSON 正文和工具序列之间选择，本轮不混合两种输出；即使 `constraints=Automatic`，工具分支仍使用基础封装约束。Required / named 本轮生成调用，工具结果提交后的下一轮可改用 Auto 生成 JSON。每轮仍校验提供的 JSON schema。
+
+组合只建立一个 CompiledGrammar 和 matcher，thinking 封装位于并集之外。OutputSession 在正式提交的首个正文字符处选择发布分支：JSON 的起始字符与 `<tool_call>` 不相交。JSON 分支绕过工具解析，因此字符串内的 `<tool_call>` 保持原样。Preview/discard 不改变分支；continuation 根据已存在的正文前缀初始化。
+
 Qwen 工具语法采用现有 `<tool_call>`、`<function=...>`、`<parameter=...>` 表示。Frontend 从同一份已解析工具定义构造两项产物：生成 grammar 和输出值解码合同，避免两边分别解释类型。
 
 严格参数的物理文本采用明确的 framing。下面用转义形式表示一个字符串参数：
@@ -237,7 +253,7 @@ Qwen raw string 与 JSON 值的选择必须无歧义。纯字符串参数使用 
 
 Raw string 的参数结束分隔符是 `\n</parameter>`，这段文本不能出现在值中。Grammar 与 parser 使用相同的分隔符规则，严格输出只生成可无损表示的值；const/enum 等要求的值无法表示时返回明确错误，不修改值。字符串的 pattern/长度与分隔符排除同时成立。外围 framing 没有可选空白，避免把值的空白划到 schema 之外。嵌套 JSON 使用模板的 `, ` / `: ` 分隔符，包括 const/enum 对象；integer 限 signed 64-bit，number 使用有限 binary64 可解析表示。
 
-工具参数根节点解析为一个 type=object 声明（可经本地 $ref 或单项 allOf）。严格路线采用声明的有限参数名与属性顺序：要求 additionalProperties=false；根 const/enum/anyOf/oneOf 返回不支持。普通 JSON 响应仍支持表中定义的 additionalProperties。工具定义中的重复名称在准备阶段拒绝。
+工具参数根节点须归约为 type=object，可经本地 $ref 或受支持的 allOf 组合。严格路线采用声明的有限参数名与属性顺序：要求 additionalProperties=false；归约后仍为根 const/enum/anyOf/oneOf 时返回不支持。普通 JSON 响应支持表中定义的 additionalProperties。工具定义中的重复名称在准备阶段拒绝。
 
 受约束工具的结构化事件来自完整解析并提交的调用。工具结果在终态解析与发布；截断时保留已经完成的调用和实际中断原因，未完成调用不产生 `arguments_json`。
 
@@ -421,7 +437,7 @@ Lookahead 只能沿 proposal 的实际链推进。不同请求独立推演；当
 
 ### 8.2 接受分布
 
-第一版目标采用 target-only constraint，proposal 保持现有算法：
+实现采用 target-only constraint，proposal 使用各后端的原有分布：
 
 | 后端 | Proposal 分布 | 正温度接受 |
 |---|---|---|
@@ -519,7 +535,7 @@ DFlash pending features 按实际提交的前缀更新上下文，MTP 的下一�
 
 ### 10.1 请求准备错误
 
-无效 grammar、未支持 schema 断言、冲突功能组合、非法 token 引用、无效 continuation 前缀，在进入执行队列前返回请求错误。错误包含约束种类及源定位，不返回成功后再尝试自由生成。
+无效 grammar、未支持 schema 断言、冲突功能组合、非法 token 引用、无效 continuation 前缀，在进入执行队列前返回请求错误。Schema 错误区分正文与工具参数来源；归约诊断映射回源 schema，协议层再补齐原始字段路径，包括 Responses namespace 与 Anthropic input_schema。
 
 Runtime integrity 错误不被包装成用户 schema 错误。例如 row membership 错乱、matcher 无法回退、GPU 物理提交无法完成，继续沿 Engine 不可用的既有边界处置。
 
@@ -549,10 +565,10 @@ Runtime integrity 错误不被包装成用户 schema 错误。例如 row members
 
 所有入口映射到第3节的 owning 请求，不把第三方对象或可执行回调暴露给用户。
 
-| 入口 | 目标能力 |
+| 入口 | 支持能力 |
 |---|---|
 | 公共 Engine Generation | 正文约束与工具策略；原始 token 输入也可使用直接 grammar |
-| CLI | `--grammar-file`、`--json-schema-file`、`--json-object`；文件在 CLI 侧读取，互斥选择正文约束 |
+| CLI | `--grammar-file`、`--json-schema-file`、`--json-object`、`--regex`、重复的 `--choice`；互斥选择正文约束 |
 | OpenAI Chat | `response_format` 的 json_object/json_schema；工具 strict 与 tool_choice |
 | OpenAI Responses | `text.format` 的 json_object/json_schema；工具 strict 与 tool_choice |
 | Anthropic Messages | `output_config.format` 的 JSON Schema；工具定义、strict 和 tool_choice 使用共同工具合同 |
@@ -584,16 +600,17 @@ Draft 保持不受约束，可能降低 constrained workload 的接受率。报�
 
 ### 12.2 统计
 
-沿用现有 timing/观测发布机制，增加可归因的约束统计：
+`GenerationResult::constraint` 在启用 matcher 时存在，记录正式提交状态：`branch` 为 undecided/content/tools，`complete` 表示当前语言允许结束，`terminated` 表示已接受 EOS。Continuation 前缀参与这两个状态。完整内容在输出上限处停止时可为 complete=true、terminated=false，finish reason 保持原值。
 
-- 准备耗时包含约束编译和缓存等待。Engine 提供完整 prepare 时间，serving 只叠加自身输入准备开销，使用现有 TTFT timing 和请求日志观测。
-- 每请求 CPU mask 和 matcher preview/commit 工作耗时。
-- DFlash draft-ready 等待、mask 上传字节、实际约束位置数。
-- 已有 TTFT、decode 时间、spec drafted/accepted/fallback 数据。
+同一对象记录编译缓存 hit/built/waited、实际求 mask 的位置数及成功提交的 mask H2D 字节数。启用 `phase_timings` 时还记录 OutputSession 准备、mask/lookahead/rollback、matcher accept/discard 的 CPU 秒数。被回退的推演仍是已付出的工作，不回退工作计数。三个 HTTP 入口和 inference bench 均开启这些时间观测。
+
+DFlash draft-ready 等待是现有 Device wait 的子区间。Program 每批记录一次，Engine 全局累计拥有唯一计数；每请求的 `constraint_draft_wait_exposed_seconds` 表示本请求所经历的等待，同批请求之间不能相加。
+
+HTTP 聚合结果、SSE 终态、request_done 日志与 benchmark JSON 使用相同的 constraint 表示。Prometheus 的请求/缓存/工作计数在请求结算时汇总，包含取消与长度中断；准备失败和执行异常仍走原错误计数。Draft wait 从 Engine 全局计数读取。指标标签使用固定枚举，不包含 grammar/schema 内容。
 
 输入 prepare 与 submit 内的 constraint prepare 分别计时，总 prepare 包含两者；请求 queue wait 从语法就绪、进入 waiting queue 开始。提交入口时刻仍用于 pending deadline 和 publication order。首 token 的端到端组合中，submit 内准备区间只能计一次，不能既加入 prepare 又原样留在其后的等待/执行区间中。
 
-CPU mask work time 可能与 GPU forward 重叠，不把它再次加到总 wall time。CUDA event 测到的传输时间按现有 timing 开关采集，正常路径不为统计增加 device synchronization。Compiled cache 与 matcher 内存分别说明，避免把 cache quota 描述成总 RAM 限制。
+CPU mask work time 可能与 GPU forward 重叠，matcher work 已包含于现有 Host 时间；这些细分值不再加到总 wall time。Mask 上传记录字节数，不为统计增加 CUDA event 或 device synchronization。Compiled cache quota 只限制保留的编译结果。
 
 ## 13. 全链路推演
 
@@ -650,8 +667,8 @@ A/B 使用相同 prompt，分别要求对象字段和有限枚举。编译资源
 
 本设计复用 [Engine 架构](engine-architecture.md)的 worker、请求所有权、PendingBatch 和发布顺序，以及[资源调度与上下文缓存](resource-scheduling-and-context-cache.md)的抢占恢复合同。[DFlash](dflash.md)和现有 Sampling/Speculative Ops 继续拥有 proposal 与数学执行。
 
-需要新增的执行合同集中在 mask 数据流、受约束采样、调用期 provider、matcher 事务和单行约束失败。Artifact、权重绑定、模型公式和 KV/GDN 缓存身份没有新增约束配置职责。
+约束执行合同集中在 mask 数据流、受约束采样、调用期 provider、matcher 事务和单行约束失败。Artifact、权重绑定、模型公式和 KV/GDN 缓存身份不承担请求约束配置。
 
-源码调研基线为 NInfer `abb7f14f`、vLLM `00b7847c`、SGLang `28c5e7f5`、llama.cpp `53ed051c`。XGrammar API/行为检查基线为 `8262b5c94161f4cd0e2c356ab3b62de16b919873`；vendor 导入时固定明确来源，本文规定的是 NInfer 目标合同，不能以库默认行为替代。
+XGrammar 的固定来源与本地改动见 [vendor 说明](../../third_party/xgrammar/README.ninfer.md)。
 
-主要参考：[XGrammar C++ compiler](https://github.com/mlc-ai/xgrammar/blob/8262b5c94161f4cd0e2c356ab3b62de16b919873/include/xgrammar/compiler.h)、[matcher](https://github.com/mlc-ai/xgrammar/blob/8262b5c94161f4cd0e2c356ab3b62de16b919873/include/xgrammar/matcher.h)、[EBNF/GBNF](https://xgrammar.mlc.ai/docs/latest/defining_structures/ebnf_grammar.html)、[引擎接入](https://xgrammar.mlc.ai/docs/latest/using_xgrammar/engine_integration.html)。
+主要参考：[XGrammar C++ compiler](../../third_party/xgrammar/include/xgrammar/compiler.h)、[matcher](../../third_party/xgrammar/include/xgrammar/matcher.h)、[EBNF/GBNF](https://xgrammar.mlc.ai/docs/latest/defining_structures/ebnf_grammar.html)、[引擎接入](https://xgrammar.mlc.ai/docs/latest/using_xgrammar/engine_integration.html)。

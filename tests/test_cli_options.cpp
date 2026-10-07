@@ -31,7 +31,24 @@ int check(bool condition, const char* message) {
 } // namespace
 
 int main() {
-    int failures = 0;
+    int failures      = 0;
+    const auto choice = parse({"ninfer", "model.ninfer", "--prompt", "hello", "--choice", "",
+                               "--choice", "a|b", "--choice", "你好"});
+    failures += check(choice.choices == std::vector<std::string>{"", "a|b", "你好"},
+                      "choice flags changed literal text or order");
+    failures +=
+        check(parse({"ninfer", "model.ninfer", "--prompt", "hello", "--regex", ""}).regex == "",
+              "empty regex must be distinct from no regex");
+    failures += check(rejects([] {
+                          (void)parse({"ninfer", "model.ninfer", "--prompt", "hello", "--regex", "",
+                                       "--choice", "yes"});
+                      }),
+                      "regex and choice were accepted together");
+    failures += check(rejects([] {
+                          (void)parse({"ninfer", "model.ninfer", "--prompt", "hello", "--regex",
+                                       "a", "--json-object"});
+                      }),
+                      "regex and JSON were accepted together");
     failures += check(
         parse({"ninfer", "model.ninfer", "--prompt", "hello", "--grammar-file", "answer.gbnf"})
                 .grammar_path == "answer.gbnf",

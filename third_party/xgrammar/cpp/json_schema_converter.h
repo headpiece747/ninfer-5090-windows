@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "grammar_builder.h"
+#include "json_number.h"
 #include "support/utils.h"
 
 namespace xgrammar {
@@ -44,15 +45,13 @@ struct IntegerSpec {
 };
 
 struct NumberSpec {
-  std::optional<double> minimum;
-  std::optional<double> maximum;
-  std::optional<double> exclusive_minimum;
-  std::optional<double> exclusive_maximum;
+  NumberRange range;
 
   std::string ToString() const;
 };
 
 struct StringSpec {
+  std::vector<std::string> extra_patterns;
   std::optional<std::string> pattern;
   std::optional<std::string> format;
   int min_length = 0;
@@ -546,13 +545,6 @@ class JSONSchemaConverter {
   // Helper for integer/number range regex generation
   static std::string GenerateRangeRegex(std::optional<int64_t> start, std::optional<int64_t> end);
   int32_t GenerateIntegerMultipleOfDFA(int64_t multiple_of, const std::string& rule_name);
-  static std::string GenerateFloatRangeRegex(
-      std::optional<double> start,
-      std::optional<double> end,
-      int precision = 6,
-      bool exclusive_start = false,
-      bool exclusive_end = false
-  );
 
  protected:
   // raw_string selects raw XML parameter text instead of JSON string contents.
@@ -562,12 +554,6 @@ class JSONSchemaConverter {
 
   // Expose for testing
   friend std::string GenerateRangeRegex(std::optional<int64_t> start, std::optional<int64_t> end);
-  friend std::string GenerateFloatRangeRegex(
-      std::optional<double> start,
-      std::optional<double> end,
-      bool exclusive_start,
-      bool exclusive_end
-  );
 };
 
 /*!
@@ -664,19 +650,12 @@ std::string JSONSchemaToEBNF(
 );
 
 /*!
- * \brief Generate regex pattern for integer/float range.
+ * \brief Generate regex pattern for integer range.
  * \param start The start of the range (inclusive). If null assume negative infinity.
  * \param end The end of the range (inclusive). If null assume infinity.
- * \returns The regex pattern that matches integers/floats in the given range.
+ * \returns The regex pattern that matches integers in the given range.
  */
 std::string GenerateRangeRegex(std::optional<int64_t> start, std::optional<int64_t> end);
-
-std::string GenerateFloatRangeRegex(
-    std::optional<double> start,
-    std::optional<double> end,
-    bool exclusive_start = false,
-    bool exclusive_end = false
-);
 
 }  // namespace xgrammar
 

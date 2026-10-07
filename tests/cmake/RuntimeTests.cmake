@@ -22,6 +22,14 @@ ninfer_add_test(ninfer_grammar_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_grammar.cpp"
   LIBRARIES ninfer_grammar)
 
+ninfer_add_test(ninfer_regex_choice_test
+  SOURCES "${CMAKE_CURRENT_LIST_DIR}/../text/test_regex_choice.cpp"
+  LIBRARIES ninfer_grammar ninfer::json)
+
+add_test(NAME ninfer_regex_choice_oracle_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "NINFER_REGEX_PROBE=$<TARGET_FILE:ninfer_regex_choice_test>"
+    ${Python3_EXECUTABLE} -B ${PROJECT_SOURCE_DIR}/tests/text/test_regex_choice.py)
 
 ninfer_add_test(ninfer_json_schema_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/../text/test_json_schema.cpp"

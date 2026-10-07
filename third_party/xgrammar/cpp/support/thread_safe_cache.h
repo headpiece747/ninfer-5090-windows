@@ -285,8 +285,10 @@ class ThreadSafeLRUCache {
 
   // The miss factory runs synchronously and is never retained by the cache.
   template <typename Factory>
-  Value Get(const Key& key, const Factory& factory) {
-    return GetFuture(key, factory).get().value;
+  Value Get(const Key& key, const Factory& factory, bool* waited = nullptr) {
+    auto future = GetFuture(key, factory);
+    if (waited) *waited = future.wait_for(std::chrono::seconds(0)) != std::future_status::ready;
+    return future.get().value;
   }
 
   void Clear() {

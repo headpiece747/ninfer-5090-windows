@@ -66,7 +66,29 @@ qb::BenchOptions parse_for_test(std::vector<std::string> arguments) {
 }
 
 int test_cli_contract() {
-    int failures                  = 0;
+    int failures = 0;
+    const auto choices =
+        parse_for_test({"bench", "--weights", "model.ninfer", "--choice", "", "--choice", "a|b",
+                        "--concurrency", "2", "--mixed-constraints"});
+    failures += expect(choices.constraint == ninfer::OutputConstraint::choice({"", "a|b"}) &&
+                           choices.mixed_constraints,
+                       "choice flags retain literal candidates in mixed batches");
+    failures +=
+        expect(parse_for_test({"bench", "--weights", "model.ninfer", "--regex", ""}).constraint ==
+                   ninfer::OutputConstraint::regex(""),
+               "empty regex remains an active constraint");
+    for (const auto& flags :
+         std::vector<std::vector<std::string>>{{"--choice", "yes", "--regex", "yes"},
+                                               {"--regex", "", "--choice", "yes"},
+                                               {"--json-object", "--choice", "yes"}}) {
+        failures += expect_throws<std::invalid_argument>(
+            [&] {
+                std::vector<std::string> arguments{"bench", "--weights", "model.ninfer"};
+                arguments.insert(arguments.end(), flags.begin(), flags.end());
+                (void)parse_for_test(std::move(arguments));
+            },
+            "conflicting benchmark constraints");
+    }
     const qb::BenchOptions parsed = parse_for_test({
         "ninfer_bench",
         "--weights",
@@ -330,7 +352,7 @@ int test_report_contract() {
         return fail(std::string("invalid benchmark JSON: ") + error.what());
     }
 
-    failures += expect(report.at("schema_version") == 17, "report schema v17");
+    failures += expect(report.at("schema_version") == 19, "report schema v19");
     failures += expect(report.at("config").at("speculative_backend") == "mtp" &&
                            report.at("config").at("draft_tokens") == 5,
                        "report identifies its backend and window");
@@ -548,6 +570,19 @@ int test_constrained_batch_metrics() {
     failures += expect_throws<std::invalid_argument>(
         [] { (void)parse_for_test({"bench", "--weights", "model.ninfer", "--mixed-constraints"}); },
         "mixed grammar needs a grammar and multiple requests");
+    auto env = sample_environment();
+    for (const auto& constraint :
+         {ninfer::OutputConstraint::choice({"", "a|b", "\"\\\n你好", std::string("a\0b", 3)}),
+          ninfer::OutputConstraint::regex(R"(a\d{2})")}) {
+        env.constraint    = constraint;
+        const auto config = Json::parse(qb::format_json(env, "bench", {result}))["config"];
+        failures += expect(
+            config["constraint_choices"] == constraint.choices &&
+                config["constraint_source"] == constraint.source &&
+                config["constraint_type"] ==
+                    (constraint.kind == ninfer::OutputConstraintKind::Choice ? "choice" : "regex"),
+            "report preserves the exact constraint language");
+    }
     return failures;
 }
 

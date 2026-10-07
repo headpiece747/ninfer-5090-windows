@@ -13,7 +13,6 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
-#include <iomanip>
 #include <limits>
 #include <map>
 #include <memory>
@@ -51,12 +50,8 @@ std::string IntegerSpec::ToString() const {
 }
 
 std::string NumberSpec::ToString() const {
-  return "NumberSpec{minimum=" + (minimum.has_value() ? std::to_string(*minimum) : "null") +
-         ", maximum=" + (maximum.has_value() ? std::to_string(*maximum) : "null") +
-         ", exclusive_minimum=" +
-         (exclusive_minimum.has_value() ? std::to_string(*exclusive_minimum) : "null") +
-         ", exclusive_maximum=" +
-         (exclusive_maximum.has_value() ? std::to_string(*exclusive_maximum) : "null") + "}";
+  return "NumberSpec{lower=" + (range.lower ? range.lower->value.Text() : "none") +
+         ", upper=" + (range.upper ? range.upper->value.Text() : "none") + "}";
 }
 
 std::string StringSpec::ToString() const {
@@ -1093,75 +1088,33 @@ Result<IntegerSpec, SchemaError> SchemaParser::ParseInteger(const picojson::obje
 }
 
 Result<NumberSpec, SchemaError> SchemaParser::ParseNumber(const picojson::object& schema) {
-  if (schema.count("multipleOf")) {
-    const auto& value = schema.at("multipleOf");
-    if (!value.is<int64_t>() && !value.is<double>()) {
-      return ResultErr<SchemaError>(SchemaErrorType::kInvalidSchema, "Value must be a number");
-    }
-    double multiple_of =
-        value.is<int64_t>() ? static_cast<double>(value.get<int64_t>()) : value.get<double>();
-    if (multiple_of <= 0) {
-      return ResultErr<SchemaError>(
-          SchemaErrorType::kInvalidSchema, "multipleOf must be greater than 0"
-      );
-    }
-    XGRAMMAR_LOG(WARNING) << "multipleOf is not supported for type:number; ignoring multipleOf";
-  }
+  if (schema.count("multipleOf"))
+    return ResultErr<SchemaError>(SchemaErrorType::kUnsupportedSchema,
+                                  "multipleOf is not supported for type:number");
   NumberSpec spec;
-
-  auto getDouble = [](const picojson::value& value) -> Result<double, SchemaError> {
-    if (!value.is<double>() && !value.is<int64_t>()) {
-      return ResultErr<SchemaError>(SchemaErrorType::kInvalidSchema, "Value must be a number");
-    }
-    return ResultOk<double>(value.get<double>());
-  };
-
-  if (schema.count("minimum")) {
-    auto result = getDouble(schema.at("minimum"));
-    if (result.IsErr()) return ResultErr(std::move(result).UnwrapErr());
-    spec.minimum = std::move(result).Unwrap();
+  for (const char* key : {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"}) {
+    const auto found = schema.find(key);
+    if (found == schema.end()) continue;
+    const auto& value = found->second;
+    if (!value.is<int64_t>() && !value.is<double>())
+      return ResultErr<SchemaError>(SchemaErrorType::kInvalidSchema,
+                                    "numeric bound must be a number");
+    const auto bound = value.is<int64_t>()
+                           ? DecimalNumber::Parse(std::to_string(value.get<int64_t>()))
+                           : DecimalNumber::Published(value.get<double>());
+    const std::string_view name(key);
+    const bool exclusive = name.starts_with("exclusive");
+    if (name == "minimum" || name == "exclusiveMinimum")
+      spec.range.Lower(bound, exclusive);
+    else
+      spec.range.Upper(bound, exclusive);
   }
-  if (schema.count("maximum")) {
-    auto result = getDouble(schema.at("maximum"));
-    if (result.IsErr()) return ResultErr(std::move(result).UnwrapErr());
-    spec.maximum = std::move(result).Unwrap();
-  }
-  if (schema.count("exclusiveMinimum")) {
-    auto result = getDouble(schema.at("exclusiveMinimum"));
-    if (result.IsErr()) return ResultErr(std::move(result).UnwrapErr());
-    spec.exclusive_minimum = std::move(result).Unwrap();
-  }
-  if (schema.count("exclusiveMaximum")) {
-    auto result = getDouble(schema.at("exclusiveMaximum"));
-    if (result.IsErr()) return ResultErr(std::move(result).UnwrapErr());
-    spec.exclusive_maximum = std::move(result).Unwrap();
-  }
-
-  // The range is empty if any lower bound conflicts with any upper bound. An
-  // exclusive bound also rules out equality, so it uses ">=" instead of ">".
-  auto empty = []() {
-    return ResultErr<SchemaError>(
-        SchemaErrorType::kUnsatisfiableSchema, "Invalid range: empty range"
-    );
-  };
-
-  // minimum (x >= min) vs maximum (x <= max).
-  if (spec.minimum && spec.maximum && *spec.minimum > *spec.maximum) {
-    return empty();
-  }
-  // minimum (x >= min) vs exclusiveMaximum (x < exclMax).
-  if (spec.minimum && spec.exclusive_maximum && *spec.minimum >= *spec.exclusive_maximum) {
-    return empty();
-  }
-  // exclusiveMinimum (x > exclMin) vs maximum (x <= max).
-  if (spec.exclusive_minimum && spec.maximum && *spec.exclusive_minimum >= *spec.maximum) {
-    return empty();
-  }
-  // exclusiveMinimum (x > exclMin) vs exclusiveMaximum (x < exclMax).
-  if (spec.exclusive_minimum && spec.exclusive_maximum &&
-      *spec.exclusive_minimum >= *spec.exclusive_maximum) {
-    return empty();
-  }
+  if (spec.range.Empty())
+    return ResultErr<SchemaError>(SchemaErrorType::kUnsatisfiableSchema,
+                                  "numeric interval is empty");
+  if (!spec.range.HasPublishableValue())
+    return ResultErr<SchemaError>(SchemaErrorType::kUnsupportedSchema,
+                                  "numeric interval has no publishable value");
   return ResultOk(std::move(spec));
 }
 
@@ -1199,22 +1152,6 @@ Result<StringSpec, SchemaError> SchemaParser::ParseString(const picojson::object
             std::to_string(spec.max_length)
     );
   }
-  // A pattern or built-in format takes the whole GenerateString branch, so minLength/maxLength
-  // would be dropped silently (issue #749). Warn here rather than in GenerateString: the XML
-  // tool-calling converter overrides that method, but every converter goes through ParseString.
-  if (spec.min_length != 0 || spec.max_length != -1) {
-    const char* generative = nullptr;
-    if (spec.pattern.has_value()) {
-      generative = "pattern";
-    } else if (spec.format.has_value() && JSONSchemaConverter::IsBuiltinFormat(*spec.format)) {
-      generative = "format";
-    }
-    if (generative != nullptr) {
-      XGRAMMAR_LOG(WARNING) << generative
-                            << " combined with minLength/maxLength is not supported; ignoring "
-                               "minLength/maxLength";
-    }
-  }
   return ResultOk(std::move(spec));
 }
 
@@ -1237,11 +1174,7 @@ Result<ArraySpec, SchemaError> SchemaParser::ParseArray(const picojson::object& 
       );
     }
     for (const auto& item : schema.at("prefixItems").get<picojson::array>()) {
-      if (item.is<bool>() && !item.get<bool>()) {
-        return ResultErr<SchemaError>(
-            SchemaErrorType::kUnsatisfiableSchema, "prefixItems contains false"
-        );
-      } else if (!item.is<picojson::object>()) {
+      if (!item.is<bool>() && !item.is<picojson::object>()) {
         return ResultErr<SchemaError>(
             SchemaErrorType::kInvalidSchema, "prefixItems must be an array of objects or booleans"
         );
@@ -1330,31 +1263,25 @@ Result<ArraySpec, SchemaError> SchemaParser::ParseArray(const picojson::object& 
             std::to_string(spec.max_items)
     );
   }
-  if (spec.max_items != -1 && spec.max_items < static_cast<int64_t>(spec.prefix_items.size())) {
-    return ResultErr<SchemaError>(
-        SchemaErrorType::kUnsatisfiableSchema,
-        "maxItems is less than the number of prefixItems: " + std::to_string(spec.max_items) +
-            " < " + std::to_string(spec.prefix_items.size())
-    );
+  const auto cap_length = [&](int64_t cap) {
+    if (spec.max_items == -1 || cap < spec.max_items) spec.max_items = cap;
+  };
+  for (size_t i = 0; i < spec.prefix_items.size(); ++i) {
+    const auto* any = std::get_if<AnySpec>(&spec.prefix_items[i]->spec);
+    if (any && !any->allowed) cap_length(static_cast<int64_t>(i));
   }
-  if (!spec.allow_additional_items) {
-    int64_t prefix_size = static_cast<int64_t>(spec.prefix_items.size());
-    if (prefix_size < spec.min_items) {
-      return ResultErr<SchemaError>(
-          SchemaErrorType::kUnsatisfiableSchema,
-          "minItems is greater than the number of prefixItems, but additional items are not "
-          "allowed: " +
-              std::to_string(spec.min_items) + " > " + std::to_string(prefix_size)
-      );
-    }
-    if (spec.max_items != -1 && prefix_size > spec.max_items) {
-      return ResultErr<SchemaError>(
-          SchemaErrorType::kUnsatisfiableSchema,
-          "maxItems is less than the number of prefixItems, but additional items are not "
-          "allowed: " +
-              std::to_string(spec.max_items) + " < " + std::to_string(prefix_size)
-      );
-    }
+  if (spec.additional_items) {
+    const auto* any = std::get_if<AnySpec>(&spec.additional_items->spec);
+    if (any && !any->allowed) spec.allow_additional_items = false;
+  }
+  if (!spec.allow_additional_items) cap_length(static_cast<int64_t>(spec.prefix_items.size()));
+  if (spec.max_items != -1 && spec.min_items > spec.max_items)
+    return ResultErr<SchemaError>(SchemaErrorType::kUnsatisfiableSchema,
+                                  "required array length reaches an impossible position");
+  if (spec.max_items != -1 && spec.max_items <= static_cast<int64_t>(spec.prefix_items.size())) {
+    spec.prefix_items.resize(static_cast<size_t>(spec.max_items));
+    spec.allow_additional_items = false;
+    spec.additional_items.reset();
   }
   return ResultOk(std::move(spec));
 }
@@ -2383,176 +2310,7 @@ int32_t JSONSchemaConverter::ExcludingString(
     XGRAMMAR_CHECK(filtered.IsOk());
     fsm = std::move(filtered).Unwrap();
   }
-  // Do not emit paths that can never complete after exclusions. Otherwise a matcher
-  // could accept a forbidden alternative's prefix and reach an all-rejected mask later.
-  std::vector<std::vector<int>> predecessors(fsm.NumStates());
-  for (int state = 0; state < fsm.NumStates(); ++state) {
-    for (const auto& edge : fsm.GetFsm().GetEdges(state)) {
-      predecessors[edge.target].push_back(state);
-    }
-  }
-  std::vector<bool> productive(fsm.NumStates(), false);
-  std::vector<int> worklist(fsm.GetEnds().begin(), fsm.GetEnds().end());
-  for (int state : worklist) productive[state] = true;
-  for (size_t index = 0; index < worklist.size(); ++index) {
-    for (int state : predecessors[worklist[index]]) {
-      if (!productive[state]) {
-        productive[state] = true;
-        worklist.push_back(state);
-      }
-    }
-  }
-  if (!productive[fsm.GetStart()]) {
-    return Unsatisfiable();
-  }
-
-  // Collapse UTF-8 paths into codepoint transitions before emitting character classes.
-  // Emitting individual continuation bytes as string literals would not round-trip through
-  // EBNF, whose escaped string literals represent Unicode codepoints rather than raw bytes.
-  struct CodepointRange {
-    int min, max, target;
-  };
-  using Ranges = std::vector<CodepointRange>;
-  auto merge_ranges = [](Ranges ranges) {
-    std::sort(ranges.begin(), ranges.end(), [](const auto& a, const auto& b) {
-      return std::tie(a.target, a.min, a.max) < std::tie(b.target, b.min, b.max);
-    });
-    Ranges merged;
-    for (const auto& range : ranges) {
-      if (!merged.empty() && merged.back().target == range.target &&
-          range.min <= merged.back().max + 1) {
-        merged.back().max = std::max(merged.back().max, range.max);
-      } else {
-        merged.push_back(range);
-      }
-    }
-    return merged;
-  };
-  auto append_ranges = [](Ranges* ranges, int min, int max, int shift, const CodepointRange& suffix
-                       ) {
-    if (suffix.min == 0 && suffix.max == (1 << shift) - 1) {
-      ranges->push_back({min << shift, (max << shift) | suffix.max, suffix.target});
-    } else {
-      for (int prefix = min; prefix <= max; ++prefix) {
-        ranges->push_back(
-            {(prefix << shift) | suffix.min, (prefix << shift) | suffix.max, suffix.target}
-        );
-      }
-    }
-  };
-  // Memoize suffixes so wide Unicode classes do not enumerate every codepoint.
-  std::map<std::pair<int, int>, Ranges> suffix_cache;
-  std::function<const Ranges&(int, int)> suffix_ranges = [&](int state,
-                                                             int remaining) -> const Ranges& {
-    auto [it, inserted] = suffix_cache.emplace(std::make_pair(state, remaining), Ranges{});
-    if (!inserted) return it->second;
-    Ranges ranges;
-    if (remaining == 0) {
-      ranges.push_back({0, 0, state});
-    } else {
-      for (const auto& edge : fsm.GetFsm().GetEdges(state)) {
-        if (!productive[edge.target]) continue;
-        XGRAMMAR_CHECK(edge.IsCharRange());
-        int min = std::max(edge.min, 0x80), max = std::min(edge.max, 0xbf);
-        if (min > max) continue;
-        for (const auto& suffix : suffix_ranges(edge.target, remaining - 1)) {
-          append_ranges(&ranges, min & 0x3f, max & 0x3f, 6 * (remaining - 1), suffix);
-        }
-      }
-    }
-    it->second = merge_ranges(std::move(ranges));
-    return it->second;
-  };
-
-  std::vector<int32_t> rules(fsm.NumStates(), -1);
-  std::vector<int> pending{fsm.GetStart()};
-  // Share complete fallback branches across key prefixes to reuse their token masks.
-  // The key contains the target state followed by every codepoint interval.
-  std::map<std::vector<int32_t>, int32_t> shared_key_continuations;
-  rules[fsm.GetStart()] = builder_.AddEmptyRuleWithHint(rule_name + "_exclude");
-  for (size_t index = 0; index < pending.size(); ++index) {
-    int state = pending[index];
-    Ranges ranges;
-    for (const auto& edge : fsm.GetFsm().GetEdges(state)) {
-      if (!productive[edge.target]) continue;
-      XGRAMMAR_CHECK(edge.IsCharRange());
-      if (edge.min < 128) {
-        ranges.push_back({edge.min, std::min(edge.max, 127), edge.target});
-      }
-      const int leading_min[] = {0, 0xc2, 0xe0, 0xf0};
-      const int leading_max[] = {0, 0xdf, 0xef, 0xf4};
-      for (int remaining = 1; remaining <= 3; ++remaining) {
-        int min = std::max(edge.min, leading_min[remaining]);
-        int max = std::min(edge.max, leading_max[remaining]);
-        if (min > max) continue;
-        int mask = (1 << (6 - remaining)) - 1;
-        Ranges unicode_ranges;
-        for (const auto& suffix : suffix_ranges(edge.target, remaining)) {
-          append_ranges(&unicode_ranges, min & mask, max & mask, 6 * remaining, suffix);
-        }
-        // The byte FSM can contain non-canonical UTF-8 paths. Never turn an overlong
-        // encoding into a second transition for an ASCII character (bypassing exclusions).
-        const int codepoint_min[] = {0, 0x80, 0x800, 0x10000};
-        const int codepoint_max[] = {0, 0x7ff, 0xffff, 0x10ffff};
-        for (auto range : unicode_ranges) {
-          range.min = std::max(range.min, codepoint_min[remaining]);
-          range.max = std::min(range.max, codepoint_max[remaining]);
-          if (range.min <= range.max) {
-            // Raw tool strings and JSON strings contain Unicode scalar values.
-            if (range.min <= 0xd7ff)
-              ranges.push_back({range.min, std::min(range.max, 0xd7ff), range.target});
-            if (range.max >= 0xe000)
-              ranges.push_back({std::max(range.min, 0xe000), range.max, range.target});
-          }
-        }
-      }
-    }
-    std::map<int, std::vector<GrammarBuilder::CharacterClassElement>> transitions;
-    for (const auto& range : merge_ranges(std::move(ranges))) {
-      transitions[range.target].push_back({range.min, range.max});
-    }
-    std::vector<int32_t> choices;
-    // Keep the closing quote on the accepting body states. A nullable body rule
-    // would otherwise finish at every character and force token masks to speculate
-    // across its parent rules. The quote is appended AFTER the exclusion intersection:
-    // it is JSON syntax, not string content subject to excludes.
-    if (fsm.IsEndState(state)) {
-      choices.push_back(close_json_string ? ByteString("\"") : Empty());
-    }
-    for (const auto& [target, codepoints] : transitions) {
-      if (rules[target] == -1) {
-        rules[target] = builder_.AddEmptyRuleWithHint(rule_name + "_exclude");
-        pending.push_back(target);
-      }
-      bool single_ascii = codepoints.size() == 1 && codepoints[0].lower == codepoints[0].upper &&
-                          codepoints[0].upper <= 0x7f;
-      // Keep self-loops local for the compiler's speculative string-mask fast path.
-      if (!excluded_keys.empty() && !single_ascii && target != state) {
-        std::vector<int32_t> key{target};
-        key.reserve(1 + codepoints.size() * 2);
-        for (const auto& range : codepoints) {
-          key.push_back(range.lower);
-          key.push_back(range.upper);
-        }
-        auto [it, inserted] = shared_key_continuations.emplace(std::move(key), -1);
-        if (inserted) {
-          it->second = builder_.AddRuleWithHint(
-              rule_name + "_exclude_continuation",
-              Sequence({builder_.AddCharacterClass(codepoints), RuleRef(rules[target])})
-          );
-        }
-        choices.push_back(RuleRef(it->second));
-      } else {
-        choices.push_back(Sequence({builder_.AddCharacterClass(codepoints), RuleRef(rules[target])})
-        );
-      }
-    }
-    if (choices.empty()) {
-      choices.push_back(Unsatisfiable());
-    }
-    builder_.UpdateRuleBody(rules[state], Choice(choices));
-  }
-  return RuleRef(rules[fsm.GetStart()]);
+  return AddScalarStringFSM(builder_, fsm, rule_name, close_json_string, !excluded_keys.empty());
 }
 
 int32_t JSONSchemaConverter::GenerateInteger(
@@ -2634,28 +2392,7 @@ int32_t JSONSchemaConverter::GenerateIntegerMultipleOfDFA(
 }
 
 int32_t JSONSchemaConverter::GenerateNumber(const NumberSpec& spec, const std::string& rule_name) {
-  std::optional<double> start = spec.minimum;
-  std::optional<double> end = spec.maximum;
-  bool exclusive_start = false;
-  bool exclusive_end = false;
-  // When both bounds are present the larger lower bound wins; on a tie the
-  // exclusive one is stricter.
-  if (spec.exclusive_minimum.has_value() &&
-      (!start.has_value() || *spec.exclusive_minimum >= *start)) {
-    start = spec.exclusive_minimum;
-    exclusive_start = true;
-  }
-  if (spec.exclusive_maximum.has_value() && (!end.has_value() || *spec.exclusive_maximum <= *end)) {
-    end = spec.exclusive_maximum;
-    exclusive_end = true;
-  }
-  if (start.has_value() || end.has_value()) {
-    return RegexExpression(
-        GenerateFloatRangeRegex(start, end, /*precision=*/6, exclusive_start, exclusive_end),
-        false,
-        /*force_cfg_expansion=*/true
-    );
-  }
+  if (spec.range.lower || spec.range.upper) return AddSubGrammar(BoundedNumberGrammar(spec.range));
 
   int32_t optional_minus = Choice({Empty(), ByteString("-")});
   int32_t integer_part = Choice(
@@ -2682,6 +2419,15 @@ int32_t JSONSchemaConverter::GenerateNumber(const NumberSpec& spec, const std::s
 }
 
 int32_t JSONSchemaConverter::GenerateString(const StringSpec& spec, const std::string& rule_name) {
+  if (!spec.extra_patterns.empty() ||
+      (spec.pattern && (spec.min_length != 0 || spec.max_length != -1))) {
+    auto patterns = spec.extra_patterns;
+    if (spec.pattern) patterns.insert(patterns.begin(), *spec.pattern);
+    return Sequence(
+        {ByteString("\""),
+         AddSubGrammar(StringConstraints(patterns, spec.min_length, spec.max_length, {}, true)),
+         ByteString("\"")});
+  }
   // Check for format
   if (spec.format.has_value()) {
     auto regex = JSONFormatToRegexPattern(*spec.format);
@@ -3537,8 +3283,20 @@ int32_t JSONSchemaConverter::GenerateAllOf(const AllOfSpec& spec, const std::str
   if (spec.schemas.size() == 1) {
     return GenerateFromSpec(spec.schemas[0], rule_name + "_case_0");
   }
-  XGRAMMAR_LOG(FATAL) << "allOf with multiple branches is not supported";
-  return GenerateFromSpec(SchemaSpec::Make(AnySpec{}, "", "any"), rule_name);
+  StringSpec joined;
+  for (const auto& schema : spec.schemas) {
+    const auto* str = std::get_if<StringSpec>(&schema->spec);
+    XGRAMMAR_CHECK(str) << "allOf must be normalized to supported conjunctions";
+    joined.min_length = std::max(joined.min_length, str->min_length);
+    if (str->max_length >= 0)
+      joined.max_length =
+          joined.max_length < 0 ? str->max_length : std::min(joined.max_length, str->max_length);
+    if (str->pattern) joined.extra_patterns.push_back(*str->pattern);
+    joined.extra_patterns.insert(joined.extra_patterns.end(), str->extra_patterns.begin(),
+                                 str->extra_patterns.end());
+  }
+  if (joined.max_length >= 0 && joined.min_length > joined.max_length) return Unsatisfiable();
+  return GenerateString(joined, rule_name);
 }
 
 int32_t JSONSchemaConverter::GenerateTypeArray(
@@ -3937,8 +3695,7 @@ int32_t XMLToolCallingConverter::GenerateInteger(const IntegerSpec& spec,
 
 int32_t XMLToolCallingConverter::GenerateNumber(const NumberSpec& spec,
                                                 const std::string& rule_name) {
-  if (json_format_ == JSONFormat::kQwenXML && !spec.minimum && !spec.maximum &&
-      !spec.exclusive_minimum && !spec.exclusive_maximum) {
+  if (json_format_ == JSONFormat::kQwenXML && !spec.range.lower && !spec.range.upper) {
     // Fixed notation for common values; normalized scientific notation covers the rest of
     // finite binary64. The upper exponent uses the largest round-trip decimal significand.
     // Arbitrary exponents such as 1e999 are valid JSON syntax but cannot be published as a
@@ -3979,6 +3736,15 @@ int32_t XMLToolCallingConverter::GenerateString(
 ) {
   if (nested_object_level_ <= 1) {
     if (json_format_ == JSONFormat::kQwenXML) {
+      if (!spec.extra_patterns.empty() ||
+          (spec.pattern && (spec.min_length != 0 || spec.max_length != -1))) {
+        auto patterns = spec.extra_patterns;
+        if (spec.pattern) patterns.insert(patterns.begin(), *spec.pattern);
+        auto excluded = excludes_;
+        excluded.push_back("\n</parameter>");
+        return AddSubGrammar(
+            StringConstraints(patterns, spec.min_length, spec.max_length, excluded, false));
+      }
       std::string regex = spec.pattern ? SchemaStringPattern(*spec.pattern)
           : R"([^\uD800-\uDFFF])" + std::string("{") + std::to_string(spec.min_length) + "," +
               (spec.max_length < 0 ? "" : std::to_string(spec.max_length)) + "}";
@@ -4247,7 +4013,7 @@ std::string XMLToolCallingConverter::RefCacheKey(const std::string& uri) const {
 // ==================== Range Regex Generation ====================
 
 // Stateless utility that turns a numeric range into an anchored regex matching
-// exactly the JSON integers / numbers inside it. Every method is static; the
+// exactly the JSON integers inside it. Every method is static; the
 // class exists only to group the helpers and keep the internal ones private.
 class NumberGenerator {
  public:
@@ -4256,33 +4022,9 @@ class NumberGenerator {
   // span the whole int64 range (|INT64_MIN| is handled without negation overflow).
   static std::string IntegerRangeRegex(std::optional<int64_t> start, std::optional<int64_t> end);
 
-  // Anchored regex matching every number in the range, written with up to
-  // `precision` fraction digits. `exclusive_start` / `exclusive_end` exclude the
-  // boundary value itself (turning >= / <= into > / <). Either bound may be
-  // std::nullopt for an open side; an empty range yields "^()$".
-  static std::string FloatRangeRegex(
-      std::optional<double> start,
-      std::optional<double> end,
-      int precision,
-      bool exclusive_start,
-      bool exclusive_end
-  );
-
  private:
-  // Regex alternatives for the fraction digits following a decimal point.
-  struct FracPatternSet {
-    // Each pattern matches a non-empty fraction digit string.
-    std::vector<std::string> parts;
-    // Whether having no fraction digits at all also satisfies the bound.
-    bool include_empty = false;
-  };
-
-  // --- Regex fragment primitives ---
-  static std::string DigitClass(char lo, char hi);  // one digit in [lo, hi] (or \d)
-  static std::string ExactDigits(int k);            // exactly k free digits: \d{k}
-  static std::string FreeDigits(int max_count);     // 0..max_count free digits: \d{0,n}
-  static std::string OptionalZeros(int max_count);  // 0..max_count zeros: 0{0,n}
-  static std::string SomeZeros(int max_count);      // 1..max_count zeros: 0{1,n}
+  static std::string DigitClass(char lo, char hi);
+  static std::string ExactDigits(int k);
   static bool AllChar(const std::string& s, char c);
 
   // --- Integer range (operate on non-negative decimal magnitude strings) ---
@@ -4292,40 +4034,6 @@ class NumberGenerator {
   static std::vector<std::string> NumberPatternsStr(const std::string& lo, const std::string& hi);
   static std::string SubRangeRegexStr(const std::string& lo, const std::string& hi);
   static std::vector<std::string> AtLeastPositivePatternsStr(const std::string& v_str);
-
-  // --- Float range ---
-  static std::string FormatFloat(double value, int precision);
-  // Snaps a non-negative bound to the precision grid in the direction that keeps
-  // the range sound: a lower bound rounds up, an upper bound rounds down, so no
-  // out-of-range value is ever admitted. Returns the canonical grid string and,
-  // via strict_out, whether the boundary value must still be excluded.
-  static std::string RoundBoundToGrid(
-      double value, int precision, bool is_lower, bool strict_in, bool* strict_out
-  );
-  // Adds (inc) or subtracts (!inc) one grid step (10^-precision) to a canonical
-  // non-negative decimal string, returning the canonical result.
-  static std::string AdjustGrid(const std::string& s, int precision, bool inc);
-  static void SplitDecimal(const std::string& s, std::string* int_part, std::string* frac_part);
-  static int CompareDecimal(
-      const std::string& int_a,
-      const std::string& frac_a,
-      const std::string& int_b,
-      const std::string& frac_b
-  );
-  static std::string StripAnchors(const std::string& regex);
-  static int64_t ParseIntCapped(const std::string& digits);
-  static FracPatternSet FracGreaterPatterns(const std::string& s, bool strict, int max_len);
-  static FracPatternSet FracLessPatterns(const std::string& s, bool strict, int max_len);
-  static FracPatternSet FracBetweenPatterns(
-      const std::string& a, bool strict_a, const std::string& b, bool strict_b, int max_len
-  );
-  static std::vector<std::string> PositiveRangeParts(
-      const std::string& low,
-      bool strict_low,
-      const std::optional<std::string>& high,
-      bool strict_high,
-      int precision
-  );
 };
 
 // Helpers for integer range regex generation. They operate purely on
@@ -4557,498 +4265,10 @@ std::string NumberGenerator::IntegerRangeRegex(
   return result.str();
 }
 
-std::string NumberGenerator::FormatFloat(double value, int precision) {
-  // Casting a double outside [INT64_MIN, INT64_MAX] (or NaN/Inf) to int64_t is
-  // undefined behavior, so range-check before the integer fast path. 2^63 ==
-  // 9223372036854775808.0 is exactly representable and one past INT64_MAX, so the
-  // upper comparison must be strict.
-  if (value >= -9223372036854775808.0 && value < 9223372036854775808.0 &&
-      value == static_cast<int64_t>(value)) {
-    return std::to_string(static_cast<int64_t>(value));
-  }
-
-  std::ostringstream oss;
-  oss << std::fixed << std::setprecision(precision) << value;
-  std::string result = oss.str();
-
-  size_t decimalPos = result.find('.');
-  if (decimalPos != std::string::npos) {
-    size_t lastNonZero = result.find_last_not_of('0');
-    if (lastNonZero != std::string::npos && lastNonZero > decimalPos) {
-      result.erase(lastNonZero + 1);
-    } else if (lastNonZero == decimalPos) {
-      result.erase(decimalPos);
-    }
-  }
-
-  return result;
-}
-
-std::string NumberGenerator::AdjustGrid(const std::string& s, int precision, bool inc) {
-  std::string int_part, frac_part;
-  SplitDecimal(s, &int_part, &frac_part);
-  // Build the scaled-integer numerator (value * 10^precision) as a digit string.
-  // Callers only pass FormatFloat output (<= precision fraction digits); guard
-  // the count so a longer string can never wrap the unsigned append count.
-  frac_part.append(std::max(0, precision - static_cast<int>(frac_part.size())), '0');
-  std::string num = int_part + frac_part;
-
-  if (inc) {
-    int i = static_cast<int>(num.size()) - 1;
-    for (; i >= 0 && num[i] == '9'; --i) {
-      num[i] = '0';
-    }
-    if (i < 0) {
-      num.insert(num.begin(), '1');
-    } else {
-      num[i]++;
-    }
-  } else {
-    int i = static_cast<int>(num.size()) - 1;
-    for (; i >= 0 && num[i] == '0'; --i) {
-      num[i] = '9';
-    }
-    if (i < 0) {
-      // Underflow below zero; clamp to zero (does not occur for the bounds the
-      // float pipeline feeds in, which are all >= one grid step when decremented).
-      num.assign(num.size(), '0');
-    } else {
-      num[i]--;
-    }
-  }
-
-  // Re-split into integer and `precision`-digit fraction, then canonicalize.
-  while (static_cast<int>(num.size()) <= precision) {
-    num.insert(num.begin(), '0');
-  }
-  std::string new_int = num.substr(0, num.size() - precision);
-  std::string new_frac = num.substr(num.size() - precision);
-  size_t nz = new_int.find_first_not_of('0');
-  new_int = (nz == std::string::npos) ? "0" : new_int.substr(nz);
-  size_t lnz = new_frac.find_last_not_of('0');
-  new_frac = (lnz == std::string::npos) ? "" : new_frac.substr(0, lnz + 1);
-  return new_frac.empty() ? new_int : new_int + "." + new_frac;
-}
-
-std::string NumberGenerator::RoundBoundToGrid(
-    double value, int precision, bool is_lower, bool strict_in, bool* strict_out
-) {
-  // FormatFloat rounds to the nearest grid point; if that lands exactly on the
-  // bound, keep the original strictness. Otherwise step to the grid point just
-  // inside the range so no out-of-range value is admitted, and the boundary is
-  // now strictly interior, so it becomes inclusive.
-  std::string r = FormatFloat(value, precision);
-  double rv = std::stod(r);
-  if (rv == value) {
-    *strict_out = strict_in;
-    return r;
-  }
-  *strict_out = false;
-  if (is_lower && rv < value) {
-    // Rounded below a lower bound: move up to the smallest grid point >= value.
-    r = AdjustGrid(r, precision, /*inc=*/true);
-  } else if (!is_lower && rv > value) {
-    // Rounded above an upper bound: move down to the largest grid point <= value.
-    r = AdjustGrid(r, precision, /*inc=*/false);
-  }
-  return r;
-}
-
-// Helpers for GenerateFloatRangeRegex. Fraction patterns operate on the
-// digit string after the decimal point, compared against a canonical bound
-// fraction (canonical: produced by FormatFloat, so no trailing zeros).
-
-// Matches 0 to max_count free digits.
-std::string NumberGenerator::FreeDigits(int max_count) {
-  if (max_count <= 0) {
-    return "";
-  }
-  return "\\d{0," + std::to_string(max_count) + "}";
-}
-
-// Matches 0 to max_count zeros.
-std::string NumberGenerator::OptionalZeros(int max_count) {
-  if (max_count <= 0) {
-    return "";
-  }
-  return "0{0," + std::to_string(max_count) + "}";
-}
-
-// Matches 1 to max_count zeros.
-std::string NumberGenerator::SomeZeros(int max_count) {
-  return "0{1," + std::to_string(max_count) + "}";
-}
-
-// Patterns for fraction strings t (1 <= |t| <= max_len) whose value 0.t is
-// greater than 0.s (or equal when !strict). |s| <= max_len.
-NumberGenerator::FracPatternSet NumberGenerator::FracGreaterPatterns(
-    const std::string& s, bool strict, int max_len
-) {
-  FracPatternSet result;
-  int n = static_cast<int>(s.size());
-  // t agrees with s up to position i, then has a larger digit
-  for (int i = 0; i < n; ++i) {
-    if (s[i] < '9') {
-      result.parts.push_back(
-          s.substr(0, i) + DigitClass(s[i] + 1, '9') + FreeDigits(max_len - i - 1)
-      );
-    }
-  }
-  // t extends s with a nonzero digit (after optional zeros)
-  for (int k = 0; n + k + 1 <= max_len; ++k) {
-    result.parts.push_back(s + std::string(k, '0') + "[1-9]" + FreeDigits(max_len - n - k - 1));
-  }
-  if (!strict) {
-    // t has the same value as s: s plus optional trailing zeros
-    if (n > 0) {
-      result.parts.push_back(s + OptionalZeros(max_len - n));
-    } else {
-      result.include_empty = true;
-      if (max_len >= 1) {
-        result.parts.push_back(SomeZeros(max_len));
-      }
-    }
-  }
-  return result;
-}
-
-// Patterns for fraction strings t (1 <= |t| <= max_len) whose value 0.t is
-// less than 0.s (or equal when !strict). |s| <= max_len.
-NumberGenerator::FracPatternSet NumberGenerator::FracLessPatterns(
-    const std::string& s, bool strict, int max_len
-) {
-  FracPatternSet result;
-  int n = static_cast<int>(s.size());
-  // t agrees with s up to position i, then has a smaller digit
-  for (int i = 0; i < n; ++i) {
-    if (s[i] > '0') {
-      result.parts.push_back(
-          s.substr(0, i) + DigitClass('0', s[i] - 1) + FreeDigits(max_len - i - 1)
-      );
-    }
-  }
-  // t is a proper prefix of s plus optional trailing zeros: strictly smaller,
-  // since the remaining digits of s contain a nonzero one
-  for (int i = 0; i < n; ++i) {
-    if (i == 0) {
-      if (max_len >= 1) {
-        result.parts.push_back(SomeZeros(max_len));
-      }
-    } else {
-      result.parts.push_back(s.substr(0, i) + OptionalZeros(max_len - i));
-    }
-  }
-  if (!strict) {
-    // t has the same value as s
-    if (n > 0) {
-      result.parts.push_back(s + OptionalZeros(max_len - n));
-    } else if (max_len >= 1) {
-      result.parts.push_back(SomeZeros(max_len));
-    }
-  }
-  result.include_empty = n > 0 || !strict;
-  return result;
-}
-
-// Patterns for fraction strings t whose value 0.t lies between 0.a and 0.b.
-// Requires value(0.a) < value(0.b) and b non-empty.
-NumberGenerator::FracPatternSet NumberGenerator::FracBetweenPatterns(
-    const std::string& a, bool strict_a, const std::string& b, bool strict_b, int max_len
-) {
-  FracPatternSet result;
-  // Longest common prefix of b and zero-padded a. Always stops before |b|:
-  // value(0.a) < value(0.b) implies b is not a prefix of padded a.
-  int common_len = 0;
-  while (common_len < static_cast<int>(b.size()) &&
-         (common_len < static_cast<int>(a.size()) ? a[common_len] : '0') == b[common_len]) {
-    ++common_len;
-  }
-  std::string common = b.substr(0, common_len);
-  char digit_a = common_len < static_cast<int>(a.size()) ? a[common_len] : '0';
-  char digit_b = b[common_len];
-
-  // a digit strictly between the bounds' digits, then anything
-  if (digit_b - digit_a >= 2) {
-    result.parts.push_back(
-        common + DigitClass(digit_a + 1, digit_b - 1) + FreeDigits(max_len - common_len - 1)
-    );
-  }
-  // lower boundary: t continues with digit_a, the rest must exceed a's suffix
-  if (common_len < static_cast<int>(a.size())) {
-    FracPatternSet sub_lower =
-        FracGreaterPatterns(a.substr(common_len + 1), strict_a, max_len - common_len - 1);
-    for (auto& part : sub_lower.parts) {
-      result.parts.push_back(common + digit_a + std::move(part));
-    }
-    if (sub_lower.include_empty) {
-      result.parts.push_back(common + std::string(1, digit_a));
-    }
-  } else {
-    // a's value equals value(0.common): only nonzero extensions of
-    // common + digit_a ('0') are strictly greater
-    FracPatternSet sub_lower = FracGreaterPatterns("", true, max_len - common_len - 1);
-    for (auto& part : sub_lower.parts) {
-      result.parts.push_back(common + digit_a + std::move(part));
-    }
-    if (!strict_a) {
-      // t has the same value as a
-      if (!a.empty()) {
-        result.parts.push_back(a + OptionalZeros(max_len - static_cast<int>(a.size())));
-      } else {
-        result.include_empty = true;
-        if (max_len >= 1) {
-          result.parts.push_back(SomeZeros(max_len));
-        }
-      }
-    }
-  }
-  // upper boundary: t continues with digit_b, the rest must stay below b's suffix
-  FracPatternSet sub_upper =
-      FracLessPatterns(b.substr(common_len + 1), strict_b, max_len - common_len - 1);
-  for (auto& part : sub_upper.parts) {
-    result.parts.push_back(common + digit_b + std::move(part));
-  }
-  if (sub_upper.include_empty) {
-    result.parts.push_back(common + std::string(1, digit_b));
-  }
-  return result;
-}
-
-// Splits a canonical decimal string from FormatFloat ("12" or "12.34") into
-// integer and fraction parts.
-void NumberGenerator::SplitDecimal(
-    const std::string& s, std::string* int_part, std::string* frac_part
-) {
-  size_t dot = s.find('.');
-  if (dot == std::string::npos) {
-    *int_part = s;
-    frac_part->clear();
-  } else {
-    *int_part = s.substr(0, dot);
-    *frac_part = s.substr(dot + 1);
-  }
-}
-
-// Compares the values of two canonical non-negative decimals.
-int NumberGenerator::CompareDecimal(
-    const std::string& int_a,
-    const std::string& frac_a,
-    const std::string& int_b,
-    const std::string& frac_b
-) {
-  if (int_a.size() != int_b.size()) {
-    return int_a.size() < int_b.size() ? -1 : 1;
-  }
-  if (int_a != int_b) {
-    return int_a < int_b ? -1 : 1;
-  }
-  size_t max_frac = std::max(frac_a.size(), frac_b.size());
-  for (size_t i = 0; i < max_frac; ++i) {
-    char da = i < frac_a.size() ? frac_a[i] : '0';
-    char db = i < frac_b.size() ? frac_b[i] : '0';
-    if (da != db) {
-      return da < db ? -1 : 1;
-    }
-  }
-  return 0;
-}
-
-// Strips the ^( )$ anchors added by IntegerRangeRegex, keeping the group.
-std::string NumberGenerator::StripAnchors(const std::string& regex) {
-  return regex.substr(1, regex.size() - 2);
-}
-
-int64_t NumberGenerator::ParseIntCapped(const std::string& digits) {
-  // `digits` is a canonical non-negative integer string (no leading zeros).
-  // Parse it exactly when it fits in int64; clamp to INT64_MAX otherwise (such
-  // magnitudes are beyond practical float bounds and double integer precision).
-  static const std::string kMaxInt64 = std::to_string(std::numeric_limits<int64_t>::max());
-  if (digits.size() > kMaxInt64.size() ||
-      (digits.size() == kMaxInt64.size() && digits > kMaxInt64)) {
-    return std::numeric_limits<int64_t>::max();
-  }
-  return std::stoll(digits);
-}
-
-// Patterns for unsigned decimals (integer part plus optional fraction of up
-// to `precision` digits) within the given bounds. `low` is required and
-// non-negative; `high` is optional. Patterns for the value 0 are never
-// produced: when low's value is 0 the bound is treated as strict, and the
-// caller emits the zero pattern itself.
-std::vector<std::string> NumberGenerator::PositiveRangeParts(
-    const std::string& low,
-    bool strict_low,
-    const std::optional<std::string>& high,
-    bool strict_high,
-    int precision
-) {
-  std::vector<std::string> parts;
-  std::string int_low, frac_low;
-  SplitDecimal(low, &int_low, &frac_low);
-  if (int_low == "0" && frac_low.empty()) {
-    strict_low = true;
-  }
-  int64_t int_low_value = ParseIntCapped(int_low);
-  std::string opt_any_frac = "(\\.\\d{1," + std::to_string(precision) + "})?";
-
-  auto add_with_int_part = [&](const std::string& int_part, const FracPatternSet& set) {
-    for (const auto& part : set.parts) {
-      parts.push_back(int_part + "\\." + part);
-    }
-    if (set.include_empty) {
-      parts.push_back(int_part);
-    }
-  };
-
-  if (!high.has_value()) {
-    add_with_int_part(int_low, FracGreaterPatterns(frac_low, strict_low, precision));
-    // Guard the +1 against int64 overflow (int_low_value may be clamped to
-    // INT64_MAX for very large bounds).
-    if (int_low_value < std::numeric_limits<int64_t>::max()) {
-      parts.push_back(
-          StripAnchors(IntegerRangeRegex(int_low_value + 1, std::nullopt)) + opt_any_frac
-      );
-    }
-    return parts;
-  }
-
-  std::string int_high, frac_high;
-  SplitDecimal(*high, &int_high, &frac_high);
-  int64_t int_high_value = ParseIntCapped(int_high);
-  int cmp = CompareDecimal(int_low, frac_low, int_high, frac_high);
-  if (cmp > 0 || (cmp == 0 && (strict_low || strict_high))) {
-    return parts;
-  }
-  if (cmp == 0) {
-    // single representable value, with optional redundant trailing zeros
-    if (frac_low.empty()) {
-      parts.push_back(int_low + "(\\." + SomeZeros(precision) + ")?");
-    } else {
-      parts.push_back(
-          int_low + "\\." + frac_low + OptionalZeros(precision - static_cast<int>(frac_low.size()))
-      );
-    }
-    return parts;
-  }
-  if (int_low == int_high) {
-    add_with_int_part(
-        int_low, FracBetweenPatterns(frac_low, strict_low, frac_high, strict_high, precision)
-    );
-  } else {
-    add_with_int_part(int_low, FracGreaterPatterns(frac_low, strict_low, precision));
-    if (int_high_value - int_low_value >= 2) {
-      parts.push_back(
-          StripAnchors(IntegerRangeRegex(int_low_value + 1, int_high_value - 1)) + opt_any_frac
-      );
-    }
-    add_with_int_part(int_high, FracLessPatterns(frac_high, strict_high, precision));
-  }
-  return parts;
-}
-
-std::string NumberGenerator::FloatRangeRegex(
-    std::optional<double> start,
-    std::optional<double> end,
-    int precision,
-    bool exclusive_start,
-    bool exclusive_end
-) {
-  if (start && end) {
-    if (start.value() > end.value() ||
-        (start.value() == end.value() && (exclusive_start || exclusive_end))) {
-      return "^()$";
-    }
-  }
-
-  if (!start && !end) {
-    return "^-?\\d+(\\.\\d{1," + std::to_string(precision) + "})?$";
-  }
-
-  std::vector<std::string> parts;
-
-  // Negative values: x is in [start, end] iff -x is in [-end, -start], so the
-  // positive-range patterns are reused on the negated bounds and prefixed
-  // with '-'.
-  bool negatives_in_range = !start.has_value() || start.value() < 0;
-  if (negatives_in_range) {
-    std::string low = "0";
-    bool strict_low = true;
-    if (end.has_value() && end.value() < 0) {
-      low =
-          RoundBoundToGrid(-end.value(), precision, /*is_lower=*/true, exclusive_end, &strict_low);
-    }
-    std::optional<std::string> high;
-    bool strict_high = false;
-    if (start.has_value()) {
-      high = RoundBoundToGrid(
-          -start.value(), precision, /*is_lower=*/false, exclusive_start, &strict_high
-      );
-    }
-    for (auto& part : PositiveRangeParts(low, strict_low, high, strict_high, precision)) {
-      parts.push_back("-" + std::move(part));
-    }
-  }
-
-  bool zero_allowed =
-      (!start.has_value() || start.value() < 0 || (start.value() == 0 && !exclusive_start)) &&
-      (!end.has_value() || end.value() > 0 || (end.value() == 0 && !exclusive_end));
-  if (zero_allowed) {
-    parts.push_back("0(\\." + SomeZeros(precision) + ")?");
-    // Negative zero written with an all-zero fraction ("-0.0".."-0.000000") also
-    // denotes 0. PositiveRangeParts never emits magnitude 0, so add these forms
-    // explicitly when the range covers the negative side.
-    if (negatives_in_range) {
-      parts.push_back("-0(\\." + SomeZeros(precision) + ")");
-    }
-  }
-
-  // Positive values
-  if (!end.has_value() || end.value() > 0) {
-    std::string low = "0";
-    bool strict_low = true;
-    if (start.has_value() && start.value() > 0) {
-      low = RoundBoundToGrid(
-          start.value(), precision, /*is_lower=*/true, exclusive_start, &strict_low
-      );
-    }
-    std::optional<std::string> high;
-    bool strict_high = false;
-    if (end.has_value()) {
-      high =
-          RoundBoundToGrid(end.value(), precision, /*is_lower=*/false, exclusive_end, &strict_high);
-    }
-    for (auto& part : PositiveRangeParts(low, strict_low, high, strict_high, precision)) {
-      parts.push_back(std::move(part));
-    }
-  }
-
-  std::ostringstream result;
-  result << "^(";
-  for (size_t i = 0; i < parts.size(); ++i) {
-    if (i > 0) {
-      result << "|";
-    }
-    result << parts[i];
-  }
-  result << ")$";
-
-  return result.str();
-}
-
 std::string JSONSchemaConverter::GenerateRangeRegex(
     std::optional<int64_t> start, std::optional<int64_t> end
 ) {
   return NumberGenerator::IntegerRangeRegex(start, end);
-}
-
-std::string JSONSchemaConverter::GenerateFloatRangeRegex(
-    std::optional<double> start,
-    std::optional<double> end,
-    int precision,
-    bool exclusive_start,
-    bool exclusive_end
-) {
-  return NumberGenerator::FloatRangeRegex(start, end, precision, exclusive_start, exclusive_end);
 }
 
 // ==================== Public API Functions ====================
@@ -5284,14 +4504,6 @@ std::string JSONSchemaToEBNF(
 // Wrapper functions for testing
 std::string GenerateRangeRegex(std::optional<int64_t> start, std::optional<int64_t> end) {
   return JSONSchemaConverter::GenerateRangeRegex(start, end);
-}
-
-std::string GenerateFloatRangeRegex(
-    std::optional<double> start, std::optional<double> end, bool exclusive_start, bool exclusive_end
-) {
-  return JSONSchemaConverter::GenerateFloatRangeRegex(
-      start, end, 6, exclusive_start, exclusive_end
-  );
 }
 
 }  // namespace xgrammar

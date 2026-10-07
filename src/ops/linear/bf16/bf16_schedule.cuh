@@ -193,7 +193,7 @@ struct Bf16A16SlicedKMmaSchedule {
 
 template <int BlockRows, int BlockTokens, int BlockK, int WarpRows, int WarpTokens, int Stages,
           int MinBlocksPerSm = 1, Bf16MmaRaster Raster = Bf16MmaRaster::TokenFast,
-          int RasterGroupRows = 1>
+          int RasterGroupRows = 1, int ConsumerKUnroll = 1>
 struct Bf16A16TmaMmaSchedule
     : Bf16A16MmaSchedule<BlockRows, BlockTokens, BlockK, WarpRows, WarpTokens, Stages,
                          MinBlocksPerSm, Cache::cg, Cache::cg, Bf16MmaFragmentPipeline::PingPong,
@@ -204,8 +204,10 @@ struct Bf16A16TmaMmaSchedule
     static constexpr int kTensorBytes     = Stages * (BlockRows + BlockTokens) * BlockK * 2;
     static constexpr int kBarrierBytes    = Stages * 2 * sizeof(std::uint64_t);
     static constexpr int kSharedBytes     = kTensorBytes + kBarrierBytes;
+    static constexpr int kConsumerKUnroll = ConsumerKUnroll;
     static_assert(kThreads <= 1024 && kSharedBytes <= 99 * 1024);
     static_assert(BlockRows <= 256 && BlockTokens <= 256 && BlockK <= 16384);
+    static_assert(ConsumerKUnroll > 0);
 };
 
 // Row predicates preserve the compact physical matrix; full-tile schedules keep their fast path.
@@ -222,7 +224,7 @@ inline constexpr bool bf16_predicated_rows = [] {
         return false;
 }();
 
-// Packed SIMT reductions may mask the final warp-sized K phase without padding storage.
+// K predicates zero-fill the final vector/tile without padding the compact physical rows.
 template <class Schedule>
 struct Bf16KTailSchedule : Schedule {
     static constexpr bool kPredicatedK = true;

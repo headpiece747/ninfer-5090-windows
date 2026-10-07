@@ -16,6 +16,7 @@ public:
     // device mask. A dead end fails a row only if verification reaches that position.
     [[nodiscard]] virtual std::uint32_t fill(std::size_t row, std::span<const TokenId> drafts,
                                              std::span<std::uint32_t> words) = 0;
+    virtual void uploaded(std::size_t row, std::size_t bytes) noexcept       = 0;
 };
 
 struct LaneId {

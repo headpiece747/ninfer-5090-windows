@@ -37,6 +37,9 @@ public:
     ToolCallOutputDecoder(std::shared_ptr<const ToolCallOutputContract> contract,
                           std::size_t max_tool_name_length);
 
+    [[nodiscard]] bool in_tool_region() const noexcept {
+        return saw_tool_marker_ || marker_prefix_bytes_ != 0;
+    }
     [[nodiscard]] std::string feed(std::string_view text);
     void initialize_continuation(std::string_view prefix);
     [[nodiscard]] Terminal finish(FinishReason reason = FinishReason::StopToken);

@@ -15,7 +15,7 @@
 
 namespace ninfer::bench {
 
-inline constexpr int kSchemaVersion                   = 17;
+inline constexpr int kSchemaVersion                   = 19;
 inline constexpr std::string_view kArtifactType       = "ninfer_bench_report";
 inline constexpr std::string_view kDefaultCorpusPath  = "bench/fixtures/bench_corpus.ids";
 inline constexpr int kDecodeSeedTokens                = 1;
@@ -55,7 +55,7 @@ struct BenchOptions {
     std::string artifact_path;
     std::string corpus_path{kDefaultCorpusPath};
     std::string constraint_file;
-    std::optional<OutputConstraintKind> constraint_kind;
+    std::optional<OutputConstraint> constraint;
     std::uint32_t concurrency = 1;
     bool mixed_constraints    = false;
     std::vector<int> n_prompt;
@@ -79,6 +79,8 @@ struct RepTiming {
     GenerationTimings timings;
     SpeculativeStats speculative;
     std::uint32_t generated_output_tokens = 0;
+    std::optional<ConstraintObservation> constraint;
+    double constraint_draft_wait_exposed_seconds = 0.0;
 };
 
 struct TestResult {

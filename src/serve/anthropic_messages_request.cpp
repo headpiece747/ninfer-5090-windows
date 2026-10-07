@@ -698,9 +698,12 @@ std::vector<ParsedTool> parse_tool_definitions(const Json& body) {
     if (!body.contains("tools") || body.at("tools").is_null()) { return result; }
     if (!body.at("tools").is_array()) { bad_request("tools must be an array", "tools"); }
     std::unordered_set<std::string> names;
+    std::size_t source_index = 0;
     for (const Json& item : body.at("tools")) {
         if (!item.is_object()) { bad_request("tools entries must be objects", "tools"); }
         ParsedTool parsed;
+        parsed.definition.schema_param =
+            "tools/" + std::to_string(source_index++) + "/input_schema";
         if (item.contains("type") && !item.at("type").is_null()) {
             if (!item.at("type").is_string()) {
                 bad_request("tool type must be a string or null", "tools");

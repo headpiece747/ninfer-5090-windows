@@ -685,9 +685,9 @@ runtime::BatchedGeneratedRound ProgramImpl::decode_dflash_batch(
                                        execution::SpeculativePhase::Forward);
         if (constrained) {
             // The forward graph signals draft readiness before running the target model.
-            timing.begin_wait();
+            timing.begin_constraint_wait();
             dflash_draft_handoff->ready.synchronize();
-            timing.end_wait();
+            timing.end_constraint_wait();
             timing.resume_submit();
             for (std::size_t row = 0; row < lanes.size(); ++row) {
                 const auto extent =

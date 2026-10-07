@@ -221,6 +221,22 @@ void run() {
     auto patterned = contract(schema({{"type", "string"}, {"pattern", "p"}}), true, required);
     require(accepts(compiled, *patterned, call("apple")), "raw pattern lost search semantics");
     require(!accepts(compiled, *patterned, call("none")), "raw pattern ignored");
+    auto intersection = contract(
+        schema({{"type", "string"}, {"pattern", "你|😀"}, {"minLength", 2}, {"maxLength", 3}}),
+        true, required);
+    require(accepts(compiled, *intersection, call("你好")) &&
+                accepts(compiled, *intersection, call("😀ab")) &&
+                !accepts(compiled, *intersection, call("你")) &&
+                !accepts(compiled, *intersection, call("你abc")) &&
+                !accepts(compiled, *intersection, call("abc")),
+            "strict string conjunction lost pattern or Unicode length");
+    auto conjunction = contract(schema({{"allOf",
+                                         {Json{{"type", "string"}, {"pattern", "a"}},
+                                          Json{{"pattern", "b"}, {"maxLength", 3}}}}}),
+                                true, required);
+    require(accepts(compiled, *conjunction, call("ab")) &&
+                !accepts(compiled, *conjunction, call("aaaa")),
+            "strict parameter domain disagrees with normalized conjunction");
     const auto value = std::string("  你好\n");
     frontend::ToolCallOutputDecoder decoder(automatic, 64);
     const auto text = call(value);

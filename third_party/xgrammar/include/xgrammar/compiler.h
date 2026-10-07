@@ -22,6 +22,8 @@
 
 namespace xgrammar {
 
+enum class CompilationCacheAccess { kHit, kBuilt, kWaited };
+
 /*!
  * \brief The compiled grammar of a GrammarMatcher. It contains the preprocessing results of the
  * grammar and tokenizer.
@@ -89,7 +91,8 @@ class GrammarCompiler {
   // Build and compile on a cache miss; the caller's key describes the complete source and
   // composition. The factory runs synchronously and is never retained by the cache.
   CompiledGrammar CompileCachedGrammar(const std::string& key,
-                                       const std::function<Grammar()>& factory);
+                                       const std::function<Grammar()>& factory,
+                                       CompilationCacheAccess* access = nullptr);
 
   /*!
    * \brief Get the compiled grammar for a Lark grammar string.
