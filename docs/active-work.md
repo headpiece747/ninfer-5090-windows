@@ -2618,11 +2618,34 @@ deprecation warning, not a failure.
 runs ctest, then the gate found no `.gate-cache.json` in a fresh workspace and ran it again (~7 minutes
 of the card, and a second chance for a flake to fail the gate). The suite step now captures its own run
 (`cmd /c tools\scripts\test_v3.cmd > "%TEMP%\test_v3.log" 2>&1` and `type`s it, so the log stays
-visible) and the gate reads it with `--from-log`. Verified by running exactly that pair here:
-`150/152` with the two baselined failures and the mutation gate green in the capture, then
-**GATE PASSED: no regression against the recorded baseline** from the gate.
+visible) and the gate reads it with `--from-log`.
 
-**Done when:** the tier runs. **Done:** the run above, every step green.
+**Two failures that only the second dispatch could find, both from that change and the action bump:**
+
+* **A `run:` block on Windows is PowerShell, not cmd.** The captured-log step was written in cmd
+  syntax (`REM …`), which is a ParserError under PowerShell, so the job died in 15 seconds on its first
+  line. Local verification could not have caught it: it had run the same commands from a `.cmd` file,
+  where cmd is the shell by definition. Both steps that use cmd syntax now declare `shell: cmd`, and
+  the header carries the trap.
+* **The action bump needed a dispatch to verify, and it was verified.** `actions/checkout@v4` and
+  `actions/setup-python@v5` run on Node 20, which the runners force onto Node 24 and report as a
+  deprecation on every run. Both are at v7 now; `ci` verified its own bump on the push (2m16s) and the
+  GPU tier verified `checkout@v7` on the self-hosted runner in the run below.
+
+**The second execution, all green in 11m43s** (run `37555704006`): checkout@v7, the FFmpeg staging
+step, the suite, **the gate reading the captured log** (`150/152 passed`, two baselined failures,
+`GATE PASSED`, in about a second instead of a second suite run), and the sanitizer subset. So the
+5.5-minute difference from the first run is the double run that is now gone, and the deprecation
+annotation is gone with the action bump.
+
+**Every run is a from-scratch build, and that is the checkout's doing rather than a setting:**
+`actions/checkout` cleans the workspace (`git clean -ffdx`) and `build-test/` is gitignored, so the
+recipe configures and builds from zero each time — which is most of the 11-17 minutes. `clean: false`
+would make the nightly runs incremental; it is not taken, because the cold build is itself a
+verification that a local incremental build cannot give, and the machine is idle at 04:00.
+
+**Done when:** the tier runs. **Done:** two dispatches, every step green, with the gate's own verdict
+read out of the log rather than inferred from the step's colour.
 
 ## Gates added while this list was open
 
