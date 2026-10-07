@@ -48,8 +48,10 @@ and renumbering them would break every cross-reference to it. Each heading carri
   corrected instrument and every reproducible candidate classified; five real losses were restored
   (the frontier ledger and the engine settle order earlier, then prompt preparation's host phases, the
   `TextCallConfig` refactor, the reporter profile, the five model cards and the port's `README.md`),
-  and one loss -- the #251 reclaim -- is recorded as open rather than claimed. The counts this item
-  first recorded (40 taken / 53 kept / 19 gone) are not reproducible and were dropped.
+  and the last one -- the #251 reclaim -- turned out to be a policy difference in the replacement
+  cache rather than a missing path, measured at both workload shapes and adequate for the shipped
+  configuration. The counts this item first recorded (40 taken / 53 kept / 19 gone) are not
+  reproducible and were dropped.
 - **item 17** — **the suite runs 3.0x faster; the remaining 1.6x is a coverage decision, not a
   mechanical one.** 1430.9 s → 471.0 s. Splitting `context_kv_materialize` would take it to about
   300 s, but that test's workspace check is a whole-sweep postcondition and cannot be relocated
@@ -2104,6 +2106,14 @@ full.
   consequence for a stream of distinct conversations, and what is left is a decision (size the pools
   for this port's workload, or ask for the LRU behaviour back), not a diagnosis. Both are written up
   in `docs/research/prefix-state-eviction.md`.
+  **Decided by measurement, 2026-10-06: option 1 holds and option 2 is not needed.** The shipped
+  acceptance shape (12 conversations x ~20,000 tokens on the QUASAR DFlash2 lane,
+  `--device-state-slots 1 --host-context-mib 8192 --kv-capacity auto`) reuses at **99.8% for all
+  twelve** -- the result the retired reclaim achieved -- and the interleaved shape that a session plus
+  subagents produces holds to **52 conversations** and fails at 56, which is the host quota in state
+  images (~55 x 147 MiB = 8 GiB). This port's workload is 8. So the shipped setting is adequate for
+  what it ships, the bound is `--host-context-mib`, and the item closes with the numbers rather than
+  with a claim.
 * `src/runtime/engine/context_cache/{materialization_budget.h,materialization_planner.h}` and
   `tests/test_materialization_budget.cpp` -- superseded. The port's 250 ms grant ceiling (`e92cd9d7`)
   patched a mechanism upstream's rewrite deleted; `MaterializationSearchBudget` has zero occurrences
