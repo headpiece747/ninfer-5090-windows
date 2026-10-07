@@ -875,7 +875,9 @@ the reclaim cursor, the plans the Program offers, and every gate the admission r
 
 So: the state slot is demanded, the cursor enumerates candidates, `Program::plan_reclaim` offers one
 demotion **and** one release, and then `admits` rejects both. The rejection is always the same gate,
-`resource_manager.h:1282-1285`:
+`src/runtime/engine/context_cache/resource_manager.h:1256` (it sat at `:1282` when this was written and
+upstream's ten commits of 2026-10-07 shifted it; the citation gate checks ranges, not content, so a
+reader who finds a different gate there has found a moved one, not a wrong note):
 
 ```cpp
 if (victim.reused && (!admission->priority.reused ||

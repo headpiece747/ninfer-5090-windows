@@ -71,14 +71,31 @@ Their Expected 3 asks that the defaults scale with `--max-concurrency` or be doc
 scale — `device_state_slots = C`, `private = 2C`, `shared = max(C, 4)` — and the only value either
 project demonstrates is 2, which their table does not test.
 
-## The one question worth asking the reporter
+## The one question worth asking the reporter — **and it was already answered by the report**
 
-They offered to run variants: *"the reproduction takes two minutes."* Their table tests 1 (never) and 3
-(fails); the boundary between them is untested and upstream documents **2**.
+They offered to run variants: *"the reproduction takes two minutes."* This note read their table as
+testing 1 (never) and 3 (fails) and asked whether `repro_dsh.py` underflows at `--max-concurrency 2`.
 
-**Does `repro_dsh.py` underflow at `--max-concurrency 2`?** That single run discriminates a threshold at
-≥2 from something specific to 3, on the hardware and artifact where it actually happens — which is the
-only environment where this question can be answered.
+**Read against the tracker on 2026-10-07, that premise is wrong: the report is about 2, not 3.** The
+issue's own title is "`serve` wedges with 503 for all requests after `Qwen3.5 resource subtraction
+underflow` (checked_resource_difference, context_work.cpp:222) **under `--max-concurrency 2`**"
+(`gh api repos/Neroued/ninfer/issues/339 --jq .title`), and its body says "With `--max-concurrency 2`,
+when two large-context requests are in flight at the same time (60k-70k input tokens each …)" and "9
+total occurrences that day, all with `--max-concurrency 2` under heavy concurrent load", against the
+control "`--max-concurrency 1`, continuous all-day usage: 0 occurrences". A tracker-wide search finds
+no underflow report at concurrency 3 at all
+(`gh api "search/issues?q=%22resource+subtraction+underflow%22+repo:Neroued/ninfer"` → #339 only).
+
+So the question is moot: **the reporter already ran 2 and it underflowed there**, and the only value
+below 2 is 1, where they observed nothing. The boundary is *at* 2, and what remains genuinely
+untested is not a question for them but the port's own re-test of their workload against the
+replacement cache — the re-test `#366` asks every reporter for, whose partial form is recorded in
+`server-open-items.md` item 1 (their settings, 360/360 clean, but prompts of ~2,000 tokens against
+their 60,000-70,000, no tools and no reasoning effort).
+
+**This paragraph previously asked the reporter for a run they had already done**, which is what
+reading the primary source rather than the paraphrase is for: this note's table of "their table"
+came from the earlier note's summary, not from the issue.
 
 ## Correction 2026-10-06: three claims in this note have been overtaken
 

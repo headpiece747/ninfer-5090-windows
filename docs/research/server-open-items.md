@@ -3,13 +3,18 @@
 This document records every known server-side open or deferred item, its status, and its
 disposition. It exists so these items do not come up again without their context.
 
+**The 2026-10-07 research pass over these items, against the upstream tracker and first-party
+documentation, is [upstream-open-items-2026-10-07.md](upstream-open-items-2026-10-07.md)** — it
+carries the per-item citations, and it corrected two entries here (item 3's deferral was stale, and
+item 1's question for the reporter had already been answered by the report itself).
+
 ## Summary
 
 | Item | Status | Disposition |
 |---|---|---|
 | Issue 5: cache-hitting race condition | Deferred | Not reproducible at `--max-concurrency 1`; no fix needed |
 | Fail-stop exit code | **Fixed** | Exit code 3 on engine failure |
-| FP8 TMA kernel faults on MSVC | Deferred | Requires careful porting of 7 upstream commits |
+| FP8 TMA kernel faults on MSVC | **Fixed 2026-10-07** | Merged with upstream `d44ab584`; `alignas(64)` in the three TMA headers |
 | Protocol-level unsupported features | By design | Intentional product boundaries |
 | Remote HTTP media | **Fixed** | Uses CMake `FindCURL`; graceful when libcurl absent |
 | TDR not measured | **Documented** | Added to all 8 launcher headers |
@@ -168,18 +173,47 @@ never exited. A supervisor could not distinguish a hung process from a healthy o
 
 ## 3. FP8 TMA kernel faults on MSVC
 
-**Status:** Deferred — requires careful porting.
+**Status: DONE — this entry's deferral was stale when it was read on 2026-10-07.** The seven commits
+are merged and the alignment fix is in the tree; what follows records the inventory and the mechanism,
+so the next reader does not re-derive them.
 
 **What it is:** 7 upstream commits that optimize FP8 TMA kernels fail on MSVC with
-`error C2719` (formal parameter with `__declspec(align('#'))` won't be aligned). The fix is
-three one-line `alignas` reapplications, already validated here.
+`error C2719` (formal parameter with `__declspec(align('#'))` won't be aligned). The fix is three
+one-line `alignas` reapplications, already validated here.
 
-**Why it is deferred:** The port's platform surface is minimal (9 files), and these commits
-touch kernel code that requires careful review. The fix is known but not yet applied.
+**The seven, identified 2026-10-07** (the FP8 TMA series of 2026-09-28; each is an ancestor of
+`upstream/dev`, and the files still exist there): `344d69b8` (fp8 14336x5120), `7489500d`
+(16384x5120), `b3f018ab` (5120x6144), `7ede9b44` (5120x17408), `40bfe7dc` (fused projections, split-K),
+`909fb087` (34816x5120 — the commit that **created** `fp8_a8_tma_mma.cuh` and introduced
+`struct alignas(128) Fp8TmaDescriptors`), and `7f6aafed` (fp8/k8v4 prefill split-kv, which added the
+mxfp8 tiled files).
 
-**Docs:** `docs/active-work.md` item 12
+**Where the port stands:** they arrived with `d44ab584` (`docs/active-work.md` item 12, "Upstream's 14
+commits are merged; the FP8 A8 TMA route is here"), and the alignment fix is in three headers:
+`src/ops/linear/fp8/fp8_a8_tma_mma.cuh:26` (`struct alignas(64) Fp8TmaDescriptors`, with the C2719
+reason above it), `src/ops/linear/bf16/bf16_a16_tma_mma.cuh:43` (no override — the `CUtensorMap`
+attribute is not applied under this build at all, because nvcc's MSVC host pass reports
+`__cplusplus = 199711L` — and the encode destination is `alignas(64)`), and
+`src/ops/linear/nvfp4/nvfp4_a4_tma.cuh:30` (no override, same reason). Upstream's three structs still
+carry `alignas(128)` today, so the divergence is live and the ratchet records it as `windows`.
 
-**Disposition:** Deferred. The fix is known and validated; it needs a dedicated porting effort.
+**The mechanism, from first-party sources** (`docs/research/upstream-open-items-2026-10-07.md` §2 has
+the quotations): Microsoft's C2719 page says "Function parameter alignment is controlled by the calling
+convention used", and the x64 calling convention page says "Alignment above 16 bytes must be done
+manually"; NVIDIA's own `cuda.h` lowers `TENSOR_MAP_ALIGN` to 64 under `_MSC_VER`; the CUDA Programming
+Guide's recommended pattern is exactly what the port uses — "pass the tensor map as a const
+`__grid_constant__` parameter to a kernel" — and the port's `probe_tma_align.cmd` measures the same
+acceptance ceiling (accepted at 8/16/32/64, rejected at 128 and 256).
+
+**Why it was deferred:** the platform surface was minimal and these commits touch kernel code. That
+reason no longer applies — the porting happened — and the entry is kept for its inventory and its
+mechanism, not as work.
+
+**Docs:** `docs/active-work.md` item 12; `docs/research/grid-constant-tma-descriptor-msvc.md`;
+`docs/research/upstream-open-items-2026-10-07.md` §2.
+
+**Disposition:** Done. Nothing to port; the remaining upstream risk is a *new* commit in this family
+carrying `alignas(128)` again, which the ratchet's `windows` entries would surface as a divergence.
 
 ---
 

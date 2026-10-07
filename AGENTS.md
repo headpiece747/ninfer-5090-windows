@@ -204,15 +204,18 @@ the fast gates have one definition and CI cannot drift from the hook. `.github/w
 runs `test_v3.cmd` and then the baseline gate on a **self-hosted** runner labelled `gpu-5090`, on a
 nightly cron and on dispatch, serialised against measurements by its `concurrency` group.
 GitHub-hosted runners cannot take the second tier: they have no GPU and no CUDA toolkit.
-**The runner is registered and the tier has run** (2026-10-06: `5090-box`, online, two dispatches
-green — the gate reads the recipe's own captured log, so the suite runs once). Two preconditions are
-easy to lose: the workflow must exist on the **default branch** for `schedule`/`workflow_dispatch` to
-fire at all, which is why the default branch is `dev` rather than the release-only `main`; and the
-runner is a process, so a reboot takes the nightly cron with it until `svc.cmd install` runs from an
-elevated shell. `gpu.yml`'s header carries both, the FFmpeg staging the checkout needs, and the
-registration commands. This paragraph previously read "Not installed deliberately: CI", which the
-two-tier commit `88ee28f0` had already made false, and then "no self-hosted runner is registered …
-never executed", which the first dispatch falsified.
+**The runner is registered and the tier has run** (2026-10-06: `5090-box`, online, dispatches green —
+the gate reads the recipe's own captured log, so the suite runs once). Three preconditions are easy to
+lose, and all three are now measured: the workflow must exist on the **default branch** for
+`schedule`/`workflow_dispatch` to fire at all, which is why the default branch is `dev` rather than
+the release-only `main`; the runner is a process, so it needs a per-user logon task
+(`Register-ScheduledTask -AtLogOn`; `schtasks /create /sc onlogon` is an any-user trigger and is
+denied without elevation) to survive a reboot; and **the cron can be hours late** — the 04:00 slot on
+2026-10-07 ran at 10:55:59 UTC. `gpu.yml`'s header carries all of it, the FFmpeg staging the checkout
+needs, and the registration commands. This paragraph previously read "Not installed deliberately: CI",
+which the two-tier commit `88ee28f0` had already made false, then "no self-hosted runner is
+registered … never executed", which the first dispatch falsified, and then "the schedule is not firing
+at all", which the run six hours late falsified.
 
 ### Skills, and when to reach for one
 

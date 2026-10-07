@@ -29,27 +29,29 @@
 #   tar -xf actions-runner-win-x64-2.338.0.zip
 #   ./config.cmd --url https://github.com/headpiece747/ninfer-5090-windows --token <token> \
 #                --labels gpu-5090 --name 5090-box
-#   ./run.cmd          # or ./svc.cmd install for a service
+#   ./run.cmd          # foreground; the service is a config.cmd option, from an elevated shell
 #
 # The URL is versioned on purpose: `releases/latest/download/actions-runner-win-x64.zip` 404s,
 # because the released asset carries the version in its name. Check the current one with
 # `gh api repos/actions/runner/releases/latest --jq '.tag_name, (.assets[].name)'`.
 #
 # The schedule fires only while a runner is up: `run.cmd` is a foreground listener that dies with the
-# shell that started it, so a machine that must serve the nightly job needs the service form (from an
-# elevated shell) or a startup task. Registered and left running on this machine 2026-10-06 as
-# `5090-box`, online.
+# shell that started it. **Measured 2026-10-07: it does not have to be the service form.** GitHub
+# requires elevation for the *service*, but a per-user logon task needs none, and
+# `schtasks /create /sc onlogon` is the wrong tool for it -- that switch registers an ANY-user trigger
+# and is denied ("Access is denied"), while `Register-ScheduledTask -Trigger (New-ScheduledTaskTrigger
+# -AtLogOn -User $env:USERNAME)` succeeded from a medium-integrity shell and is registered here as
+# `ninfer-gpu-runner` (state Ready, principal `tobia`, logon Interactive, run level Limited), running
+# `C:\AI\actions-runner\start-if-idle.cmd`. The runner is registered as `5090-box`, online.
 #
-# **And as of 2026-10-07 the schedule is not firing at all, for reasons not on this side.** The
-# 04:00 UTC slot on 2026-10-07 produced no run, so a temporary `*/5 * * * *` probe workflow was added
-# to the default branch: it missed four five-minute windows in 25 minutes, while a dispatch of the same
-# file ran green. Every documented precondition was checked and holds -- the file is on the default
-# branch (`dev`), the workflow state is `active`, Actions are enabled with `allowed_actions: all`, the
-# repository is not a fork, it has recent activity, and githubstatus.com reported no incident. The
-# cron is kept because it is harmless and may recover, but **treat `gh workflow run gpu.yml` as the
-# path that works** until the scheduler does; the owner's options are to raise it with GitHub, to
-# dispatch by hand around measurements, or to have an administrator install a local timer that
-# dispatches (a scheduled task needs elevation on this machine, measured 2026-10-07).
+# **The cron fires, and can be hours late.** The `0 4 * * *` slot on 2026-10-07 created its run at
+# 10:55:59 UTC -- 6 h 56 min after the slot -- and it ran green on `5090-box`. An earlier reading of
+# the same day ("no scheduled run has ever been created") was true when taken and is superseded: a
+# temporary `*/5` probe was watched for only 25 minutes, which is shorter than the delay GitHub
+# documents and users have been reporting since the 2026-08-26 Actions trigger-service incident
+# (community discussions 205984 and 206019; githubstatus.com). So the nightly job is not a fixed time:
+# it may land while someone is measuring, and `--measure` tooling does not declare this workflow's
+# concurrency group. `gh workflow run gpu.yml` remains the way to get a run when you want one.
 name: gpu-suite
 
 on:

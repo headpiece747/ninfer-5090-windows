@@ -2657,23 +2657,36 @@ recipe configures and builds from zero each time — which is most of the 11-17 
 would make the nightly runs incremental; it is not taken, because the cold build is itself a
 verification that a local incremental build cannot give, and the machine is idle at 04:00.
 
-**The scheduled path does not fire, and that is not this side's problem — measured 2026-10-07.** The
-`0 4 * * *` slot passed with no run created. To separate "the scheduler dropped one" from "schedules
-never fire here", a temporary `*/5 * * * *` probe workflow was added to the default branch, dispatched
-once, and left for 25 minutes: **the dispatch ran green and the schedule missed four windows.** Every
-documented precondition was checked and holds — the file is on the default branch (`dev`), the
-workflow state is `active`, Actions are enabled with `allowed_actions: all`, the repository is not a
-fork, it has recent activity, and githubstatus.com reported no incident — so the cause is not
-established here and not on the port's side. The cron stays (harmless, and it may recover), the header
-now says so, and `gh workflow run gpu.yml` is the path that works; the owner's options are to raise it
-with GitHub, to dispatch by hand around measurements, or to have an administrator install a local
-timer that dispatches (a scheduled task needs elevation on this machine — `schtasks /create` answered
-"Access is denied" for a per-user logon task, measured 2026-10-07, and the runner's own service form
-needs the same elevation).
+**The scheduled path fires, and can be hours late — the 2026-10-07 measurement was read too early.**
+This item first recorded "no scheduled run has ever been created, and a `*/5` probe missed four
+five-minute windows", which was true when taken and wrong as a conclusion: the `0 4 * * *` slot on
+2026-10-07 created its run at **10:55:59 UTC, 6 h 56 min late, and it ran green on `5090-box`**
+(`gh api repos/headpiece747/ninfer-5090-windows/actions/runs?event=schedule` → 1 run; the probe was
+watched for 25 minutes, which is shorter than the delay). GitHub's own sentence covers it — "The
+`schedule` event can be delayed during periods of high loads … some queued jobs may be dropped" — and
+users have been reporting hours-long delays since the 2026-08-26 Actions trigger-service incident
+(community discussions 205984 and 206019; githubstatus.com lists Actions incidents on 2026-10-05 and
+2026-10-06). Every other documented cause was excluded by measurement: file on the default branch,
+state `active`, `enabled: true` with `allowed_actions: all`, not a fork, activity the same day, and no
+schedule-specific setting anywhere in the documented permissions API. **The practical consequence is
+that the nightly job is not a fixed time**: it may land while someone is measuring, and the
+measurement tooling does not declare this workflow's concurrency group, so `gh workflow run gpu.yml`
+remains the way to get a run when one is wanted.
 
-**Done when:** the tier runs. **Done:** two dispatches, every step green, with the gate's own verdict
-read out of the log rather than inferred from the step's colour — and the scheduled path answered as
-"not firing, cause outside this repository" rather than left pending.
+**And the runner's persistence does not need an administrator, which this item had wrong.** The
+recorded claim was "a scheduled task needs elevation on this machine — `schtasks /create` answered
+Access is denied". Measured 2026-10-07: that denial is specific to `schtasks`' **ONLOGON** form, which
+Microsoft defines as an *any-user* trigger ("whenever a user (any user) logs on") and gates on
+administrators regardless of `/ru`. A per-user logon task is a different registration and
+`Register-ScheduledTask -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME)` **succeeded
+from a medium-integrity shell**; it is registered here as `ninfer-gpu-runner` (state Ready, principal
+`tobia`, logon Interactive, run level Limited) running `C:\AI\actions-runner\start-if-idle.cmd`, which
+starts the runner only when `Runner.Listener.exe` is not already listening. The runner *service* still
+needs elevation, per GitHub's own documentation, and it is the only form that covers a reboot with
+nobody logged in.
+
+**Done when:** the tier runs. **Done:** dispatches green, the scheduled path answered (fires, late),
+and the persistence answered (per-user logon task, registered).
 
 ### 24. Upstream's ten commits, merged — **MERGED 2026-10-07; and the build caught what the merge hid, a third time**
 
