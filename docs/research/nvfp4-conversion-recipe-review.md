@@ -65,6 +65,12 @@ divisors, which is the same `--override` shape `perplexity-baseline.md` used for
 Until then the honest position is the one that file already takes: it is an unmeasured inheritance,
 and it is costing 27 projections of NVFP4 for nothing anyone has shown.
 
+**Update, 2026-09-30: the override was run, and the pattern is measured on these weights now.** Encoding
+those 27 projections to NVFP4 on `nvfp4full`'s own weights is worth **+11.6 acceptance points to the
+DFlash2 route** and costs the **MTP head −21.4** (DFlash2 d7 / MTP d5) for +0.087 % overall perplexity,
+so the line ships as two images: `nvfp4full_noex` on DFlash2, the BF16-exception image on MTP. The
+pattern is kept where it pays, and the verdict row above is superseded on this point.
+
 Two things that are **not** wrong and should not be "fixed" on the strength of this note:
 
 - **The two W8 endpoints at Q8.** Measured, isolated, and large: **−3.45 % / −0.79 %** against FP8

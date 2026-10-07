@@ -61,20 +61,22 @@ are new.
 
 | Weights | Artifact | Local size | SHA-256 |
 |---|---|---|---|
-| `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | 17.65 GiB | `814db0db…` |
-| `nvfp4full` (unsloth) | `qwen3_8_27b_nvfp4full.v3.ninfer` | 18.36 GiB | `f8dc6470…` |
-| `nvfp4full_noex` (unsloth, DFlash2 lane) | `qwen3_8_27b_nvfp4full_noex.v3.ninfer` | 17.65 GiB | `32713a7a…` |
-| `nvfp4swift15` (Swift 1.5) | `qwen3_8_27b_nvfp4swift15.v3.ninfer` | 17.65 GiB | `9c05290f…` |
-| `nvfp4nvidia` (NVIDIA) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | 17.65 GiB | `76131f79…` |
+| `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | 17.65 GiB | `42359a09…` |
+| `nvfp4full` (unsloth) | `qwen3_8_27b_nvfp4full.v3.ninfer` | 18.36 GiB | `4c1616bc…` |
+| `nvfp4full_noex` (unsloth, DFlash2 lane) | `qwen3_8_27b_nvfp4full_noex.v3.ninfer` | 17.65 GiB | `0feb3075…` |
+| `nvfp4swift15` (Swift 1.5) | `qwen3_8_27b_nvfp4swift15.v3.ninfer` | 17.65 GiB | `bdb257f7…` |
+| `nvfp4nvidia` (NVIDIA) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | 17.65 GiB | `d93a60e8…` |
 
 Five artifacts across eight launchers. The unsloth line ships twice on purpose: the DFlash2 lane runs
 the **no-exception** image and its MTP lane the BF16-exception one, because re-encoding those nine
-exception parents to NVFP4 is what returns the native context to the DFlash2 lane and costs the MTP
-head 11.6 acceptance points, so one image cannot serve both routes.
+exception parents to NVFP4 is what returns the native context to the DFlash2 lane and is worth +11.6
+acceptance points there, while the same re-encoding costs the MTP head 21.4 (DFlash2 d7 / MTP d5,
+`docs/research/swift15-lane-measurement.md`), so one image cannot serve both routes.
 
-`download_model.py` still pins the two artifacts previously fetched from `cometkim`, which are not the
-files above; republishing these pins is outstanding, so a fresh download runs a different build than
-the profile figures describe until it is done.
+`download_model.py` fetches the **source** checkpoints every artifact above is built from; each image is
+produced locally by this port's converter (`converter: ninfer-v3` in its conversion report), and no
+`.ninfer` file is downloaded prebuilt. The archive does not yet carry the converter or a downloader that
+drives it, so a fresh install cannot build an image from the sources until that lands.
 
 ### Retained in 1.2.0, from the draft that carried this version
 

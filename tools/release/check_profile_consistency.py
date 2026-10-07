@@ -222,10 +222,30 @@ def main() -> int:
           "hf_hub_download" not in download)
     check("download_model.py downloads sources via snapshot_download",
           "snapshot_download" in download)
-    for repo in ("Qwen/Qwen3.8-27B", "z-lab/Qwen3.8-27B-DFlash2", "unsloth/Qwen3.8-27B-NVFP4",
-                 "QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4", "nvidia/Qwen3.8-27B-NVFP4",
-                 "ukisai/Swift-Qwen3.8-27b", "ukisai/Swift-Qwen3.8-27B-NVFP4"):
-        check(f"download_model.py fetches source {repo}", repo in download)
+    # The source list is read from the module rather than matched as text: a substring test over prose
+    # fails on a comment that names the same repository, which is exactly what a comment explaining
+    # why the Swift 1.0 pair is no longer fetched does.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("download_model_under_test", WT / "download_model.py")
+    if spec is None or spec.loader is None:
+        check("download_model.py is importable", False)
+    else:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        check("download_model.py fetches exactly the shipping sources",
+              set(module.SOURCES) == {
+                  "Qwen/Qwen3.8-27B", "z-lab/Qwen3.8-27B-DFlash2", "unsloth/Qwen3.8-27B-NVFP4",
+                  "QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4", "nvidia/Qwen3.8-27B-NVFP4",
+                  "ukisai/Swift-1.5-Qwen3.8-27b", "ukisai/Swift-1.5-Qwen3.8-27b-NVFP4"})
+        # A floating `main` is what made a build unreproducible before: every source is pinned at a
+        # 40-hex commit, fetched at that revision, and the resolved commit is recorded.
+        check("every source carries a 40-hex revision pin",
+              all(len(entry[2]) == 40 and all(c in "0123456789abcdef" for c in entry[2])
+                  for entry in module.SOURCES.values()))
+    check("download_model.py fetches at the pinned revision",
+          "snapshot_download(repo_id=repo, local_dir=dest, revision=revision)" in download)
+    check("download_model.py records the resolved revision", "sources.json" in download)
 
     env = read(WT / "launcher_env.bat")
     check("launcher_env.bat names the QUASAR artifact", QUASAR in env)

@@ -22,13 +22,16 @@ The executable `--help` output is the exact source for command-line option spell
 ## Model artifacts
 
 This port ships four weight lines, as **five images** — the unsloth line ships twice, because the
-DFlash2 lane runs the no-exception build and its MTP lane the BF16-exception one. Two of the five are
-published and pinned here; the rest are built by this port:
+DFlash2 lane runs the no-exception build and its MTP lane the BF16-exception one. All five are built by
+this port from the sources below, fetched at pinned revisions:
 
 | Model | Weights | Built from | Versioned model card source |
 |---|---|---|---|
 | Qwen3.8-27B | `nvfp4qat` (QUASAR) | [QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4](https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4) | [model card](../model-cards/Qwen3.8-27B-nvfp4qat-NInfer/README.md) |
 | Qwen3.8-27B | `nvfp4full` | [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4) | — |
+| Qwen3.8-27B | `nvfp4full_noex` | the same unsloth line, BF16 exceptions re-encoded; DFlash2 lane | — |
+| Qwen3.8-27B | `nvfp4swift15` (Swift 1.5) | [ukisai/Swift-1.5-Qwen3.8-27b-NVFP4](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27b-NVFP4) on its [BF16 finetune](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27b) | — |
+| Qwen3.8-27B | `nvfp4nvidia` (NVIDIA ModelOpt) | [nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4) | — |
 
 All five shipped artifacts are built locally by this port's converter from these sources; none is
 fetched prebuilt. `download_model.py` fetches sources.

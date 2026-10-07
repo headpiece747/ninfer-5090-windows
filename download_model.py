@@ -30,30 +30,43 @@ Usage:
 
 Verification changed with the target. A prebuilt artifact was one file and could carry a sha256; a
 source repository is a tree whose contents move, so pinning a single digest would be meaningless and
-a floating `main` would not be reproducible. `--verify-only` therefore reports presence and size per
-source, which is the property that actually matters here -- a missing source fails the converter with
-a clear error, whereas a subtly different source produces a subtly different artifact. Record the
-exact commit you convert from alongside the conversion report; that is what makes a build
-reproducible, and this script cannot do it for you.
+a floating `main` would not be reproducible. Every source below therefore carries the revision it is
+fetched at: `snapshot_download` is pinned to it, the resolved commit is written to `sources.json`
+beside the checkpoints, and `--verify-only` reports presence and size per source -- a missing source
+fails the converter with a clear error, whereas a subtly different source produces a subtly different
+artifact. The conversion report names the directories a build consumed; this file names the commits.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
 
 HF_SRC = r"C:\AI\models\hf-src"
 
-# repo_id -> (local directory under HF_SRC, what consumes it)
-SOURCES: dict[str, tuple[str, str]] = {
-    "Qwen/Qwen3.8-27B": ("Qwen3.8-27B", "the BF16 base every line is built from"),
-    "z-lab/Qwen3.8-27B-DFlash2": ("Qwen3.8-27B-DFlash2", "the DFlash2 draft companion, all eight lanes"),
-    "unsloth/Qwen3.8-27B-NVFP4": ("Qwen3.8-27B-NVFP4-unsloth", "nvfp4full and nvfp4full_noex"),
-    "QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4": ("Qwen3.8-27B-NVFP4-QUASAR", "nvfp4qat (QUASAR)"),
-    "nvidia/Qwen3.8-27B-NVFP4": ("Qwen3.8-27B-NVFP4-nvidia", "nvfp4nvidia (NVIDIA ModelOpt)"),
-    "ukisai/Swift-Qwen3.8-27b": ("Swift-Qwen3.8-27b", "the Swift 1.5 finetune, before quantisation"),
-    "ukisai/Swift-Qwen3.8-27B-NVFP4": ("Swift-Qwen3.8-27B-NVFP4", "nvfp4swift15 (Swift 1.5)"),
+# repo_id -> (local directory under HF_SRC, what consumes it, the revision fetched and recorded)
+#
+# The Swift pair is the 1.5 line's: `nvfp4swift15` is built from it. The Swift 1.0 sources it replaced
+# (`ukisai/Swift-Qwen3.8-27b` and `ukisai/Swift-Qwen3.8-27B-NVFP4`) are not fetched, because that image
+# is superseded. QUASAR is pinned at its head; the commits after 15d2e47b are card-only and the weights
+# are unchanged, which is why the artifact reference's recorded revision still describes this build.
+SOURCES: dict[str, tuple[str, str, str]] = {
+    "Qwen/Qwen3.8-27B": ("Qwen3.8-27B", "the BF16 base every line is built from",
+                         "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"),
+    "z-lab/Qwen3.8-27B-DFlash2": ("Qwen3.8-27B-DFlash2", "the DFlash2 draft companion, all eight lanes",
+                                  "50307d4c4cde6860d4eee73e2547cd786fe8e8a4"),
+    "unsloth/Qwen3.8-27B-NVFP4": ("Qwen3.8-27B-NVFP4-unsloth", "nvfp4full and nvfp4full_noex",
+                                  "f0b7c9e722f5565102fff8481c99e4d86ae099c7"),
+    "QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4": ("Qwen3.8-27B-NVFP4-QUASAR", "nvfp4qat (QUASAR)",
+                                            "d9af17e20644c5b9a6d66dff1d14f349e2e61b05"),
+    "nvidia/Qwen3.8-27B-NVFP4": ("Qwen3.8-27B-NVFP4-nvidia", "nvfp4nvidia (NVIDIA ModelOpt)",
+                                 "482ca0f3832238542f8f5295dde86b5f22711d80"),
+    "ukisai/Swift-1.5-Qwen3.8-27b": ("Swift-1.5-Qwen3.8-27b", "the Swift 1.5 finetune, before quantisation",
+                                     "b4c84d42903a8646b25857eb2827288d92ed85a4"),
+    "ukisai/Swift-1.5-Qwen3.8-27b-NVFP4": ("Swift-1.5-Qwen3.8-27b-NVFP4", "nvfp4swift15 (Swift 1.5)",
+                                           "25482027debd5485e8108897ba9fed8d3ba16595"),
 }
 
 
@@ -75,9 +88,9 @@ def dir_stats(path: str) -> tuple[int, int]:
 
 def report(root: str, repos: list[str]) -> bool:
     ok = True
-    print(f"{'source':<40} {'files':>7} {'GiB':>8}  state")
+    print(f"{'source':<40} {'files':>7} {'GiB':>8}  {'pinned at':<12}  state")
     for repo in repos:
-        local, why = SOURCES[repo]
+        local, why, revision = SOURCES[repo]
         path = os.path.join(root, local)
         count, total = dir_stats(path)
         if count == 0:
@@ -85,12 +98,36 @@ def report(root: str, repos: list[str]) -> bool:
             state = "MISSING"
         else:
             state = "present"
-        print(f"{repo:<40} {count:>7} {total / (1 << 30):>8.2f}  {state}  ({why})")
+        print(f"{repo:<40} {count:>7} {total / (1 << 30):>8.2f}  {revision[:12]:<12}  {state}  ({why})")
     return ok
 
 
+def record_revision(root: str, repo: str, local: str, resolved: str) -> None:
+    """Write the commit each source was fetched at, beside the checkpoints.
+
+    The conversion report names the directories a build consumed; this is what turns those paths into
+    a revision a later session can re-fetch, and it is the file to cite when a build is questioned.
+    """
+    path = os.path.join(root, "sources.json")
+    payload: dict[str, dict[str, str]] = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+    payload[repo] = {
+        "directory": local,
+        "revision": resolved,
+        "fetched": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
 def fetch(repo: str, root: str) -> bool:
-    local, _why = SOURCES[repo]
+    local, _why, revision = SOURCES[repo]
     dest = os.path.join(root, local)
     # huggingface_hub 1.x ignores HF_HUB_ENABLE_HF_TRANSFER, and on 0.x it raises when hf_transfer is
     # absent -- which the broad except below would report as a failed download rather than a
@@ -101,7 +138,7 @@ def fetch(repo: str, root: str) -> bool:
         os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
     try:
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import HfApi, snapshot_download
     except ImportError:
         print(
             "  huggingface_hub is not installed. Install it, or fetch these repositories by hand\n"
@@ -110,14 +147,16 @@ def fetch(repo: str, root: str) -> bool:
         )
         return False
 
-    print(f"[INFO] {repo} -> {dest}")
+    print(f"[INFO] {repo} @ {revision[:12]} -> {dest}")
     started = time.time()
     try:
-        snapshot_download(repo_id=repo, local_dir=dest)
+        resolved = HfApi().model_info(repo_id=repo, revision=revision).sha
+        snapshot_download(repo_id=repo, local_dir=dest, revision=revision)
     except Exception as exc:  # noqa: BLE001 - report any transport/auth/disk failure the same way
         print(f"  FAILED: {exc}", file=sys.stderr)
         return False
-    print(f"  done in {time.time() - started:.0f}s")
+    record_revision(root, repo, local, resolved)
+    print(f"  done in {time.time() - started:.0f}s  at {resolved[:12]}")
     return True
 
 
@@ -159,6 +198,7 @@ def main() -> int:
         print(f"[FAILED] {len(failed)} of {len(repos)} source(s): {', '.join(failed)}", file=sys.stderr)
         return 1
     print("All sources fetched. Convert them with tools/convert; do not look for a prebuilt artifact.")
+    print(f"Revisions recorded in {os.path.join(root, 'sources.json')}.")
     return 0
 
 

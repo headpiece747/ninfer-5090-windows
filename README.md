@@ -45,21 +45,21 @@ is downloaded prebuilt; `download_model.py` fetches sources, not artifacts.
 | Model | Weights | Artifact | Built from |
 |---|---|---|---|
 | Qwen3.8-27B | `nvfp4qat` (QUASAR) | `qwen3_8_27b_nvfp4qat.v3.ninfer` | [QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4](https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4), 17.36 GiB |
-| Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.v3.ninfer` | [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4), 18.36 GiB, `f8dc6470…` |
+| Qwen3.8-27B | `nvfp4full` | `qwen3_8_27b_nvfp4full.v3.ninfer` | [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4), 18.36 GiB, `4c1616bc…` |
 | Qwen3.8-27B | `nvfp4full_noex` | `qwen3_8_27b_nvfp4full_noex.v3.ninfer` | the same unsloth line, BF16 exceptions re-encoded; DFlash2 lane |
-| Qwen3.8-27B | `nvfp4swift15` (Swift 1.5) | `qwen3_8_27b_nvfp4swift15.v3.ninfer` | [ukisai/Swift-Qwen3.8-27B-NVFP4](https://huggingface.co/ukisai/Swift-Qwen3.8-27B-NVFP4), 17.65 GiB |
+| Qwen3.8-27B | `nvfp4swift15` (Swift 1.5) | `qwen3_8_27b_nvfp4swift15.v3.ninfer` | [ukisai/Swift-1.5-Qwen3.8-27b-NVFP4](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27b-NVFP4) on its [BF16 finetune](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27b), 17.65 GiB |
 | Qwen3.8-27B | `nvfp4nvidia` (NVIDIA ModelOpt) | `qwen3_8_27b_nvfp4nvidia.v3.ninfer` | [nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4), 17.65 GiB |
 
 All eight lanes additionally embed [z-lab/Qwen3.8-27B-DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2)
 on the BF16 base [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B).
 
-All are Qwen3.8-27B. The first two rows are the published files this port has always fetched, and
-their digests are the ones pinned in `download_model.py`, which verifies every download against them;
-a republish upstream means updating that pin. This port also builds its own copy of each line from the
-same sources, which is what the launchers here run: those differ from the two published files in the
-ways their sections in the [artifact reference](docs/maintainer/qwen3.8-27b-artifact.md) record, so the
-sizes and digests above describe the published files while the measured lane figures under
-[Profiles and launchers](#profiles-and-launchers) describe this port's own builds.
+All are Qwen3.8-27B, and all five images are this port's own builds: `download_model.py` fetches the
+source checkpoints above at pinned revisions, and the converter turns them into the `.ninfer` files the
+launchers run. So the sizes above and the measured lane figures under
+[Profiles and launchers](#profiles-and-launchers) describe the same files, and each image's own
+`.conversion.json` names the sources it consumed. The
+[artifact reference](docs/maintainer/qwen3.8-27b-artifact.md) records each image's identity, sources and
+production command.
 
 Upstream publishes artifacts for other checkpoints, which this port neither ships nor measures. The
 engine requires a v3 container, and a copy fetched before the republish must be
@@ -124,6 +124,14 @@ and every profile reaches the full native context.
 | `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (4) | yes | 262,144 | 218 tok/s | 58.7% |
 | `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (7) | yes | 262,144 | **338 tok/s** | 56.2% |
 | `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 210 tok/s | 53.1% |
+
+**These eight figures are the 2026-09-30 measurement, and a 2026-10-07 re-measurement of the same
+profiles on the same protocol read 12-49% lower on seven of them** (quasar dflash2 flat: 321.8 against
+319), with the run-to-run spread widened from within +/-1% to up to +/-30% and the speculative **round
+cost** -- normalised for acceptance, so the generated content cannot explain it -- up 22-60%. The
+numbers, their runs, the ruled-out causes and the candidate set are in
+[the lane regression record](docs/research/lane-regression-2026-10-07.md); the change is unattributed
+and open.
 
 Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
 runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after weights, and
@@ -389,8 +397,8 @@ The QUASAR QAT image uses
 for its quantisation-aware-trained weights; the NVFP4-full image uses the mixed FP8/NVFP4 weights from
 [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4); the NVIDIA image uses
 [nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4); and Swift is
-[ukisai/Swift-Qwen3.8-27b](https://huggingface.co/ukisai/Swift-Qwen3.8-27b) and its
-[NVFP4 re-encoding](https://huggingface.co/ukisai/Swift-Qwen3.8-27B-NVFP4), whose sources and whose
+[ukisai/Swift-1.5-Qwen3.8-27b](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27b) and its
+[NVFP4 re-encoding](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27b-NVFP4), whose sources and whose
 non-Apache licence `NOTICE` records. All five images are built by this port; none is fetched prebuilt.
 Source
 repositories other than Swift's are distributed under Apache-2.0, as `NOTICE` records. Vendored

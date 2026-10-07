@@ -2,9 +2,18 @@
 
 The protocol, so a number is comparable: `ninfer-perplexity.exe <artifact> --corpus
 eval/corpora/perplexity-1m/manifest.json --kv-dtype <dtype>`. That is upstream's fixed corpus
-(`ninfer-ppl-1m-v1`: 1,044,876 scored tokens, 496 windows, 4096/2048 context and stride). Every row
+(`ninfer-ppl-1m-v1`: 1,044,573 scored tokens, 496 windows, 4096/2048 context and stride). Every row
 carries the date it was taken; all of them are this machine, which is a different box and clock from
 any published figure. Removing `--quick` gives the full corpus.
+
+**Rows taken before 2026-10-04 are not comparable with later ones.** Upstream rewrote the tokenizer in
+`b9114396`/`a8e212ac` (merged 2026-10-04), and the rewrite *fixed* an over-segmentation: the old
+tokenizer produced 319 more tokens on this corpus (12 / 186 / 121 / 0 across the four domains), while
+the current one matches the reference tokenizer exactly -- `tokenizers` on the artifact's own
+`tokenizer.json` yields 262,022 / 261,408 / 261,223 / 259,904 scored tokens per domain, which is what
+the engine scores today (verified 2026-10-07). Perplexity is only comparable under one tokenization, so
+every figure dated before 2026-10-04 describes a different token stream: comparisons *within* one date
+still mean what they meant, and comparisons across that date do not.
 
 **What this measurement cannot see.** `ninfer-perplexity` has no `--spec` or draft option at all --
 `apps/perplexity/main.cpp` contains no reference to either -- so it scores the target model only.

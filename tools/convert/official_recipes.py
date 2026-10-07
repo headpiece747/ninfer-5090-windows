@@ -436,8 +436,12 @@ def qwen3_8_27b_nvfp4_unsloth(model, recipe, sources):
     row-scaled FP8 (233 matrices, with no activation scale to derive a divisor from).
 
     The fork's own profile for this source quantized the FP8 side to NVFP4 and kept nine BF16
-    exception parents from the Qwen3.6-27B pattern. On Swift that pattern measured *worse* than
-    encoding everything -- 4.7701/4.93254 against 4.68429/4.92432 -- so it is not carried here.
+    exception parents from the Qwen3.6-27B pattern. That pattern is carried here and measured on
+    these weights: dropping it is worth +11.6 acceptance points to the DFlash2 route and costs the
+    MTP head 21.4 (d7/d5, `docs/research/swift15-lane-measurement.md`), which is why the line ships
+    as two images and `qwen3_8_27b_nvfp4_unsloth_noex` is the DFlash2 one. On Swift the same pattern
+    measured *worse* than encoding everything -- 4.7701/4.93254 against 4.68429/4.92432 -- which is
+    why the Swift recipes do not use it.
     `gdn/a_projection` and `gdn/b_projection` stay BF16: at (96, 5120) the NVFP4 layout cannot hold
     them, which is why the shipped profiles leave them direct.
 

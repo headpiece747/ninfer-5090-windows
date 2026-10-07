@@ -1338,8 +1338,8 @@ name       = qwen3.8-27b
 recipe     = qwen3_8_27b_nvfp4_qat
 converter  = ninfer-v3 (tools.convert)
 components = text, vision, mtp, dflash2
-bytes      = 18,946,877,188
-sha256     = 814db0dbc367a82f27be23afbde1897dd2e97cc7f797fefd734932efab934053
+bytes      = 18,946,876,932
+sha256     = 42359a096252f8705e3e47d11ce6bd95820987cb873f50ddfe1f4b0e3d365364
 ```
 
 1513 bindings over 1600 objects, 844 `uses`, and 256 NVFP4 parents carrying 256 site-level fp32 input
@@ -1432,8 +1432,8 @@ name       = qwen3.8-27b
 recipe     = qwen3_8_27b_nvfp4_unsloth
 converter  = ninfer-v3 (tools.convert)
 components = text, vision, mtp, dflash2
-bytes      = 19,715,597,060
-sha256     = f8dc64701daca3eb7d28c9ee74b0d6a9af93cb5d4e4ec6b43d513849e8224201
+bytes      = 19,715,596,804
+sha256     = 4c1616bcdd607a621881515593cdea4b85772cf861651f124c1c32c4158f2b44
 ```
 
 1513 bindings over 1573 objects, 844 `uses`, 278 NVFP4 parents and 485 bound activation divisors. Its
@@ -1526,8 +1526,8 @@ name       = qwen3.8-27b
 recipe     = qwen3_8_27b_nvfp4_nvidia
 converter  = ninfer-v3 (tools.convert)
 components = text, vision, mtp, dflash2
-bytes      = 18,946,877,188
-sha256     = 76131f792241ff0a232abe1fb1234f6b403638940976ecebaf45b94b94d7e58e
+bytes      = 18,946,876,932
+sha256     = d93a60e8795caf13f1314d73c3e5fc029838b22c4f36299abae880a07cc5d05b
 ```
 
 1513 bindings over 1600 objects, 1082 weight jobs of which 128 are imports (64 layers × 2 fused MLP
@@ -1619,3 +1619,151 @@ compares an `unsloth` build against an `nvidia hybrid` one, naming the hybrid th
 builds: NVFP4 imported where the source has it, the rest re-encoded. That benchmark also puts prefill
 and decode within 0.8% of each other, which is what this line's identical full-corpus perplexity
 independently shows from the other direction.
+
+## 20. The unsloth line's DFlash2 image: `nvfp4full_noex`
+
+The unsloth line ships twice because one image cannot serve both routes (§18). This is the DFlash2 one:
+it carries **no BF16 exception parents**, so every text projection is NVFP4, which is what returns the
+native 262,144 to `start_ninfer_v3_dflash2_vision` at the `fp8` KV the launchers use. The MTP lane keeps
+the exception build of §18. The trade is measured: dropping the exceptions is worth **+11.6 acceptance
+points to DFlash2** and costs the **MTP head 21.4** (d7/d5, `docs/research/swift15-lane-measurement.md`),
+for +0.087 % overall perplexity.
+
+### 20.1 Identity and contents
+
+```text
+filename   = qwen3_8_27b_nvfp4full_noex.v3.ninfer
+name       = nvfp4full-noex
+recipe     = qwen3_8_27b_nvfp4_unsloth_noex
+converter  = ninfer-v3 (tools.convert)
+components = text, vision, mtp, dflash2
+bytes      = 18,946,876,932
+sha256     = 0feb3075da1e6f49a8a9f8b0f6b32b0270d5cb439d13008c2cdf7696c426367c
+```
+
+1513 bindings over 1600 objects and 844 `uses`, with 287 NVFP4 parents carrying 512 site-level fp32
+input divisors. The token embedding and the full output head are `q8_g32_fp16` from the BF16 base;
+Vision keeps the source's Q4/Q5/Q6, MTP its Q8, the indexed proposal head its Q4, and the GDN control
+projections stay direct BF16 because the NVFP4 layout cannot represent (96, 5120) at all.
+
+| Format | Objects |
+|---|---:|
+| `bf16` | 579 |
+| `fp32` | 608 |
+| `int32` | 1 |
+| `nvfp4` | 287 |
+| `q4_g64_fp16` | 55 |
+| `q5_g64_fp16` | 54 |
+| `q6_g64_fp16` | 1 |
+| `q8_g32_fp16` | 9 |
+| resource | 6 |
+
+### 20.2 Sources and provenance
+
+| source | revision | supplies |
+|---|---|---|
+| `unsloth/Qwen3.8-27B-NVFP4` | `f0b7c9e722f5565102fff8481c99e4d86ae099c7` | the 112 NVFP4 MLP parents of layers 0-55 and their divisors |
+| `Qwen/Qwen3.8-27B` | `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` | attention, linear-attention and MLP 56-63 encoded here from BF16, the endpoints, and every unquantized tensor |
+| `z-lab/Qwen3.8-27B-DFlash2` | `50307d4c4cde6860d4eee73e2547cd786fe8e8a4` | the DFlash2 companion |
+
+### 20.3 Production and verification
+
+```bash
+python3 -m tools.convert \
+  --model /path/to/Qwen3.8-27B \
+  --recipe qwen3_8_27b_nvfp4_unsloth_noex \
+  --source quantized=/path/to/Qwen3.8-27B-NVFP4-unsloth \
+  --source dflash2=/path/to/Qwen3.8-27B-DFlash2 \
+  --components text,vision,mtp,dflash2 \
+  --resource chat_template.jinja=tools/chat_templates/qwen3_8.jinja \
+  --name nvfp4full-noex --device cuda \
+  --out models/qwen3_8_27b_nvfp4full_noex.v3.ninfer
+```
+
+`tools/convert/verify_artifact.py --only all` passes 4424 checks on this build, and a rebuild from the
+same sources and recipe reproduces it apart from the embedded template (§22).
+
+## 21. The Swift 1.5 line: `nvfp4swift15`
+
+Swift 1.5 replaced Swift 1.0 on both Swift lanes in `0fd7a429`; the 1.0 image is superseded and lives in
+`C:\AI\models\_superseded`. This image is what both `start_swift_v3_*` launchers run, and it carries the
+**NVFP4 DFlash2 draft** rather than Q8: on the documented default `code` domain, both arms measured
+minutes apart, NVFP4 gives 348.3 tok/s and 63.0 % acceptance against Q8's 290.3 and 49.3 %, and leaves
+2.83 GiB free against 2.05 GiB. That is domain-scoped -- on `chinese` the ordering reverses -- and the
+recipe carries it as the stronger arm on the documented default rather than as a universal win
+(`tools/convert/official_recipes.py:698-720`).
+
+### 21.1 Identity and contents
+
+```text
+filename   = qwen3_8_27b_nvfp4swift15.v3.ninfer
+name       = swift15-nvdraft
+recipe     = qwen3_8_27b_nvfp4_swift15_nvdraft
+converter  = ninfer-v3 (tools.convert)
+components = text, vision, mtp, dflash2
+bytes      = 18,946,876,932
+sha256     = bdb257f7c557fd7f6286037c78a5bde834c472e9fecf20025f6f325339f1177c
+```
+
+1513 bindings over 1600 objects and 844 `uses`, with 287 NVFP4 parents carrying 512 site-level fp32
+input divisors. The MLP imports the source's NVFP4 codes; attention and the linear-attention stack are
+re-encoded here from the BF16 finetune at that source's own stored per-site divisors; both endpoints are
+Q8; Vision, MTP and the indexed proposal head keep the source's encodings.
+
+| Format | Objects |
+|---|---:|
+| `bf16` | 579 |
+| `fp32` | 608 |
+| `int32` | 1 |
+| `nvfp4` | 287 |
+| `q4_g64_fp16` | 55 |
+| `q5_g64_fp16` | 54 |
+| `q6_g64_fp16` | 1 |
+| `q8_g32_fp16` | 9 |
+| resource | 6 |
+
+### 21.2 Sources and provenance
+
+| source | revision | supplies |
+|---|---|---|
+| `ukisai/Swift-1.5-Qwen3.8-27b-NVFP4` | `25482027debd5485e8108897ba9fed8d3ba16595` | the MLP's NVFP4 codes and site input scales, Vision, MTP, the proposal head |
+| `ukisai/Swift-1.5-Qwen3.8-27b` | `b4c84d42903a8646b25857eb2827288d92ed85a4` | the BF16 weights the attention, GDN and both endpoints are encoded from |
+| `z-lab/Qwen3.8-27B-DFlash2` | `50307d4c4cde6860d4eee73e2547cd786fe8e8a4` | the DFlash2 companion |
+
+These are the **1.5** repositories. The 1.0 pair §16 records (`ukisai/Swift-Qwen3.8-27b` and
+`ukisai/Swift-Qwen3.8-27B-NVFP4`) are different checkpoints with different shard digests, and
+`download_model.py` no longer fetches them.
+
+### 21.3 Production and verification
+
+```bash
+python3 -m tools.convert \
+  --model /path/to/Swift-1.5-Qwen3.8-27b-NVFP4 \
+  --recipe qwen3_8_27b_nvfp4_swift15_nvdraft \
+  --source swift_bf16=/path/to/Swift-1.5-Qwen3.8-27b \
+  --source dflash2=/path/to/Qwen3.8-27B-DFlash2 \
+  --components text,vision,mtp,dflash2 \
+  --resource chat_template.jinja=tools/chat_templates/qwen3_8.jinja \
+  --name swift15-nvdraft --device cuda \
+  --out models/qwen3_8_27b_nvfp4swift15.v3.ninfer
+```
+
+`tools/convert/verify_artifact.py --only all` passes 4424 checks on this build.
+
+## 22. The 2026-10-07 rebuild, and why the digests moved
+
+All five shipping images were rebuilt on 2026-10-07 from the same sources and the same recipes, and
+compared object by object: **every weight object is byte-identical** to the image it replaces. The only
+difference is the embedded `resource/text/chat_template.jinja`.
+
+* Three images (qat, full, nvidia) had embedded the maintained template in its **CRLF** form -- 10,871
+  bytes against the committed blob's 10,674, one extra byte on each of its 197 lines -- because the
+  build that produced them read a checkout with CRLF line endings. A rebuild from a fresh clone would
+  not reproduce them, which is the defect: the checkout must not decide the bytes an artifact carries.
+* Two images (noex, swift15) had embedded the **source checkpoint's own** template instead of the
+  maintained one, which lacks the client `reasoning_effort` alias mapping, the `developer` role, and the
+  tool-history and final-message continuation handling `09ed47e8` and `8a8191df` added. A lane falling
+  back to that copy fails Claude Code's default `reasoning_effort: high` outright.
+
+All five now carry the maintained template exactly as committed (LF, 10,674 bytes), which is what the
+`--resource` flag in every production command above names and what the launchers pass at runtime.

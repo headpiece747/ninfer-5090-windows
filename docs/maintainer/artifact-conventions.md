@@ -99,7 +99,7 @@ both maxima are 448: its scaled codes saturate exactly 448.0 in the FP8 and the 
 alike. The `1 / input_scale` form is already the divisor this port binds for imported NVFP4 sites,
 which the published Swift artifact exercises end to end.
 
-Prefer encoding from the checkpoint's **BF16** source when one exists — `ukisai/Swift-Qwen3.8-27b`
+Prefer encoding from the checkpoint's **BF16** source when one exists — `ukisai/Swift-1.5-Qwen3.8-27b`
 is ungated and 18 shards — rather than dequantizing FP8 and re-quantizing it, which carries the FP8
 rounding into the NVFP4 result.
 

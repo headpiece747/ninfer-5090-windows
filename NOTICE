@@ -52,8 +52,8 @@ The artifacts this release builds are derived from checkpoints published by:
   The ModelOpt checkpoint whose NVFP4 MLP codes and per-site activation scales the `nvidia` line uses,
   the scales being the product of NVIDIA's own Local-Hessian calibration. Apache License 2.0.
 
-- UkisAI (https://huggingface.co/ukisai/Swift-Qwen3.8-27B-NVFP4 and
-  https://huggingface.co/ukisai/Swift-Qwen3.8-27b)
+- UkisAI (https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27b-NVFP4 and
+  https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27b)
   The Swift fine-tune's quantized and BF16 exports. UkisAI's contribution, the fine-tuned weights, is
   licensed under the Swift Open License v1.0 rather than Apache-2.0: the model card makes personal,
   research, educational, evaluation and commercial use free below US$1,000,000 of annual recurring
