@@ -16,4 +16,4 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "schedule fired: ${{ github.event_name }} at ${{ github.run_started_at }}"
+      - run: "echo schedule fired: ${{ github.event_name }} at ${{ github.run_started_at }}"
