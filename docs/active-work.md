@@ -2170,7 +2170,7 @@ which is the phase split the restore put back, produced by the restored `fronten
 by the restored `operational_log.cpp`, on a card built through the restored `TextCallConfig`.
 
 
-### 17. The suite runs 3.0x faster, and the remaining 1.6x is a coverage decision — **DONE 2026-10-05; the second half is open**
+### 17. The suite runs 3.0x faster, and the remaining 1.6x was not a coverage trade — **DONE 2026-10-07, both halves**
 
 **Why:** the suite took 1430.9 s and two tests were 60% of it — `ninfer_softmax_attention_test` at
 584.8 s and `ninfer_context_kv_materialize_test` at 265.1 s. The dominant one was **not using the
@@ -2348,7 +2348,7 @@ pre-commit gates pass; the hook's pytest scope passes (108); ruff and mypy are c
 `check_host_kv.py` starts a lane on `--host-context-mib 8192` and reports **5/5 cache hits at 98.7%**
 — which also confirms the merged engine retains prefixes at the shipped quota.
 
-### 20. 250 divergences, and 245 of them said nothing about why — **RECORDED 2026-10-06; 121 need a decision**
+### 20. 250 divergences, and 245 of them said nothing about why — **RECORDED 2026-10-06; every path reviewed, none unreviewed**
 
 **Why:** `port_delta_baseline.json` is the port's list of every upstream-owned file it diverges from,
 and the ratchet fails when one appears or disappears. That makes the *list* safe and leaves the
