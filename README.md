@@ -24,8 +24,10 @@ engine rejects v2 artifacts outright, so a v1.0.x user must download a v3 artifa
 
 1. Download the archive attached to the release page and check it against the SHA-256 listed there.
 2. Extract it anywhere. The executables, the launchers and `download_model.bat` sit in the root.
-3. Run `download_model.bat`. It offers the two shipped artifacts, downloads the one you choose, and
-   verifies its size and SHA-256 against the pin in `download_model.py`.
+3. Run `download_model.bat`. It offers the five shipped images, fetches the source checkpoints that line
+   needs at the revisions pinned in `download_model.py`, and builds the image locally with the converter
+   in `tools/`. Nothing is downloaded prebuilt; `build_model.py --list` shows each line's recipe and
+   sources without building anything.
 4. Double-click a launcher. Each one checks that the engine and the artifact exist before starting,
    and leaves the failure on screen if they do not.
 

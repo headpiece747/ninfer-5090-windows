@@ -33,6 +33,14 @@ REQUIRED = [
     "launcher_env.bat",
     "download_model.bat",
     "download_model.py",
+    # The build driver and the converter it runs. Without these an extracted archive can fetch the
+    # source checkpoints and not turn them into an image, which is what made the earlier "sources only"
+    # rewrite half a flow: the downloader was correct and nothing could consume what it fetched.
+    "build_model.py",
+    "tools/convert/__main__.py",
+    "tools/convert/official_recipes.py",
+    "tools/convert/qwen3_8_27b_nvfp4_calibration.json",
+    "tools/artifact/writer.py",
     # Every launcher the packager stages, derived from the same table the packager derives it from.
     # This list was four hand-copied names, which meant the check could not fail for a launcher it
     # did not name -- so an archive that silently lost the Swift or NVIDIA lane passed, which is the

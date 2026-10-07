@@ -188,8 +188,11 @@ def main() -> int:
     packager = read(WT / "tools" / "release" / "package_release.py")
     # The four start_*.bat come from the table, so checking that their names appear in the
     # packager would assert the copy this change removed. The hand-written three remain.
-    for name in ("launcher_env.bat", "download_model.bat", "download_model.py"):
+    for name in ("launcher_env.bat", "download_model.bat", "download_model.py", "build_model.py"):
         check(f"packager stages {name}", name in packager)
+    # The converter travels with the archive, or a fresh install can fetch sources and not build them.
+    check("packager stages the converter packages",
+          "TOOL_PACKAGES" in packager and '"convert"' in packager and '"artifact"' in packager)
     check("packager derives the launcher list from the module",
           "from profiles import PROFILES" in packager)
     check("packager does not restate the launcher file names",

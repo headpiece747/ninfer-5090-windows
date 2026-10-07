@@ -73,10 +73,9 @@ exception parents to NVFP4 is what returns the native context to the DFlash2 lan
 acceptance points there, while the same re-encoding costs the MTP head 21.4 (DFlash2 d7 / MTP d5,
 `docs/research/swift15-lane-measurement.md`), so one image cannot serve both routes.
 
-`download_model.py` fetches the **source** checkpoints every artifact above is built from; each image is
-produced locally by this port's converter (`converter: ninfer-v3` in its conversion report), and no
-`.ninfer` file is downloaded prebuilt. The archive does not yet carry the converter or a downloader that
-drives it, so a fresh install cannot build an image from the sources until that lands.
+`download_model.py` fetches the **source** checkpoints every artifact above is built from, at pinned
+revisions, and `build_model.py` converts them with the converter the archive ships under `tools/`. No
+`.ninfer` file is downloaded prebuilt, so a fresh install builds the image it runs.
 
 ### Retained in 1.2.0, from the draft that carried this version
 

@@ -48,7 +48,7 @@ ROOT_FILES = ["README.md", "RELEASE_NOTES.md", "LICENSE", "NOTICE"]
 # The four start_*.bat are generated from the table, so they are derived from it here rather
 # than restated; the other three are hand-written and ship as they are.
 LAUNCHER_FILES = [
-    "launcher_env.bat", "download_model.bat", "download_model.py",
+    "launcher_env.bat", "download_model.bat", "download_model.py", "build_model.py",
     *[profile["file"] for profile in PROFILES],
 ]
 
@@ -56,6 +56,10 @@ LAUNCHER_FILES = [
 # downloads into this path any more; the upgrader stays for a copy fetched before the republish,
 # which a v3 engine rejects outright.
 TOOL_FILES = ["upgrade_ninfer_v2_to_v3.py", "chat_templates"]
+
+# The converter, so an extracted archive can build an image from the sources it fetches: `python -m
+# tools.convert` needs both packages under `tools/`, and nothing else from tools/ is imported by them.
+TOOL_PACKAGES = ["convert", "artifact"]
 
 
 def _notes_version() -> str:
@@ -162,18 +166,21 @@ def main() -> int:
 
     missing: list[str] = []
     total = 0
-    for group, location in ((EXES + DLLS, BUILD), (ROOT_FILES, REPO),
-                            (LAUNCHER_FILES, REPO), (TOOL_FILES, REPO / "tools")):
+    for group, location, dest in ((EXES + DLLS, BUILD, stage),
+                                  (ROOT_FILES, REPO, stage),
+                                  (LAUNCHER_FILES, REPO, stage),
+                                  (TOOL_FILES, REPO / "tools", stage),
+                                  (TOOL_PACKAGES, REPO / "tools", stage / "tools")):
         for name in group:
             source = location / name
             if not source.exists():
                 missing.append(f"{name} (from {location})")
                 continue
             if source.is_dir():
-                shutil.copytree(source, stage / name, dirs_exist_ok=True)
+                shutil.copytree(source, dest / name, dirs_exist_ok=True)
                 total += sum(f.stat().st_size for f in source.rglob("*") if f.is_file())
             else:
-                shutil.copy2(source, stage / name)
+                shutil.copy2(source, dest / name)
                 total += source.stat().st_size
     # The DLLs are LGPL, so their licence text has to travel with them.
     ffmpeg_license = REPO / "ffmpeg" / "LICENSE.txt"
