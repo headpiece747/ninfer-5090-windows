@@ -2657,8 +2657,23 @@ recipe configures and builds from zero each time — which is most of the 11-17 
 would make the nightly runs incremental; it is not taken, because the cold build is itself a
 verification that a local incremental build cannot give, and the machine is idle at 04:00.
 
+**The scheduled path does not fire, and that is not this side's problem — measured 2026-10-07.** The
+`0 4 * * *` slot passed with no run created. To separate "the scheduler dropped one" from "schedules
+never fire here", a temporary `*/5 * * * *` probe workflow was added to the default branch, dispatched
+once, and left for 25 minutes: **the dispatch ran green and the schedule missed four windows.** Every
+documented precondition was checked and holds — the file is on the default branch (`dev`), the
+workflow state is `active`, Actions are enabled with `allowed_actions: all`, the repository is not a
+fork, it has recent activity, and githubstatus.com reported no incident — so the cause is not
+established here and not on the port's side. The cron stays (harmless, and it may recover), the header
+now says so, and `gh workflow run gpu.yml` is the path that works; the owner's options are to raise it
+with GitHub, to dispatch by hand around measurements, or to have an administrator install a local
+timer that dispatches (a scheduled task needs elevation on this machine — `schtasks /create` answered
+"Access is denied" for a per-user logon task, measured 2026-10-07, and the runner's own service form
+needs the same elevation).
+
 **Done when:** the tier runs. **Done:** two dispatches, every step green, with the gate's own verdict
-read out of the log rather than inferred from the step's colour.
+read out of the log rather than inferred from the step's colour — and the scheduled path answered as
+"not firing, cause outside this repository" rather than left pending.
 
 ## Gates added while this list was open
 

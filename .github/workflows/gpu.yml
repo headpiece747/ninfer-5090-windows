@@ -39,6 +39,17 @@
 # shell that started it, so a machine that must serve the nightly job needs the service form (from an
 # elevated shell) or a startup task. Registered and left running on this machine 2026-10-06 as
 # `5090-box`, online.
+#
+# **And as of 2026-10-07 the schedule is not firing at all, for reasons not on this side.** The
+# 04:00 UTC slot on 2026-10-07 produced no run, so a temporary `*/5 * * * *` probe workflow was added
+# to the default branch: it missed four five-minute windows in 25 minutes, while a dispatch of the same
+# file ran green. Every documented precondition was checked and holds -- the file is on the default
+# branch (`dev`), the workflow state is `active`, Actions are enabled with `allowed_actions: all`, the
+# repository is not a fork, it has recent activity, and githubstatus.com reported no incident. The
+# cron is kept because it is harmless and may recover, but **treat `gh workflow run gpu.yml` as the
+# path that works** until the scheduler does; the owner's options are to raise it with GitHub, to
+# dispatch by hand around measurements, or to have an administrator install a local timer that
+# dispatches (a scheduled task needs elevation on this machine, measured 2026-10-07).
 name: gpu-suite
 
 on:
