@@ -1,0 +1,19 @@
+# TEMPORARY PROBE (delete with its result): does a schedule fire in this repository at all?
+#
+# The GPU tier's `0 4 * * *` cron has never fired, and GitHub's own note says the top of the hour is
+# the high-load window where scheduled runs may be dropped -- which is exactly where that cron sits.
+# This distinguishes "the scheduler works and dropped that one" from "schedules do not fire here",
+# which are different fixes: the first is to move the cron off the hour, the second is a different
+# trigger. Five-minute interval so the answer arrives quickly; no runner work, no GPU.
+name: schedule-probe
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "schedule fired: ${{ github.event_name }} at ${{ github.run_started_at }}"
