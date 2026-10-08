@@ -327,6 +327,14 @@ imports (`_optional`, `_nvfp4_draft`, `_assign`, `add_proposal`, and `_is_bf16_e
 one). The conversion command for each is the one in the experiment section, with the matching
 `--source quantized=` and `--name`.
 
+The attention half is now a tracked recipe: **`qwen3_8_27b_nvfp4_nvidia_attn8`** in
+`tools/convert/official_recipes.py`, with the measurements above in its docstring. It is deliberately
+*not* in the public recipe table of `docs/weight-conversion.md`, which lists the five recipes that ship —
+the same treatment `qwen3_8_27b_nvfp4_nvidia` and `qwen3_8_27b_nvfp4_unsloth_nvdiv` already get. Shipping
+it means moving the `nvidia` line's recipe entry in `build_model.py` and its row in
+`verify_shipping_artifacts.py`, and re-recording that gate's baseline, which is a product decision rather
+than a measurement.
+
 ## What is not established
 
 - **The served context with less KV** — the unsloth pair's *ratio* is derived (−28.5 %, 410,012 → 293,102

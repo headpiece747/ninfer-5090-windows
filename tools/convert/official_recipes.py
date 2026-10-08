@@ -827,6 +827,82 @@ def qwen3_8_27b_nvfp4_nvidia(model, recipe, sources):
     add_proposal(recipe, source=model.source("text/output_head", base))
 
 
+def qwen3_8_27b_nvfp4_nvidia_attn8(model, recipe, sources):
+    """The `nvidia` line with the producer's own FP8 attention kept instead of re-encoded.
+
+    Identical to `qwen3_8_27b_nvfp4_nvidia` except one branch: the attention projections import the
+    checkpoint's FP8 words instead of being re-encoded to NVFP4, so the GDN re-encode and every other
+    site are unchanged. This is the topology NVIDIA's own AutoQuantize assignment for this model uses,
+    and the one `d0xin`'s published artifact ships; the port's stock recipe already implements the same
+    predicate (`"/mlp/" in name and layer < 56`).
+
+    Measured 2026-10-08 against `qwen3_8_27b_nvfp4nvidia`, same source, one difference:
+
+    * perplexity 4.648907 against 4.686759 (-0.81%), all 16 streams and all four domains better;
+    * DFlash2 acceptance 0.1957 against 0.1106 (+77% relative) and decode +24.4%, from a flat round cost;
+    * prefill -1.18%, inside the baseline's own 3.9% spread, so no cost is demonstrated;
+    * 19.68 GB against 18.95 (+0.73), and 5.14% of the implied KV context;
+    * the task-adjacent endpoint over 60 AIME questions -4.11% answer NLL (bootstrap 95% CI excluding
+      zero, Wilcoxon p~0.066).
+
+    The two halves are nearly additive -- GDN alone carries 52% of the full split's perplexity gain and
+    attention alone 57% -- but attention buys its share for a third of the size, and adding GDN's FP8
+    *lowers* acceptance relative to this build, which is why this variant exists rather than the full
+    split. See `docs/research/attention-topology-2026-10-07.md`.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
+    base = sources["base"]
+    quantized = sources["quantized"]
+    prefix = "model.language_model." if "text_config" in quantized.config else "model."
+    _assign(recipe, "text/token_embedding", Q8)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding":
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8)
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            recipe.assign(name, source=model.source(name, base))
+            continue
+        if "/mlp/" in name:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, quantized, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+            continue
+        block, role = name.split("/")[3], name.rsplit("/", 1)[1]
+        if block == "attention":
+            recipe.assign(
+                name,
+                format=FP8,
+                method=import_encoded,
+                source=model.source(name, quantized, FP8),
+                activation_policy="AllowA8",
+            )
+            continue
+        module = _SITE_MODULES.get((block, role))
+        if module is None:
+            raise ValueError(f"{name}: no NVFP4 site is registered for this projection")
+        divisor = _activation_divisor(quantized, f"{prefix}layers.{name.split('/')[2]}.", module)
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            activation_policy="AllowA4",
+        )
+        for input_name in parameter.inputs:
+            recipe.use(name, input_name, auxiliaries={"activation_input_divisor": divisor})
+    add_proposal(recipe, source=model.source("text/output_head", base))
+
+
 RECIPES = {
     "qwen3_6_27b": qwen3_6_27b,
     "qwen3_6_27b_nvfp4": qwen3_6_27b_nvfp4,
@@ -835,6 +911,7 @@ RECIPES = {
     "qwen3_8_27b_nvfp4_qat": qwen3_8_27b_nvfp4_qat,
     "qwen3_8_27b_nvfp4_swift": qwen3_8_27b_nvfp4_swift,
     "qwen3_8_27b_nvfp4_nvidia": qwen3_8_27b_nvfp4_nvidia,
+    "qwen3_8_27b_nvfp4_nvidia_attn8": qwen3_8_27b_nvfp4_nvidia_attn8,
     "qwen3_8_27b_nvfp4_unsloth": qwen3_8_27b_nvfp4_unsloth,
     "qwen3_8_27b_nvfp4_unsloth_noex": qwen3_8_27b_nvfp4_unsloth_noex,
     "qwen3_8_27b_nvfp4_unsloth_nvdiv": qwen3_8_27b_nvfp4_unsloth_nvdiv,
