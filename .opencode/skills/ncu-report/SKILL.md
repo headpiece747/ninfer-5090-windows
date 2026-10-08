@@ -103,7 +103,7 @@ Most under-performing CUDA kernels are under-performing for exactly one reason t
    `C:\Program Files\NVIDIA Corporation\Nsight Systems 2026.1.3\target-windows-x64\nsys.exe`. It traces every kernel and its duration via CUPTI, needs no elevation, and is the correct tool for duration questions anyway — `ncu` replays kernels for metric collection, which is the wrong instrument for "which kernel was slowest". Extract with
    `nsys stats --report cuda_gpu_kern_sum --format table <report>.nsys-rep` and read the **Max** column for a longest-kernel question.
 
-8. **Never `Stop-Process` the profiler.** Killing `nsys` discards the trace silently — the process dies, nothing is reported, and the `.nsys-rep` never appears. Stop only the process being profiled and wait for the profiler to exit on its own; then confirm the report file exists before reading a measurement out of it. This cost a 27 MB native-context capture that had to be re-run.
+8. **Never `Stop-Process` the profiler.** Killing `nsys` discards the trace silently — the process dies, nothing is reported, and the `.nsys-rep` never appears. Stop only the process being profiled and wait for the profiler to exit on its own; then confirm the report file exists before reading a measurement out of it. This cost a 27 MB native-context capture that had to be re-run. A second failure of the same kind, in which the profiler was terminated instead of its subject and a port collision made a whole trace describe a request it never received, is recorded in [`known-failures.md`](known-failures.md) with the recipe that avoids it.
 
 ---
 
