@@ -91,6 +91,27 @@ docstring records the same change *losing* 3.2 acceptance points on Swift 1.0 fo
 the bench fixture corpus and are **not** comparable with the lanes' recorded 53–61 % on the default code
 domain; only the relative difference is like-for-like.
 
+### The unsloth pair, same protocol, and what the extra 3.86 GiB costs the lane
+
+| metric | fp8attn | `full` | delta | arm-to-arm spread of the baseline |
+|---|---|---|---|---|
+| prefill pp2048 | 10,064 tok/s | 11,617 tok/s | **−13.4 %** | 0.3 % — real, and it reproduces the nvidia pair's −14.2 % |
+| decode tg128 | 104.64 tok/s | 102.78 tok/s | **+1.8 %** | 0.4 % — a small real gain, the opposite sign to the nvidia pair's −5.3 % |
+| DFlash2 acceptance | 0.2083 | 0.1524 | **+36.7 % relative** | deterministic, identical across both reps |
+| available after weights | 9,679,405,056 B | 13,540,261,888 B | **−3.86 GB** | — |
+| implied KV context | **293,102 tokens** | 410,012 tokens | **−28.5 %** | arithmetic, not measured |
+
+The context row is derived and labelled so: `available_after_weights_bytes` divided by the 33,024 bytes per
+KV token the bench reported for `fp8-e4m3-r256` on this model. It is an upper bound on a text-only lane
+rather than a served capacity — the lanes run with Vision and a runtime reservation on top — so the **ratio**
+is the defensible part and the absolute is not. At 293,102 implied the variant still covers the model's
+262,144 ceiling, but with little room left, and that is the cost most likely to decide the question in
+practice.
+
+Two sources now agree on the shape: prefill −13 to −14 %, acceptance +29 to +37 % relative, perplexity −1.4
+to −2.4 %, and a large slice of KV capacity. Decode disagrees in sign between the pairs and both magnitudes
+sit near the noise, so no decode claim is made either way.
+
 ## Per-domain KL: the distributional damage, which perplexity cannot order
 
 `ninfer-perplexity --topk-record` on both artifacts over the same corpus, then
@@ -155,15 +176,61 @@ different checkpoint. It is the lowest perplexity this port has recorded on this
 variants together are the evidence: **every shipped line pays 1.4–2.4 % perplexity for re-encoding the
 producer's FP8 attention and GDN projections to NVFP4.**
 
+## Appendix: the exact recipe change, so both variants are re-derivable
+
+Each variant is its source's official recipe with **one branch replaced** — everything else, including the
+BF16 exception pattern on the unsloth side and the draft encoding, is unchanged. `tools.convert` accepts a
+user recipe file, so neither was ever a tracked file; this is the change they made, and it is what a future
+re-derivation needs, because the artifacts themselves are disposable caches (`_rebuild\`, 22–24 GB each,
+~150 s to rebuild).
+
+For `qwen3_8_27b_nvfp4_nvidia` — the branch that replaces the `nvfp4_maxabs` + `AllowA4` + derived-divisor
+arm for every non-MLP text projection:
+
+```python
+# Attention and linear-attention: keep the source's own FP8 words, no re-encode.
+recipe.assign(
+    name,
+    format=FP8,                     # "fp8_e4m3fn_row_bf16"
+    method=import_encoded,
+    source=model.source(name, quantized, FP8),
+    activation_policy="AllowA8",
+)
+```
+
+For `qwen3_8_27b_nvfp4_unsloth` — the same replacement, after the BF16 exception check and the MLP branch,
+so that the exceptions and the MLP stay exactly as the shipped line has them:
+
+```python
+# Attention, linear-attention and MLP 56-63: the source's own FP8 words, no re-encode.
+recipe.assign(
+    name,
+    format=FP8,
+    method=import_encoded,
+    source=model.source(name, quantized, FP8),
+    activation_policy="AllowA8",
+)
+```
+
+Both need `FP8 = "fp8_e4m3fn_row_bf16"`, `import_encoded`, and the helpers the official recipe already
+imports (`_optional`, `_nvfp4_draft`, `_assign`, `add_proposal`, and `_is_bf16_exception` for the unsloth
+one). The conversion command for each is the one in the experiment section, with the matching
+`--source quantized=` and `--name`.
+
 ## What is not established
 
-- **The lane's maximum context with 3.16 GiB less KV** — unmeasured, and on a 32 GB card it is the cost
-  most likely to matter in practice.
-- **Decode** — the A/B cannot resolve a 5 % effect at this repetition count.
-- **The other sources** — unsloth's checkpoint has the same split, so the same variant is buildable there;
-  it is a different question because the fork *chose* to quantize that side, so it tests the hypothesis
-  rather than the provenance. `qat` is a third case again: its QAT training used NVFP4 attention, so
-  inference at FP8 is a train/test mismatch.
+- **The served context with less KV** — the unsloth pair's *ratio* is derived (−28.5 %, 410,012 → 293,102
+  implied tokens at 33,024 bytes per KV token), and neither pair has been *served* with `--kv-capacity auto`
+  to read the resolved figure the way the lanes report it. The ratio is the defensible part; the absolute is
+  an upper bound that ignores Vision and the runtime reservation.
+- **Decode** — the A/B cannot resolve a 5 % effect at this repetition count, and the two pairs disagree in
+  sign, so no decode claim is made either way.
+- **Two sources remain untested, for different reasons.** `qat` re-encodes nothing — QUASAR's export covers
+  every text linear, so its NVFP4 attention is what its own QAT training produced, and an FP8 variant would
+  be a train/test mismatch. Swift is a third case where importing its ModelOpt FP8 attention is what the port
+  rejected for *size* ("9 GiB of 8-bit weights"), so a Swift variant trades roughly +9 GiB rather than the
+  +3.2 to +3.9 GiB measured here — and the port's own notes record its BF16 exception pattern measuring
+  *worse* there, so it is not a copy of these two.
 - **A task-accuracy measurement** — everything here is perplexity and acceptance. `d0xin` measured
   225/280 against FP8's 224/280 on a fixed MMLU-Pro subset; nothing on this port has been measured on a
   task suite for these two artifacts.
