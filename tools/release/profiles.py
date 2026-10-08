@@ -148,7 +148,7 @@ PROFILES: list[dict[str, Any]] = [
               "the code domain alone the wrong single domain to read."),
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
-         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
+         spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144,
          tok=331.3, acc="63.0%", runtime="10.6 GiB", free="2.85 GiB",
          note="This lane is REFUSED at startup on the BF16-exception image and was, until "
               "2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB "
@@ -163,6 +163,7 @@ PROFILES: list[dict[str, Any]] = [
               "about 1.50 GiB free, so the split into two images remained necessary and the margin on "
               "this class of lane was thin. The guard now returns about 1.35 GiB, and "
               "`--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% "
+              "Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s."
               "prefill -- is no longer needed to improve it."),
     dict(file="start_ninfer_v3_mtp4_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP4 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp4-vision",

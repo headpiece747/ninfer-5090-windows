@@ -6,7 +6,7 @@ REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
 REM      context 262,144   decode 331.3 tok/s   draft acceptance 63.0%
 REM      runtime 10.6 GiB   free VRAM 2.85 GiB
 REM
-REM  This lane is REFUSED at startup on the BF16-exception image and was, until 2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after weights -- short by 308 MiB. Encoding the nine BF16 exception parents to NVFP4 is 0.7 GiB and clears it, at 17.2 GiB of device weights against 17.9. That costs 0.087 % perplexity overall (5.002751 against 4.998419, same binary same day) and buys back the native context plus 24.8 % throughput and 11.6 acceptance points on this route. The exceptions stay on the MTP lane below, where they are worth far more than they cost here. Note that the artifact fix is not the only thing standing between this lane and its context: before the tiled saturation guard, every DFlash2 lane read 11.6 GiB and about 1.50 GiB free, so the split into two images remained necessary and the margin on this class of lane was thin. The guard now returns about 1.35 GiB, and `--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% prefill -- is no longer needed to improve it.
+REM  This lane is REFUSED at startup on the BF16-exception image and was, until 2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after weights -- short by 308 MiB. Encoding the nine BF16 exception parents to NVFP4 is 0.7 GiB and clears it, at 17.2 GiB of device weights against 17.9. That costs 0.087 % perplexity overall (5.002751 against 4.998419, same binary same day) and buys back the native context plus 24.8 % throughput and 11.6 acceptance points on this route. The exceptions stay on the MTP lane below, where they are worth far more than they cost here. Note that the artifact fix is not the only thing standing between this lane and its context: before the tiled saturation guard, every DFlash2 lane read 11.6 GiB and about 1.50 GiB free, so the split into two images remained necessary and the margin on this class of lane was thin. The guard now returns about 1.35 GiB, and `--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s.prefill -- is no longer needed to improve it.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -143,7 +143,7 @@ if not errorlevel 1 (
 "%SERVE%" "%MODEL%" ^
   --vision ^
   --spec dflash2 ^
-  --draft-tokens 7 ^
+  --draft-tokens 9 ^
   --lm-head-draft ^
   --host 127.0.0.1 ^
   --port 8088 ^
