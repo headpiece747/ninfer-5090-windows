@@ -176,7 +176,7 @@ different checkpoint. It is the lowest perplexity this port has recorded on this
 variants together are the evidence: **every shipped line pays 1.4–2.4 % perplexity for re-encoding the
 producer's FP8 attention and GDN projections to NVFP4.**
 
-### Why the prefill costs what it costs: the bytes, not a route
+### Why the prefill costs what it costs: the tensor rate, not the bytes
 
 `ncu` cannot collect counters on this host (`ERR_NVGPUCTRPERM`, which needs an elevation this port does not
 take), but `nsys` needs none and answers duration questions directly. Traces of both artifacts at pp8192:
@@ -199,11 +199,34 @@ it runs the same sites through `nvfp4_a4_tma_kernel` instead — and the survivi
 | NVFP4 A4 | **430.22 ms** |
 | ratio | **1.65×** |
 
-An FP8 row weight is one byte per element against NVFP4's 0.5, a 2.0× byte ratio — so **1.65× is better than
-the byte ratio**, meaning the FP8 A8 route extracts more throughput per byte, not less. There is no route
-defect here and nothing to fix in the scheduler: the cost is what streaming twice the weight bytes costs.
-The lever is therefore **how many sites need FP8**, which is what a per-projection sensitivity ranking would
-decide, and the reason the KV lever matters is that the context cost cannot be recovered from the kernel side.
+**The first reading of this section was wrong, and the arithmetic that refutes it was one division away.**
+It said the cost was the weight bytes — an FP8 row weight is 1 byte per element against NVFP4's 0.5, so
+1.65× looked *better* than the 2.0× byte ratio and the route looked healthy. But these kernels are not
+bandwidth-bound at all: one pp2048 pass reads its ~15.9 GB of text weights in 185.8 ms, which is
+**85.6 GB/s, 4.8 % of this card's ~1.79 TB/s bus**, and the switched sites alone read 7.2 GB at FP8 in
+708.88 ms, **10.2 GB/s, 0.6 % of bus**. A byte ratio cannot explain a cost on a bus that is 95 % idle, and
+the 1.65× is equally consistent with the real cause.
+
+**The cause is the tensor rate.** On GB202 the block-scaled NVFP4 MMA is `m16n8k64` and the FP8 one is
+`m16n8k32` — the same instruction family at half the K per issue — and NVIDIA publishes FP4 dense at 2× FP8.
+Moving 28.2 % of the pass's FLOPs onto a half-rate path costs 17.6 ms on a 70.9 ms GEMM-only pass at peak
+(+24.9 %), and the measured delta of +15.4–16.5 % is that same effect on a 185.8 ms pass. A two-term fit
+reproduces both measured pairs with the FP8 rate at exactly half the FP4 rate plus the same ~30 µs/token
+fixed term — which is also why the ratio is 1.65× and not 2.0×: part of each kernel's time is not tensor work.
+
+**And the port's FP8 route is the better-utilised of the two.** Upstream's measured MXFP8
+fused-projection throughput is 660–712 TFLOP/s at T=1024, 79–85 % of the 838 FP8 peak, against this port's
+NVFP4 A4 at 882–985 TFLOP/s, 53–59 % of the 1676 peak. So there is no defect to fix in the 8-bit path; if
+anything the *NVFP4* kernels have headroom.
+
+**One discrepancy is left visible rather than smoothed over.** The two Op-level rates predict about +6 %
+where the model measures +13–15 µs/token, 2.4–2.7× more. Closing that gap is what an interleaved
+`ninfer_linear_bench` A/B at the four real geometries would do, and it matters because the decision below
+turns on the *exchange rate* between quality and prefill: with the cost being tensor FLOPs rather than bytes,
+a partial split's price is proportional to the FLOPs moved, not to the bytes saved.
+
+The lever is therefore **how many sites need FP8**, which is what a per-projection sensitivity ranking
+decides, and the reason the KV lever matters is that the context cost cannot be recovered from the kernel side.
 
 ## Appendix: the exact recipe change, so both variants are re-derivable
 
