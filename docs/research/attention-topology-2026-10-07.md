@@ -372,6 +372,34 @@ is faster than A8 by about the same factor, in the same direction, for the same 
 format selects the tensor core route. **This port's shipped line is already at the fast end, and none of
 the quality levers here is free.**
 
+## The maximin domain, measured: the recipe gains there too, and the fixture corpus overstated it
+
+The profile table is selected by **maximin — "the worst domain decides"** (`profiles.py`) — and the matrix's
+own comment warns that code is the most favourable domain for speculation (3.18–5.71 tokens per round
+against Chinese's 1.18–1.85). The +77 % above was measured on the *bench fixture corpus*, which is synthetic
+and tiled and therefore speculation-friendly by construction, so it could not be quoted as the lane figure.
+Measured through the matrix on the shipped flags (dflash2, depth 7, vision, lm_head, context 262,144):
+
+| lane | domain | decode | acceptance |
+|---|---|---|---|
+| `nvidia` shipped | code | 251.3 tok/s | 43.5 % (1200/2756) |
+| **`nvidia_attn8`** | code | **270.7** (+7.7 %) | **50.1 %** (+15.2 %) |
+| `nvidia` shipped | **chinese** | 132.3 tok/s | **15.7 %** (832/5296) |
+| **`nvidia_attn8`** | **chinese** | **139.2** (+5.2 %) | **18.2 %** (**+15.9 %**) |
+
+**The maximin domain gains, and there is no reversal.** The two extremes agree closely — +15.2 % on the most
+favourable domain and +15.9 % on the least — so the effect is not a domain artefact in either direction. The
+bench figure of +77 % was the outlier: a synthetic tiled corpus is more speculation-friendly than any real
+domain, by about five times.
+
+**And the served context is not lost.** Both lanes report `KV 262,144`; the variant's cost comes out of *free*
+VRAM (2.27 → 1.88 GiB on code, 2.56 → 1.92 on chinese), which the lane's headroom absorbs. The earlier
+"−5.14 % of implied context" was arithmetic on a text-only lane and is not what the lane actually serves.
+
+Per-domain, the recipe therefore costs **−1.18 % prefill (inside the baseline's own 3.9 % spread)**, **~0.4–0.6
+GiB of free VRAM** and **+0.73 GB of artifact**, and gains **−0.81 % perplexity across all four corpus
+domains**, **+15–16 % speculative acceptance on both measured extremes** and **+5–8 % decode**.
+
 ## What is not established
 
 - **The served context with less KV** — the unsloth pair's *ratio* is derived (−28.5 %, 410,012 → 293,102
