@@ -228,6 +228,35 @@ a partial split's price is proportional to the FLOPs moved, not to the bytes sav
 The lever is therefore **how many sites need FP8**, which is what a per-projection sensitivity ranking
 decides, and the reason the KV lever matters is that the context cost cannot be recovered from the kernel side.
 
+## Which half carries the quality: attention, and at a third of the cost
+
+The same source, the same MLP and draft encoding, one difference each: which half of the text stack keeps the
+producer's FP8. Attention is 32 FP8 tensors; GDN is 96.
+
+| line | PPL | vs shipped | share of the full gain | size |
+|---|---|---|---|---|
+| `nvidia` (shipped, all NVFP4) | 4.686759 | — | — | 18.95 GB |
+| **`attention_fp8`** | **4.648907** | **−0.81 %** | **57 %** | 19.68 GB (**+0.73**) |
+| **`gdn_fp8`** | **4.652642** | **−0.73 %** | **52 %** | 21.37 GB (**+2.42**) |
+| full FP8 (attention + GDN) | 4.620757 | −1.41 % | 100 % | 22.11 GB (+3.16) |
+
+Two things follow.
+
+**The halves are nearly additive, not redundant.** 57 % + 52 % = 109 % against the full split's 100 %, so the
+two overlap only slightly and the quality is genuinely distributed across the whole attention stack rather
+than carried by one part of it. No single projection or block is the answer.
+
+**The cost is not distributed that way.** Attention buys 57 % of the quality for 23 % of the size and GDN
+buys 52 % for 77 % — attention is **3.3× more efficient per byte**, and with the cost being tensor FLOPs
+rather than bytes, more efficient per FLOP as well: q/k/v/o are the small projections while GDN's
+`qkv`/`z`/`out` are the large ones. The efficient buy is therefore **attention alone**, and the full split is
+only worth its extra 2.4 GB if the last 0.9 % of perplexity is worth more than the context it costs.
+
+Per domain the two arms trade places, which is this port's recorded pattern again: attention wins
+`english_reference` (6.16028 against 6.22344), GDN wins `ninfer_code` (1.65997 against 1.66309),
+`english_long_form` (7.96694 against 7.98928) and `chinese_reference` (5.65835 against 5.67148). The full
+split is best in all four, consistent with near-additivity.
+
 ## Appendix: the exact recipe change, so both variants are re-derivable
 
 Each variant is its source's official recipe with **one branch replaced** — everything else, including the
