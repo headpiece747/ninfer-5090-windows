@@ -98,7 +98,7 @@ std::string usage(const char* executable) {
            "bench/fixtures/bench_corpus.ids)\n"
         << "  --device <id>              CUDA device (default: 0)\n"
         << "  --max-context <tokens>     prefill measurement context (default: 8192)\n"
-        << "  --prefill-chunk <tokens>   prefill measurement chunk (default: 1024)\n"
+        << "  --prefill-chunk <tokens>   prefill measurement chunk (default: 8192)\n"
         << "  --transfer-warmup <n>      warmups per transfer point (default: 2)\n"
         << "  --transfer-reps <n>        samples per transfer point (default: 9)\n"
         << "  --prefill-reps <n>         samples per prefill point (default: 5)\n"

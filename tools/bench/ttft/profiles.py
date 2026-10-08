@@ -21,6 +21,8 @@ def _args(*values: str | int) -> tuple[str, ...]:
 
 
 COMMON_ARGS = _args(
+    "--prefill-chunk",
+    "8192",
     "--kv-dtype",
     "fp8",
     "--no-thinking",

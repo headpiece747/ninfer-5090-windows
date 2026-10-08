@@ -27,7 +27,7 @@ struct MeasurementOptions {
     std::filesystem::path corpus;
     int device                  = 0;
     std::uint32_t max_context   = 8192;
-    std::uint32_t prefill_chunk = 1024;
+    std::uint32_t prefill_chunk = 8192;
     int transfer_warmup         = 2;
     int transfer_repetitions    = 9;
     int prefill_repetitions     = 5;
