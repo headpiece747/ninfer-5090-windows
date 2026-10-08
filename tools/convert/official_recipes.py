@@ -827,6 +827,77 @@ def qwen3_8_27b_nvfp4_nvidia(model, recipe, sources):
     add_proposal(recipe, source=model.source("text/output_head", base))
 
 
+def qwen3_8_27b_nvfp4_nvidia_a8policy(model, recipe, sources):
+    """The `nvidia` line with its activation permission moved from A4 to A8, weights untouched.
+
+    Every weight is encoded exactly as `qwen3_8_27b_nvfp4_nvidia` encodes it -- the artifact differs by
+    1,536 bytes, which is metadata -- so this isolates the *activation* axis from the weight axis that
+    `qwen3_8_27b_nvfp4_nvidia_attn8` also moves. Measured 2026-10-08, same protocol as the rest:
+
+    * perplexity 4.661317 against 4.686759 (-0.543%), all four domains better;
+    * DFlash2 acceptance 0.1436 against 0.1106 (+29.9% relative) and decode +6.84%;
+    * prefill 6,576 against 12,541 tok/s -- **-47.6%**, which is the largest single cost measured here;
+    * size unchanged, and so is the format mix.
+
+    Read together with the attn8 recipes this splits their result: the activation permission carries 67%
+    of the perplexity gain and 39% of the acceptance gain, and the FP8 weights carry the rest. It also
+    explains a third-party number in the opposite direction. A Windows 4090 port publishes an int8-prefill
+    artifact whose weights are byte-identical to the official one and which doubles its prefill
+    (2,762 -> 5,830 tok/s at pp2048) by declaring an int8 activation route; its baseline is the official
+    artifact, which runs A16 on the sites this port has no divisor for. A4 is faster than A8 by about the
+    same factor, in the same direction, for the same reason -- the activation format selects the tensor
+    core route -- which is why this port's shipped line is already at the fast end and none of the
+    quality levers here is free.
+
+    The A4 route is what makes the shipped line's prefill what it is; a lane that trades prefill for
+    quality at constant size can take this recipe, and the attn8 ones are better trades where bytes are
+    available.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
+    base = sources["base"]
+    quantized = sources["quantized"]
+    prefix = "model.language_model." if "text_config" in quantized.config else "model."
+    _assign(recipe, "text/token_embedding", Q8)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding":
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8)
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            recipe.assign(name, source=model.source(name, base))
+            continue
+        if "/mlp/" in name:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, quantized, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+            continue
+        block, role = name.split("/")[3], name.rsplit("/", 1)[1]
+        module = _SITE_MODULES.get((block, role))
+        if module is None:
+            raise ValueError(f"{name}: no NVFP4 site is registered for this projection")
+        # The divisor is still recorded, so the permission is the only difference from the shipped line.
+        divisor = _activation_divisor(quantized, f"{prefix}layers.{name.split('/')[2]}.", module)
+        recipe.assign(
+            name,
+            format="nvfp4",
+            method=nvfp4_maxabs,
+            activation_policy="AllowA8",
+        )
+        for input_name in parameter.inputs:
+            recipe.use(name, input_name, auxiliaries={"activation_input_divisor": divisor})
+    add_proposal(recipe, source=model.source("text/output_head", base))
+
+
 def qwen3_8_27b_nvfp4_unsloth_attn8(model, recipe, sources):
     """The `unsloth` line with the producer's own FP8 attention kept instead of re-encoded.
 
@@ -976,6 +1047,7 @@ RECIPES = {
     "qwen3_8_27b_nvfp4_qat": qwen3_8_27b_nvfp4_qat,
     "qwen3_8_27b_nvfp4_swift": qwen3_8_27b_nvfp4_swift,
     "qwen3_8_27b_nvfp4_nvidia": qwen3_8_27b_nvfp4_nvidia,
+    "qwen3_8_27b_nvfp4_nvidia_a8policy": qwen3_8_27b_nvfp4_nvidia_a8policy,
     "qwen3_8_27b_nvfp4_nvidia_attn8": qwen3_8_27b_nvfp4_nvidia_attn8,
     "qwen3_8_27b_nvfp4_unsloth_attn8": qwen3_8_27b_nvfp4_unsloth_attn8,
     "qwen3_8_27b_nvfp4_unsloth": qwen3_8_27b_nvfp4_unsloth,

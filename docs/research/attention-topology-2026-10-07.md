@@ -335,6 +335,43 @@ it means moving the `nvidia` line's recipe entry in `build_model.py` and its row
 `verify_shipping_artifacts.py`, and re-recording that gate's baseline, which is a product decision rather
 than a measurement.
 
+## The activation axis, isolated: the shipped line is already at the fast end
+
+Everything above moved *weights* and *activations* together at the attention sites, so neither the +77 %
+acceptance nor the −1.18 % prefill was attributed between them. This isolates the activation half: the
+shipped line's NVFP4 re-encode kept exactly as it is, with only the declared permission moved from
+`AllowA4` to `AllowA8`. The artifact differs from the shipped one by **1,536 bytes** — metadata — so the
+weights, the format mix and the size are identical.
+
+| metric | `a8policy` | shipped `nvidia` | delta |
+|---|---|---|---|
+| perplexity | **4.661317** | 4.686759 | **−0.543 %**, all four domains better |
+| DFlash2 acceptance | **0.1436** | 0.1106 | **+29.9 %** relative |
+| decode tg128 | 102.53 tok/s | 95.97 tok/s | **+6.84 %** |
+| prefill pp2048 | **6,576 tok/s** | **12,541 tok/s** | **−47.6 %** |
+| size | 18,946,875,396 B | 18,946,876,932 B | −1,536 |
+
+Three things follow.
+
+**The attn8 result is split, and the activation half is the cheaper one on bytes.** Activation permission
+alone carries 67 % of the perplexity gain (−0.543 of −0.81) and 39 % of the acceptance gain (+29.9 of +77),
+at *zero* size cost. The FP8 weights carry the rest. So a lane that cannot afford the bytes has a
+size-neutral option, and a lane that can gets more from the weights.
+
+**And the activation format is the dominant prefill lever, not the weight format.** −47.6 % from moving
+every non-MLP site from A4 to A8 is far larger than the −1.18 % the whole attention-weight change cost —
+because that change moved 32 of 512 uses while this moves all of them. The earlier section's attribution
+was therefore incomplete: the tensor-rate story is right, but the *activation* format selects the route
+first and the weight format second.
+
+**It also explains a third-party number in the opposite direction, which is the strongest corroboration
+available.** A Windows 4090 port publishes an int8-prefill artifact whose weights are byte-identical to the
+official one and which *doubles* its prefill (2,762 → 5,830 tok/s at pp2048) by declaring an int8 activation
+route; its baseline is the official artifact, which runs A16 on the sites this port has no divisor for. A4
+is faster than A8 by about the same factor, in the same direction, for the same reason — the activation
+format selects the tensor core route. **This port's shipped line is already at the fast end, and none of
+the quality levers here is free.**
+
 ## What is not established
 
 - **The served context with less KV** — the unsloth pair's *ratio* is derived (−28.5 %, 410,012 → 293,102
