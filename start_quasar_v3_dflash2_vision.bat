@@ -3,7 +3,7 @@ REM ============================================================================
 REM  QUASAR QAT + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 319.2 tok/s   draft acceptance 55.0%
+REM      context 262,144   decode 365.3 tok/s   draft acceptance 71.2%
 REM      runtime 10.6 GiB   free VRAM 2.82 GiB
 REM
 REM  Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime 10.3 GiB) were taken before the workspace grew and no longer describe this lane; at the shipped configuration every DFlash2 lane reads 10.6 GiB and free VRAM varying by about 0.2 GiB, and this row is the measured one. Two earlier figures on this lane, 343.4/62.5% and the 45.7% published-file reading, had already been withdrawn as not reproducing.

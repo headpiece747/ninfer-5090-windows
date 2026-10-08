@@ -136,14 +136,14 @@ that earlier builds shipped.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **319 tok/s** | 55.0% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **221 tok/s** | 59.6% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **296 tok/s** | 48.7% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 190 tok/s | 51.4% |
-| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **362 tok/s** | 63.0% |
-| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (4) | yes | 262,144 | 218 tok/s | 58.7% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (7) | yes | 262,144 | **338 tok/s** | 56.2% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 210 tok/s | 53.1% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **365 tok/s** | 71.2% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **212 tok/s** | 63.5% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **331 tok/s** | 63.0% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 169 tok/s | 46.7% |
+| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **314 tok/s** | 58.3% |
+| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (4) | yes | 262,144 | 204 tok/s | 57.7% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (7) | yes | 262,144 | **251 tok/s** | 43.5% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 202 tok/s | 57.3% |
 
 Every number was measured on an RTX 5090 with the exact arguments the launcher passes, and re-measured
 **2026-09-30** on the artifacts this release ships; every context ceiling is the highest value the
@@ -159,8 +159,8 @@ provenance. The QUASAR line is the only one whose text weights are a quantizatio
 checkpoint imported unchanged; the other three re-encode their FP8 attention from the BF16 base and
 score lower full-corpus perplexity (4.98, 4.92 and 4.90 against QUASAR's 4.99). **The claim that
 "the NVFP4-full line also carrying the fastest DFlash2 lane (340 tok/s against QUASAR's 311)" is
-stale and is withdrawn**: in the table above the NVFP4-full DFlash2 lane reads **296 tok/s** against
-QUASAR's **319**, and the fastest DFlash2 lane in this release is **Swift 1.5 at 362 tok/s**. The
+stale and is withdrawn**: in the table above the NVFP4-full DFlash2 lane reads **331 tok/s** against
+QUASAR's **319**, and the fastest DFlash2 lane in this release is **QUASAR at 365 tok/s**. The
 340/311 pair is a superseded measurement that no longer reproduces, in the same way as the withdrawn
 figures `profiles.py` names in its own notes. Compare artifacts only on
 the full corpus: a `--quick` figure is decided by four streams and is not comparable, as

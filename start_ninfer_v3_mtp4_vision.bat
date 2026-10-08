@@ -3,7 +3,7 @@ REM ============================================================================
 REM  NVFP4-full + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 190.3 tok/s   draft acceptance 51.4%
+REM      context 262,144   decode 168.8 tok/s   draft acceptance 46.7%
 REM      runtime 9.96 GiB   free VRAM 2.96 GiB
 REM
 REM  MTP lane on the second artifact, and the one lane where the BF16 exception projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's context costs that lane acceptance points and throughput, measured interleaved against the no-exception build. Re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes from 5 to 4: d4 wins prose (120.3 against 110.0), chinese (125.3 against 117.4) and dialogue (166.3 against 140.9), and loses only code (190.6 against 204.8) and repetition by 2.9%, so its worst case is -2.9% against d5's -7.5%. **The first pass of this sweep read the wrong artifact**: `widths --art ninfer` resolves to cometkim's base `qwen3_8_27b_nvfp4`, which is not a shipping lane, while this lane ships `nvfp4full`. Swept on the shipped image the verdict is the same, but it had to be re-measured to be known -- the two images differ by 26 tok/s on the same configuration, which is wider than the depth effect being decided. This lane's 2.96 GiB free is the fleet's tightest, because it carries the BF16 exceptions and so has the heaviest weights at the same runtime.

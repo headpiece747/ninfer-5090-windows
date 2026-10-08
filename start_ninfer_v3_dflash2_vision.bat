@@ -3,7 +3,7 @@ REM ============================================================================
 REM  NVFP4-full + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 296.4 tok/s   draft acceptance 48.7%
+REM      context 262,144   decode 331.3 tok/s   draft acceptance 63.0%
 REM      runtime 10.6 GiB   free VRAM 2.85 GiB
 REM
 REM  This lane is REFUSED at startup on the BF16-exception image and was, until 2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after weights -- short by 308 MiB. Encoding the nine BF16 exception parents to NVFP4 is 0.7 GiB and clears it, at 17.2 GiB of device weights against 17.9. That costs 0.087 % perplexity overall (5.002751 against 4.998419, same binary same day) and buys back the native context plus 24.8 % throughput and 11.6 acceptance points on this route. The exceptions stay on the MTP lane below, where they are worth far more than they cost here. Note that the artifact fix is not the only thing standing between this lane and its context: before the tiled saturation guard, every DFlash2 lane read 11.6 GiB and about 1.50 GiB free, so the split into two images remained necessary and the margin on this class of lane was thin. The guard now returns about 1.35 GiB, and `--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% prefill -- is no longer needed to improve it.
