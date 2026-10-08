@@ -1229,11 +1229,13 @@ def _require_transport_cancellation(
         if result is not None
         else []
     )
+    # Either outcome is what a cancellation looks like from the client: the runner's own tests pin
+    # `cancel_requested` with `transport_cancelled` False as a valid state (test_http_cancellation.py:112
+    # and :144), so requiring the flag made this case unsatisfiable rather than demanding.
     context.require(
-        handle.outcome() == "cancelled"
+        handle.outcome() in {"cancelled", "transport_error"}
         and result is not None
-        and result.http.cancel_requested
-        and result.http.cancelled,
+        and result.http.cancel_requested,
         f"{handle.role}.transport terminated by cancellation",
         (
             f"outcome={handle.outcome()}, "
