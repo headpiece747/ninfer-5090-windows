@@ -123,6 +123,41 @@ depths, no 64K prefill penalty, TTFT-neutral, at +3.9 % size. a8policy retains i
 decode and acceptance from an earlier measurement that has **not** been re-verified on the serving
 route, and its quality advantage halves at depth while its throughput cost grows.
 
+## Depth choice: the maximin answer for the four DFlash2 lanes
+
+The gap noted above (`nvfp4fullnoex` had depth 7 only) was closed with the full 1-15 sweep, and then the
+question the siblings' original sweeps could not answer was asked of all four lanes: what does the
+**worst** domain say, since the lanes ship under a maximin rule and code is this port's most favourable
+domain. Depths 7 and 9, five domains each, one invocation per domain so every comparison comes from a
+single rotated run:
+
+| lane | code | prose | chinese | dialogue | repetition | worst domain d7 → d9 | choice |
+|---|---|---|---|---|---|---|---|
+| nvfp4fullnoex | 300.9 → 368.9 | 161.3 → **154.9** | 141.0 → 143.1 | 197.3 → 259.5 | 211.6 → 237.2 | 141.0 → **143.1** | **d9 (+1.5 %)** |
+| quasar | **384.3** → 337.4 | **157.2** → 145.5 | 146.8 → 149.8 | **232.6** → 230.7 | 194.3 → 237.1 | **146.8** → 145.5 | d7 (−0.9 %) |
+| nvidia | 265.5 → 325.4 | **157.3** → 151.8 | 139.2 → 139.6 | **220.9** → 208.7 | 217.0 → 237.2 | 139.2 → 139.6 | d9 (+0.3 %) |
+| swift15 | 327.1 → 361.7 | **150.4** → 143.3 | **148.3** → 143.9 | 201.2 → 239.6 | 204.9 → 252.7 | **148.3** → 143.3 | d7 (−3.4 %) |
+
+All four lanes ship depth 7. The maximin answer **confirms 7 for quasar and swift15**, makes it a **tie on
+nvidia** (+0.3 %, well inside a single invocation's spread), and favours **9 on nvfp4fullnoex by 1.5 %**.
+So the shipped policy is defensible and the only candidate change would be one lane, by a margin that
+wants a repeat before it is shipped.
+
+**The finding that matters more than the ranking**: under maximin the depth choice is nearly degenerate.
+Whichever depth is chosen, a lane's worst-domain throughput lands within 3 % — while individual domains
+swing 10-31 % between the two depths. The deciding domain is chinese or prose in every lane, which are
+exactly the domains where speculation helps least. A rule that decides on the worst domain is therefore
+also a rule that can be moved by a 0.3 % margin, which is worth knowing the next time a shipped value is
+changed on it.
+
+Two instrument facts this required, both worth carrying forward. **`--domain` accepts repeats and honours
+only the first**, so a multi-domain invocation silently runs one domain. And **`DOCUMENTED_SAMPLING` is
+temperature 1.0**, so text, digest and acceptance all vary between runs by construction: within one
+invocation the three sub-runs agree to 2-3 %, across invocations the same configuration can differ by
+tens of percent. Only within-invocation comparisons are usable, which is why every figure above is one
+invocation. What discriminates a different **engine build** is `runtime_gib` (11.6 GiB before the
+saturation guard, 10.6 after) — not the digest, which the sampling makes uninformative.
+
 ## Open items
 
 - The **fixed ~45 ms inside the `prefill` phase** on near-zero-work requests, seen three independent
