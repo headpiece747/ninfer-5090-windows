@@ -415,7 +415,34 @@ against the prefix's UTF-8 length; zero of the 60 streams have a token spanning 
 **How to read it.** The bootstrap interval excludes zero and the median sits close to the mean, so the effect
 is broad rather than carried by a few questions. The sign test is uninformative here because it discards
 magnitude, and the Wilcoxon is only marginal — which is what the protocol note's arithmetic predicts for a
-difference this size at 60 questions, not a contradiction of the bootstrap. The honest summary is that the
-task-adjacent endpoint **agrees with perplexity in direction, marginally in significance**, and that the
-powered design (GPQA-Diamond's 198 plus these 60) would settle it. It is not an accuracy result and should
-not be quoted as one.
+difference this size at 60 questions, not a contradiction of the bootstrap. It is not an accuracy result and
+should not be quoted as one.
+
+### Extended to 258 questions: the effect is real on AIME, absent on GPQA, and the absence is measured
+
+GPQA-Diamond's 198 questions were added to the same corpus (dataset id `AI-ModelScope/gpqa_diamond`, which is
+what EvalScope's own adapter names; the options are left in the dataset's own order so any position bias
+cancels in the paired comparison). 253 of 258 questions scored in both arms:
+
+| domain | n | mean answer NLL, shipped | sd | answer tokens | paired difference | n needed to resolve |
+|---|---|---|---|---|---|---|
+| aime25 | 30 | 2.6045 | 0.525 | 2.7 | **−0.0858** | 69 |
+| aime26 | 30 | 2.8535 | 0.623 | 2.7 | **−0.1382** | 39 |
+| **gpqa_diamond** | 193 | **0.6495** | 0.812 | 20.7 | **+0.0069** | 1,415 |
+
+Pooled, the difference is −0.02134 nats (−1.87 %) with a bootstrap interval of **[−0.05081, +0.00655]**,
+which **includes zero**: P(mean ≥ 0) = 0.067, sign test 132/253 at p = 0.53, Wilcoxon z = −1.47. So the
+pooled endpoint does **not** certify the effect, and the reason is visible in the split rather than being a
+power problem.
+
+**The GPQA null is a measurement, not an absence of resolution.** Its standard error is 0.0095 nats, so an
+effect the size of AIME's 0.086 would have been detected several times over; resolving *its own* effect would
+need 1,415 questions. And the explanation is saturation: the model already assigns the correct GPQA option
+about 52 % probability (exp(−0.6495)) in this format, because the options are given, against about 7 % for an
+AIME answer (exp(−2.6)) which must be produced. A quantization difference shows where the model is uncertain,
+and multiple-choice-with-options is not that.
+
+**What the finding therefore claims, and does not claim**: the candidate improves a free-form math endpoint
+by 3–5 % in answer likelihood on both AIME subsets, and is neutral on multiple-choice science at a resolution
+far finer than that. It is not an accuracy result on either, and the pooled figure should not be quoted
+without the split.
