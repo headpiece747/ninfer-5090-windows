@@ -1,0 +1,40 @@
+schema_version: 1
+
+targets:
+  qwen27_api:
+    protocol: openai_chat
+    base_url: http://127.0.0.1:18161/v1
+    model: qwen3.8-27b
+    max_concurrency: 1
+    request:
+      timeout_seconds: 86400
+      retries: 2
+      retry_interval_seconds: 10
+
+suites:
+  smoke:
+    jobs:
+      - id: needle_haystack_smoke
+        backend: evalscope
+        dataset: needle_haystack
+        target: qwen27_api
+        max_concurrency: 1
+        limit: 1
+        generation: &retrieval_generation
+          temperature: 0
+          max_tokens: 512
+          seed: 42
+          extra_body:
+            enable_thinking: false
+        backend_args:
+          subset_list: [english]
+          judge_strategy: rule
+          dataset_args:
+            local_path: C:/Users/tobia/.cache/modelscope/datasets/AI-ModelScope--Needle-in-a-Haystack-Corpus/snapshots/master
+            extra_params:
+              context_lengths_min: 8192
+              context_lengths_max: 8192
+              context_lengths_num_intervals: 1
+              document_depth_percent_min: 50
+              document_depth_percent_max: 50
+              document_depth_percent_intervals: 1
