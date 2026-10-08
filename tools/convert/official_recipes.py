@@ -827,6 +827,71 @@ def qwen3_8_27b_nvfp4_nvidia(model, recipe, sources):
     add_proposal(recipe, source=model.source("text/output_head", base))
 
 
+def qwen3_8_27b_nvfp4_unsloth_attn8(model, recipe, sources):
+    """The `unsloth` line with the producer's own FP8 attention kept instead of re-encoded.
+
+    Identical to `qwen3_8_27b_nvfp4_unsloth` except one branch: attention, linear-attention and MLP 56-63
+    import the checkpoint's FP8 words instead of being re-encoded to NVFP4. The measured BF16 exception
+    pattern is kept, so this changes one thing rather than two.
+
+    Unlike the nvidia case this is not restoring a producer choice the port overrode by accident -- the
+    fork's profile deliberately quantized that side -- so it tests the topology rather than the
+    provenance. Both come out the same way, which is what makes the mechanism the topology.
+
+    Measured 2026-10-08 against the two shipped images of this source:
+
+    * perplexity 4.613442 against `full`'s 4.724219 (-2.35%) and `full_noex`'s 4.727636 (-2.42%), all four
+      domains better (-0.024 code to -0.229 English reference), and the lowest this port has recorded;
+    * against the nvidia variant, a different checkpoint and finetune, -0.16%;
+    * DFlash2 acceptance 0.2083 against `full`'s 0.1524 (+36.7% relative) and decode +1.8%, with the
+      baseline's own spread at 0.4%;
+    * prefill 10,064 against 11,617 tok/s (-13.4%, and it reproduces the nvidia pair's -14.2%);
+    * 23.58 GB against 19.72 (+3.86), and 28.5% of the implied KV context -- 410,012 to 293,102 tokens at
+      33,024 bytes per KV token, which is arithmetic on a text-only lane rather than a served capacity.
+
+    The context cost is why this is not the default choice despite winning on quality: it still covers the
+    model's 262,144 ceiling, but with little room. See `docs/research/attention-topology-2026-10-07.md`.
+    """
+    if "num_experts" in model.config:
+        raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
+    _optional(model, recipe)
+    _nvfp4_draft(recipe, model, sources)
+    quantized = sources["quantized"]
+    _assign(recipe, "text/token_embedding", Q8)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/") or not parameter.projection:
+            continue
+        if name == "text/token_embedding":
+            continue
+        if name == "text/output_head":
+            _assign(recipe, name, Q8)
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            recipe.assign(name, source=model.source(name, quantized))
+            continue
+        layer = int(name.split("/")[2]) if name.startswith("text/layers/") else -1
+        if _is_bf16_exception(layer, name.split("/")[3], name.rsplit("/", 1)[1]):
+            _assign(recipe, name, "bf16")
+            continue
+        if "/mlp/" in name and layer < 56:
+            recipe.assign(
+                name,
+                format="nvfp4",
+                method=import_encoded,
+                source=model.source(name, quantized, "nvfp4"),
+                activation_policy="AllowA4",
+            )
+            continue
+        recipe.assign(
+            name,
+            format=FP8,
+            method=import_encoded,
+            source=model.source(name, quantized, FP8),
+            activation_policy="AllowA8",
+        )
+    add_proposal(recipe, source=model.source("text/output_head", sources["base"]))
+
+
 def qwen3_8_27b_nvfp4_nvidia_attn8(model, recipe, sources):
     """The `nvidia` line with the producer's own FP8 attention kept instead of re-encoded.
 
@@ -912,6 +977,7 @@ RECIPES = {
     "qwen3_8_27b_nvfp4_swift": qwen3_8_27b_nvfp4_swift,
     "qwen3_8_27b_nvfp4_nvidia": qwen3_8_27b_nvfp4_nvidia,
     "qwen3_8_27b_nvfp4_nvidia_attn8": qwen3_8_27b_nvfp4_nvidia_attn8,
+    "qwen3_8_27b_nvfp4_unsloth_attn8": qwen3_8_27b_nvfp4_unsloth_attn8,
     "qwen3_8_27b_nvfp4_unsloth": qwen3_8_27b_nvfp4_unsloth,
     "qwen3_8_27b_nvfp4_unsloth_noex": qwen3_8_27b_nvfp4_unsloth_noex,
     "qwen3_8_27b_nvfp4_unsloth_nvdiv": qwen3_8_27b_nvfp4_unsloth_nvdiv,
