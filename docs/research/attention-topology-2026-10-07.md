@@ -341,6 +341,36 @@ one). The conversion command for each is the one in the experiment section, with
   rejected for *size* ("9 GiB of 8-bit weights"), so a Swift variant trades roughly +9 GiB rather than the
   +3.2 to +3.9 GiB measured here — and the port's own notes record its BF16 exception pattern measuring
   *worse* there, so it is not a copy of these two.
-- **A task-accuracy measurement** — everything here is perplexity and acceptance. `d0xin` measured
-  225/280 against FP8's 224/280 on a fixed MMLU-Pro subset; nothing on this port has been measured on a
-  task suite for these two artifacts.
+- **A task-accuracy measurement** — the endpoint below is task-*adjacent*: it scores the likelihood of the
+  reference answer, not whether the model produces it. The certifying measurement is the generation grader in
+  `eval/`, whose budget the protocol note puts at 7–11 GPU-hours per build for 258 paired questions. `d0xin`
+  measured 225/280 against FP8's 224/280 on a fixed MMLU-Pro subset; no accuracy measurement exists here yet
+  for these artifacts.
+
+## The task-adjacent endpoint: 60 AIME questions, and the effect is real but marginal at that size
+
+A corpus built from the cached AIME25 and AIME26 sets — 60 questions, question as context, the reference
+answer scored — scored with `ninfer-perplexity --per-token-logprobs`, and the endpoint is the mean NLL over
+each question's answer tokens. Both artifacts score the identical questions, so the statistic is the
+per-question difference. The boundary between context and answer comes from the tokenizer's own byte offsets
+against the prefix's UTF-8 length; zero of the 60 streams have a token spanning it, and a direct check shows
+`aime25-00` (answer `'70'`) resolving at the token window `':', 'Ġ', '7', '0'` with the boundary at the `7`.
+
+| | value |
+|---|---|
+| `attention_fp8` mean answer NLL | 2.61700 nats |
+| `nvidia` mean answer NLL | 2.72904 nats |
+| paired mean difference | **−0.11204 nats (−4.11 %)** |
+| bootstrap 95 % CI, 10,000 resamples | **[−0.21349, −0.01572]**, P(mean ≥ 0) = 0.011 |
+| Wilcoxon signed-rank | W = 665, z = −1.84, p ≈ 0.066 |
+| sign test | 34/60, p = 0.366 |
+| median against mean | −0.09898 against −0.11204 |
+| by set | aime25 −0.086, aime26 −0.138 |
+
+**How to read it.** The bootstrap interval excludes zero and the median sits close to the mean, so the effect
+is broad rather than carried by a few questions. The sign test is uninformative here because it discards
+magnitude, and the Wilcoxon is only marginal — which is what the protocol note's arithmetic predicts for a
+difference this size at 60 questions, not a contradiction of the bootstrap. The honest summary is that the
+task-adjacent endpoint **agrees with perplexity in direction, marginally in significance**, and that the
+powered design (GPQA-Diamond's 198 plus these 60) would settle it. It is not an accuracy result and should
+not be quoted as one.
