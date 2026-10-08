@@ -176,6 +176,35 @@ different checkpoint. It is the lowest perplexity this port has recorded on this
 variants together are the evidence: **every shipped line pays 1.4–2.4 % perplexity for re-encoding the
 producer's FP8 attention and GDN projections to NVFP4.**
 
+### Why the prefill costs what it costs: the bytes, not a route
+
+`ncu` cannot collect counters on this host (`ERR_NVGPUCTRPERM`, which needs an elevation this port does not
+take), but `nsys` needs none and answers duration questions directly. Traces of both artifacts at pp8192:
+
+| kernel instance | fp8attn | nvidia |
+|---|---|---|
+| `fp8_a8_tma_mma_kernel<Fp8A8SplitKSchedule<…128,256,128,2…>>` | 369.27 ms | — |
+| `fp8_a8_tma_mma_kernel<…>` (second shape) | 187.40 ms | — |
+| `fp8_a8_tma_mma_kernel<…>` (third shape) | 109.48 ms | — |
+| the `nvfp4_a4_tma_kernel` instances that remain | 550.46 + 281.63 ms | 562.55 + 292.12 ms |
+| **total** | **2117.5 ms** | **1864.9 ms** (+13.6 %) |
+
+The entire regression is those three FP8 instances — 666.15 ms of work the shipped arm does not do, because
+it runs the same sites through `nvfp4_a4_tma_kernel` instead — and the surviving NVFP4 kernels get *faster*
+(−22.58 ms) for having fewer sites. Comparing the arm-exclusive instances like for like:
+
+| the sites that switched route | total GPU time |
+|---|---|
+| FP8 A8 | **708.88 ms** |
+| NVFP4 A4 | **430.22 ms** |
+| ratio | **1.65×** |
+
+An FP8 row weight is one byte per element against NVFP4's 0.5, a 2.0× byte ratio — so **1.65× is better than
+the byte ratio**, meaning the FP8 A8 route extracts more throughput per byte, not less. There is no route
+defect here and nothing to fix in the scheduler: the cost is what streaming twice the weight bytes costs.
+The lever is therefore **how many sites need FP8**, which is what a per-projection sensitivity ranking would
+decide, and the reason the KV lever matters is that the context cost cannot be recovered from the kernel side.
+
 ## Appendix: the exact recipe change, so both variants are re-derivable
 
 Each variant is its source's official recipe with **one branch replaced** — everything else, including the
