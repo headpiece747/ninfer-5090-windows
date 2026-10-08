@@ -75,6 +75,32 @@ def inspect(path: str) -> dict:
                 row["completions"] += int(result.get("completion_tokens") or 0)
                 if not result.get("finish_reason"):
                     row["problems"].append("request_done without a finish_reason")
+                # A phase cannot be longer than the clock it is measured inside. This is the cheapest
+                # check that catches a figure no run could have produced: a phase reader printing clean
+                # zeros from an empty block, or a trace whose kernel totals exceed the request they
+                # belong to, both looked plausible until compared against a bound like this one.
+                timings = record.get("timings_seconds") or {}
+                if timings:
+                    row["timed"] = int(row.get("timed") or 0) + 1
+                    for name, value in timings.items():
+                        if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+                            row["problems"].append(
+                                f"timings_seconds.{name} is not a non-negative number: {value!r}")
+                    prefill = timings.get("prefill")
+                    ttft = timings.get("ttft")
+                    total = timings.get("total")
+                    if (isinstance(prefill, (int, float)) and not isinstance(prefill, bool)
+                            and isinstance(ttft, (int, float)) and not isinstance(ttft, bool)
+                            and isinstance(total, (int, float)) and not isinstance(total, bool)):
+                        # A thousandth of slack: the phases are separate measurements, so an inversion
+                        # at the last bit is arithmetic rather than a defect.
+                        if float(prefill) > float(ttft) * 1.001:
+                            row["problems"].append(
+                                f"prefill {float(prefill):.3f}s exceeds ttft {float(ttft):.3f}s, so the "
+                                f"phase outlived the first token it is measured inside")
+                        if float(ttft) > float(total) * 1.001:
+                            row["problems"].append(
+                                f"ttft {float(ttft):.3f}s exceeds total {float(total):.3f}s")
 
     if row["parse_errors"]:
         row["problems"].append(f"{row['parse_errors']} unparseable line(s)")
