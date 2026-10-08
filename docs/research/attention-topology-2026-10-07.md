@@ -257,6 +257,35 @@ Per domain the two arms trade places, which is this port's recorded pattern agai
 `english_long_form` (7.96694 against 7.98928) and `chinese_reference` (5.65835 against 5.67148). The full
 split is best in all four, consistent with near-additivity.
 
+### The attention-only arm's lane cost, and the trade the two halves make
+
+Same bench protocol, arms alternating `attention_fp8` / `nvidia`:
+
+| metric | `attention_fp8` | `nvidia` | delta | baseline's own spread |
+|---|---|---|---|---|
+| prefill pp2048 | 12,193 tok/s | 12,339 tok/s | **−1.18 %** | 3.9 % — **inside the noise, no cost demonstrated** |
+| decode tg128 | **115.91 tok/s** | 93.18 tok/s | **+24.4 %** | 0.7 % — real |
+| DFlash2 acceptance | **0.1957** | 0.1106 | **+77 % relative** | deterministic across reps |
+| round cost | 3.40 ms | 3.31 ms | +2.7 % | — |
+| implied KV context | 411,028 tok | 433,318 tok | −5.14 % | arithmetic |
+| size | 19.68 GB | 18.95 GB | +0.73 GB | — |
+
+**A prediction of mine was wrong here and the direction is informative.** The prefill cost was predicted at
+−3 to −5 % on the reasoning that cost tracks tensor FLOPs, using the *site* share (32 of 128) as the proxy.
+It came back at −1.18 %, inside the noise. The FLOPs framing survives — attention's cost share is smaller
+than its site share, which is what "cost tracks FLOPs" predicts, since q/k/v/o are small at T=2048 against
+an MLP-dominated prefill — but the site count was the wrong denominator to reason from.
+
+**The decode gain is entirely acceptance.** Round cost is flat (+2.7 %), so +24.4 % tok/s comes from +77 %
+acceptance. That is *higher* than the full split's +29 to +37 %, which means the two halves trade
+**perplexity against acceptance**: GDN at FP8 helps perplexity and hurts the drafter, attention at FP8 helps
+both. This port already manages the same kind of trade — its `full`/`full_noex` split exists because the BF16
+exception pattern buys +11.6 acceptance points on the DFlash2 route and costs the MTP head 21.4 — so the
+result is consistent with what it knows rather than a new kind of effect.
+
+`attention_fp8` therefore improves every measured axis except ~5 % of implied context: perplexity −0.81 %
+with all four domains better, acceptance +77 %, decode +24.4 %, prefill within the noise, at +0.73 GB.
+
 ## Appendix: the exact recipe change, so both variants are re-derivable
 
 Each variant is its source's official recipe with **one branch replaced** — everything else, including the
