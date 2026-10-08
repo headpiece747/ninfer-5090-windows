@@ -118,11 +118,11 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=319.2, acc="55.0%", runtime="10.3 GiB", free="2.82 GiB",
+         tok=319.2, acc="55.0%", runtime="10.6 GiB", free="2.82 GiB",
          note="Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 "
               "across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime "
               "10.3 GiB) were taken before the workspace grew and no longer describe this lane; at "
-              "the shipped configuration every DFlash2 lane reads 11.6 GiB and about 1.50 GiB free, "
+              "the shipped configuration every DFlash2 lane reads 10.6 GiB and free VRAM varying by about 0.2 GiB, "
               "and this row is the measured one. Two earlier figures on this lane, 343.4/62.5% and "
               "the 45.7% published-file reading, had already been withdrawn as not reproducing."),
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
@@ -140,7 +140,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=296.4, acc="48.7%", runtime="10.3 GiB", free="2.85 GiB",
+         tok=296.4, acc="48.7%", runtime="10.6 GiB", free="2.85 GiB",
          note="This lane is REFUSED at startup on the BF16-exception image and was, until "
               "2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB "
               "of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after "
@@ -176,7 +176,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=362.0, acc="63.0%", runtime="10.3 GiB", free="2.85 GiB",
+         tok=362.0, acc="63.0%", runtime="10.6 GiB", free="2.85 GiB",
          note="Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured "
               "2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured "
               "against every window 1-15 on the code domain and re-measured on four others: 13 is "
@@ -211,7 +211,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=337.5, acc="56.2%", runtime="10.3 GiB", free="2.91 GiB",
+         tok=337.5, acc="56.2%", runtime="10.6 GiB", free="2.91 GiB",
          note="NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP "
               "imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same "
               "full-corpus perplexity as the official stock at 20% smaller, with no FP8 tensor where "
