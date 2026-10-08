@@ -119,9 +119,9 @@ def main() -> int:
     else:
         config = json.loads(OPENCODE.read_text(encoding="utf-8"))
         entries = {}
-        for provider in config.get("provider", {}).values():
+        for provider in (config.get("providers") or config.get("provider") or {}).values():
             for model_id, model in provider.get("models", {}).items():
-                base = provider.get("options", {}).get("baseURL", "")
+                base = (provider.get("settings") or provider.get("options") or {}).get("baseURL", "")
                 if base.startswith("http://127.0.0.1:80"):
                     # reasoningEffort belongs on the model. ProviderConfig.options declares a fixed
                     # property list (apiKey, baseURL, enterpriseUrl, setCacheKey, timeout,
@@ -129,8 +129,9 @@ def main() -> int:
                     # provider-level value is silently ignored rather than applied to its models.
                     # models.<id>.options is a free-form object, which is where AI SDK call options
                     # go. Reading both would hide exactly that mistake.
-                    effort = model.get("options", {}).get("reasoningEffort")
-                    provider_effort = provider.get("options", {}).get("reasoningEffort")
+                    effort = (model.get("settings") or model.get("options") or {}).get("reasoningEffort")
+                    provider_effort = ((provider.get("settings") or provider.get("options") or {})
+                           .get("reasoningEffort"))
                     entries[model_id] = (base, model, effort, provider_effort)
         for profile in PROFILES:
             found = entries.get(profile["model_id"])
@@ -147,7 +148,8 @@ def main() -> int:
             check(f"{profile['model_id']} context {profile['ctx']}",
                   limit.get("context") == profile["ctx"], str(limit))
             check(f"{profile['model_id']} accepts images",
-                  "image" in (model.get("modalities", {}).get("input") or []))
+                  "image" in ((model.get("capabilities") or {}).get("input")
+                              or (model.get("modalities") or {}).get("input") or []))
             check(f"{profile['model_id']} output > thinking budget",
                   limit.get("output", 0) > 4096, str(limit.get("output")))
             # The lanes default to the model's own default reasoning effort. It used to be "none",
