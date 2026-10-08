@@ -291,11 +291,39 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--against", default=DEFAULT_UPSTREAM, help="upstream ref to compare")
     parser.add_argument("--json", type=Path, default=None, help="also write the entries as JSON")
+    parser.add_argument(
+        "--path",
+        metavar="FILE",
+        default=None,
+        help=(
+            "answer one question offline, without comparing against upstream: is this path a recorded "
+            "divergence? Exits 0 when it is not (edit it freely; a NEW file of the port's own needs no "
+            "entry, because a file upstream does not have cannot diverge from it) and 1 when it is "
+            "(editing it needs that entry's reason updated in the same commit). Run it BEFORE editing an "
+            "upstream-owned file, so the requirement arrives as an answer rather than as a blocked commit"
+        ),
+    )
     parser.add_argument("--check", action="store_true", help="ratchet: fail on any change")
     parser.add_argument(
         "--write-baseline", action="store_true", help="re-record the baseline after a review"
     )
     args = parser.parse_args()
+
+    if args.path is not None:
+        recorded_paths = (json.loads(BASELINE.read_text(encoding="utf-8")).get("paths", {})
+                          if BASELINE.exists() else {})
+        entry = recorded_paths.get(args.path)
+        if entry is None:
+            print(f"  {args.path}: not a recorded divergence -- edit it freely if this port owns it.")
+            print("    A NEW file of the port's own needs no baseline entry: the gate rejects one,")
+            print("    because a file upstream does not have cannot diverge from it.")
+            return 0
+        print(f"  {args.path}: a recorded divergence from upstream. Editing it needs this entry's")
+        print("    reason updated in the same commit.")
+        for key in ("status", "disposition", "review"):
+            print(f"    {key:12s} {entry.get(key, '-')}")
+        print(f"    reason       {' '.join(str(entry.get('reason', '')).split())[:500]}")
+        return 1
 
     entries = collect(args.against)
     paths = divergences(entries)
