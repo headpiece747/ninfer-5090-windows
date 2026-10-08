@@ -152,3 +152,41 @@ prior justification should not be reinstated in any form.
   benchmark. Every in-tree number quoted here is copied from an existing in-tree document, not
   re-measured by me.
 - I did not read the full PDFs of arXiv:2606.09864 or arXiv:2605.08114 — only their abstracts, as noted.
+
+---
+
+## MEASURED-HERE 2026-10-08: this port's own FP8 KV costs 0.19% at 32K, so calibrated scales are not worth an engine change
+
+The note above answers whether `k8v4` should replace the shipped `fp8` — a *format* question, closed on
+external grounds with no measurement of this port's own cost. A different lever was raised by a survey of
+the wider ecosystem: calibrated per-layer FP8-KV scales, measured elsewhere to recover 83% of FP8 KV's
+long-context cost on this model family, performance-free, and shipped by one quantizer. That figure implies
+the FP8 KV being calibrated costs roughly **3.3%** in the first place (10.84 against a 10.50 recovered value
+at 32K). Nothing in this tree had measured the equivalent cost here, so the lever could not be priced.
+
+It is now measured. `ninfer-perplexity` on the shipped `qwen3_8_27b_nvfp4nvidia`, quick corpus, 261,167
+scored tokens, context/stride {4096/2048, 32768/16384}, `--kv-dtype` bf16 against fp8:
+
+| context | bf16 | fp8 | fp8 cost |
+|---|---|---|---|
+| 4,096 | 4.386170 | 4.391526 | **+0.122%** |
+| 32,768 | 4.193074 | 4.201042 | **+0.190%** |
+
+Per domain at 32K the difference is not systematic: fp8 is slightly *better* on `chinese_reference`
+(4.89271 against 4.89659) and `english_long_form` (6.66017 against 6.66971), slightly worse on
+`english_reference` (6.09174 against 6.03504) and `ninfer_code` (1.55704 against 1.55631). The overall
++0.19% is a token-weighted mean over four domains that do not agree.
+
+**Why this is an order of magnitude below the third-party figure, and it is not a measurement artifact.**
+This tree's FP8 KV is `fp8-e4m3-r256`: `kKvFp8QuantGroup = 256` (`src/models/qwen3_5/state/decoder_state.h`)
+means every 256 elements of a row carry their own E4M3 scale, so the quantization error is bounded per group
+rather than per tensor. The format the external figure was measured on carries no comparable scale plane.
+A calibrated per-layer scale has less to recover here precisely because the stored format already resolves
+what a per-tensor scale would have thrown away.
+
+**Verdict against the predicate set before the run**: at 32K, 1% or more would make an engine change to
+accept calibrated scales worth pricing, and under 0.3% would mean the lever is spent. **0.190% is under the
+threshold, so the lever is spent** — at best a fraction of a fifth of a percent, against an engine change
+touching the KV quantization path. This does not reopen §7 of `active-work.md`; it *supports* that closure
+from a second direction, and it means the capacity a quality recipe gives up is a capacity cost, not one
+that a KV-precision change can buy back.
