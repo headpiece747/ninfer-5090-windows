@@ -1,6 +1,6 @@
 {
   "against": "upstream/dev",
-  "recorded": "2026-10-07",
+  "recorded": "2026-10-08",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -1520,6 +1520,12 @@
       "disposition": "unknown",
       "review": "windows",
       "reason": "Subprocess call states encoding='utf-8'. Upstream's call uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII. Windows necessity, found by the subprocess-encoding gate (check_subprocess_encoding.py), which exists because upstream wrote the same defect twice. No assertion changed."
+    },
+    "tools/bench/run_serve_ttft.py": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "The same Windows console-encoding defect as run_serve_ttft_campaign.py above, in the runner it drives: line 273 printed its result JSON with ensure_ascii=False to a cp1252 console, so a non-ASCII character raised UnicodeEncodeError after the run had succeeded and before line 274 returned the tool's own verdict (0 for a constructed run with no failed conditions, 2 otherwise). The crash turned a clean 0 into 1, and the campaign faithfully recorded two passing samples as failures on 2026-10-08. Fixed by dropping that argument; the sample file beside the run keeps encoding='utf-8', so only the console summary changes and it stays valid JSON."
     },
     "tools/bench/run_serve_ttft_campaign.py": {
       "status": "M",

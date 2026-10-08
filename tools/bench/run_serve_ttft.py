@@ -270,7 +270,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     finally:
         progress.close()
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(json.dumps(result, indent=2))
     return 0 if result.get("constructed") is True and not result.get("failed_conditions") else 2
 
 
