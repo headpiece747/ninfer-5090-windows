@@ -77,3 +77,20 @@ not a decision -- the deciding margins have been 0.3 to 1.6 %, against spreads t
 protocol compares lane restarts. Evaluated 2026-10-09: the alternative of constraining the worst case to a
 floor and then ranking by the mean was refused by measurement -- on Swift 1.5 it would have shipped depth 9,
 which is 28 % slower than depth 7 on long Chinese, acceptance falling from 30.0 % to 16.9 %.
+
+What the rule is *for*, after that evaluation: at served length the candidates are separated by 10 to 28 %
+against spreads of 0.2 to 1.0 %, so the arithmetic decides nothing a measurement does not and any sane
+criterion agrees. Its value is the **discipline** -- measure every candidate across domains rather than on
+the one you care about, and protect the worst case -- plus three practices that keep it honest:
+
+* **select on served-length prompts.** The short domains give margins of 0.3 to 1.6 %, which invert: Swift
+  1.5 loses 3.4 % of its worst short domain and 28 % of its worst served one, the same direction but a
+  different decision weight.
+* **a near-tie at short length gets a long-length measurement before it is decided.** The nvidia lane's
+  "+0.3 %, well inside one invocation's spread" was left on the incumbent, and at served length depth 7
+  leads by 9.8 % -- a tie is a reason to measure again, not a reason to keep what is there.
+* **record the mean beside the worst case**, so a trade is visible rather than implicit.
+* **when the worst-case gap is itself inside the spread, the mean decides.** That is what the nvidia lane's
+  depth change of 2026-10-09 turned on: a 0.3 % tie on the short set, and on the served set a worst case
+  that favours depth 9 by 29.6 % while the mean over both sets favours it by 4.1 %. A tie is not a licence
+  to keep the incumbent; it means the criterion has no signal, and something with signal has to decide.

@@ -124,7 +124,7 @@ and every profile reaches the full native context.
 | `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 176 tok/s | 46.7% |
 | `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **323 tok/s** | 58.3% |
 | `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (4) | yes | 262,144 | 215 tok/s | 57.7% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (7) | yes | 262,144 | **265 tok/s** | 43.5% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (9) | yes | 262,144 | **323 tok/s** | 45.9% |
 | `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 210 tok/s | 57.3% |
 
 **These eight figures are the 2026-09-30 measurement, and a 2026-10-07 re-measurement of the same

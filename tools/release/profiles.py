@@ -220,8 +220,8 @@ PROFILES: list[dict[str, Any]] = [
               "and 216.0 tok/s on the same configuration."),
     dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
-         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=264.7, acc="43.5%", runtime="10.6 GiB", free="2.91 GiB",
+         spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144,
+         tok=322.9, acc="45.9%", runtime="10.6 GiB", free="2.91 GiB",
          note="NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP "
               "imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same "
               "full-corpus perplexity as the official stock at 20% smaller, with no FP8 tensor where "
@@ -229,7 +229,13 @@ PROFILES: list[dict[str, Any]] = [
               "349.2/61.5% recorded until 2026-09-30 was taken 2026-09-24, before the workspace "
               "grew; this lane now reads 10.3 GiB and 2.91 GiB free, and its acceptance is 56.2% with "
               "a byte-identical digest across the tiled saturation guard, so the gap is the stale "
-              "record rather than the configuration."),
+              "record rather than the configuration. Depth changed from 7 to 9 on 2026-10-09. The "
+              "2026-09-30 sweep left 7 because its short-domain worst case was a tie (+0.3%, well "
+              "inside one invocation's spread), which is no evidence either way; re-measured on the "
+              "served regime at the served sampling, depth 9 leads by 13.2% on 36,000 characters of "
+              "real code (258.5 against 228.3 tok/s, spreads 0.3/0.7%) and loses 8.9% on 36,000 "
+              "characters of Chinese (295.9 against 324.8). Maximin over the two served domains takes "
+              "depth 9, as do the short-domain mean and the mean over both sets."),
     dict(file="start_nvidia_v3_mtp4_vision.bat", port=8093, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + MTP4 + Vision", model_id="qwen3.8-27b-nvidia-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,

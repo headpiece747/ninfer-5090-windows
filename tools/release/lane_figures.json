@@ -83,14 +83,14 @@
     "start_nvidia_v3_dflash2_vision.bat": {
       "cell": "code",
       "sampling": "default",
-      "decode_avg": 264.7,
-      "acceptance": 0.4354,
+      "decode_avg": 322.9,
+      "acceptance": 0.459,
       "artifact": {
         "path": "qwen3_8_27b_nvfp4nvidia.v3.ninfer",
         "bytes": 18946876932,
         "mtime": 1791390052.9669847
       },
-      "record": "matrix_v3.jsonl profile mode, 3 sub-runs"
+      "record": "matrix_v3.jsonl profile mode, 3 sub-runs, at depth 9"
     },
     "start_nvidia_v3_mtp4_vision.bat": {
       "cell": "code",
