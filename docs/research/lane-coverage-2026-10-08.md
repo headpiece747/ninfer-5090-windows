@@ -138,7 +138,9 @@ single rotated run:
 | nvidia | 265.5 → 325.4 | **157.3** → 151.8 | 139.2 → 139.6 | **220.9** → 208.7 | 217.0 → 237.2 | 139.2 → 139.6 | d9 (+0.3 %) |
 | swift15 | 327.1 → 361.7 | **150.4** → 143.3 | **148.3** → 143.9 | 201.2 → 239.6 | 204.9 → 252.7 | **148.3** → 143.3 | d7 (−3.4 %) |
 
-All four lanes ship depth 7. The maximin answer **confirms 7 for quasar and swift15**, makes it a **tie on
+All four lanes shipped depth 7 when this table was taken; commit 8306f79d then moved nvfp4fullnoex to 9 on
+its deciding domain, so `profiles.py` is authoritative and carries 7/7/9/7 -- see the re-measurement below.
+The maximin answer **confirms 7 for quasar and swift15**, makes it a **tie on
 nvidia** (+0.3 %, well inside a single invocation's spread), and favours **9 on nvfp4fullnoex by 1.5 %**.
 So the shipped policy is defensible and the only candidate change would be one lane, by a margin that
 wants a repeat before it is shipped.
@@ -157,6 +159,33 @@ invocation the three sub-runs agree to 2-3 %, across invocations the same config
 tens of percent. Only within-invocation comparisons are usable, which is why every figure above is one
 invocation. What discriminates a different **engine build** is `runtime_gib` (11.6 GiB before the
 saturation guard, 10.6 after) — not the digest, which the sampling makes uninformative.
+
+## Re-measured 2026-10-09: the depth choice under a traffic-like prompt, and what is still unsettled
+
+The table above was measured at `DOCUMENTED_SAMPLING` (temperature 1.0) on the matrix's 90-260 character
+domain prompts. It was re-taken 2026-10-09 with `tools/bench/realtext_acceptance.py`, which now takes
+`--draft-tokens`, on long real prompts, the same artifact, two rounds per cell, every cell identical
+across rounds because this instrument is greedy:
+
+| treatment | depth 7 | depth 9 | change |
+|---|---|---|---|
+| long real prose, 3 x 12,000 chars | 229.7 / 229.2 tok/s | 233.9 / 233.7 | **+1.9 %** |
+| real code, 3 x 12,000 chars from three files | 220.2 / 214.6 | 214.5 / 214.0 | -1.4 % (2.6 % round spread) |
+| the matrix's 225-character code prompt | 408.3 / 409.0 | 347.4 / 346.7 | **-15 %** |
+
+**The last row contradicts the table's +22.6 %** on the same artifact, prompt and depth pair, and the
+artifact is unchanged (mtime 2026-10-07 12:17), so the difference is protocol rather than build. The
+likely variable is the one this document already flags above: the table was measured at temperature 1.0
+and this instrument is greedy, so the two are measuring the depth's economics on differently-sampled text.
+
+**Neither protocol settles the served case, and that is the finding.** The lanes serve at the model's own
+sampling configuration, which is temperature 1.0 -- so the table's protocol matches what is served and its
+prompts do not, while this instrument's prompts match and its greedy sampling does not. What the served
+decision needs is the third combination: traffic-like prompts, at the served sampling, with the two depths
+interleaved in one session rather than measured in separate invocations, because at temperature 1.0 the
+across-invocation spread is tens of percent while within one invocation it is 2-3 %. Until that is run,
+**depth 9 stands as shipped** for nvfp4fullnoex: under greedy it is +1.9 % on long prose and -1.4 % (inside
+the round spread) on long code, so it is neutral to slightly better on both regimes the lane serves.
 
 ## Open items
 

@@ -113,6 +113,12 @@ def run_arm(artifact: Path, port: int, blocks: list[str], args: argparse.Namespa
     if result_path.is_file():
         return json.loads(result_path.read_text(encoding="utf-8"))
     flags = [*LANE_FLAGS, "--chat-template", str(args.template)]
+    if args.draft_tokens != 7:
+        # The lane's own depth is 7. A depth A/B is the same artifact under two flag sets, so the flag
+        # is substituted rather than appended, and the shipped value stays the default.
+        lane_flags = list(LANE_FLAGS)
+        lane_flags[lane_flags.index("--draft-tokens") + 1] = str(args.draft_tokens)
+        flags = [*lane_flags, "--chat-template", str(args.template)]
     model_id = None
     with log_path.open("w", encoding="utf-8", newline="\n") as handle:
         process = subprocess.Popen([str(SERVE), str(artifact), *flags, "--host", "127.0.0.1",
@@ -162,6 +168,8 @@ def main() -> int:
     parser.add_argument("--prompts", type=int, default=3, help="fixed prompts to pool over")
     parser.add_argument("--prompt-chars", type=int, default=12000)
     parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--draft-tokens", type=int, default=7,
+                        help="the draft depth to run the lane at; 7 is the shipped DFlash2 lane's")
     parser.add_argument("--temperature", type=float, default=0.0,
                         help="0 makes each arm's generation identical, which is what makes arms comparable")
     parser.add_argument("--rounds", type=int, default=2)
