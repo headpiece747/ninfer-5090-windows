@@ -234,6 +234,35 @@ original depth table, measured in separate invocations at temperature 1.0, carri
 caveat that only within-invocation comparisons are usable; that is why the re-run above is structured the
 way it is, and why it is the one to quote.
 
+### The rule's own form, evaluated on the served regime: maximin is kept, and the mean is refused
+
+A lane's depth is chosen by maximin, and the standard practical alternative is to constrain every domain to a
+floor and then rank the survivors by the mean. On the recorded short-domain figures the two agree on three
+of the four DFlash2 lanes and disagree on `swift15`, where maximin protects a 3.4 % worst-case edge at
+10.9 % of the mean -- which made the mean look like the better rule, and was recommended on that basis.
+
+Re-measured 2026-10-09 on long Chinese at the served sampling, three interleaved rounds per configuration:
+
+| lane | depth 7 | depth 9 | change | spreads | shipped |
+|---|---|---|---|---|---|
+| `nvfp4fullnoex` | 227.5 tok/s | **252.1** | **+10.8 %** | 0.5 / 0.4 % | 9 |
+| `nvidia` | **324.8** | 295.9 | **-9.8 %** | 0.8 / 0.8 % | 7 |
+| `swift15` | **193.5** | 151.2 | **-28 %** | 1.0 / 0.2 % | 7 |
+
+**The mean-based rule is refused, on the lane where it looked best.** On `swift15`, depth 9 wins the mean of
+the short domains by 10.9 % and loses long Chinese by 28 %, acceptance falling from 30.0 % to 16.9 %: its
+extra draft tokens collapse once the context is real, and a mean-ranked table would have shipped it. Maximin's
+known weakness -- that the decision follows whichever scenario is worst -- is real, but the remedy that works
+here is the *scenario set*, not the rule. With the deciding domain measured at served length, every shipped
+depth is confirmed, and `nvidia`'s depth 7 stops being an incumbent kept on a tie and becomes a 9.8 %
+measurement.
+
+Two consequences worth keeping. The depth optimum is **artifact-specific**, not a property of the engine:
+the same two depths under the same protocol read +10.8 % on one artifact and -28 % on another, which is why
+each lane is swept rather than configured from a global default. And the published guidance to keep drafts at
+two or three tokens is right for `nvidia` and `swift15` at long context and wrong for `nvfp4fullnoex`, whose
+drafts are cheap enough in this engine's memory-bound decode to pay at nine.
+
 ## Open items
 
 - The **fixed ~45 ms inside the `prefill` phase** on near-zero-work requests, seen three independent

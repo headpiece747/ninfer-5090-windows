@@ -74,4 +74,6 @@ when two depths were found to have been chosen from stale figures. Two caveats t
 it is only as good as the domains it is run on, which is why a prompt can now come from a file
 (`v3_profile_matrix.py --domain-from-file`), and a margin smaller than the measurement's own spread is
 not a decision -- the deciding margins have been 0.3 to 1.6 %, against spreads that reach 21 % when the
-protocol compares lane restarts.
+protocol compares lane restarts. Evaluated 2026-10-09: the alternative of constraining the worst case to a
+floor and then ranking by the mean was refused by measurement -- on Swift 1.5 it would have shipped depth 9,
+which is 28 % slower than depth 7 on long Chinese, acceptance falling from 30.0 % to 16.9 %.
