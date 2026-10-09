@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  UTF-8 process code page application manifest, embedded in the three apps.
+
+  The element and its namespace are the ones Microsoft documents for `activeCodePage`
+  (win32/sbscs/application-manifests): `UTF-8` is the only value valid on Windows 10 and is
+  case-sensitive, and the element was first added in Windows 10 version 1903 (May 2019 Update).
+  Declaring it and running on an earlier build is allowed, and there the process keeps its legacy
+  code page, so the element is an opt-in the system honours where it exists rather than a guarantee
+  everywhere.
+
+  It is a default rather than a measured option (unlike `cmake/segment_heap.manifest`) because it
+  repairs an observable defect and has no performance arm to compare against. These apps write UTF-8
+  through `printf` and `std::cout`, and no code of theirs sets a console code page: `WriteConsoleW`,
+  `wprintf`, `wmain` and `_setmode` all have zero occurrences under apps/, so before this manifest the
+  CLI's generated text depended on the console the user happened to open. With it the process code
+  page is UTF-8, so narrow output, `main`'s arguments and the narrow file APIs agree with the bytes
+  the rest of this tree already writes. diffutils ships the same file under the same name
+  (`windows-utf8.manifest`), which is the same pattern reached independently.
+
+  Namespace strings are silent-fail: an unrecognised `windowsSettings` namespace is ignored rather
+  than reported, so the URL below is the documented one for this element and is deliberately not the
+  2020 namespace used by `cmake/segment_heap.manifest` for `heapType`. The file itself is not
+  silent-fail: the linker parses it, so a malformed XML comment (a `--` sequence in prose is invalid)
+  fails the build with mt.exe c1010070 rather than being dropped.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"
+          xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+  <asmv3:application>
+    <asmv3:windowsSettings xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">
+      <activeCodePage>UTF-8</activeCodePage>
+    </asmv3:windowsSettings>
+  </asmv3:application>
+</assembly>
