@@ -169,7 +169,7 @@ across rounds because this instrument is greedy:
 
 | treatment | depth 7 | depth 9 | change |
 |---|---|---|---|
-| long real prose, 3 x 12,000 chars | 229.7 / 229.2 tok/s | 233.9 / 233.7 | **+1.9 %** |
+| the instrument's default corpus file, 3 x 12,000 chars (this repository's own C++ source) | 229.7 / 229.2 tok/s | 233.9 / 233.7 | **+1.9 %** |
 | real code, 3 x 12,000 chars from three files | 220.2 / 214.6 | 214.5 / 214.0 | -1.4 % (2.6 % round spread) |
 | the matrix's 225-character code prompt | 408.3 / 409.0 | 347.4 / 346.7 | **-15 %** |
 
@@ -184,8 +184,37 @@ prompts do not, while this instrument's prompts match and its greedy sampling do
 decision needs is the third combination: traffic-like prompts, at the served sampling, with the two depths
 interleaved in one session rather than measured in separate invocations, because at temperature 1.0 the
 across-invocation spread is tens of percent while within one invocation it is 2-3 %. Until that is run,
-**depth 9 stands as shipped** for nvfp4fullnoex: under greedy it is +1.9 % on long prose and -1.4 % (inside
+**depth 9 stands as shipped** for nvfp4fullnoex: under greedy it is +1.9 % on the instrument's default corpus
+file and -1.4 % (inside
 the round spread) on long code, so it is neutral to slightly better on both regimes the lane serves.
+
+### Settled 2026-10-09: the decision is degenerate at this card's noise level
+
+The third protocol was run: traffic-like prompts, the served sampling (temperature 1.0 with the model's own
+top_p/top_k), and the two depths **interleaved in one session** with the order rotated pair by pair, six
+pairs per treatment, through `tools/bench/paired_depth_sweep.py`, and re-derived per request from the serve
+logs with each run's first request dropped -- because the matrix's own note documents that one as a
+transient (its MTP5 lane reads 261.7 tok/s on request 1 against 169.8 for requests 2..n).
+
+| treatment | mean | median | sd | worst pair | best pair |
+|---|---|---|---|---|---|
+| the corpus's C++ source (this repository) | -2.4 % | -3.9 % | 9.7 % | -15.4 % | +11.9 % |
+| three mixed code files | -2.0 % | +0.5 % | 7.9 % | -16.8 % | +4.3 % |
+| long Chinese (`zhwiki/01.txt`, 67 % CJK) | -5.7 % | -11.8 % | 20.9 % | -22.5 % | +30.6 % |
+
+**Every mean is negative for depth 9 and every one is inside its own noise**: effects of 2-6 % against
+standard deviations of 8-21 % over six pairs, so each mean's standard error is 3-9 % and no sign is
+established. The two protocols also disagree in sign on the same treatment -- greedy reads +1.9 % on the
+corpus's C++ where the served sampling reads -2.4 % -- and both readings are inside their spreads.
+
+**That is the settlement: the choice is degenerate, so depth 9 stands and further measurement is not
+warranted.** §146 said this before any of these runs: under maximin a lane's worst-domain throughput lands
+within 3 % of either depth, and the rule's own deciding margin was 1.5 %. Resolving a 2-6 % effect at this
+spread would need tens of pairs per treatment, for a decision worth at most 6 % of one lane. What improves
+instead is the rule's input: `v3_profile_matrix.py --domain-from-file NAME=PATH` registers a prompt from a
+file and carries its name into every record, verified by a run whose records read
+`domain=probe-cpp sampling=default`, so the next maximin re-run can use prompts resembling what the lanes
+serve instead of the 90-260 character constants.
 
 ## Open items
 
