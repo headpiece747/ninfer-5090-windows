@@ -405,7 +405,7 @@ domains**, **+15–16 % speculative acceptance on both measured extremes** and *
 
 ### The real-text instrument reads the opposite sign, and the sign is a property of the prompt
 
-`tools/bench/realtext_acceptance.py` measures speculative acceptance and decode on real prose at a lane's
+`tools/bench/realtext_acceptance.py` measures speculative acceptance and decode on real text at a lane's
 own flags, and it exists because the other two protocols cannot reach the regime a served lane is in: the
 bench's one-token seed leaves speculation nothing to be predictable from (0.085-0.129), and the same corpus
 behind a real prompt saturates (0.991 in four consecutive runs), because it is synthetic and tiled.
@@ -414,7 +414,7 @@ Measured with it, greedy, each arm's id read from `/v1/models`, every cell ident
 
 | prompt set | nvidia (shipped) | `a8policy` | `attn8` |
 |---|---|---|---|
-| prose, 12,000 chars, 3 prompts (the instrument's default) | 46.3 % | 34.6 % (**-25.3 %**) | 35.7 % (**-22.9 %**) |
+| the instrument's default corpus file, 3 x 12,000 chars (this repository's C++ source, `data/ninfer/00.txt`) | 46.3 % | 34.6 % (**-25.3 %**) | 35.7 % (**-22.9 %**) |
 | the matrix's own `code` prompt, 225 chars | 54.7 % | 51.4 % (-6.2 %) | 52.8 % (-3.5 %) |
 | the matrix's own `prose` prompt, 169 chars | 18.7 % | 24.8 % (**+32.5 %**) | 19.0 % (+1.6 %) |
 | one 12,000-char code prompt | 33.1 % | 36.0 % (**+8.6 %**) | 29.8 % (**-10.1 %**) |
@@ -430,7 +430,7 @@ three prompts both variants sit within 1.4 % of the shipped line on code, and de
 instrument resolves.
 
 **The crossover is inside a single prompt set**, which is what makes a pooled figure unsafe: the
-instrument's three prose prompts read 62.7 / 44.2 / 37.2 % for shipped against 29.2 / 35.5 / 40.4 % for
+instrument's three default-corpus prompts read 62.7 / 44.2 / 37.2 % for shipped against 29.2 / 35.5 / 40.4 % for
 `a8policy` and 28.2 / 40.3 / 40.9 % for `attn8`.
 
 **Why the sign can cross, mechanically.** Acceptance is governed by the drafter's alignment with the
@@ -450,8 +450,9 @@ record does not carry the variable that decides that -- `DECODE_TOKENS` is 400 a
 512, and `DOCUMENTED_SAMPLING` is temperature 1.0 although its recorded figures are identical across
 reps, which that temperature cannot produce.
 
-**What this means for the refusals.** Both stand, and `attn8`'s now rests on more than the prose prompts
-it was taken on: -22.9 % on prose and within +1.1 % of shipped on code. `a8policy` is -25.3 % on prose,
+**What this means for the refusals.** Both stand, and `attn8`'s now rests on more than the prompts
+it was taken on: -22.9 % on the instrument's default corpus file and within +1.1 % of shipped on three
+mixed code files. `a8policy` is -25.3 % on the default corpus file,
 -1.4 % on code, and 12 % slower decoding there. The shipped line wins the worst case, which is what the
 maximin rule selects for -- but the rule is implemented over the matrix's 90-260 character synthetic
 prompts, and the two protocols disagree in sign, so **what the rule maximises over is not what a lane

@@ -52,8 +52,14 @@ LANE_FLAGS = ["--vision", "--spec", "dflash2", "--draft-tokens", "7", "--lm-head
               "--host-context-mib", "8192", "--preserve-thinking", "--default-thinking-budget", "4096"]
 
 
-def default_text() -> str:
-    """Real prose from the corpus the perplexity authority names, assembled from its own data files."""
+def default_text() -> tuple[Path, str]:
+    """The first corpus file with enough text, and which file that was.
+
+    It is not necessarily prose, and the name survives only because the instrument and its records use
+    it: the perplexity corpus's first match by sort order is this repository's own C++ source under
+    data/ninfer/, so an arm recorded as "prose" without printing the source can be mislabelled, which
+    happened and is why main() now prints the source and the text's own script mix.
+    """
     root = REPO / "eval" / "corpora" / "perplexity-1m"
     for candidate in sorted(root.rglob("*")):
         if not candidate.is_file() or candidate.suffix not in (".txt", ".jsonl"):
@@ -73,7 +79,7 @@ def default_text() -> str:
                     break
             body = "\n".join(pieces)
         if len(body) >= 40000:
-            return body
+            return candidate, body
     raise SystemExit("no real-text source found under eval/corpora/perplexity-1m; pass --text")
 
 
@@ -180,12 +186,18 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
-    text = args.text.read_text(encoding="utf-8", errors="replace") if args.text else default_text()
+    if args.text:
+        text = args.text.read_text(encoding="utf-8", errors="replace")
+        source = args.text
+    else:
+        source, text = default_text()
     blocks = [text[i * args.prompt_chars:(i + 1) * args.prompt_chars] for i in range(args.prompts)]
     if any(len(block) < 100 for block in blocks):
         raise SystemExit("not enough real text for that many prompts")
     labels = [args.label[index] if index < len(args.label) else artifact.stem
               for index, artifact in enumerate(args.artifact)]
+    cjk = sum(1 for char in text if "\u4e00" <= char <= "\u9fff") / max(1, len(text))
+    print(f"    text: {source} ({len(text):,} chars, cjk {cjk:.2%})")
     print(f"    {len(args.artifact)} arm(s) x {args.rounds} round(s) x {args.prompts} prompt(s), "
           f"temperature {args.temperature}, max_tokens {args.max_tokens}")
 
