@@ -114,4 +114,10 @@ echo "pre-commit: ruff"
 "$PY" -m ruff check tools tests --quiet
 echo "pre-commit: mypy"
 "$PY" -m mypy tools/release tools/convert tests
+echo "pre-commit: lane figures"
+# Fails when a shipped lane figure was measured under an engine or an artifact that has since changed,
+# or when the profile table disagrees with the fingerprint that produced it. The remedy is to re-run
+# tools/bench/lane_fingerprint.py, which needs the card; this check itself is CPU-only and fast, and
+# skips with a note in a checkout that has no build.
+"$PY" tools/release/check_lane_figures.py || exit 1
 echo "pre-commit: ok"
