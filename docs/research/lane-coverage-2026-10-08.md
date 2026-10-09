@@ -248,6 +248,7 @@ Re-measured 2026-10-09 on long Chinese at the served sampling, three interleaved
 | `nvfp4fullnoex` | 227.5 tok/s | **252.1** | **+10.8 %** | 0.5 / 0.4 % | 9 |
 | `nvidia` | **324.8** | 295.9 | **-9.8 %** | 0.8 / 0.8 % | 7 |
 | `swift15` | **193.5** | 151.2 | **-28 %** | 1.0 / 0.2 % | 7 |
+| `quasar` | 130.2 | **141.6** | **+8.8 %** | 2.5 / 1.8 % | 7 |
 
 **The mean-based rule is refused, on the lane where it looked best.** On `swift15`, depth 9 wins the mean of
 the short domains by 10.9 % and loses long Chinese by 28 %, acceptance falling from 30.0 % to 16.9 %: its
@@ -262,6 +263,33 @@ the same two depths under the same protocol read +10.8 % on one artifact and -28
 each lane is swept rather than configured from a global default. And the published guidance to keep drafts at
 two or three tokens is right for `nvidia` and `swift15` at long context and wrong for `nvfp4fullnoex`, whose
 drafts are cheap enough in this engine's memory-bound decode to pay at nine.
+
+### Settled later on 2026-10-09: two lanes moved to depth 9 after this table
+
+`nvidia` moved on its own served-length pair rather than on this table's cell: on 36,000 characters of real
+code depth 9 leads 258.5 against 228.3 tok/s (+13.2 %), so its worst served cell rises from 228.3 (code at
+depth 7) to 258.5 while long Chinese gives up 8.9 % (295.9 against 324.8, commit 1cccb79a). That commit's
+summary reports the maximin gap as 29.6 %, which compares depth 9's Chinese cell against depth 7's worst
+rather than the two worst cells; the pair maximin compares is 258.5 against 228.3, +13.2 %, and the
+conclusion -- depth 9, as the short-domain mean and the mean over both sets also say -- is unchanged.
+
+`quasar` had no served-length measurement at all when the table above was written -- its short-domain
+maximin was a 0.9 % tie in depth 7's favour -- and was measured by the same `widths` protocol, three
+interleaved rounds per configuration at the served sampling, on the same 36,000-character inputs:
+
+| domain | depth 7 | depth 9 | change | spreads |
+|---|---|---|---|---|
+| long real code | **175.4** | 169.8 | -3.3 % | 1.1 / 0.6 % |
+| long Chinese | 130.2 | **141.6** | **+8.8 %** | 2.5 / 1.8 % |
+
+Maximin over the two takes depth 9 by 8.8 % on the worst case (141.6 against 130.2) and the served mean
+takes it by 1.9 %; the short-domain mean still favours depth 7 by 1.3 % and the mean over both sets by
+0.6 %, and both are left visible rather than smoothed, because the short prompts are the ones this
+document already says do not match what these lanes serve. Depth moved to 9 and the cost is in the row:
+the published 225-character code cell reads 319.6 tok/s at 48.5 % against 381.8 and 71.2 %, so this lane
+is slower and much less accepting on its synthetic cell while being faster where it is served. Records:
+`matrix_v3.jsonl` tags `quasar-v3-dflash2-d{7,9}-vision-ctx262144-long-{code,chinese}`, and the fingerprint
+cells `start_quasar_v3_dflash2_vision-fingerprint-*` in `tools/release/lane_figures.json`.
 
 ## Open items
 
@@ -282,7 +310,14 @@ drafts are cheap enough in this engine's memory-bound decode to pay at nine.
   the other's setting. The other seven lanes measure 4-15% faster than published, which is drift rather
   than a defect, and the acceptance columns reproduce exactly.
 - **item 1-5, 8 of the coverage list are now closed.** Still open and instrument-ready: soak, the
-  cancellation and queue cases, spec correctness at temperature > 0, and cross-path determinism.
+  cancellation and queue cases, and cross-path determinism. Spec correctness at temperature > 0 closed
+  2026-10-09: the engine-side accept rule already had an independent sampling oracle
+  (`tests/ops/test_speculative_round.cpp` applies temperature, top_k, min_p, top_p and both penalties in
+  `sparse_target_distribution`), and the assembled route reads no detectable difference between the
+  speculative and non-speculative first-token distributions at temperature 1.0 with top_k/top_p and again
+  with penalties added -- with its own split-half control, which reads the same effect size as the
+  comparison (V = 0.218 both ways) and so bounds what the test can see
+  (`docs/research/planned-projects-checked-2026-10-09.md`).
 - **Needing build work, and the most promising for making the models better**: the precision-assignment
   search is not exhausted (no arm isolates q/k from v/o, or moves MLP activations from A8 to A16), and
   **the drafter's own precision has never been varied while the target is held fixed** — a lever

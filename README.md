@@ -118,9 +118,9 @@ and every profile reaches the full native context.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **382 tok/s** | 71.2% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (9) | yes | 262,144 | **320 tok/s** | 48.5% |
 | `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | **229 tok/s** | 63.5% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (7) | yes | 262,144 | **380 tok/s** | 56.7% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (9) | yes | 262,144 | **380 tok/s** | 56.7% |
 | `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 176 tok/s | 46.7% |
 | `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **323 tok/s** | 58.3% |
 | `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (4) | yes | 262,144 | 215 tok/s | 57.7% |

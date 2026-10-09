@@ -126,14 +126,25 @@ NVIDIA = "qwen3_8_27b_nvfp4nvidia.v3.ninfer"
 PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
-         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=381.8, acc="71.2%", runtime="10.6 GiB", free="2.82 GiB",
+         spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144,
+         tok=319.6, acc="48.5%", runtime="10.6 GiB", free="2.82 GiB",
          note="Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 "
               "across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime "
               "10.3 GiB) were taken before the workspace grew and no longer describe this lane; at "
               "the shipped configuration every DFlash2 lane reads 10.6 GiB and free VRAM varying by about 0.2 GiB, "
               "and this row is the measured one. Two earlier figures on this lane, 343.4/62.5% and "
-              "the 45.7% published-file reading, had already been withdrawn as not reproducing."),
+              "the 45.7% published-file reading, had already been withdrawn as not reproducing. Depth "
+              "changed from 7 to 9 on 2026-10-09, on the served regime. The 2026-09-30 short-domain "
+              "sweep chose 7 by 0.9% (worst domain 146.8 against 145.5, inside its own spreads); "
+              "re-measured at served length on 36,000 characters of Chinese, depth 9 leads 141.6 against "
+              "130.2 tok/s, +8.8% at spreads of 2.5 and 1.8, so maximin over the combined set takes 9 "
+              "because the served cell is where depth 7's worst case now sits. Acceptance is flat across "
+              "the pair (16.6% against 16.8%) and tokens per round rise from 1.15 to 1.49. The second "
+              "served cell disagrees: on 36,000 characters of real code depth 7 leads 175.4 against 169.8, "
+              "-3.3%. Maximin over the short five and both served cells takes 9 by 8.8% on the worst case. "
+              "The published cell is the cost and it is large: at depth 9 the 225-character code prompt "
+              "reads 319.6 tok/s and 48.5% against depth 7's 365.3 and 71.2%, so the lane is slower and "
+              "less accepting on that one synthetic prompt while being faster where it is served."),
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
@@ -163,8 +174,7 @@ PROFILES: list[dict[str, Any]] = [
               "about 1.50 GiB free, so the split into two images remained necessary and the margin on "
               "this class of lane was thin. The guard now returns about 1.35 GiB, and "
               "`--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% "
-              "Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Depth re-measured 2026-10-09 through the matrix's own widths protocol with the prompts supplied from a file, the served sampling, three interleaved rounds inside one lane each: depth 9 leads on all three treatments -- the 225-character code prompt 378.4 against 352.6 tok/s (+7.3%, spreads 2.3/1.5%), 36,000 characters of real code 194.3 against 188.8 (+2.9%, 1.4/0.3%) and 36,000 characters of Chinese 252.1 against 227.5 (+10.8%, 0.5/0.4%). The greedy readings that disagreed (+1.9% on one prompt, -15% on another) were single-run comparisons whose spreads cannot resolve anything this size, which is why a paired sweep across lane restarts was withdrawn. The figures beside this note are at the shipped depth 9 and were stale from before it. See docs/research/lane-coverage-2026-10-08.md."
-              "prefill -- is no longer needed to improve it."),
+              "prefill -- is no longer needed to improve it. Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Depth re-measured 2026-10-09 through the matrix's own widths protocol with the prompts supplied from a file, the served sampling, three interleaved rounds inside one lane each: depth 9 leads on all three treatments -- the 225-character code prompt 378.4 against 352.6 tok/s (+7.3%, spreads 2.3/1.5%), 36,000 characters of real code 194.3 against 188.8 (+2.9%, 1.4/0.3%) and 36,000 characters of Chinese 252.1 against 227.5 (+10.8%, 0.5/0.4%). The greedy readings that disagreed (+1.9% on one prompt, -15% on another) were single-run comparisons whose spreads cannot resolve anything this size, which is why a paired sweep across lane restarts was withdrawn. The figures beside this note are at the shipped depth 9 and were stale from before it. See docs/research/lane-coverage-2026-10-08.md."),
     dict(file="start_ninfer_v3_mtp4_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP4 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,

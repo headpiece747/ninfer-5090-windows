@@ -189,6 +189,19 @@ def main() -> int:
         body = read(WT / doc)
         for profile in PROFILES:
             check(f"{doc} names {profile['file']}", profile["file"] in body)
+        # The Spec column pairs a launcher with its draft count, and it has been left behind twice
+        # when a row's depth changed: nvfp4fullnoex shipped depth 9 beside depth-7 figures, and the
+        # ninfer row read "DFlash2 (7)" while its figures were the depth-9 ones. Checked against the
+        # module now, because a figure and a setting that disagree is a defect whichever one is right.
+        spec_labels = {"dflash2": "DFlash2", "mtp": "MTP"}
+        for profile in PROFILES:
+            if profile["spec"] not in spec_labels:
+                continue
+            want = f"{spec_labels[profile['spec']]} ({profile['draft']})"
+            row = next((line for line in body.splitlines()
+                        if line.startswith("| `") and f"`{profile['file']}`" in line), "")
+            check(f"{doc} pairs {profile['file']} with {want}", want in row,
+                  f"row reads: {row.strip()[:100]}")
         for retired in RETIRED:
             check(f"{doc} free of retired {retired}", retired not in body)
         check(f"{doc} free of sub-262k ceilings", "163,840" not in body and "180,224" not in body)

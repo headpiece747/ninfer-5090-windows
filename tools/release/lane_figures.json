@@ -1,12 +1,12 @@
 {
   "what": "The shipped lanes' measured figures, each with the identity of what it was measured on.",
   "engine": {
-    "file": "build/apps/ninfer-serve.exe",
+    "file": "C:\\AI\\ninfer-v3-windows\\build\\apps\\ninfer-serve.exe",
     "sha256": "1e6dc3c0bfb5d5b7e9d9cdc327368ad7d7a75217c9b3b7695abad1c424fef8e4",
     "bytes": 241827328,
     "built_utc": "2026-10-09T01:40:24Z"
   },
-  "measured_utc": "2026-10-09T13:57:37Z",
+  "measured_utc": "2026-10-09T16:08:02Z",
   "lanes": {
     "start_quasar_v3_dflash2_vision.bat": {
       "artifact": {
@@ -16,20 +16,20 @@
       },
       "cells": {
         "code": {
-          "decode_avg": 375.1,
-          "accept_rate": 0.7124,
+          "decode_avg": 318.5,
+          "accept_rate": 0.485,
           "sampling": "default",
           "source": "measured"
         },
         "long-code": {
-          "decode_avg": 186.4,
-          "accept_rate": 0.2681,
+          "decode_avg": 168.6,
+          "accept_rate": 0.2074,
           "sampling": "default",
           "source": "measured"
         },
         "long-chinese": {
-          "decode_avg": 137.0,
-          "accept_rate": 0.1656,
+          "decode_avg": 141.8,
+          "accept_rate": 0.1676,
           "sampling": "default",
           "source": "measured"
         }
