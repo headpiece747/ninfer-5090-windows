@@ -118,13 +118,19 @@ def run_arm(artifact: Path, port: int, blocks: list[str], args: argparse.Namespa
     result_path = run_dir / "result.json"
     if result_path.is_file():
         return json.loads(result_path.read_text(encoding="utf-8"))
-    flags = [*LANE_FLAGS, "--chat-template", str(args.template)]
+    lane_flags = list(LANE_FLAGS)
     if args.draft_tokens != 7:
-        # The lane's own depth is 7. A depth A/B is the same artifact under two flag sets, so the flag
-        # is substituted rather than appended, and the shipped value stays the default.
-        lane_flags = list(LANE_FLAGS)
+        # The lane's own depth is 7. A depth A/B is the same artifact under two flag sets, so a flag is
+        # substituted rather than appended and the shipped value stays the default.
         lane_flags[lane_flags.index("--draft-tokens") + 1] = str(args.draft_tokens)
-        flags = [*lane_flags, "--chat-template", str(args.template)]
+    if args.kv_capacity is not None:
+        # Same reasoning: the lane ships --kv-capacity auto, and a probe that asks whether a per-request
+        # cost tracks capacity needs to shrink it without changing anything else. A capacity below
+        # --max-context is refused, so shrinking the reservation means shrinking the context too.
+        lane_flags[lane_flags.index("--kv-capacity") + 1] = str(args.kv_capacity)
+    if args.max_context is not None:
+        lane_flags[lane_flags.index("--max-context") + 1] = str(args.max_context)
+    flags = [*lane_flags, "--chat-template", str(args.template)]
     model_id = None
     with log_path.open("w", encoding="utf-8", newline="\n") as handle:
         process = subprocess.Popen([str(SERVE), str(artifact), *flags, "--host", "127.0.0.1",
@@ -176,6 +182,11 @@ def main() -> int:
     parser.add_argument("--max-tokens", type=int, default=512)
     parser.add_argument("--draft-tokens", type=int, default=7,
                         help="the draft depth to run the lane at; 7 is the shipped DFlash2 lane's")
+    parser.add_argument("--kv-capacity",
+                        help="override the lane's --kv-capacity auto, so a probe can ask whether a "
+                             "per-request cost tracks the capacity the lane reserves")
+    parser.add_argument("--max-context", type=int,
+                        help="override the lane's --max-context, which a sub-context capacity requires")
     parser.add_argument("--temperature", type=float, default=0.0,
                         help="0 makes each arm's generation identical, which is what makes arms comparable")
     parser.add_argument("--rounds", type=int, default=2)

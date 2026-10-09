@@ -229,8 +229,12 @@ table's own +22.6 % would have done, if it had reproduced.
 
 - The **fixed ~45 ms inside the `prefill` phase** on near-zero-work requests, seen three independent
   ways (cold-short 43.6-51.6 ms for 30 tokens; a text continuation 43.8 ms for 23 new tokens; a
-  vision continuation 43.5-47.9 ms for 23 new tokens). Whether it is KV page allocation at the lane's
-  capacity or state restore counted inside `prefill` is not established; one flag pair settles it.
+  vision continuation 43.5-47.9 ms for 23 new tokens). **Measured 2026-10-09: it is not KV page
+  allocation.** The same 200-character cold request reads a floor of 61.2 ms at `--kv-capacity auto`
+  (`KV 262,144`, 4,096 pages) and 63.4 ms at `--max-context 32768` (`KV 32,768`, 512 pages) -- eight
+  times fewer reserved pages, the same cost. Combined with the original observation that it appears on
+  continuations as well as cold shorts, that makes it a **per-request** cost in the request path rather
+  than a page-allocation or a per-conversation restore. Which request-path step it is remains open.
 - The published lane figures in `tools/release/profiles.py` are stale for VRAM (~1 GiB) and were
   already noted stale for throughput.
 - **item 1-5, 8 of the coverage list are now closed.** Still open and instrument-ready: soak, the
