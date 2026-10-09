@@ -109,7 +109,7 @@ echo "pre-commit: converter tests"
 # so collecting the directory would abort the run instead of adding to it. The calibration-corpus and
 # perturbation tests are named for the same reason, and because a gate whose failure paths have never
 # been run is indistinguishable from one that always passes.
-"$PY" -m pytest tests/convert tests/release/test_doc_links.py tests/release/test_text_encoding.py tests/release/test_calibration_corpus.py tests/release/test_test_mutation.py tests/release/test_subprocess_encoding.py tests/release/test_test_baseline_cache.py -q
+"$PY" -m pytest tests/convert tests/release/test_doc_links.py tests/release/test_text_encoding.py tests/release/test_calibration_corpus.py tests/release/test_test_mutation.py tests/release/test_subprocess_encoding.py tests/release/test_test_baseline_cache.py tests/release/test_lane_figures.py -q
 echo "pre-commit: ruff"
 "$PY" -m ruff check tools tests --quiet
 echo "pre-commit: mypy"

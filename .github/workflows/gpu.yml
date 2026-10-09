@@ -124,6 +124,21 @@ jobs:
           REM --from-log: the verdict describes the suite the step above ran, not a second one.
           C:\vllm-env\Scripts\python.exe tools\release\check_test_baseline.py --from-log "%TEMP%\test_v3.log"
 
+      # The figures' provenance, measured rather than compared. check_lane_figures.py runs in the hook,
+      # and therefore in ci.yml, but it only hashes a binary and reads artifacts: it can tell that an
+      # engine or an artifact changed, never that a lane's numbers drifted for a reason the identities
+      # cannot show. This step measures the eight lanes on three cells at the served sampling and compares
+      # them with the provenance committed in tools/release/lane_figures.json.
+      #
+      # --serve and --models point OUTSIDE the checkout for the same reason the FFmpeg tree does: the job
+      # checks out a fresh tree, which has no build/, and the artifacts live at C:\AI\models. A red result
+      # means the committed provenance no longer describes the lanes: re-run the fingerprint on the machine
+      # that owns the artifacts and commit the new file, with whatever the table refreshes.
+      - name: lane fingerprint
+        shell: cmd
+        run: |
+          C:\vllm-env\Scripts\python.exe tools\bench\lane_fingerprint.py --serve C:\AI\ninfer-v3-windows\build\apps\ninfer-serve.exe --models C:\AI\models
+
       # On demand only. A sanitized run is 10-20x slower, and the subset is chosen by hand when a
       # specific kernel is under suspicion rather than run as routine coverage.
       - name: compute-sanitizer (small device subset)

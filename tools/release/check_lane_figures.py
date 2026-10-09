@@ -56,6 +56,8 @@ def main() -> int:
     parser.add_argument("--figures", type=Path, default=FIGURES)
     parser.add_argument("--serve", type=Path, default=SERVE,
                         help="the binary the figures were measured with; a test overrides it")
+    parser.add_argument("--models", type=Path, default=MODELS,
+                        help="where the artifacts live; a test overrides it")
     args = parser.parse_args()
 
     if not args.figures.is_file():
@@ -88,7 +90,7 @@ def main() -> int:
                          f"{current_engine[:12]}")
             continue
         record = entry.get("artifact") or {}
-        artifact = MODELS / str(record.get("path", ""))
+        artifact = args.models / str(record.get("path", ""))
         if not artifact.is_file():
             stale.append(f"{launcher}: its artifact {artifact.name} is gone")
         else:

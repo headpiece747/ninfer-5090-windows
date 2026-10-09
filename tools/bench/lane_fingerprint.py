@@ -78,6 +78,11 @@ def main() -> int:
     parser.add_argument("--tolerance-tok", type=float, default=10.0,
                         help="percent a cell may differ from the table's figure, or from the last run")
     parser.add_argument("--tolerance-acc", type=float, default=3.0, help="acceptance points, same basis")
+    parser.add_argument("--serve", type=Path, default=SERVE,
+                        help="the binary to measure with and to hash into the provenance; a CI checkout "
+                             "has no build/, so the runner passes the machine's own binary")
+    parser.add_argument("--models", type=Path, default=MODELS,
+                        help="where the artifacts live")
     parser.add_argument("--no-write", action="store_true", help="measure and report, record nothing")
     args = parser.parse_args()
 
@@ -95,7 +100,7 @@ def main() -> int:
     for profile in selected:
         launcher = profile["file"]
         print(f"\n=== {launcher}")
-        artifact = MODELS / profile["art"]
+        artifact = args.models / profile["art"]
         recorded = {
             "artifact": {"path": artifact.name, "bytes": artifact.stat().st_size,
                          "mtime": artifact.stat().st_mtime},
@@ -147,9 +152,9 @@ def main() -> int:
                                        "sampling": "default"}
         lanes[launcher] = recorded
 
-    payload["engine"] = {"file": "build/apps/ninfer-serve.exe",
-                         "sha256": _sha(SERVE), "bytes": SERVE.stat().st_size,
-                         "built_utc": datetime.fromtimestamp(SERVE.stat().st_mtime, timezone.utc)
+    payload["engine"] = {"file": str(args.serve), "sha256": _sha(args.serve),
+                         "bytes": args.serve.stat().st_size,
+                         "built_utc": datetime.fromtimestamp(args.serve.stat().st_mtime, timezone.utc)
                          .strftime("%Y-%m-%dT%H:%M:%SZ")}
     payload["measured_utc"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     payload.pop("figures", None)  # the per-lane-per-cell schema below supersedes the first flat one
