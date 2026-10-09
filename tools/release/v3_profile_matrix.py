@@ -950,6 +950,11 @@ def main() -> int:
                     help="profile mode: the workload to measure on, repeatable, default the one "
                          "domain the table was measured on. Recorded in every result, because a "
                          "decode figure without its workload is not interpretable -- see DOMAINS.")
+    ap.add_argument("--domain-from-file", metavar="NAME=PATH",
+                    help="profile/widths mode: register a domain named NAME whose prompt is the "
+                         "contents of PATH, and measure on it. For a traffic-like prompt, since the "
+                         "built-in domains are 90-260 characters; NAME is what every record and log "
+                         "carries, so it identifies the file. Not combined with --domain.")
     ap.add_argument("--sampling", choices=["default", "zero", "none"], default="default",
                     help="profile mode: the sampling the MEASURED decode runs use. 'default' is "
                          "the model card's thinking set (temp 1.0 / top_p 0.95 / top_k 20); 'zero' "
@@ -964,6 +969,20 @@ def main() -> int:
     ap.add_argument("--all-widths", action="store_true",
                     help="widths mode: sweep every window each selected backend accepts")
     args = ap.parse_args()
+
+    # A domain from a file rather than from the constants above, because those are 90-260 characters and a
+    # maximin rule that runs on them is not maximising over what a lane serves. Registered before dispatch
+    # and overriding --domain, so the name it carries through the record and the log is the file's stem.
+    if args.domain_from_file:
+        stem, separator, path = args.domain_from_file.partition("=")
+        if not separator or not stem or not path:
+            raise SystemExit("--domain-from-file takes NAME=PATH")
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+        if len(text) < 120:
+            raise SystemExit(f"{path}: shorter than a usable domain prompt")
+        DOMAINS[stem] = text
+        args.domains = [stem]
+        print(f"    domain {stem!r} from {path}: {len(text):,} chars")
 
     # Parsed once here rather than inside the widths branch, because verify mode reads a width from
     # the same option. `--draft` appends, so a bare value and a scoped one both accumulate into these.
