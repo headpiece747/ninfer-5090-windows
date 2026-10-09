@@ -197,7 +197,7 @@ something, and each is named here so it gets used rather than rediscovered.
 | a host-side C++ question | `clang-tidy -p build src/text/jinja.cpp` — `.clang-tidy` sets a narrow check set and `build/compile_commands.json` already exists; run it from the Visual Studio environment so the MSVC headers resolve |
 | Python tooling, before committing it | `ruff check tools tests` and `mypy tools/release tools/convert tests` — both clean, both enforced by the hook, so a new finding is a regression rather than a cost |
 | a lingering suspicion of flakiness | `ctest --test-dir build-test --repeat until-fail:5` |
-| what upstream already decided, or whether a symptom is known | the upstream tracker: `gh issue list --repo Neroued/ninfer --search <term>` — this project's reference corpus |
+| what upstream already decided, whether a symptom is known, **or what is proposed and unmerged** | the upstream tracker, **both halves**: `gh issue list --repo Neroued/ninfer --search <term>` **and `gh pr list --repo Neroued/ninfer --state open`** — this project's reference corpus. Survey both: the open pull requests are the unmerged half, and six of one fork's sixteen engine changes (prompt-attention kernels, compact KV formats, overlapped decode, YaRN, agent-client compatibility, a cache redesign) were readable there for a month while only issues were searched, because an issue search cannot return a PR title and no artifact survey can surface an engine change |
 | **an unfamiliar subsystem, a wrong belief about the code, or a claim that a fix works** | **a skill — see [Skills](#skills-and-when-to-reach-for-one) below** |
 
 CI is installed in two tiers, split by what needs the card. `.github/workflows/ci.yml` runs
