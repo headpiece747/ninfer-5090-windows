@@ -29,6 +29,13 @@ aggregation task** (RULER-shaped) plus **a code-repository task with no verbatim
 this port's own corpus), and report **effective length** — the longest context where accuracy stays above
 ~85 % of the short-context baseline (NoLiMa's and RULER's own rule) — rather than a raw pass rate.
 
+**Built and measured 2026-10-09.** The multi-needle half exists and passes its own control: five planted
+notes in this port's corpus text, questions at the end, the reference answer scored through
+`ninfer-perplexity --per-token-logprobs`, and a mismatched-needle control that moves the answer's NLL by
++0.94–0.96 nats. The matched curve is flat from 8,192 to 131,072 tokens (worst-case mean logprob −0.17), so
+the effective length of this construction is at least the deepest depth measured. The code-repository half is
+still unbuilt. Instrument, limits and records: `docs/research/long-context-needle-2026-10-09.md`.
+
 ## 2. Task accuracy — keep, but size it by power, not by habit
 
 **Our plan:** the generation grader in `eval/`, 7–11 GPU-hours per build for 258 paired questions.
@@ -149,10 +156,13 @@ The `fp8` figure is the published baseline for this artifact exactly, so the com
 the documentation already carries. **Every axis improves except perplexity, which moves 0.145 %** — half the
 value bits for a cost a fraction of the a8policy recipe's −0.54 % at 2.2× time.
 
-**Scope, which is what makes this a project rather than a tweak:** `--kv-dtype` sits in `INVARIANT_FLAGS`, so
-it is shared by all eight lanes. Adopting it means re-measuring every lane's figures and re-checking quality
-per artifact — and the **per-domain split** of that perplexity is what maximin needs before any of it starts,
-because a total can hide a domain.
+**Resolved 2026-10-09, and not as a global change.** The per-domain split above was measured on all five
+artifacts (worst domain +0.277%, noex on ninfer_code) and the all-lane fingerprint was taken: its deltas run
+from +35% to −36% decode, with acceptance moving deterministically in both directions, and interleaving the
+alternatives inside one session shows the effect is per-artifact — +13.8% decode and +9.5 acceptance points on
+QUASAR's DFlash2 lane, −0.1% on NVIDIA's. So the global change was refused, `--kv-dtype` moved out of
+`INVARIANT_FLAGS` into the per-lane column, and the one lane measured to gain adopted `k8v4`, with its depth
+re-swept under the new format before adoption. Details: `docs/research/kv-dtype-evidence.md`.
 
 ## 7. MLP A8→A16 — reframed toward what this port already owns
 
