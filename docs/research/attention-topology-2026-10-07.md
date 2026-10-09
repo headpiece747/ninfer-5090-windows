@@ -2,7 +2,10 @@
 
 **MEASURED-HERE 2026-10-07.** One artifact pair, one difference, full corpus. The port's `nvidia` line
 re-encodes the source checkpoint's FP8 attention and linear-attention projections to NVFP4; importing the
-producer's own FP8 words instead is worth **1.41 % perplexity and 29 % relative acceptance**, and costs
+producer's own FP8 words instead is worth **1.41 % perplexity and 29 % relative acceptance** (both on the
+fixture corpus and on the domain matrix; the real-text instrument reads the opposite sign for acceptance,
+and that disagreement is recorded unresolved in "The real-text instrument reads the opposite sign"
+below), and costs
 **14.2 % prefill throughput** and **3.16 GiB**. Decode moved −5.3 %, which is inside this card's arm-to-arm
 spread and is therefore *not* claimed.
 
@@ -399,6 +402,34 @@ VRAM (2.27 → 1.88 GiB on code, 2.56 → 1.92 on chinese), which the lane's hea
 Per-domain, the recipe therefore costs **−1.18 % prefill (inside the baseline's own 3.9 % spread)**, **~0.4–0.6
 GiB of free VRAM** and **+0.73 GB of artifact**, and gains **−0.81 % perplexity across all four corpus
 domains**, **+15–16 % speculative acceptance on both measured extremes** and **+5–8 % decode**.
+
+### The real-text instrument reads the opposite sign, and the disagreement is unresolved
+
+`tools/bench/realtext_acceptance.py` measures speculative acceptance and decode on real prose at a lane's own
+flags, and it exists because the other two protocols cannot reach the regime a served lane is in: the bench's
+one-token seed leaves speculation nothing to be predictable from (0.085-0.129), and the same corpus behind a
+real prompt saturates (0.991 in four consecutive runs), because it is synthetic and tiled. Measured with it,
+greedy, two rounds and three prompts per arm, each arm's id read from `/v1/models`:
+
+| pair | shipped arm | variant arm | change |
+|---|---|---|---|
+| `nvidia` vs `nvidia_attn8` (2026-10-08) | 1,170/2,526 = 46.3 %, identical in both rounds | 1,094/3,062 = 35.7 % | **-22.9 % acceptance, -21 % decode** |
+| `nvidia` vs `nvidia_a8policy` (2026-10-09) | 1,170/2,526 = 46.3 %, 270.7 tok/s, identical in both rounds | 1,082/3,128 = 34.6 %, 183.9/184.6 tok/s | **-25.3 % acceptance, -32 % decode** |
+
+The two protocols disagree in *sign* on the same pair of artifacts, and neither is sloppy: the matrix's arms
+are deterministic and identical across reps, and the real-text arms are identical across rounds under greedy.
+The shipped arm's count is *identical* between the two real-text runs (1,170/2,526) because the artifact and
+the prompts are the same and the sampler is greedy, so this instrument is at least reproducible against
+itself. What differs is the prompt: the matrix's domains are code and Chinese text measured one prompt per
+domain, while this instrument pools three prose prompts of several thousand characters each. Which difference
+carries the reversal is **not established here and was not investigated**; length, domain and round count are
+each candidates and none has been isolated.
+
+What is established is that the acceptance half of the figures above is protocol-dependent, so a claim of the
+form "+15-16 % acceptance" has to name its instrument. **Adoption of the `attn8` recipes was refused on the
+real-text instrument's figure, and `a8policy` was refused on the same one**: both are decisions about a served
+lane, where the prompts are real text by definition rather than a fixture. If the reversal is ever attributed
+to a protocol artefact, this section is the record that has to be revisited first.
 
 ## What is not established
 

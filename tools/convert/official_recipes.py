@@ -929,7 +929,9 @@ def qwen3_8_27b_nvfp4_unsloth_attn8(model, recipe, sources):
       domains better (-0.024 code to -0.229 English reference), and the lowest this port has recorded;
     * against the nvidia variant, a different checkpoint and finetune, -0.16%;
     * DFlash2 acceptance 0.2083 against `full`'s 0.1524 (+36.7% relative) and decode +1.8%, with the
-      baseline's own spread at 0.4%;
+      baseline's own spread at 0.4% -- from `ninfer_bench`'s fixture corpus, which the domain matrix
+      restated at +15-16% and the real-text instrument reverses entirely; see
+      `docs/research/attention-topology-2026-10-07.md`, "The real-text instrument reads the opposite sign";
     * prefill 10,064 against 11,617 tok/s (-13.4%, and it reproduces the nvidia pair's -14.2%);
     * 23.58 GB against 19.72 (+3.86), and 28.5% of the implied KV context -- 410,012 to 293,102 tokens at
       33,024 bytes per KV token, which is arithmetic on a text-only lane rather than a served capacity.
@@ -989,7 +991,10 @@ def qwen3_8_27b_nvfp4_nvidia_attn8(model, recipe, sources):
     Measured 2026-10-08 against `qwen3_8_27b_nvfp4nvidia`, same source, one difference:
 
     * perplexity 4.648907 against 4.686759 (-0.81%), all 16 streams and all four domains better;
-    * DFlash2 acceptance 0.1957 against 0.1106 (+77% relative) and decode +24.4%, from a flat round cost;
+    * DFlash2 acceptance 0.1957 against 0.1106 (+77% relative) and decode +24.4%, from a flat round cost --
+      both from `ninfer_bench`'s fixture corpus, which the domain matrix restated at +15-16% and the
+      real-text instrument reverses entirely; see
+      `docs/research/attention-topology-2026-10-07.md`, "The real-text instrument reads the opposite sign";
     * prefill -1.18%, inside the baseline's own 3.9% spread, so no cost is demonstrated;
     * 19.68 GB against 18.95 (+0.73), and 5.14% of the implied KV context;
     * the task-adjacent endpoint over 60 AIME questions -4.11% answer NLL (bootstrap 95% CI excluding
