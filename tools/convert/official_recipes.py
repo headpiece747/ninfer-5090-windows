@@ -835,12 +835,24 @@ def qwen3_8_27b_nvfp4_nvidia_a8policy(model, recipe, sources):
     `qwen3_8_27b_nvfp4_nvidia_attn8` also moves. Measured 2026-10-08, same protocol as the rest:
 
     * perplexity 4.661317 against 4.686759 (-0.543%), all four domains better;
-    * DFlash2 acceptance 0.1436 against 0.1106 (+29.9% relative) and decode +6.84%;
     * prefill 6,576 against 12,541 tok/s -- **-47.6%**, which is the largest single cost measured here;
     * size unchanged, and so is the format mix.
 
-    Read together with the attn8 recipes this splits their result: the activation permission carries 67%
-    of the perplexity gain and 39% of the acceptance gain, and the FP8 weights carry the rest. It also
+    **The acceptance and decode figures this recipe once carried came from `ninfer_bench`, are not
+    evidence, and the real-text measurement contradicts them.** The bench cannot answer the question
+    from either end of its range: `ninfer_bench -n` generates after a one-token seed, so speculation
+    has no context to be predictable from, and the 0.1436 against 0.1106 (+29.9%) this line used to
+    quote sits where that instrument's own note says it cannot resolve the question. Measured on real
+    text at this lane's own flags, greedy, two rounds and three prompts per arm, each arm's id read
+    from `/v1/models` (`tools/bench/realtext_acceptance.py`, 2026-10-09): shipped 1,170/2,526 = 46.3%
+    and 270.7 tok/s on both rounds; this recipe 1,082/3,128 = 34.6% and 183.9/184.6 tok/s --
+    **-25.3% acceptance and -32% decode**, deeper than the attn8 recipe's -22.9%/-21% on the same
+    instrument, which was refused for it. The activation axis alone reproduces the whole refusal, and
+    the FP8 weight axis was worth about +1.1 points of absolute acceptance against it.
+
+    Read together with the attn8 recipes this splits their result: the activation permission carries
+    67% of the perplexity gain, costs the largest single prefill penalty, and on the axis that decides
+    a shipping lane it loses more than it wins. It also
     explains a third-party number in the opposite direction. A Windows 4090 port publishes an int8-prefill
     artifact whose weights are byte-identical to the official one and which doubles its prefill
     (2,762 -> 5,830 tok/s at pp2048) by declaring an int8 activation route; its baseline is the official
@@ -851,7 +863,9 @@ def qwen3_8_27b_nvfp4_nvidia_a8policy(model, recipe, sources):
 
     The A4 route is what makes the shipped line's prefill what it is; a lane that trades prefill for
     quality at constant size can take this recipe, and the attn8 ones are better trades where bytes are
-    available.
+    available. Neither is shippable on the acceptance axis, and an A8 kernel would not change that: it
+    would make the prefill cheaper while the acceptance and decode penalty, which comes from the
+    activation precision reaching the logits the drafter proposes from, stayed where it is.
     """
     if "num_experts" in model.config:
         raise ValueError("this official recipe requires Qwen3.5 Dense mathematics")
