@@ -6,103 +6,199 @@
     "bytes": 241827328,
     "built_utc": "2026-10-09T01:40:24Z"
   },
-  "measured_utc": "2026-10-09T12:38:29Z",
-  "figures": {
+  "measured_utc": "2026-10-09T13:57:37Z",
+  "lanes": {
     "start_quasar_v3_dflash2_vision.bat": {
-      "cell": "code",
-      "sampling": "default",
-      "decode_avg": 381.8,
-      "acceptance": 0.7124,
       "artifact": {
         "path": "qwen3_8_27b_nvfp4qat.v3.ninfer",
         "bytes": 18946876932,
         "mtime": 1791389132.1445022
       },
-      "record": "matrix_v3.jsonl profile mode, 3 sub-runs"
+      "cells": {
+        "code": {
+          "decode_avg": 375.1,
+          "accept_rate": 0.7124,
+          "sampling": "default"
+        },
+        "long-code": {
+          "decode_avg": 186.4,
+          "accept_rate": 0.2681,
+          "sampling": "default"
+        },
+        "long-chinese": {
+          "decode_avg": 137.0,
+          "accept_rate": 0.1656,
+          "sampling": "default"
+        }
+      }
     },
     "start_quasar_v3_mtp4_vision.bat": {
-      "cell": "code",
-      "sampling": "default",
-      "decode_avg": 228.7,
-      "acceptance": 0.6347,
       "artifact": {
         "path": "qwen3_8_27b_nvfp4qat.v3.ninfer",
         "bytes": 18946876932,
         "mtime": 1791389132.1445022
       },
-      "record": "matrix_v3.jsonl profile mode, 3 sub-runs"
+      "cells": {
+        "code": {
+          "decode_avg": 229.7,
+          "accept_rate": 0.6347,
+          "sampling": "default"
+        },
+        "long-code": {
+          "decode_avg": 144.3,
+          "accept_rate": 0.3104,
+          "sampling": "default"
+        },
+        "long-chinese": {
+          "decode_avg": 156.8,
+          "accept_rate": 0.3819,
+          "sampling": "default"
+        }
+      }
     },
     "start_ninfer_v3_dflash2_vision.bat": {
-      "cell": "code",
-      "sampling": "default",
-      "decode_avg": 380.0,
-      "acceptance": 0.5673,
       "artifact": {
         "path": "qwen3_8_27b_nvfp4full_noex.v3.ninfer",
         "bytes": 18946876932,
         "mtime": 1791389826.030711
       },
-      "record": "matrix_v3.jsonl profile mode, 3 sub-runs"
+      "cells": {
+        "code": {
+          "decode_avg": 381.0,
+          "accept_rate": 0.5673,
+          "sampling": "default"
+        },
+        "long-code": {
+          "decode_avg": 194.7,
+          "accept_rate": 0.2342,
+          "sampling": "default"
+        },
+        "long-chinese": {
+          "decode_avg": 251.2,
+          "accept_rate": 0.3654,
+          "sampling": "default"
+        }
+      }
     },
     "start_ninfer_v3_mtp4_vision.bat": {
-      "cell": "code",
-      "sampling": "default",
-      "decode_avg": 175.8,
-      "acceptance": 0.4667,
       "artifact": {
         "path": "qwen3_8_27b_nvfp4full.v3.ninfer",
         "bytes": 19715596804,
         "mtime": 1791389598.5515668
       },
-      "record": "matrix_v3.jsonl profile mode, 3 sub-runs"
+      "cells": {
+        "code": {
+          "decode_avg": 175.5,
+          "accept_rate": 0.4667,
+          "sampling": "default"
+        },
+        "long-code": {
+          "decode_avg": 148.1,
+          "accept_rate": 0.3407,
+          "sampling": "default"
+        },
+        "long-chinese": {
+          "decode_avg": 143.7,
+          "accept_rate": 0.3407,
+          "sampling": "default"
+        }
+      }
     },
     "start_swift_v3_dflash2_vision.bat": {
-      "cell": "code",
-      "sampling": "default",
-      "decode_avg": 322.6,
-      "acceptance": 0.5832,
       "artifact": {
         "path": "qwen3_8_27b_nvfp4swift15.v3.ninfer",
         "bytes": 18946876932,
         "mtime": 1791390262.495466
       },
-      "record": "matrix_v3.jsonl profile mode, 3 sub-runs"
+      "cells": {
+        "code": {
+          "decode_avg": 322.1,
+          "accept_rate": 0.5832,
+          "sampling": "default"
+        },
+        "long-code": {
+          "decode_avg": 205.4,
+          "accept_rate": 0.3106,
+          "sampling": "default"
+        },
+        "long-chinese": {
+          "decode_avg": 195.5,
+          "accept_rate": 0.2996,
+          "sampling": "default"
+        }
+      }
     },
     "start_swift_v3_mtp4_vision.bat": {
-      "cell": "code",
-      "sampling": "default",
-      "decode_avg": 214.6,
-      "acceptance": 0.5768,
       "artifact": {
         "path": "qwen3_8_27b_nvfp4swift15.v3.ninfer",
         "bytes": 18946876932,
         "mtime": 1791390262.495466
       },
-      "record": "matrix_v3.jsonl profile mode, 3 sub-runs"
+      "cells": {
+        "code": {
+          "decode_avg": 214.5,
+          "accept_rate": 0.5768,
+          "sampling": "default"
+        },
+        "long-code": {
+          "decode_avg": 143.1,
+          "accept_rate": 0.3063,
+          "sampling": "default"
+        },
+        "long-chinese": {
+          "decode_avg": 165.1,
+          "accept_rate": 0.412,
+          "sampling": "default"
+        }
+      }
     },
     "start_nvidia_v3_dflash2_vision.bat": {
-      "cell": "code",
-      "sampling": "default",
-      "decode_avg": 322.9,
-      "acceptance": 0.459,
       "artifact": {
         "path": "qwen3_8_27b_nvfp4nvidia.v3.ninfer",
         "bytes": 18946876932,
         "mtime": 1791390052.9669847
       },
-      "record": "matrix_v3.jsonl profile mode, 3 sub-runs, at depth 9"
+      "cells": {
+        "code": {
+          "decode_avg": 321.7,
+          "accept_rate": 0.4592,
+          "sampling": "default"
+        },
+        "long-code": {
+          "decode_avg": 259.4,
+          "accept_rate": 0.3569,
+          "sampling": "default"
+        },
+        "long-chinese": {
+          "decode_avg": 296.9,
+          "accept_rate": 0.4512,
+          "sampling": "default"
+        }
+      }
     },
     "start_nvidia_v3_mtp4_vision.bat": {
-      "cell": "code",
-      "sampling": "default",
-      "decode_avg": 210.2,
-      "acceptance": 0.5726,
       "artifact": {
         "path": "qwen3_8_27b_nvfp4nvidia.v3.ninfer",
         "bytes": 18946876932,
         "mtime": 1791390052.9669847
       },
-      "record": "matrix_v3.jsonl profile mode, 3 sub-runs"
+      "cells": {
+        "code": {
+          "decode_avg": 210.9,
+          "accept_rate": 0.5726,
+          "sampling": "default"
+        },
+        "long-code": {
+          "decode_avg": 149.2,
+          "accept_rate": 0.3321,
+          "sampling": "default"
+        },
+        "long-chinese": {
+          "decode_avg": 156.1,
+          "accept_rate": 0.3733,
+          "sampling": "default"
+        }
+      }
     }
   }
 }

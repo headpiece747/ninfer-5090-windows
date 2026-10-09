@@ -9,12 +9,13 @@ missing measurement; all were a stale one, and nothing in the tree could tell.
 This gate cannot refresh a stale figure (that needs the card). What it does is make staleness mechanical in
 two directions:
 
-  * **identity** -- every figure in `lane_figures.json` records the artifact it was measured on (size and
+  * **identity** -- every lane in `lane_figures.json` records the artifact it was measured on (size and
     mtime) and the engine binary that measured it (sha256). When an engine is rebuilt or an artifact is
-    re-cut, the affected rows fail here with the remedy in the message.
-  * **transcription** -- the profile table's `tok`/`acc` must agree with the fingerprint that produced them,
-    which is the half `check_profile_consistency.py` cannot see: that gate compares the table with the
-    documents, this one compares the table with the measurement.
+    re-cut, the lane fails here with the remedy in the message.
+  * **transcription** -- on the **`code`** cell only, the profile table's `tok`/`acc` must agree with the
+    fingerprint that produced them. That cell is the one the published figures were measured on; the other
+    cells read far lower by construction, because decode falls with context, and comparing them with the
+    table was the first run's second mistake.
 
 `tools/bench/lane_fingerprint.py` writes this file, so the run that takes a figure files its provenance.
 
@@ -37,7 +38,8 @@ from profiles import PROFILES  # noqa: E402
 FIGURES = REPO / "tools" / "release" / "lane_figures.json"
 SERVE = REPO / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
-TOK_TOLERANCE = 0.02      # the table rounds; the fingerprint does not
+TABLE_CELL = "code"
+TOK_TOLERANCE = 0.10      # percent against the table: run-to-run noise reaches 2.3%, a stale figure is 22%
 ACC_TOLERANCE = 0.5       # points, against the table's one-decimal string
 
 
@@ -71,18 +73,19 @@ def main() -> int:
         print(f"    FAIL: {args.figures}: {error}")
         return 2
 
-    recorded_engine = str(payload.get("engine", {}).get("sha256") or "")
+    recorded_engine = str((payload.get("engine") or {}).get("sha256") or "")
     current_engine = sha256_of(args.serve)
     engine_matches = recorded_engine == current_engine
     published = {profile["file"]: profile for profile in PROFILES}
+    lanes = payload.get("lanes") or {}
 
     stale: list[str] = []
     checked = 0
-    for launcher, entry in sorted((payload.get("figures") or {}).items()):
+    for launcher, entry in sorted(lanes.items()):
         checked += 1
         if not engine_matches:
-            stale.append(f"{launcher} / {entry.get('cell')}: measured with engine "
-                         f"{recorded_engine[:12]}, tree has {current_engine[:12]}")
+            stale.append(f"{launcher}: measured with engine {recorded_engine[:12]}, tree has "
+                         f"{current_engine[:12]}")
             continue
         record = entry.get("artifact") or {}
         artifact = MODELS / str(record.get("path", ""))
@@ -99,22 +102,23 @@ def main() -> int:
         if profile is None:
             stale.append(f"{launcher}: not a shipped profile any more")
             continue
-        measured_tok = float(entry.get("decode_avg") or 0.0)
+        cell = (entry.get("cells") or {}).get(TABLE_CELL)
+        if cell is None:
+            stale.append(f"{launcher}: no fingerprint for the table's own cell {TABLE_CELL!r}")
+            continue
+        measured_tok = float(cell.get("decode_avg") or 0.0)
         if measured_tok and abs(measured_tok / float(profile["tok"]) - 1.0) > TOK_TOLERANCE:
-            stale.append(f"{launcher} / {entry.get('cell')}: fingerprint {measured_tok:.1f} against the "
-                         f"table's {profile['tok']} tok/s")
-        try:
-            measured_acc = float(entry.get("acceptance")) * 100.0
+            stale.append(f"{launcher} / {TABLE_CELL}: fingerprint {measured_tok:.1f} against the table's "
+                         f"{profile['tok']} tok/s")
+        measured_acc = cell.get("accept_rate")
+        if isinstance(measured_acc, (int, float)):
             table_acc = float(str(profile["acc"]).rstrip("%"))
-            if abs(measured_acc - table_acc) > ACC_TOLERANCE:
-                stale.append(f"{launcher} / {entry.get('cell')}: fingerprint acceptance "
-                             f"{measured_acc:.1f}% against the table's {table_acc:.1f}%")
-        except (TypeError, ValueError):
-            pass
+            if abs(float(measured_acc) * 100.0 - table_acc) > ACC_TOLERANCE:
+                stale.append(f"{launcher} / {TABLE_CELL}: fingerprint acceptance "
+                             f"{float(measured_acc) * 100:.1f}% against the table's {table_acc:.1f}%")
 
-    print(f"    {checked} lane figure(s) checked against engine {current_engine[:12]}"
-          f"{'' if engine_matches else ' (CHANGED)'}"
-          f", measured {payload.get('measured_utc', 'date unknown')}")
+    print(f"    {checked} lane(s) checked against engine {current_engine[:12]}"
+          f"{'' if engine_matches else ' (CHANGED)'}, measured {payload.get('measured_utc', 'unknown')}")
     if stale:
         print(f"    {len(stale)} figure(s) measured under conditions that no longer hold:")
         for line in stale[:12]:
@@ -122,7 +126,8 @@ def main() -> int:
         print("    Remedy: python tools/bench/lane_fingerprint.py   (about 10 minutes, needs the card),")
         print("            then commit tools/release/lane_figures.json with the table figures it refreshes")
         return 1
-    print("    PASS: every figure's artifact and engine identity match, and the table agrees with them.")
+    print("    PASS: every lane's artifact and engine identity match, and the table agrees with the "
+          "fingerprint on its own cell.")
     return 0
 
 
