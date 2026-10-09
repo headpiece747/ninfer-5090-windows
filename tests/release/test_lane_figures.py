@@ -70,7 +70,7 @@ def fixture(tmp_path: Path, *, engine: str | None = None, bad_size: bool = False
                 "decode_avg": profile["tok"] if tok is None else tok,
                 "accept_rate": (float(str(profile["acc"]).rstrip("%")) / 100.0)
                 if acc is None else acc,
-                "sampling": "default"}},
+                "sampling": "default", "source": "measured"}},
         }},
     }, indent=2), encoding="utf-8")
     return figures, serve
@@ -124,6 +124,17 @@ def test_table_acceptance_mismatch_fails(tmp_path: Path) -> None:
     code, output = run_gate(figures, serve, tmp_path)
     assert code == 1, output
     assert "acceptance" in output
+
+
+def test_cell_without_a_source_fails(tmp_path: Path) -> None:
+    """A figure that does not say it was measured is not a fingerprint, however plausible its value."""
+    figures, serve = fixture(tmp_path)
+    payload = json.loads(figures.read_text(encoding="utf-8"))
+    del payload["lanes"][LAUNCHER]["cells"]["code"]["source"]
+    figures.write_text(json.dumps(payload), encoding="utf-8")
+    code, output = run_gate(figures, serve, tmp_path)
+    assert code == 1, output
+    assert "not a measured fingerprint" in output
 
 
 def test_missing_provenance_is_an_error(tmp_path: Path) -> None:

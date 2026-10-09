@@ -177,7 +177,7 @@ def main() -> int:
                                  f"run's {float(prior_acc) * 100:.1f}")
             print(line)
             recorded["cells"][name] = {"decode_avg": round(tok, 1), "accept_rate": acc,
-                                       "sampling": "default"}
+                                       "sampling": "default", "source": "measured"}
         lanes[launcher] = recorded
 
     payload["engine"] = {"file": str(args.serve), "sha256": _sha(args.serve),

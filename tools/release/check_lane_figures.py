@@ -108,6 +108,13 @@ def main() -> int:
         if cell is None:
             stale.append(f"{launcher}: no fingerprint for the table's own cell {TABLE_CELL!r}")
             continue
+        # A cell must say that it was measured. A figure that is arithmetic -- a ratio derived from other
+        # rows, a figure copied from a document -- is not a fingerprint, and the whole point of this file
+        # is that the values in it came off a lane.
+        if str(cell.get("source")) != "measured":
+            stale.append(f"{launcher} / {TABLE_CELL}: cell carries source={cell.get('source')!r}, "
+                         "so it is not a measured fingerprint")
+            continue
         measured_tok = float(cell.get("decode_avg") or 0.0)
         if measured_tok and abs(measured_tok / float(profile["tok"]) - 1.0) > TOK_TOLERANCE:
             stale.append(f"{launcher} / {TABLE_CELL}: fingerprint {measured_tok:.1f} against the table's "
