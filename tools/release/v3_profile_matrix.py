@@ -607,13 +607,11 @@ def build_args(art: str, spec: str, draft: int, vision: bool, max_context: int,
             a += ["--lm-head-draft"]
     if vision:
         a += ["--vision"]
-    a += ["--kv-capacity", kv_capacity]
+    a += ["--kv-capacity", kv_capacity, "--kv-dtype", kv_dtype]
     for flag, value in INVARIANT_FLAGS:
         if flag == "--kv-capacity":
             continue  # already emitted above, from the caller's value
-        if flag == "--kv-dtype":
-            value = kv_dtype  # a probe may vary it; every launcher ships fp8
-        elif value == "%TEMPLATE%":
+        if value == "%TEMPLATE%":
             # This path composes the shipped flags itself instead of going through launcher_args, so
             # it has to resolve the launcher's cmd variable too. Left literal it is a startup failure
             # that the ladder reports as a context refusal, which is a measurement of nothing.
@@ -670,6 +668,13 @@ def run_profile(art: str = "", spec: str = "", draft: int = 0, vision: bool = Fa
         "vram_before_mib": kv_before, "vram_freed": freed,
         "log": log.name,
     }
+    # The KV format is part of the configuration and was not recorded, so the two arms of a format
+    # A/B wrote identical tags and identical records -- which makes the comparison unattributable
+    # from the append-only file it is decided from. Read from the argument list, and null when the
+    # list carries none: a default this harness did not pass is not a format it may claim, which is
+    # how six refused probe runs on 2026-10-09 recorded "k8v4" while the engine ran its own default.
+    record["kv_dtype"] = next((args[i + 1] for i, a in enumerate(args)
+                               if a == "--kv-dtype" and i + 1 < len(args)), None)
     if profile is not None:
         record["device_state_slots"] = slots or str(profile["device_state_slots"])
     record.update(parse_capacity(text))
@@ -790,7 +795,8 @@ def per_position_profile(recs: list[dict]) -> str:
 
 
 def mode_widths(art: str, drafts_by_spec: dict[str, list[int]], vision: bool,
-                rounds: int, domain: str, lm_head: bool = True) -> None:
+                rounds: int, domain: str, lm_head: bool = True,
+                kv_dtype: str = "fp8") -> None:
     """Every draft window each backend accepts, interleaved and rotated.
 
     Grouping the widths and reading them in order measures this card's clock drift, not the width:
@@ -819,17 +825,18 @@ def mode_widths(art: str, drafts_by_spec: dict[str, list[int]], vision: bool,
         offset = (r * n) // rounds
         order = configs[offset:] + configs[:offset]
         print(f"\n=== widths round {r + 1}/{rounds} for {art} / vision={vision} / domain={domain}"
-              f" / lm_head={lm_head} (rotation offset {offset})")
+              f" / lm_head={lm_head} / kv={kv_dtype} (rotation offset {offset})")
         for spec, draft in order:
             label = "none (control)" if spec == "none" else f"{spec} d{draft}"
             ctx = ceiling_of(art, spec, vision, lm_head) if spec != "none" else 262144
             rec = run_profile(art, spec, draft, vision, ctx, measure=True, lm_head=lm_head,
-                              domain=domain)
+                              domain=domain, kv_dtype=kv_dtype)
             collected.setdefault((spec, draft), []).append(rec)
             show(rec)
             print(f"          ^ {label}")
 
-    print(f"\n=== width summary: {art} / vision={vision} / domain={domain} / {rounds} rounds")
+    print(f"\n=== width summary: {art} / vision={vision} / domain={domain} / {rounds} rounds"
+          f" / kv={kv_dtype}")
     print(f"  {'config':<16} {'tok/s':>18} {'spread':>7} {'accept':>8} {'tok/round':>10} {'rounds':>8}")
     ranked: list[tuple[float, str]] = []
     for (spec, draft), recs in collected.items():
@@ -945,7 +952,7 @@ def main() -> int:
                     help="profile mode: override the profile's slot count to choose the value")
     ap.add_argument("--kv-dtype", default="fp8",
                     choices=["bf16", "int8", "fp8", "nvfp4", "k8v4"],
-                    help="probe modes: vary the KV dtype the launchers ship as fp8")
+                    help="probe modes: override the KV dtype; the launchers ship it per lane now")
     ap.add_argument("--domain", dest="domains", action="append", choices=sorted(DOMAINS),
                     help="profile mode: the workload to measure on, repeatable, default the one "
                          "domain the table was measured on. Recorded in every result, because a "
@@ -1024,7 +1031,7 @@ def main() -> int:
             for vision in visions:
                 mode_widths(art, drafts, vision, args.rounds,
                             (args.domains or [DEFAULT_DOMAIN])[0],
-                            lm_head=not args.no_lm_head)
+                            lm_head=not args.no_lm_head, kv_dtype=args.kv_dtype)
     elif args.mode == "sweep":
         visions = [True] if args.vision else [False] if args.no_vision else [False, True]
         for art in (args.arts or sorted(ARTS)):

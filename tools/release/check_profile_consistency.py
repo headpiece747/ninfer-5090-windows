@@ -235,6 +235,27 @@ def main() -> int:
         check(f"v3_profile_matrix.py references the {label} artifact",
               artifact in body or ("from profiles import" in body and constant in body))
 
+    # The probe path composes the shipped flags itself, so a flag that moves out of the invariant
+    # list can silently stop being passed at all. That happened on 2026-10-09: kv-dtype moved to the
+    # per-profile column, the probe's special case for it went dead, and every probe start ran on the
+    # engine's default format while its record claimed the requested one. Assert the probe emits every
+    # flag it varies, not merely that the module mentions the invariant list.
+    import importlib.util
+
+    matrix_spec = importlib.util.spec_from_file_location(
+        "matrix_under_test", WT / "tools" / "release" / "v3_profile_matrix.py")
+    if matrix_spec is None or matrix_spec.loader is None:
+        check("v3_profile_matrix.py is importable by the gate", False)
+    else:
+        matrix_module = importlib.util.module_from_spec(matrix_spec)
+        matrix_spec.loader.exec_module(matrix_module)
+        probe = matrix_module.build_args("quasar", "dflash2", 9, True, 262144, "probe.jsonl",
+                                         greedy=True, lm_head=True, kv_dtype="fp8")
+        probe_flags = {token for token in probe if token.startswith("--")}
+        for flag in ("--kv-capacity", "--kv-dtype", "--spec", "--draft-tokens",
+                     "--max-context", "--vision", "--lm-head-draft"):
+            check(f"the probe emits {flag} even though it varies it", flag in probe_flags)
+
     # download_model.py no longer fetches artifacts at all -- it fetches the SOURCE checkpoints this
     # port builds every artifact from, because each shipped image is produced locally ("converter:
     # ninfer-v3" in its .conversion.json). So the invariant here is the reverse of the one above: it
