@@ -70,7 +70,15 @@ the full sampling configuration — precisely the "proposal and target perturbed
 that cannot show is the *assembled route*, which is why the missing check is end-to-end rather than a unit.
 
 **Verdict.** Do not invent a threshold test. Port vLLM's two tests, and extend to the sampling parameters
-their own issue admits are untested. Audit the three failure modes the batch-spec paper names: **bonus token
+their own issue admits are untested.
+
+**Measured end-to-end 2026-10-09.** The assembled route — server, drafter, drainer and sampler — at
+temperature 1.0 with top_k 20 and top_p 0.95, and then with presence 0.5 and frequency 0.3 added, 300
+samples per arm, first continuation compared by chi-squared over merged bins: **no detectable difference**.
+The control that makes that sentence mean something is a **split-half comparison of one arm**, which reads
+the same effect size as the spec-against-nospec comparison — V = 0.218 both times. The test's power is
+therefore its own limit: it excludes differences larger than about 0.2 and cannot resolve smaller ones, and
+that bound is stated rather than implied. Audit the three failure modes the batch-spec paper names: **bonus token
 sampled from the draft instead of the target** (it reports DSD and Meta's work both wrong this way), rejected
 tokens left in the KV cache, and position-ID desynchronisation.
 
@@ -126,7 +134,25 @@ field's K-prioritised split, as a lane flag.
 `k8v4` against `fp8` on served-length domains — cheap, and it is the format the field says should win on
 quality per byte; (b) per-layer and per-head precision (KVTuner: *"retrieval heads"* are sensitive,
 *"streaming heads"* robust) is a project, not an isolation, and it needs a converter change rather than a lane
-flag. The speed-and-acceptance half of (a) is being measured; it is not recorded here until it returns.
+flag.
+
+**Measured 2026-10-09**, one artifact and one flag apart, on the NVIDIA lane:
+
+| | `fp8` (shipped) | `k8v4` | change |
+|---|---|---|---|
+| decode | 249.4 tok/s | **291.7** | **+17 %** |
+| acceptance | 43.5 % | **53.3 %** | **+9.8 points** |
+| runtime / free | 10.6 / 2.72 GiB | **8.83 / 4.11 GiB** | **−1.8 GiB** |
+| corpus perplexity | **4.68676** | 4.69356 | **+0.145 %** |
+
+The `fp8` figure is the published baseline for this artifact exactly, so the comparison is against the number
+the documentation already carries. **Every axis improves except perplexity, which moves 0.145 %** — half the
+value bits for a cost a fraction of the a8policy recipe's −0.54 % at 2.2× time.
+
+**Scope, which is what makes this a project rather than a tweak:** `--kv-dtype` sits in `INVARIANT_FLAGS`, so
+it is shared by all eight lanes. Adopting it means re-measuring every lane's figures and re-checking quality
+per artifact — and the **per-domain split** of that perplexity is what maximin needs before any of it starts,
+because a total can hide a domain.
 
 ## 7. MLP A8→A16 — reframed toward what this port already owns
 
