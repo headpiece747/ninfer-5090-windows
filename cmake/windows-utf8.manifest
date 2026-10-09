@@ -9,20 +9,26 @@
   code page, so the element is an opt-in the system honours where it exists rather than a guarantee
   everywhere.
 
-  It is a default rather than a measured option (unlike `cmake/segment_heap.manifest`) because it
-  repairs an observable defect and has no performance arm to compare against. These apps write UTF-8
-  through `printf` and `std::cout`, and no code of theirs sets a console code page: `WriteConsoleW`,
-  `wprintf`, `wmain` and `_setmode` all have zero occurrences under apps/, so before this manifest the
-  CLI's generated text depended on the console the user happened to open. With it the process code
-  page is UTF-8, so narrow output, `main`'s arguments and the narrow file APIs agree with the bytes
-  the rest of this tree already writes. diffutils ships the same file under the same name
-  (`windows-utf8.manifest`), which is the same pattern reached independently.
+  It is a default because it repairs an observable defect and has no performance arm to compare
+  against, but it is measured rather than asserted (2026-10-09, a probe built twice from one source,
+  one `/MANIFESTINPUT` apart, in this toolchain): `GetACP` and `GetOEMCP` read 65001 with it against
+  1252 and 437 without, and a narrow `fopen` of a UTF-8 name created the correct name with it against
+  a cp1252-mis-decoded one without (the on-disk names were the codepoints U+4E2D U+6587 against
+  U+00E4 U+00B8 U+00AD U+00E6 U+2013 U+2021). No code of these apps sets a console code page
+  (`WriteConsoleW`, `wprintf`, `wmain` and `_setmode` all have zero occurrences under apps/), and the
+  manifest does NOT change the console: both probe builds report `GetConsoleCP` and `GetConsoleOutputCP`
+  437, so a console whose code page is not UTF-8 still renders this process's bytes its own way. The
+  narrow APIs, `argv` and file names are what this fixes; an app that also wants the console itself in
+  UTF-8 has to call `SetConsoleOutputCP(CP_UTF8)`, which these apps do not. diffutils ships the same
+  file under the same name (`windows-utf8.manifest`), which is the same pattern reached independently.
 
   Namespace strings are silent-fail: an unrecognised `windowsSettings` namespace is ignored rather
   than reported, so the URL below is the documented one for this element and is deliberately not the
   2020 namespace used by `cmake/segment_heap.manifest` for `heapType`. The file itself is not
-  silent-fail: the linker parses it, so a malformed XML comment (a `--` sequence in prose is invalid)
-  fails the build with mt.exe c1010070 rather than being dropped.
+  silent-fail: the linker parses it, so a malformed XML comment (a double-hyphen sequence in prose is
+  invalid) fails the build with mt.exe c1010070 rather than being dropped. That is not hypothetical:
+  this comment carried one twice, once while it was written and once while the sentence describing it
+  was added, and both times the link stopped until it was removed.
 -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"
           xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">

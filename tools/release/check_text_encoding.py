@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 from pathlib import Path
+from xml.etree import ElementTree
 
 # Multi-character sequences that cannot appear in correctly encoded prose. See the module docstring.
 MOJIBAKE_SEQUENCES: tuple[str, ...] = (
@@ -79,6 +80,7 @@ TEXT_SUFFIXES: frozenset[str] = frozenset(
         ".js",
         ".json",
         ".jsonl",
+        ".manifest",
         ".md",
         ".mjs",
         ".ps1",
@@ -282,6 +284,19 @@ def describe(path: Path) -> str:
         parts = [f"mojibake from a mis-decoded round trip ({len(found)} sequences"]
         parts.append(f", {controls} C1 controls)" if controls else ")")
         findings.append("".join(parts))
+    if path.suffix.lower() == ".manifest":
+        # These carry prose in comments, which is why they are read at all, and the linker parses
+        # them rather than ignoring them: a parse failure is a build failure for whoever builds next,
+        # and an XML comment may not contain a double hyphen. One was committed with exactly that, and
+        # the only reason it surfaced is that a probe tried to link with it -- the product build had
+        # already succeeded from the previous revision and would not have noticed until its next run.
+        try:
+            ElementTree.fromstring(text)
+        except ElementTree.ParseError as error:
+            findings.append(
+                f"not well-formed XML ({error}); the linker parses this file, and an XML comment may "
+                "not contain a double hyphen"
+            )
     return f"{path}: {'; '.join(findings)}" if findings else ""
 
 
