@@ -62,6 +62,13 @@ when sampling parameters are used, such as freq_penalty/topk/topp"* — and this
 min-p and thinking budgets. Their audit also records a real bug of exactly this repo's #349 class: a rank
 comparison with `>` in one path and `>=` in the other, fixed in #7899.
 
+**And the engine-side test that design implies already exists here.** `tests/ops/test_speculative_round.cpp`
+builds a target distribution from scratch (`sparse_target_distribution`) applying temperature, top_k, min_p,
+top_p and both presence and frequency penalties, with cases named `accept_distribution_isolation_case` and
+`greedy_penalty_case`. The accept rule is therefore already checked against an independent oracle that honours
+the full sampling configuration — precisely the "proposal and target perturbed identically" property. What
+that cannot show is the *assembled route*, which is why the missing check is end-to-end rather than a unit.
+
 **Verdict.** Do not invent a threshold test. Port vLLM's two tests, and extend to the sampling parameters
 their own issue admits are untested. Audit the three failure modes the batch-spec paper names: **bonus token
 sampled from the draft instead of the target** (it reports DSD and Meta's work both wrong this way), rejected
@@ -119,7 +126,7 @@ field's K-prioritised split, as a lane flag.
 `k8v4` against `fp8` on served-length domains — cheap, and it is the format the field says should win on
 quality per byte; (b) per-layer and per-head precision (KVTuner: *"retrieval heads"* are sensitive,
 *"streaming heads"* robust) is a project, not an isolation, and it needs a converter change rather than a lane
-flag.
+flag. The speed-and-acceptance half of (a) is being measured; it is not recorded here until it returns.
 
 ## 7. MLP A8→A16 — reframed toward what this port already owns
 
@@ -134,10 +141,18 @@ against <1.2 for FP16/W8A8) — *"fewer draft forward passes"* is what it recomm
 block drafting is the sequence-shaped verification its hierarchical fix builds toward.
 
 **Verdict.** A8→A16 is the a8policy direction restricted to MLP, and the a8policy measurement already prices
-it: −0.54 % perplexity at 2.2× the linear cost, refused. The cheaper field-supported path points at machinery
-this port **already has but has not swept**: the converter's `activation_input_divisor` auxiliary is precisely
-SmoothQuant's migration factor, per site. Searching that divisor per site is a conversion-side change with no
-kernel work, and the recipes already parameterise it.
+it: −0.54 % perplexity at 2.2× the linear cost, refused.
+
+**And the reframing this document first proposed for it was wrong.** It said to sweep the converter's
+`activation_input_divisor` auxiliary as if it were a free knob. `docs/research/quantization-coverage-evidence.md`
+premise (C) had already audited exactly that: *"`6/input_scale` on an FP8 site equals `2688/amax` exactly —
+the port's own `FULL_RANGE/peak` formula, verified against NVIDIA's real tensor bytes at 24 sites"*. The
+divisor is not an independent axis; it *is* the port's max-abs rule, recovered from the producer's
+calibration. What survives is the narrower and real concern: it is *max*-derived, which is what NVIDIA's own
+documentation says leaves no headroom, and NVIDIA's replacement for it
+(`NVFP4ActHeadroomCalibrator`) is opt-in, recent, **unmeasured on any checkpoint, and not used by NVIDIA's own
+Qwen3.8-27B recipe**. So the open lever is headroom calibration — a conversion-side candidate with a named
+implementation to read, **not** a sweep of a value that is already determined.
 
 ## What this changes, in one line each
 
