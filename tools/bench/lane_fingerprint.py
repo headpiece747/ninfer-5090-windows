@@ -38,6 +38,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools" / "release"))
 
 from profiles import PROFILES  # noqa: E402
+import v3_profile_matrix  # noqa: E402
 from v3_profile_matrix import DOMAINS, run_profile  # noqa: E402
 
 FIGURES = REPO / "tools" / "release" / "lane_figures.json"
@@ -45,14 +46,34 @@ SERVE = REPO / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
 TABLE_CELL = "code"      # the cell the published tok/acc were measured on, and the only comparable one
 
-# (cell name, prompt file or None to use a DOMAINS name, prompt-chars, prompts)
+# (cell name, prompt-chars, prompts). The `code` cell uses the matrix's own domain, which is what the
+# published row figures were measured on and the only cell comparable with them.
 CELLS = [
-    (TABLE_CELL, None, 225, 1),
-    ("long-code", REPO / "profiles" / "bench" / "acceptance-length-domain-2026-10-09" / "inputs"
-     / "repo-code-3x12000.txt", 12_000, 3),
-    ("long-chinese", REPO / "profiles" / "bench" / "depth-served-2026-10-09" / "inputs"
-     / "chinese-3x12000.txt", 12_000, 3),
+    ("code", 225, 1),
+    ("long-code", 12_000, 3),
+    ("long-chinese", 12_000, 3),
 ]
+
+# Where a cell's prompt comes from, for the cells that are not a DOMAINS name: generated at run time from
+# tracked files, as (path, characters to take). A CI checkout is fresh, and the slices this session used
+# lived under profiles/, which .gitignore:62 excludes -- the same trap the gpu workflow's header records for
+# the FFmpeg tree. Everything below is tracked, so the fingerprint has no inputs outside the repository.
+CELL_SOURCES = {
+    "long-code": [("tools/release/v3_profile_matrix.py", 12_000),
+                  ("src/ops/linear/nvfp4/nvfp4_a4_tma.cuh", 12_000),
+                  ("tools/convert/official_recipes.py", 12_000)],
+    "long-chinese": [("eval/corpora/perplexity-1m/data/zhwiki/01.txt", 36_000)],
+}
+
+
+def stage_cells(names: list[str]) -> None:
+    """Register each file-backed cell in DOMAINS, from its tracked sources."""
+    for name in names:
+        if name not in CELL_SOURCES:
+            continue
+        DOMAINS[f"fingerprint-{name}"] = "".join(
+            (REPO / path).read_text(encoding="utf-8", errors="replace")[:take]
+            for path, take in CELL_SOURCES[name])
 
 
 def acceptance_rate(record: dict) -> float | None:
@@ -90,6 +111,17 @@ def main() -> int:
     cells = [cell for cell in CELLS if not args.cell or cell[0] in args.cell]
     if not selected or not cells:
         raise SystemExit("no lane or cell selected")
+    stage_cells([cell[0] for cell in cells])
+
+    # The matrix launches its own EXE constant, which lives inside its own tree -- and a CI checkout has no
+    # build/, which is how the first dispatch failed with FileNotFoundError from Popen. Point it at the
+    # binary this run hashes, so the figures come from the engine they are recorded against.
+    if Path(v3_profile_matrix.EXE).resolve() != args.serve.resolve():
+        print(f"    engine for this run: {args.serve} (overriding the matrix's own)")
+        v3_profile_matrix.EXE = args.serve.resolve()
+    if not args.serve.is_file():
+        raise SystemExit(f"no serving binary at {args.serve}")
+
     payload = load_figures()
     lanes = payload.setdefault("lanes", {})
     print(f"    {len(selected)} lane(s) x {len(cells)} cell(s); the table is compared on "
@@ -107,12 +139,8 @@ def main() -> int:
             "cells": {},
         }
         prior_cells = (lanes.get(launcher) or {}).get("cells", {})
-        for name, source, chars, prompts in cells:
-            if source is not None:
-                DOMAINS[f"fingerprint-{name}"] = source.read_text(encoding="utf-8", errors="replace")
-                domain = f"fingerprint-{name}"
-            else:
-                domain = name
+        for name, chars, prompts in cells:
+            domain = name if name not in CELL_SOURCES else f"fingerprint-{name}"
             record = run_profile(profile=profile, domain=domain, sampling="default")
             if record.get("ready") is not True:
                 refused.append(f"{launcher} / {name}: {str(record.get('refusal'))[:70]}")
