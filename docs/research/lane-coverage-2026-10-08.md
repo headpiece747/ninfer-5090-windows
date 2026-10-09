@@ -291,6 +291,13 @@ is slower and much less accepting on its synthetic cell while being faster where
 `matrix_v3.jsonl` tags `quasar-v3-dflash2-d{7,9}-vision-ctx262144-long-{code,chinese}`, and the fingerprint
 cells `start_quasar_v3_dflash2_vision-fingerprint-*` in `tools/release/lane_figures.json`.
 
+**Later on 2026-10-09 this lane's KV format changed to `k8v4`** (per-lane, on the evidence in
+`docs/research/kv-dtype-evidence.md`), and the depth above was re-swept under the new format rather than
+inherited: on long Chinese the two depths tie (188.9 against 188.5 tok/s) and on long code depth 9 leads by
+15.1% (212.4 against 184.6, spreads 0.4/0.3%), so maximin takes 9 by 2.3% on the worst case and the served
+mean by 7.6%. At the new format the published cell reads **367.9 tok/s at 58.0%** rather than the 319.6 /
+48.5% the paragraph above records, and the served cells gain 27.3% and 35.2% over their fp8 values.
+
 ## Open items
 
 - The **fixed ~45 ms inside the `prefill` phase** on near-zero-work requests, seen three independent

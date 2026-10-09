@@ -126,12 +126,13 @@ NVIDIA = "qwen3_8_27b_nvfp4nvidia.v3.ninfer"
 PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
-         spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144,
-         tok=319.6, acc="48.5%", runtime="10.6 GiB", free="2.82 GiB",
+         spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
+         tok=367.9, acc="58.0%", runtime="8.83 GiB", free="4.09 GiB",
          note="Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 "
               "across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime "
               "10.3 GiB) were taken before the workspace grew and no longer describe this lane; at "
-              "the shipped configuration every DFlash2 lane reads 10.6 GiB and free VRAM varying by about 0.2 GiB, "
+              "the shipped configuration every DFlash2 lane at fp8 reads 10.6 GiB and free VRAM varying "
+              "by about 0.2 GiB (this lane reads 8.83 GiB and 4.09 GiB free after the KV change below), "
               "and this row is the measured one. Two earlier figures on this lane, 343.4/62.5% and "
               "the 45.7% published-file reading, had already been withdrawn as not reproducing. Depth "
               "changed from 7 to 9 on 2026-10-09, on the served regime. The 2026-09-30 short-domain "
@@ -144,10 +145,20 @@ PROFILES: list[dict[str, Any]] = [
               "-3.3%. Maximin over the short five and both served cells takes 9 by 8.8% on the worst case. "
               "The published cell is the cost and it is large: at depth 9 the 225-character code prompt "
               "reads 319.6 tok/s and 48.5% against depth 7's 365.3 and 71.2%, so the lane is slower and "
-              "less accepting on that one synthetic prompt while being faster where it is served."),
+              "less accepting on that one synthetic prompt while being faster where it is served. KV "
+              "format changed from fp8 to k8v4 on 2026-10-09 on evidence rather than preference: "
+              "interleaved on this lane's published cell the two formats repeat to within 1.5% and read "
+              "318.4 against 362.4 tok/s (+13.8%) with acceptance 48.50% against 57.99%, and this lane's "
+              "other two cells move +27.3% and +35.2% with acceptance +8.7 and +9.0 points. Quality "
+              "costs +0.144% corpus perplexity overall and +0.202% on the worst domain. A global k8v4 "
+              "was refused because the effect is artifact-dependent, and kv-dtype is a per-lane field "
+              "now with this lane the one measured to gain. The depth above was chosen at fp8 and "
+              "re-swept under k8v4 on both served cells: long Chinese ties (188.5 against 188.9) and "
+              "long code favours 9 by 15.1% (212.4 against 184.6, spreads 0.4/0.3%), so maximin takes 9 "
+              "by 2.3% on the worst case and the served mean by 7.6%."),
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
-         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
+         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
          tok=228.7, acc="63.5%", runtime="9.96 GiB", free="3.40 GiB",
          note="Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept "
               "2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this "
@@ -159,7 +170,7 @@ PROFILES: list[dict[str, Any]] = [
               "the code domain alone the wrong single domain to read."),
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
-         spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144,
+         spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
          tok=380.0, acc="56.7%", runtime="10.6 GiB", free="2.85 GiB",
          note="This lane is REFUSED at startup on the BF16-exception image and was, until "
               "2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB "
@@ -177,7 +188,7 @@ PROFILES: list[dict[str, Any]] = [
               "prefill -- is no longer needed to improve it. Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Depth re-measured 2026-10-09 through the matrix's own widths protocol with the prompts supplied from a file, the served sampling, three interleaved rounds inside one lane each: depth 9 leads on all three treatments -- the 225-character code prompt 378.4 against 352.6 tok/s (+7.3%, spreads 2.3/1.5%), 36,000 characters of real code 194.3 against 188.8 (+2.9%, 1.4/0.3%) and 36,000 characters of Chinese 252.1 against 227.5 (+10.8%, 0.5/0.4%). The greedy readings that disagreed (+1.9% on one prompt, -15% on another) were single-run comparisons whose spreads cannot resolve anything this size, which is why a paired sweep across lane restarts was withdrawn. The figures beside this note are at the shipped depth 9 and were stale from before it. See docs/research/lane-coverage-2026-10-08.md."),
     dict(file="start_ninfer_v3_mtp4_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP4 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp4-vision",
-         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
+         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
          tok=175.8, acc="46.7%", runtime="9.96 GiB", free="2.96 GiB",
          note="MTP lane on the second artifact, and the one lane where the BF16 exception "
               "projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's "
@@ -195,7 +206,7 @@ PROFILES: list[dict[str, Any]] = [
               "carries the BF16 exceptions and so has the heaviest weights at the same runtime."),
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
-         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
+         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
          tok=322.6, acc="58.3%", runtime="10.6 GiB", free="2.85 GiB",
          note="Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured "
               "2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured "
@@ -220,7 +231,7 @@ PROFILES: list[dict[str, Any]] = [
               "`code`; the per-domain split is in docs/research/swift15-lane-measurement.md."),
     dict(file="start_swift_v3_mtp4_vision.bat", port=8091, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + MTP4 + Vision", model_id="qwen3.8-27b-swift15-v3-mtp4-vision",
-         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
+         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
          tok=214.6, acc="57.7%", runtime="9.96 GiB", free="3.43 GiB",
          note="Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped "
               "at 5 by kMaximumMtpDraftTokens, so docs/active-work.md item 8's proposed window of 10 "
@@ -230,7 +241,7 @@ PROFILES: list[dict[str, Any]] = [
               "and 216.0 tok/s on the same configuration."),
     dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
-         spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144,
+         spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
          tok=322.9, acc="45.9%", runtime="10.6 GiB", free="2.91 GiB",
          note="NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP "
               "imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same "
@@ -248,7 +259,7 @@ PROFILES: list[dict[str, Any]] = [
               "depth 9, as do the short-domain mean and the mean over both sets."),
     dict(file="start_nvidia_v3_mtp4_vision.bat", port=8093, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + MTP4 + Vision", model_id="qwen3.8-27b-nvidia-v3-mtp4-vision",
-         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
+         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
          tok=210.2, acc="57.3%", runtime="9.96 GiB", free="3.45 GiB",
          note="Depth 4 measured fastest of 2-5 here, and the largest correction in the table: d5 read "
               "228.3 on the 2026-09-17 records, which the warmup transient accounts for almost "
@@ -296,7 +307,10 @@ PROFILES: list[dict[str, Any]] = [
 # docs/research/swift15-lane-measurement.md.
 INVARIANT_FLAGS: list[tuple[str, str | None]] = [
     ("--kv-capacity", "auto"),
-    ("--kv-dtype", "fp8"),
+    # kv-dtype used to sit here and is a per-profile flag now (varying_flags, rendered from each
+    # row's kv_dtype). It moved on 2026-10-09, after the A/B the previous comment here described: a
+    # global k8v4 was refused because the effect is artifact-dependent, and one lane measured a gain
+    # from it. docs/research/kv-dtype-evidence.md carries the numbers.
     ("--prefill-chunk", "8192"),
     ("--max-concurrency", "1"),
     # Upstream b9114396 (2026-10-04) replaced the context cache and collapsed these five bounds into
@@ -332,7 +346,14 @@ def by_model_id(model_id: str) -> dict[str, Any]:
 
 
 def varying_flags(profile: dict[str, Any]) -> list[str]:
-    """The per-profile flags, each rendered as one line on the launcher's continuation chain."""
+    """The per-profile flags, each rendered as one line on the launcher's continuation chain.
+
+    kv-dtype belongs here rather than among the invariant flags because its measured effect is
+    artifact-dependent: interleaved on the published cell, the same change is +13.8% decode and
+    +9.5 acceptance points on the QUASAR lane and -0.1% / +0.9 on NVIDIA, with acceptance moving
+    deterministically in both directions on other lanes' cells. Evidence:
+    docs/research/kv-dtype-evidence.md.
+    """
     out: list[str] = []
     if profile["vision"]:
         out.append("--vision")
@@ -341,6 +362,7 @@ def varying_flags(profile: dict[str, Any]) -> list[str]:
         out.append(f"--draft-tokens {profile['draft']}")
         if profile["lm_head"]:
             out.append("--lm-head-draft")
+    out.append(f"--kv-dtype {profile['kv_dtype']}")
     return out
 
 
@@ -575,10 +597,14 @@ def cli_args(profile: dict[str, Any]) -> list[str]:
         out.extend(["--spec", profile["spec"], "--draft-tokens", str(profile["draft"])])
         if profile["lm_head"]:
             out.append("--lm-head-draft")
-    out.extend(["--max-context", str(profile["ctx"]),
-                "--kv-capacity", "auto",
-                "--kv-dtype", "fp8",
-                "--prefill-chunk", "8192"])
+    out.extend(["--max-context", str(profile["ctx"])])
+    # The bound flags come from INVARIANT_FLAGS rather than being restated here, which is the drift
+    # class the profile consistency gate exists to catch. kv-dtype is per-profile and comes from
+    # the row.
+    for flag, value in INVARIANT_FLAGS:
+        if flag in ("--kv-capacity", "--prefill-chunk") and value is not None:
+            out.extend([flag, value])
+    out.extend(["--kv-dtype", profile["kv_dtype"]])
     return out
 
 

@@ -3,10 +3,10 @@ REM ============================================================================
 REM  QUASAR QAT + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 319.6 tok/s   draft acceptance 48.5%
-REM      runtime 10.6 GiB   free VRAM 2.82 GiB
+REM      context 262,144   decode 367.9 tok/s   draft acceptance 58.0%
+REM      runtime 8.83 GiB   free VRAM 4.09 GiB
 REM
-REM  Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime 10.3 GiB) were taken before the workspace grew and no longer describe this lane; at the shipped configuration every DFlash2 lane reads 10.6 GiB and free VRAM varying by about 0.2 GiB, and this row is the measured one. Two earlier figures on this lane, 343.4/62.5% and the 45.7% published-file reading, had already been withdrawn as not reproducing. Depth changed from 7 to 9 on 2026-10-09, on the served regime. The 2026-09-30 short-domain sweep chose 7 by 0.9% (worst domain 146.8 against 145.5, inside its own spreads); re-measured at served length on 36,000 characters of Chinese, depth 9 leads 141.6 against 130.2 tok/s, +8.8% at spreads of 2.5 and 1.8, so maximin over the combined set takes 9 because the served cell is where depth 7's worst case now sits. Acceptance is flat across the pair (16.6% against 16.8%) and tokens per round rise from 1.15 to 1.49. The second served cell disagrees: on 36,000 characters of real code depth 7 leads 175.4 against 169.8, -3.3%. Maximin over the short five and both served cells takes 9 by 8.8% on the worst case. The published cell is the cost and it is large: at depth 9 the 225-character code prompt reads 319.6 tok/s and 48.5% against depth 7's 365.3 and 71.2%, so the lane is slower and less accepting on that one synthetic prompt while being faster where it is served.
+REM  Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime 10.3 GiB) were taken before the workspace grew and no longer describe this lane; at the shipped configuration every DFlash2 lane at fp8 reads 10.6 GiB and free VRAM varying by about 0.2 GiB (this lane reads 8.83 GiB and 4.09 GiB free after the KV change below), and this row is the measured one. Two earlier figures on this lane, 343.4/62.5% and the 45.7% published-file reading, had already been withdrawn as not reproducing. Depth changed from 7 to 9 on 2026-10-09, on the served regime. The 2026-09-30 short-domain sweep chose 7 by 0.9% (worst domain 146.8 against 145.5, inside its own spreads); re-measured at served length on 36,000 characters of Chinese, depth 9 leads 141.6 against 130.2 tok/s, +8.8% at spreads of 2.5 and 1.8, so maximin over the combined set takes 9 because the served cell is where depth 7's worst case now sits. Acceptance is flat across the pair (16.6% against 16.8%) and tokens per round rise from 1.15 to 1.49. The second served cell disagrees: on 36,000 characters of real code depth 7 leads 175.4 against 169.8, -3.3%. Maximin over the short five and both served cells takes 9 by 8.8% on the worst case. The published cell is the cost and it is large: at depth 9 the 225-character code prompt reads 319.6 tok/s and 48.5% against depth 7's 365.3 and 71.2%, so the lane is slower and less accepting on that one synthetic prompt while being faster where it is served. KV format changed from fp8 to k8v4 on 2026-10-09 on evidence rather than preference: interleaved on this lane's published cell the two formats repeat to within 1.5% and read 318.4 against 362.4 tok/s (+13.8%) with acceptance 48.50% against 57.99%, and this lane's other two cells move +27.3% and +35.2% with acceptance +8.7 and +9.0 points. Quality costs +0.144% corpus perplexity overall and +0.202% on the worst domain. A global k8v4 was refused because the effect is artifact-dependent, and kv-dtype is a per-lane field now with this lane the one measured to gain. The depth above was chosen at fp8 and re-swept under k8v4 on both served cells: long Chinese ties (188.5 against 188.9) and long code favours 9 by 15.1% (212.4 against 184.6, spreads 0.4/0.3%), so maximin takes 9 by 2.3% on the worst case and the served mean by 7.6%.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -145,13 +145,13 @@ if not errorlevel 1 (
   --spec dflash2 ^
   --draft-tokens 9 ^
   --lm-head-draft ^
+  --kv-dtype k8v4 ^
   --host 127.0.0.1 ^
   --port 8086 ^
   --model-id qwen3.8-27b-quasar-v3-dflash2-vision ^
   --max-context 262144 ^
   --device-state-slots 1 ^
   --kv-capacity auto ^
-  --kv-dtype fp8 ^
   --prefill-chunk 8192 ^
   --max-concurrency 1 ^
   --host-context-mib 8192 ^

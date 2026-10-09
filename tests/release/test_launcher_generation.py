@@ -31,22 +31,29 @@ def expect(condition: bool, label: str) -> None:
 
 
 def profile(**overrides):
-    """A profile that takes no optional flag, so each branch can be turned on one at a time."""
+    """A profile that takes no optional flag beyond the per-lane KV dtype, so each branch can be
+    turned on one at a time."""
     base = dict(file="start_test.bat", port=8090, art="a.v3.ninfer", device_state_slots=1,
                 label="test", model_id="test-model", spec="none", draft=0, vision=False,
-                lm_head=False, ctx=4096, tok=0, acc="0%", runtime="", free="", note="")
+                lm_head=False, ctx=4096, tok=0, acc="0%", runtime="", free="", note="",
+                kv_dtype="fp8")
     base.update(overrides)
     return base
 
 
-expect(varying_flags(profile()) == [], "no vision and no speculation adds no flag")
-expect(varying_flags(profile(vision=True)) == ["--vision"], "vision alone adds --vision")
-expect(varying_flags(profile(spec="mtp", draft=3)) == ["--spec mtp", "--draft-tokens 3"],
+expect(varying_flags(profile()) == ["--kv-dtype fp8"],
+       "no vision and no speculation still carries the per-lane KV dtype")
+expect(varying_flags(profile(kv_dtype="k8v4")) == ["--kv-dtype k8v4"],
+       "the KV dtype comes from the row, so a lane can ship a different format")
+expect(varying_flags(profile(vision=True)) == ["--vision", "--kv-dtype fp8"],
+       "vision alone adds --vision")
+expect(varying_flags(profile(spec="mtp", draft=3))
+       == ["--spec mtp", "--draft-tokens 3", "--kv-dtype fp8"],
        "speculation alone adds the backend and its depth")
 expect(varying_flags(profile(spec="dflash2", draft=7, lm_head=True))
-       == ["--spec dflash2", "--draft-tokens 7", "--lm-head-draft"],
+       == ["--spec dflash2", "--draft-tokens 7", "--lm-head-draft", "--kv-dtype fp8"],
        "the proposal head rides with a speculative backend")
-expect(varying_flags(profile(lm_head=True)) == [],
+expect(varying_flags(profile(lm_head=True)) == ["--kv-dtype fp8"],
        "a head without a backend adds nothing, because there is no head to select")
 
 flags = ordered_flags(profile(vision=True, spec="mtp", draft=4, lm_head=True, port=8080,

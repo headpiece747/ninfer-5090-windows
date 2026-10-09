@@ -435,7 +435,7 @@ prefix-reuse arms and across three process launches. What the original observati
 bench *runs* at different `--warmup`, which is a configuration comparison — see item 14 and
 [ADR-0002](adr/0002-speculation-not-bit-identical.md).
 
-### 7. k8v4 KV against the shipped fp8 — **CLOSED 2026-10-01: not warranted here**
+### 7. k8v4 KV against the shipped fp8 — **RESOLVED 2026-10-09: refused as a shared setting, adopted on the lane measured to gain**
 The only thing that would justify a KV size reduction on this product is context, and context is
 already at the ceiling. Upstream caps Qwen3.8-27B at `kNativeContext` = 262,144 and states outright
 that a smaller KV "does not change max context" (issue #123, verified against the tracker while
@@ -468,14 +468,27 @@ withdrawal candidate, and nothing in this row should be read as a reason to remo
 Full evidence, including what was searched and not found and one published table excluded as
 non-discriminating, in `docs/research/kv-dtype-evidence.md`.
 
-**Why it was once open, and why that reason no longer holds:** every profile ships `--kv-dtype fp8` and
-k8v4 sat behind one flag. The item's own premise — "**no published evidence exists for k8v4**" — has
-since been **confirmed and extended**: no evidence exists, and the one first-party measurement that
-does is of a different format. Its "Done when" was a perplexity and acceptance comparison across
-bf16 / fp8 / k8v4 on a shipping lane, interleaved. That comparison is **not performed**, and the
-closure above is the reason: it would settle a question whose answer cannot change what this product
-ships. The withdrawn "within 0.08 % of BF16" figure — traced to NVFP4-KV against FP8-KV on
-Qwen3.5-397B-A17B, a different model on a different baseline, not k8v4 at all — stays withdrawn.
+**Why it was once open, and why that reason no longer held:** every profile shipped `--kv-dtype fp8` and
+k8v4 sat behind one flag. The item's own premise — "**no published evidence exists for k8v4**" — was
+confirmed and extended by the 2026-10-01 read: no evidence existed, and the one first-party measurement that
+did was of a different format. Its "Done when" was a perplexity and acceptance comparison across
+bf16 / fp8 / k8v4 on a shipping lane, interleaved, and the closure was taken on the argument that the answer
+could not change what this product ships.
+
+**That argument was measured, and it is false.** The comparison was run on 2026-10-09 — all five artifacts
+for quality, an interleaved decode/acceptance pair on the QUASAR and NVIDIA lanes, and a full eight-lane
+fingerprint — and the answer is artifact-dependent rather than global:
+
+* quality costs +0.035..+0.145% corpus perplexity (+0.277% on the worst domain) on every artifact;
+* decode and acceptance move in **both directions**: +13.8% decode and +9.5 acceptance points on QUASAR's
+  DFlash2 lane, -0.1% on NVIDIA's, and deterministic acceptance losses of 5.9-19 points on other lanes' cells;
+* the withdrawn "within 0.08 % of BF16" figure — traced to NVFP4-KV against FP8-KV on Qwen3.5-397B-A17B, a
+  different model on a different baseline, not k8v4 at all — stays withdrawn.
+
+So the shared setting was withdrawn and `kv-dtype` became a per-profile field;
+`start_quasar_v3_dflash2_vision.bat` is the one lane that ships `k8v4`, and its depth was re-swept under the
+new format before adoption. Evidence: `docs/research/kv-dtype-evidence.md`; records in `matrix_v3.jsonl` and
+`tools/release/lane_figures.json`.
 
 ### 8. MTP draft window 5 to 10 — **NOT RUNNABLE ON THIS TREE, closed 2026-09-30**
 The engine refuses to start above 5. `src/models/qwen3_5/program/planning/startup.cpp:798` raises

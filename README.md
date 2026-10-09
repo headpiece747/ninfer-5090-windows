@@ -118,7 +118,7 @@ and every profile reaches the full native context.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (9) | yes | 262,144 | **320 tok/s** | 48.5% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (9) | yes | 262,144 | **368 tok/s** | 58.0% |
 | `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | **229 tok/s** | 63.5% |
 | `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (9) | yes | 262,144 | **380 tok/s** | 56.7% |
 | `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 176 tok/s | 46.7% |
@@ -127,12 +127,17 @@ and every profile reaches the full native context.
 | `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (9) | yes | 262,144 | **323 tok/s** | 45.9% |
 | `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 210 tok/s | 57.3% |
 
-**These eight figures are the 2026-09-30 measurement, and a 2026-10-07 re-measurement of the same
-profiles on the same protocol read 10.3-48.7% lower on seven of them** (quasar dflash2 reads +0.9%
-against this table and -11.4% against its own most recent record -- see the note), with the run-to-run
-spread widened from within +/-1% to up to +/-30% and the speculative **round cost** -- normalised for
-acceptance, so the generated content cannot explain it -- up 22-60%. The numbers, their runs, the
-ruled-out causes and the candidate set are in
+`start_quasar_v3_dflash2_vision.bat` is the one lane that ships `--kv-dtype k8v4`; the other seven
+ship `fp8`, because the format's measured effect is artifact-dependent
+([evidence](docs/research/kv-dtype-evidence.md)). Every figure in the table is its lane's last
+measurement, carrying the identity of what measured it in
+[`lane_figures.json`](tools/release/lane_figures.json), which the pre-commit hook checks.
+
+**The 2026-09-30 measurement this table was first built from, and a 2026-10-07 re-measurement of the
+same profiles on the same protocol, disagreed sharply**: the re-measurement read 10.3-48.7% lower on
+seven of them, with the run-to-run spread widened from within +/-1% to up to +/-30% and the
+speculative **round cost** -- normalised for acceptance, so the generated content cannot explain it --
+up 22-60%. The numbers, their runs, the ruled-out causes and the candidate set are in
 [the lane regression record](docs/research/lane-regression-2026-10-07.md); the change is unattributed
 and open.
 

@@ -145,13 +145,13 @@ if not errorlevel 1 (
   --spec mtp ^
   --draft-tokens 4 ^
   --lm-head-draft ^
+  --kv-dtype fp8 ^
   --host 127.0.0.1 ^
   --port 8087 ^
   --model-id qwen3.8-27b-quasar-v3-mtp4-vision ^
   --max-context 262144 ^
   --device-state-slots 1 ^
   --kv-capacity auto ^
-  --kv-dtype fp8 ^
   --prefill-chunk 8192 ^
   --max-concurrency 1 ^
   --host-context-mib 8192 ^

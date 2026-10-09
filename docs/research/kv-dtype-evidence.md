@@ -190,3 +190,79 @@ threshold, so the lever is spent** — at best a fraction of a fifth of a percen
 touching the KV quantization path. This does not reopen §7 of `active-work.md`; it *supports* that closure
 from a second direction, and it means the capacity a quality recipe gives up is a capacity cost, not one
 that a KV-precision change can buy back.
+
+---
+
+## MEASURED-HERE 2026-10-09: the comparison performed — refused as an invariant, adopted on one lane
+
+The 2026-10-01 findings above said the item's comparison was unmade and that no k8v4-vs-FP8 quality number
+existed anywhere. It has now been made, on this tree's own codec, with a real fp8 control arm on the same
+binary and the same day. The answer is neither of the two the item anticipated: **the effect is
+artifact-dependent**, so `k8v4` was refused as a shared setting and adopted as a per-lane one on the lane
+measured to gain.
+
+### Quality: five artifacts, worst domain +0.277%
+
+`ninfer-perplexity <artifact> --corpus <1M-token manifest> --kv-dtype {fp8,k8v4}`, same binary, same day,
+deterministic — the fp8 arm reproduces the published nvidia baseline to fourteen significant figures:
+
+| artifact | fp8 | k8v4 | change | worst domain |
+|---|---|---|---|---|
+| nvidia | 4.686758 | 4.693563 | +0.145% | english_reference +0.157% |
+| qat | 4.684860 | 4.691619 | +0.144% | english_reference +0.202% |
+| full | 4.724219 | 4.730581 | +0.135% | ninfer_code +0.193% |
+| noex | 4.727636 | 4.729300 | +0.035% | ninfer_code +0.277% |
+| swift15 | 4.755739 | 4.760419 | +0.098% | ninfer_code +0.257% |
+
+Every artifact pays, and the largest single-domain cost is a quarter of a percent — small on the scale the
+2026-10-08 section above established for an FP8 change (+0.122% at 4K, +0.190% at 32K against bf16).
+
+### Speed: interleaved, and why a global change was refused
+
+The first pair (verify mode, NVIDIA lane, draft 7, fp8 then k8v4) read 249.4 -> 291.7 tok/s, +17%, with +9.8
+acceptance points. A fingerprint across all eight lanes then produced deltas that cannot be one format's
+effect — +35% on quasar's long Chinese against -36% on nvidia's, acceptance swinging +9 to -19 points. Two
+facts separate the signal from the card:
+
+* **Acceptance is deterministic per configuration.** It repeats to four decimal places inside one arm of the
+  interleaved check below, and the verify path and the fingerprint agree on it exactly (48.50% and 58.0% for
+  the same two configurations). Every acceptance delta in the fingerprint is therefore a real format effect,
+  and the deltas point in both directions.
+* **Decode needs interleaving.** fp8 and k8v4 alternate within one session on the same cell, each arm twice:
+
+| lane, published cell | fp8 | k8v4 | change | acceptance |
+|---|---|---|---|---|
+| quasar dflash2 | 318.7 / 318.0 | 359.7 / 365.1 | **+13.8%** | 48.50% -> 57.99% |
+| nvidia dflash2 | 307.6 / 304.0 | 302.7 / 308.2 | **-0.1%** | 45.92% -> 46.80% |
+
+The +17% did not reproduce on the lane it was measured on at the shipped depth: it was a draft-7 measurement,
+and at draft 9 that lane reads flat. What does reproduce is per-artifact: quasar gains 13.8% decode and 9.5
+acceptance points on this cell, and its other two cells gain 27.3% and 35.2% with 8.7 and 9.0 acceptance
+points; nvidia is flat; ninfer's DFlash2 lane loses on two cells (acceptance -5.9 points on code, -13.4 on
+long Chinese). A change that helps one lane, is neutral on a second and costs a third is not an invariant.
+
+### The decision and its shape
+
+- **Global**: refused. `("--kv-dtype", "k8v4")` sat in `INVARIANT_FLAGS` during the investigation and was
+  withdrawn; the worst single cell loses 36% decode and 19 acceptance points.
+- **Per-lane**: `kv-dtype` is now a per-profile field (`varying_flags`, rendered from each row), because the
+  per-lane column is where an artifact-dependent setting belongs. One row uses it:
+  `start_quasar_v3_dflash2_vision.bat` ships `k8v4`, on +13.8% decode and +9.5 acceptance points on its
+  published cell, +27.3/+35.2% on its served cells, for +0.144% corpus perplexity (+0.202% worst domain).
+- **The depth was re-swept under the new format** rather than inherited: on long Chinese the two depths tie
+  under k8v4 (188.9 against 188.5 tok/s) where fp8 had depth 9 ahead by 8.8%, and on long code depth 9 leads
+  by 15.1% (212.4 against 184.6, spreads 0.4/0.3%) where fp8 had depth 7 ahead by 3.3%. Maximin takes depth 9
+  by 2.3% on the worst case and the served mean by 7.6%, so the shipped depth is unchanged and now rests on
+  the format it ships.
+- The other seven lanes keep `fp8`. That is why the flag left the invariant list: the list is for settings
+  that should not vary, and the measurement says this one does.
+
+### A defect found under this work
+
+Moving `kv-dtype` out of `INVARIANT_FLAGS` silently broke the matrix's *probe* path: `build_args` had a
+special case that substituted the requested format **only while the flag appeared in that list**, so probe
+starts stopped passing a format at all, ran on the engine's default (bf16-sized KV), and were refused for
+memory — while the new record field, falling back to its parameter, claimed the format that had never been
+passed. Both are fixed (the probe emits the format it varies; the record reads it from the argument list with
+null when absent), and `check_profile_consistency.py` now asserts the probe emits every flag it varies — seen
+failing on `--kv-dtype` and passing the other six flags before the fix.
