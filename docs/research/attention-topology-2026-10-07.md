@@ -463,9 +463,13 @@ figure by ten points.
 ## What is not established
 
 - **The served context with less KV** — the unsloth pair's *ratio* is derived (−28.5 %, 410,012 → 293,102
-  implied tokens at 33,024 bytes per KV token), and neither pair has been *served* with `--kv-capacity auto`
-  to read the resolved figure the way the lanes report it. The ratio is the defensible part; the absolute is
-  an upper bound that ignores Vision and the runtime reservation.
+  implied tokens at 33,024 bytes per KV token), and **served 2026-10-09: it does not fit.** The unsloth `attn8` variant loads 21.5 GiB of weights and then
+  refuses at startup -- "minimum Engine runtime reservation requires 11,435,489,537 bytes in addition to
+  1,073,741,824 bytes of automatic headroom, but only 9,383,706,624 bytes are available after weights" --
+  which is short by 2.91 GiB at the shipped 262,144-token window with Vision. So the ratio below is not
+  merely an upper bound: at this configuration the variant cannot be served at all, and a comparison would
+  have to be taken at a reduced window, a smaller KV dtype, or without Vision. The ratio is the defensible
+  part; the absolute was an upper bound that ignored Vision and the runtime reservation.
 - **Decode** — the A/B cannot resolve a 5 % effect at this repetition count, and the two pairs disagree in
   sign, so no decode claim is made either way.
 - **Two sources remain untested, for different reasons.** `qat` re-encodes nothing — QUASAR's export covers

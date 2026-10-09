@@ -188,11 +188,11 @@ across-invocation spread is tens of percent while within one invocation it is 2-
 file and -1.4 % (inside
 the round spread) on long code, so it is neutral to slightly better on both regimes the lane serves.
 
-### Settled 2026-10-09: the decision is degenerate at this card's noise level
+### Settled 2026-10-09: depth 9 wins on the served regime, once the instrument matches the question
 
 The third protocol was run: traffic-like prompts, the served sampling (temperature 1.0 with the model's own
 top_p/top_k), and the two depths **interleaved in one session** with the order rotated pair by pair, six
-pairs per treatment, through `tools/bench/paired_depth_sweep.py`, and re-derived per request from the serve
+pairs per treatment, through `tools/bench/paired_depth_sweep.py` (since withdrawn), and re-derived per request from the serve
 logs with each run's first request dropped -- because the matrix's own note documents that one as a
 transient (its MTP5 lane reads 261.7 tok/s on request 1 against 169.8 for requests 2..n).
 
@@ -207,23 +207,32 @@ standard deviations of 8-21 % over six pairs, so each mean's standard error is 3
 established. The two protocols also disagree in sign on the same treatment -- greedy reads +1.9 % on the
 corpus's C++ where the served sampling reads -2.4 % -- and both readings are inside their spreads.
 
-**That is the settlement: the choice is degenerate, so depth 9 stands and further measurement is not
-warranted.** §146 said this before any of these runs: under maximin a lane's worst-domain throughput lands
-within 3 % of either depth, and the rule's own deciding margin was 1.5 %. Resolving a 2-6 % effect at this
-spread would need tens of pairs per treatment, for a decision worth at most 6 % of one lane. What improves
-instead is the rule's input: `v3_profile_matrix.py --domain-from-file NAME=PATH` registers a prompt from a
-file and carries its name into every record, verified by a run whose records read
-`domain=probe-cpp sampling=default`, so the next maximin re-run can use prompts resembling what the lanes
-serve instead of the 90-260 character constants.
+**That result was not wrong; it was unresolvable by construction.** The design compared lane starts, and a
+depth is a startup flag, so each arm was a single run on a fresh lane -- the noisiest unit this card offers.
 
-**Why the incumbent stays rather than the smaller mean being taken as the answer.** A negative mean whose
-standard error is larger than itself is not evidence that depth 9 is slower; it is the absence of a
-resolvable difference, and a shipped value is not changed on that -- the burden of proof sits with the
-change, which would move one lane by a few percent of 220 tok/s while invalidating every figure that
-depends on it. Three of three treatments reading negative is mildly suggestive on its own (one in eight,
-if the three were independent coin flips), but they share one lane, one card and one session, so they are
-not independent and no sign is claimed. What would settle it is a difference larger than the spread; the
-table's own +22.6 % would have done, if it had reproduced.
+The matrix's `widths` protocol compares sub-runs *inside* one lane, with the warmup discarded and the rounds
+interleaved. On the same artifact, the same depths and the same served sampling (temperature 1.0 with the
+model's own top_p/top_k), with the prompts supplied from a file:
+
+| treatment | depth 7 | depth 9 | change | spreads |
+|---|---|---|---|---|
+| the matrix's own 225-character code prompt | 352.6 tok/s | 378.4 | **+7.3 %** | 2.3 % / 1.5 % |
+| long real code, 36,000 characters | 188.8 | 194.3 | **+2.9 %** | 1.4 % / 0.3 % |
+| long Chinese, 36,000 characters (`zhwiki/01.txt`) | 227.5 | **252.1** | **+10.8 %** | 0.5 % / 0.4 % |
+
+**Depth 9 is ahead on all three, by two to ten times the spread**, and the domain maximin decides on is
+Chinese -- the largest margin of the three. So the shipped value is not merely kept: on traffic-like prompts
+at the served sampling it is the better choice, and the greedy readings that disagreed (-15 % on that same
+225-character prompt, +1.9 % on the corpus's C++) were single-run comparisons at spreads that cannot resolve
+anything this size. The rule's own choice is therefore confirmed, and the null above is the record of a
+design that could not see it.
+
+Two consequences are recorded rather than left in prose. `tools/bench/paired_depth_sweep.py` is
+**withdrawn**: it answered a different question -- variance across lane restarts, which a long-lived served
+lane does not have -- and its numbers were quoted as a settlement for a day before this re-run. And the
+original depth table, measured in separate invocations at temperature 1.0, carries this document's own
+caveat that only within-invocation comparisons are usable; that is why the re-run above is structured the
+way it is, and why it is the one to quote.
 
 ## Open items
 
@@ -235,8 +244,14 @@ table's own +22.6 % would have done, if it had reproduced.
   times fewer reserved pages, the same cost. Combined with the original observation that it appears on
   continuations as well as cold shorts, that makes it a **per-request** cost in the request path rather
   than a page-allocation or a per-conversation restore. Which request-path step it is remains open.
-- The published lane figures in `tools/release/profiles.py` are stale for VRAM (~1 GiB) and were
-  already noted stale for throughput.
+- **Measured 2026-10-09: the VRAM columns are not stale.** All eight lanes were started through their own
+  launchers and read their `capacity` lines: every `runtime` agrees to 0.00 GiB and every `free` to within
+  0.07 GiB (seven within 0.03). What *is* stale is the throughput pair on one row and, favourably, the
+  figures on all of them: `start_ninfer_v3_dflash2_vision` publishes `331.3 / 63.0%` beside `draft=9`, and
+  measures **380.0 tok/s and 56.7% at depth 9** on the same code domain and protocol -- the published pair
+  was taken before commit 8306f79d changed that lane's depth, so the row paired one depth's figures with
+  the other's setting. The other seven lanes measure 4-15% faster than published, which is drift rather
+  than a defect, and the acceptance columns reproduce exactly.
 - **item 1-5, 8 of the coverage list are now closed.** Still open and instrument-ready: soak, the
   cancellation and queue cases, spec correctness at temperature > 0, and cross-path determinism.
 - **Needing build work, and the most promising for making the models better**: the precision-assignment
