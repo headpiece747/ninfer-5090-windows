@@ -3,7 +3,7 @@ REM ============================================================================
 REM  QUASAR QAT + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 212.0 tok/s   draft acceptance 63.5%
+REM      context 262,144   decode 228.7 tok/s   draft acceptance 63.5%
 REM      runtime 9.96 GiB   free VRAM 3.40 GiB
 REM
 REM  Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against d4's 220.4 and chinese 113.2 against 129.0. On maximin -- the rule this table is chosen by, since the worst domain decides -- d4's worst case is 0.0% and d5's is -17.0%, so d5's best case does not buy its worst. d5 is still faster on prose (121.8 against 116.5) and dialogue (159.6 against 155.1), which is the reversal that makes the code domain alone the wrong single domain to read.

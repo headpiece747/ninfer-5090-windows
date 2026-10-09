@@ -127,7 +127,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=365.3, acc="71.2%", runtime="10.6 GiB", free="2.82 GiB",
+         tok=381.8, acc="71.2%", runtime="10.6 GiB", free="2.82 GiB",
          note="Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 "
               "across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime "
               "10.3 GiB) were taken before the workspace grew and no longer describe this lane; at "
@@ -137,7 +137,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=212.0, acc="63.5%", runtime="9.96 GiB", free="3.40 GiB",
+         tok=228.7, acc="63.5%", runtime="9.96 GiB", free="3.40 GiB",
          note="Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept "
               "2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this "
               "depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against "
@@ -149,7 +149,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144,
-         tok=331.3, acc="63.0%", runtime="10.6 GiB", free="2.85 GiB",
+         tok=380.0, acc="56.7%", runtime="10.6 GiB", free="2.85 GiB",
          note="This lane is REFUSED at startup on the BF16-exception image and was, until "
               "2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB "
               "of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after "
@@ -163,12 +163,12 @@ PROFILES: list[dict[str, Any]] = [
               "about 1.50 GiB free, so the split into two images remained necessary and the margin on "
               "this class of lane was thin. The guard now returns about 1.35 GiB, and "
               "`--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% "
-              "Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Re-measured 2026-10-09 on traffic-like prompts with tools/bench/realtext_acceptance.py --draft-tokens: the instrument's default corpus file (this repository's own C++ source) +1.9% decode at depth 9, three-file real code -1.4% (inside that instrument's 2.6% round spread), so the depth holds where the lane is used; the matrix's 225-character code prompt reads -15% here against the +22.6% above, which is unresolved because the two protocols sample differently (temperature 1.0 against greedy) -- see docs/research/lane-coverage-2026-10-08.md."
+              "Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Depth re-measured 2026-10-09 through the matrix's own widths protocol with the prompts supplied from a file, the served sampling, three interleaved rounds inside one lane each: depth 9 leads on all three treatments -- the 225-character code prompt 378.4 against 352.6 tok/s (+7.3%, spreads 2.3/1.5%), 36,000 characters of real code 194.3 against 188.8 (+2.9%, 1.4/0.3%) and 36,000 characters of Chinese 252.1 against 227.5 (+10.8%, 0.5/0.4%). The greedy readings that disagreed (+1.9% on one prompt, -15% on another) were single-run comparisons whose spreads cannot resolve anything this size, which is why a paired sweep across lane restarts was withdrawn. The figures beside this note are at the shipped depth 9 and were stale from before it. See docs/research/lane-coverage-2026-10-08.md."
               "prefill -- is no longer needed to improve it."),
     dict(file="start_ninfer_v3_mtp4_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP4 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=168.8, acc="46.7%", runtime="9.96 GiB", free="2.96 GiB",
+         tok=175.8, acc="46.7%", runtime="9.96 GiB", free="2.96 GiB",
          note="MTP lane on the second artifact, and the one lane where the BF16 exception "
               "projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's "
               "context costs that lane acceptance points and throughput, measured interleaved "
@@ -186,7 +186,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=314.0, acc="58.3%", runtime="10.6 GiB", free="2.85 GiB",
+         tok=322.6, acc="58.3%", runtime="10.6 GiB", free="2.85 GiB",
          note="Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured "
               "2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured "
               "against every window 1-15 on the code domain and re-measured on four others: 13 is "
@@ -211,7 +211,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_swift_v3_mtp4_vision.bat", port=8091, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + MTP4 + Vision", model_id="qwen3.8-27b-swift15-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=204.5, acc="57.7%", runtime="9.96 GiB", free="3.43 GiB",
+         tok=214.6, acc="57.7%", runtime="9.96 GiB", free="3.43 GiB",
          note="Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped "
               "at 5 by kMaximumMtpDraftTokens, so docs/active-work.md item 8's proposed window of 10 "
               "cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, "
@@ -221,7 +221,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144,
-         tok=250.8, acc="43.5%", runtime="10.6 GiB", free="2.91 GiB",
+         tok=264.7, acc="43.5%", runtime="10.6 GiB", free="2.91 GiB",
          note="NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP "
               "imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same "
               "full-corpus perplexity as the official stock at 20% smaller, with no FP8 tensor where "
@@ -233,7 +233,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_nvidia_v3_mtp4_vision.bat", port=8093, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + MTP4 + Vision", model_id="qwen3.8-27b-nvidia-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144,
-         tok=202.3, acc="57.3%", runtime="9.96 GiB", free="3.45 GiB",
+         tok=210.2, acc="57.3%", runtime="9.96 GiB", free="3.45 GiB",
          note="Depth 4 measured fastest of 2-5 here, and the largest correction in the table: d5 read "
               "228.3 on the 2026-09-17 records, which the warmup transient accounts for almost "
               "entirely, and measures 167.8 with it excluded. Depth 4 against depth 5 is 223.4 "
