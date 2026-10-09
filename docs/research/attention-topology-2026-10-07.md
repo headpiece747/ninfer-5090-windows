@@ -410,41 +410,54 @@ own flags, and it exists because the other two protocols cannot reach the regime
 bench's one-token seed leaves speculation nothing to be predictable from (0.085-0.129), and the same corpus
 behind a real prompt saturates (0.991 in four consecutive runs), because it is synthetic and tiled.
 
-Measured with it, greedy, each arm's id read from `/v1/models`, two rounds identical in every cell below:
+Measured with it, greedy, each arm's id read from `/v1/models`, every cell identical across rounds:
 
-| prompt set | nvidia (shipped) | `a8policy` | change |
+| prompt set | nvidia (shipped) | `a8policy` | `attn8` |
 |---|---|---|---|
-| prose, 12,000 chars (the instrument's default) | 46.3 % | 34.6 % | **-25.3 %** |
-| the matrix's own `code` prompt, 250 chars | 54.7 % | 51.4 % | -6.2 % |
-| the matrix's own `prose` prompt, 204 chars | 18.7 % | 24.8 % | **+32.5 %** |
-| real code from this repository, 12,000 chars | 33.1 % | 36.0 % | **+8.6 %** |
+| prose, 12,000 chars, 3 prompts (the instrument's default) | 46.3 % | 34.6 % (**-25.3 %**) | 35.7 % (**-22.9 %**) |
+| the matrix's own `code` prompt, 225 chars | 54.7 % | 51.4 % (-6.2 %) | 52.8 % (-3.5 %) |
+| the matrix's own `prose` prompt, 169 chars | 18.7 % | 24.8 % (**+32.5 %**) | 19.0 % (+1.6 %) |
+| one 12,000-char code prompt | 33.1 % | 36.0 % (**+8.6 %**) | 29.8 % (**-10.1 %**) |
+| three 12,000-char code prompts, from three files | 36.6 % | 36.1 % (-1.4 %) | 37.0 % (+1.1 %) |
 
-**The sign is a property of the prompt, not of the recipe, and it crosses over inside a single prompt
-set.** The instrument's three prose prompts, read individually from its serve logs rather than pooled,
-run 62.7 / 44.2 / 37.2 % for the shipped arm against 29.2 / 35.5 / 40.4 % for the variant: the first
-slice favours shipped by more than two to one and the third favours the variant. The pooled -25.3 % is
-one number describing two opposite behaviours, and it was quoted as the refusal.
+**The sign is a property of the prompt, not of the recipe, and one prompt is not a measurement.** The last
+two rows are the same treatment, the same artifacts and the same instrument, differing only in how many
+code prompts the figure pools over: `a8policy` reads +8.6 % on one and -1.4 % on three, `attn8` reads
+-10.1 % on one and +1.1 % on three. Both single-prompt figures are outliers of their own treatment by
+about ten points, in opposite directions, which is the defect this section describes one level down. On
+three prompts both variants sit within 1.4 % of the shipped line on code, and decode reads 194 against
+221 tok/s for `a8policy` (**-12 %**) and 215 against 221 for `attn8`, which is inside the spread this
+instrument resolves.
 
-Domain and length both move it, at fixed values of the other: at 12,000 characters, code is +8.6 % where
-prose is -25.3 %; in prose, 204 characters is +32.5 % where 12,000 is -25.3 %.
+**The crossover is inside a single prompt set**, which is what makes a pooled figure unsafe: the
+instrument's three prose prompts read 62.7 / 44.2 / 37.2 % for shipped against 29.2 / 35.5 / 40.4 % for
+`a8policy` and 28.2 / 40.3 / 40.9 % for `attn8`.
 
-**What this does not reproduce is the matrix.** Its own `code` prompt at its own length reads -6.2 % here
-against the +15.2 % recorded in its table, so at least one protocol variable differs between them beyond
-the prompt text -- its `DECODE_TOKENS` is 400 against this instrument's 512, and its `DOCUMENTED_SAMPLING`
-is temperature 1.0 although its recorded figures are "identical across both reps", which that temperature
-cannot produce. The matrix's record does not carry the variable that decides it, which is the same defect
-this section is about, one level up: a figure has to carry the configuration it was taken in.
+**Why the sign can cross, mechanically.** Acceptance is governed by the drafter's alignment with the
+target as served: "the drafter learned to imitate the target's own internal trajectory" (vizuara), drafts
+"intrinsically aligned with the target model" (arXiv 2503.13565), and "the draft should generally be
+quantized at least as aggressively as the target" (tech-insider). This port has its own measurement of
+that mechanism: `_nvfp4_draft` records that encoding **the drafter** as NVFP4 instead of Q8 moved
+acceptance 54.8 % -> 58.0 %. Both variants here move only the **target** -- `attn8` by keeping the
+producer's FP8 attention words where the shipped line re-encodes to NVFP4, `a8policy` by moving the
+activation permission from A4 to A8 -- while the drafter keeps the encoding it was aligned under. Each
+variant therefore moves the target's trajectory away from a fixed drafter by an amount that depends on
+the context, which is why the effect changes sign rather than shifting uniformly.
 
-**The consequence for a shipping decision.** Acceptance for this pair is not a scalar to be quoted once.
-It is a function of the prompt, and the two protocols are measuring two different workloads: the matrix
-one 250-character synthetic domain prompt per domain, this instrument 12,000 characters of real text. A
-lane serves whatever its users send. Both refusals in this area -- `attn8` on -22.9 % and `a8policy` on
--25.3 % -- were taken on the instrument's default prose prompts, and on code-shaped contexts, which is
-what this project's own agent traffic is, the variant wins on both widths measured here. **The next
-measurement this section calls for is `attn8` on code contexts**, because `attn8` is the variant that
-matters for shipping: prefill-neutral, -0.81 % perplexity, and no refusal on this record that was taken
-on prompts resembling the served ones. Until it is taken, neither refusal is withdrawn, and neither
-should be quoted as general.
+**The matrix's own figure did not reproduce**, which is a second reason to distrust the rule's
+instrument: its `code` prompt at its own length reads -6.2 % here against +15.2 % in its table, and its
+record does not carry the variable that decides that -- `DECODE_TOKENS` is 400 against this instrument's
+512, and `DOCUMENTED_SAMPLING` is temperature 1.0 although its recorded figures are identical across
+reps, which that temperature cannot produce.
+
+**What this means for the refusals.** Both stand, and `attn8`'s now rests on more than the prose prompts
+it was taken on: -22.9 % on prose and within +1.1 % of shipped on code. `a8policy` is -25.3 % on prose,
+-1.4 % on code, and 12 % slower decoding there. The shipped line wins the worst case, which is what the
+maximin rule selects for -- but the rule is implemented over the matrix's 90-260 character synthetic
+prompts, and the two protocols disagree in sign, so **what the rule maximises over is not what a lane
+serves**. The measurement this section now calls for is the rule itself: a maximin over a prompt
+population resembling the traffic, taken with this instrument, because a single prompt moves the same
+figure by ten points.
 
 ## What is not established
 
