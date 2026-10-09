@@ -216,6 +216,15 @@ file and carries its name into every record, verified by a run whose records rea
 `domain=probe-cpp sampling=default`, so the next maximin re-run can use prompts resembling what the lanes
 serve instead of the 90-260 character constants.
 
+**Why the incumbent stays rather than the smaller mean being taken as the answer.** A negative mean whose
+standard error is larger than itself is not evidence that depth 9 is slower; it is the absence of a
+resolvable difference, and a shipped value is not changed on that -- the burden of proof sits with the
+change, which would move one lane by a few percent of 220 tok/s while invalidating every figure that
+depends on it. Three of three treatments reading negative is mildly suggestive on its own (one in eight,
+if the three were independent coin flips), but they share one lane, one card and one session, so they are
+not independent and no sign is claimed. What would settle it is a difference larger than the spread; the
+table's own +22.6 % would have done, if it had reproduced.
+
 ## Open items
 
 - The **fixed ~45 ms inside the `prefill` phase** on near-zero-work requests, seen three independent
