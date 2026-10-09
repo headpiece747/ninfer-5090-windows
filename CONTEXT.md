@@ -64,3 +64,14 @@ cannot be measured, say so rather than inferring it.
 
 **generated, not transcribed** — a fact restated by hand is a drift site. Two documented drifts
 in this repo's docs came from transcription, not from wrong measurement.
+
+**maximin — "the worst domain decides"** — a lane's depth, width or recipe is chosen by the workload
+where it does *worst*, not by its average. The domains are the matrix's `code`, `prose`, `chinese`,
+`dialogue` and `repetition` prompts (`v3_profile_matrix.py`). A candidate that wins three domains and
+loses one badly is rejected for it: see the quasar MTP4 row in `profiles.py`, where depth 5 was faster
+on prose and dialogue and lost code and chinese by 37 and 15 tok/s. Introduced 2026-09-30 (`4456fac6`)
+when two depths were found to have been chosen from stale figures. Two caveats the rule is read under:
+it is only as good as the domains it is run on, which is why a prompt can now come from a file
+(`v3_profile_matrix.py --domain-from-file`), and a margin smaller than the measurement's own spread is
+not a decision -- the deciding margins have been 0.3 to 1.6 %, against spreads that reach 21 % when the
+protocol compares lane restarts.
