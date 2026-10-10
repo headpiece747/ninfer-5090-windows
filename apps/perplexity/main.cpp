@@ -10,6 +10,13 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/logger.h>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -556,6 +563,13 @@ int run(const Options& options, const std::shared_ptr<spdlog::logger>& logger,
 } // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    // The application manifest sets the *process* code page, which covers the narrow APIs, argv and file
+    // names; it does not touch the console, so a console whose code page is not UTF-8 still renders this
+    // program's bytes its own way. This is the call that changes the console itself;
+    // cmake/windows-utf8.manifest carries the measurement and the reason.
+    ::SetConsoleOutputCP(CP_UTF8);
+#endif
     Options options;
     try {
         options = parse_options(argc, argv);

@@ -18,8 +18,13 @@
   (`WriteConsoleW`, `wprintf`, `wmain` and `_setmode` all have zero occurrences under apps/), and the
   manifest does NOT change the console: both probe builds report `GetConsoleCP` and `GetConsoleOutputCP`
   437, so a console whose code page is not UTF-8 still renders this process's bytes its own way. The
-  narrow APIs, `argv` and file names are what this fixes; an app that also wants the console itself in
-  UTF-8 has to call `SetConsoleOutputCP(CP_UTF8)`, which these apps do not. diffutils ships the same
+  narrow APIs, `argv` and file names are what this fixes; the console itself needs
+  `SetConsoleOutputCP(CP_UTF8)`, which the three apps now call (2026-10-10). Measured with a probe that
+  reads both code pages inside the console the app ran in: output CP 437 before, 65001 after, input CP
+  437 in both, and 437 with the pre-fix binary in the same sequence. The call sets the output side only,
+  which is the side rendering uses. Note that `chcp` reports the *input* code page and therefore cannot
+  show this: a `chcp` based check reads 437 with and without the fix, which is how the first attempt at
+  verifying it failed. diffutils ships the same
   file under the same name (`windows-utf8.manifest`), which is the same pattern reached independently.
 
   Namespace strings are silent-fail: an unrecognised `windowsSettings` namespace is ignored rather

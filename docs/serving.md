@@ -939,6 +939,13 @@ limit on total process RAM. `--host-context-mib 0` disables Host context backing
 `--no-prefix-reuse` disables cross-request history reads and writes; pause/replay recovery remains
 available, and the capacity flags may still be specified.
 
+`--max-concurrency` accepts `1..8` and every shipped launcher passes `1`. At higher values the context
+cache can refuse a cold capture when its pool is full, which costs reuse rather than correctness: the
+engine keeps serving, and a later turn re-prefills instead of reusing. The wedge once reported upstream at
+concurrency 2 (`Neroued/ninfer` #339) was traced to a guard the current context-cache implementation no
+longer contains, and that reporter's workload has been re-tested here twice without reproducing it. A fix,
+if one is still needed, belongs upstream.
+
 Run `./build/apps/ninfer-serve --help` for the exact option contract.
 
 Serve writes human-readable operational records to stderr using

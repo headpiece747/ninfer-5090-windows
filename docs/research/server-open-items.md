@@ -104,6 +104,17 @@ the flag unreachable, and a user who passes 2 gets a wedged engine that stays do
 correct fixes are upstream (#339 is the venue) and, locally, deciding whether this port should reject
 or loudly warn on `--max-concurrency > 1` until upstream lands a fix.
 
+**DECIDED 2026-10-10: neither reject nor warn, because the premise moved and the flag is advertised
+surface.** The wedge cannot happen here: the guard that threw (`checked_resource_difference`) was removed
+with its subsystem by the context-cache replacement, so the code path behind "a wedged engine that stays
+down until restart" is gone. What the replacement measures at `> 1` is a full pool refusing a cold
+capture, which costs reuse rather than correctness (`prefix-state-eviction.md`), and the reporter's own
+workload was re-tested here twice and came back clean (360/360; then at their client shape, concurrency 2,
+99.9% reuse, nothing latched). `--max-concurrency` is documented as `1..8` in `docs/serving.md` and
+advertised as "one to eight active requests" in `README.md`, so a warning would contradict the product's
+own documentation and a rejection would withdraw a capability upstream still supports. The user-facing
+half is a paragraph in `docs/serving.md`; the fix, if still needed, belongs in #339.
+
 **CORRECTION 2026-10-06: the site this entry names no longer exists in this tree, and the symptom it
 watches can no longer be produced.** Upstream's context-cache replacement (the port merged it on
 2026-10-04, and the eighteen commits on 2026-10-06) removed `checked_resource_difference` with the

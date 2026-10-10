@@ -57,6 +57,9 @@ struct MillisecondTimerResolution {
 
 int main(int argc, char** argv) {
 #ifdef _WIN32
+    // The manifest sets the process code page; the console is a separate thing, and this is the call for
+    // it (cmake/windows-utf8.manifest carries the measurement).
+    ::SetConsoleOutputCP(CP_UTF8);
     const MillisecondTimerResolution timer_resolution;
 #endif
     ninfer::serve::ServeOptions options;

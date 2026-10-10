@@ -20,6 +20,13 @@
 
 #include <spdlog/logger.h>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 
 std::string format_seconds(double seconds) {
@@ -248,6 +255,13 @@ void print_generation_summary(const ninfer::GenerationResult& result,
 } // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    // The application manifest sets the *process* code page, which covers the narrow APIs, argv and file
+    // names; it does not touch the console, so a console whose code page is not UTF-8 still renders this
+    // program's bytes its own way. This is the call that changes the console itself;
+    // cmake/windows-utf8.manifest carries the measurement and the reason.
+    ::SetConsoleOutputCP(CP_UTF8);
+#endif
     ninfer::cli::Options cli;
     try {
         cli = ninfer::cli::parse_options(argc, argv);
