@@ -27,6 +27,16 @@ Usage:
     python tools/bench/repo_fix_eval.py --commit <sha> --test <ctest -R name> [--gold]
     python tools/bench/repo_fix_eval.py --commit <sha> --test <name> --lane http://127.0.0.1:18080
     python tools/bench/repo_fix_eval.py --commit <sha> --test <name> --validate-only
+    python tools/bench/repo_fix_eval.py --commit <sha> --test <name> \
+        --agent local-ninfer-v3/<model> --agent-bin <desktop>/cli/2.0.26/opencode-cli.exe
+
+**The agent path, measured 2026-10-09 on the same instance.** `--agent` drives the opencode CLI, which
+gives the model tools and the real tree. It investigated -- `git status`, `git diff`, a build -- completed
+`rc=0`, and left no change on the instance's paths, so the harness reported "nothing to score". That is a
+negative result with a visible shape, and it is the right shape for this eval: the field's 32B-class
+resolve rates are quoted *with* a scaffold, for a reason. The one-shot path, asked the same question,
+returned a diff for a file that does not exist. Both results are recorded because the difference between
+them is the point.
 
 `--gold` applies the commit's own source diff instead of asking a model: it validates the loop (apply,
 build, test) before any model is involved. Measured 2026-10-09 on 15cba227: the reverted tree fails
@@ -139,6 +149,15 @@ def main() -> int:
     parser.add_argument("--test", required=True, help="the ctest -R pattern that must fail, then pass")
     parser.add_argument("--prompt", type=Path, help="issue text; default is derived from the commit")
     parser.add_argument("--lane", default="http://127.0.0.1:18080")
+    parser.add_argument("--agent", metavar="MODEL",
+                        help="ask an opencode agent with repository access instead of one HTTP call; it "
+                             "edits the tree and the patch is the diff it leaves, so there is no apply "
+                             "step. The provider's baseURL decides which lane must be serving -- "
+                             "local-ninfer-v3 points at 127.0.0.1:8086, the QUASAR lane")
+    parser.add_argument("--agent-bin", default="opencode",
+                        help="the opencode CLI to drive; the one on PATH may be a V1 build that rejects "
+                             "the V2 config ('Unrecognized keys: providers, media, snapshots'), so point "
+                             "this at the desktop's bundled 2.x opencode-cli.exe when that happens")
     parser.add_argument("--validate-only", action="store_true",
                         help="revert, build, confirm the test fails, restore -- no patch at all")
     parser.add_argument("--gold", action="store_true",
@@ -179,7 +198,23 @@ def main() -> int:
             exit_code = 0
             return exit_code
 
-        if args.gold:
+        already_applied = False
+        if args.agent:
+            agent_prompt = args.prompt.read_text(encoding="utf-8") if args.prompt else (
+                f"`{args.test}` fails in this repository. Its output was:\n\n{failure_output}\n\n"
+                f"Fix the source so the test passes, without changing the test. Work in the tree.")
+            print(f"    asking the opencode agent {args.agent} (it edits the tree directly)")
+            agent = subprocess.run([args.agent_bin, "run", "--model", args.agent, agent_prompt],
+                                   cwd=str(REPO), capture_output=True, encoding="utf-8",
+                                   errors="replace", timeout=2400, check=False)
+            agent_tail = ((agent.stdout or "") + (agent.stderr or "")).strip()
+            print(f"    agent rc={agent.returncode}; tail: {agent_tail[-300:]}")
+            git("add", "-N", "--", *src)
+            diff = git("diff", "--", *src).stdout
+            patch = diff[diff.find("diff --git"):] if "diff --git" in diff else ""
+            print(f"    the agent's diff: {len(patch.splitlines())} lines")
+            already_applied = True
+        elif args.gold:
             gold = git("show", args.commit, "--", *src).stdout
             patch = gold[gold.find("diff --git"):] if "diff --git" in gold else ""
             print(f"    gold patch: {len(patch.splitlines())} lines")
@@ -191,9 +226,15 @@ def main() -> int:
                 f"(git format) only, no prose and no code fences around it.")
             print(f"    asking the lane {args.lane} for a patch")
             patch = extract_patch(ask(args.lane, prompt))
-        patch_file = TMP / "repo_fix_eval.patch"
-        patch_file.write_text(patch, encoding="utf-8", newline="\n")
-        apply_result = git("apply", "--verbose", str(patch_file))
+        if already_applied and not patch:
+            print("    the agent left no tracked change on the instance's paths; nothing to score")
+            return 1
+        if already_applied:
+            apply_result = subprocess.CompletedProcess([], 0)
+        else:
+            patch_file = TMP / "repo_fix_eval.patch"
+            patch_file.write_text(patch, encoding="utf-8", newline="\n")
+            apply_result = git("apply", "--verbose", str(patch_file))
         if apply_result.returncode != 0:
             # A model's diff is often malformed in ways git can repair rather than reject: --recount
             # rebuilds the hunk headers, --3way uses the blob context. SWE-bench's own harness carries
