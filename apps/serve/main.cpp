@@ -6,6 +6,18 @@
 
 #include <spdlog/logger.h>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+// After the project headers on purpose: serve/http_server.h pulls in winsock2.h, and windows.h must
+// not bring its own winsock.h in ahead of it.
+#include <windows.h>
+// windows.h leaves this out under the project's WIN32_LEAN_AND_MEAN, and it declares
+// timeBeginPeriod/timeEndPeriod.
+#include <timeapi.h>
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -25,9 +37,28 @@ void handle_signal(int) {
     if (server != nullptr) { server->stop(); }
 }
 
+#ifdef _WIN32
+// The engine's scheduling loop polls with a 1 ms timed wait (engine_core.h, `queue_cv_.wait_for`),
+// and a timed wait that is not woken resolves on the system timer, which is 15.625 ms unless the
+// process asks otherwise. Measured on this port before this guard: `initial_binding` bimodal at
+// 0.9 ms or 16.0-17.0 ms, and 18-45 ms of `total - prefill` per request -- latency the client waits
+// through on every request. Windows 10 2004 and later apply the request per-process, so this raises
+// only this server's timer, and the release is at exit.
+struct MillisecondTimerResolution {
+    MillisecondTimerResolution() { ::timeBeginPeriod(1); }
+    ~MillisecondTimerResolution() { ::timeEndPeriod(1); }
+
+    MillisecondTimerResolution(const MillisecondTimerResolution&)            = delete;
+    MillisecondTimerResolution& operator=(const MillisecondTimerResolution&) = delete;
+};
+#endif
+
 } // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    const MillisecondTimerResolution timer_resolution;
+#endif
     ninfer::serve::ServeOptions options;
     try {
         options = ninfer::serve::parse_serve_options(argc, argv);

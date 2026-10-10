@@ -10,6 +10,11 @@ target_link_libraries(ninfer PRIVATE
 add_executable(ninfer-serve serve/main.cpp)
 ninfer_internal_includes(ninfer-serve)
 target_link_libraries(ninfer-serve PRIVATE ninfer_serve ninfer_product_logging)
+if(WIN32)
+  # timeBeginPeriod/timeEndPeriod live in winmm: the serve app raises the process timer resolution so
+  # the engine's 1 ms scheduling poll means 1 ms rather than the 15.625 ms system default.
+  target_link_libraries(ninfer-serve PRIVATE winmm)
+endif()
 
 add_executable(ninfer-perplexity
   perplexity/main.cpp

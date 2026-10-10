@@ -307,7 +307,26 @@ mean by 7.6%. At the new format the published cell reads **367.9 tok/s at 58.0%*
   (`KV 262,144`, 4,096 pages) and 63.4 ms at `--max-context 32768` (`KV 32,768`, 512 pages) -- eight
   times fewer reserved pages, the same cost. Combined with the original observation that it appears on
   continuations as well as cold shorts, that makes it a **per-request** cost in the request path rather
-  than a page-allocation or a per-conversation restore. Which request-path step it is remains open.
+  than a page-allocation or a per-conversation restore.
+  **Closed 2026-10-10.** The step is the prompt's own chunk. The engine's `host_exposed` breakdown gives
+  `prefill ≈ device_wait + program_submit`: 17-34 ms of device wait (one forward pass over the weights,
+  memory-bound, so it does not shrink with the token count) plus 10-43 ms of host submission for that
+  chunk's kernels. It is not a leak, a repeated setup, or a fixed token count -- `computed_prefill_tokens`
+  equals `prompt_tokens` exactly at 77, 325 and 2,575 tokens. Ruled out on the way, each by one variable:
+  CUDA graph capture (`--no-cuda-graph` 49.3 against 45.6 ms), the vision path (`--vision` dropped 46.4
+  against 45.6), the draft backend (mtp4 reads the same floor as dflash2, 43.7-45.2 against 44.2-46.4,
+  different draft mechanisms and depths), and the prefix path, which is *inverted* (`--no-prefix-reuse`
+  makes the floor 117-163 ms, so reuse is what keeps it at 46).
+  **The separate 15-45 ms per request was a Windows timer defect, and is fixed.** `initial_binding` was
+  bimodal at 0.9 ms or 16.0-17.0 ms across 12 requests, `queue_wait` bunched at 0-15 ms, and
+  `total - prefill` averaged 28.5 ms: the engine's scheduling poll (`queue_cv_.wait_for(1 ms)`,
+  `engine_core.h`) resolves on the system timer, which is 15.625 ms in a process that never raises it.
+  `apps/serve/main.cpp` now calls `timeBeginPeriod(1)`. Interleaved on the same lane, artifact and
+  requests, the unpatched binary (`build-test`, built 2026-10-09 21:38) reads `initial_binding`
+  16.1/16.1/15.5 with `queue_wait` 18.8/13.0/13.5/15.2/15.0 and `total` 77.3 ms mean; the patched one
+  reads a flat 2.0-2.6 with 0.0-5.6 and 56.3 ms mean. Decode and acceptance are unmoved (fingerprint
+  `code` cell 320.1 tok/s / 45.9%). The CLI and perplexity apps run the same engine loop and do not
+  raise the resolution.
 - **Measured 2026-10-09: the VRAM columns are not stale.** All eight lanes were started through their own
   launchers and read their `capacity` lines: every `runtime` agrees to 0.00 GiB and every `free` to within
   0.07 GiB (seven within 0.03). What *is* stale is the throughput pair on one row and, favourably, the

@@ -275,6 +275,13 @@ Two build notes specific to Windows:
   this toolchain, and a map in parameter space is already in the proxy the TMA unit reads it through,
   which is also what makes it CUDA Graph safe. See `tools/scripts/probe_tma_align.cmd`.
 - MSVC has no `__int128`, so 128-bit arithmetic goes through `ninfer::Uint128` (`src/core/uint128.h`), which is the native type on GCC/Clang and a constexpr fallback on MSVC. Two call sites depend on it: the runtime contract's cost arithmetic, and upstream's `--host-context-mib` parser, whose fractional-MiB handling divides a 128-bit numerator by a 128-bit divisor.
+- The serve app raises the process timer resolution (`timeBeginPeriod(1)`, `apps/serve/main.cpp`). The
+  engine's scheduling loop polls with a 1 ms timed wait (`queue_cv_.wait_for`, `engine_core.h`), and a
+  timed wait in a process that has not raised the resolution resolves on the 15.625 ms system timer:
+  measured before the change, `initial_binding` was bimodal at 0.9 ms or 16.0-17.0 ms and a request
+  paid 18-45 ms of `queue_wait` + `initial_binding` + loop slack, against a flat 2.0-2.6 ms after.
+  Windows 10 2004 and later apply the request per-process, so only this server's timer changes; the
+  CLI and perplexity apps run the same engine loop and do not raise it.
 
 ## Startup notes
 
