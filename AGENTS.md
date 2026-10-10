@@ -835,5 +835,8 @@ Sixty-six rules, each earned by a failure rather than chosen:
   evicts and re-boots a location about hourly, and every shell that location hosts dies with it -- the log
   line is `"location services evicted"` followed by `InterruptError: All fibers interrupted without error
   at ServerProcess.start`. A detached, console-free tree survives those evictions in the field; a hosted
-  one does not. Instruments, the falsified alternatives and two probe defects found on the way:
+  one does not. Upstream: `anomalyco/opencode` #51828 and its siblings, twelve open PRs, none merged, and
+  no user-facing TTL setting in 2.0.26 -- and even a surviving detached job loses its completion
+  notification, so the per-step log file is the only reliable report of a long run. Instruments, the
+  falsified alternatives and two probe defects found on the way:
   `docs/research/silent-shell-death-2026-10-10.md`.

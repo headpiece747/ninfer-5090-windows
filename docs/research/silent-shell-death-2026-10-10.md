@@ -79,9 +79,36 @@ through this location's later evictions (17:32Z and 18:33Z) and kept serving, wh
 the same window died with its location. `tools/scripts/check_console_free.py` is the verification, and
 `GetConsoleWindow()` is the in-process test.
 
-## What remains unknown
+## Upstream: known, reported, unfixed
 
-**Why the service evicts a location about hourly** -- a policy, a leak, or a bug -- is opencode's business
-and not something this diagnosis can settle from outside. It is worth reporting upstream; the log lines
-above are the reproduction. The monitors stay in place for a recurrence, though the mechanism is now
-understood well enough that a recurrence would add little.
+It is opencode's own bug and a well-known one. Searching `anomalyco/opencode` for the log string finds the
+code that emits it -- `packages/core/src/location-activity.ts` -- and the tracker has the symptom many
+times over: **#51828** ("Location inactivity eviction SIGTERMs live background shells after 60 minutes"),
+**#48691** ("Terminals are killed when their location is evicted after 60 minutes of chat inactivity"),
+**#51343** ("60m idle location eviction interrupts a running session"), **#51701** (an empty model catalog
+while a Location reboots), **#54113** (MCP children *not* terminated on eviction -- the inverse).
+
+What the source says, read 2026-10-10 at `dev`:
+
+- the TTL is **60 minutes** (`Duration.toMillis(options.timeToLive ?? "60 minutes")`), swept every minute;
+- **only durable session events refresh it** (`bus.listen` on `SessionEvent.Durable`), so a long-running
+  shell command does not keep its location alive by producing output;
+- on expiry the sweep interrupts the location's active sessions and calls `locations.invalidate(ref)`,
+  which tears down the location's graph -- the shells and terminals it hosts die with it;
+- `timeToLive` is a layer option with **no user-facing setting** in 2.0.26 (`~/.config/opencode/service.json`
+  held only a password), so the behaviour cannot be configured away.
+
+**Twelve open pull requests** address it -- the closest being #51827 ("exempt live-child locations from idle
+eviction"), #52580 ("keep background shell locations alive"), #48730 ("keep locations with running terminals
+out of eviction") and #54302 (today's "skip the eviction pass when it cannot evict"). **None is merged**, so
+there is no released fix to adopt.
+
+Two consequences for this repo's long runs, both already in its rules for other reasons:
+
+1. A run launched by a shell here cannot outlive the next eviction unless it is **detached and
+   console-free** -- the case the upstream reports describe as surviving, and what
+   `tools/scripts/check_console_free.py` verifies.
+2. Even a surviving detached job **loses its completion notification** when it outlives ~60 minutes of
+   location inactivity: a reporter proved the absence of the notification row, and the mechanism is that
+   the `notifyWhenDone` watcher is forked into the location scope the eviction closes. The per-step log
+   file is therefore the only reliable report of a long run.
