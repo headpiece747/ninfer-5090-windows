@@ -355,13 +355,14 @@ extrapolatable to the other, and this paragraph previously invited exactly that.
 
 **Is the bf16-KV gap worth closing? No, and the reason is a reachability fact rather than a preference.**
 `--kv-dtype` accepts `bf16|int8|fp8|nvfp4|k8v4` (`src/serve/serve_options.cpp:82`), so bf16 KV is a
-legal user choice, but **all nine shipped launchers pass `--kv-dtype fp8`** — `launcher_env.bat` and
-the eight profile `.bat` files — and `docs/active-work.md:453` already records that every profile ships
-fp8. So bf16 is reachable but not shipped, and the bf16-KV route at native context would answer a
-question about a configuration no lane uses. Measured on the route that ships is the right scope for a
-TDR budget; the bf16 number would be a second budget for a second product. **Recorded as closed by
-reachability, not deferred** — reopening it means a lane ships bf16 KV, which is a product change and
-not a measurement gap.
+legal user choice, but no shipped launcher passes it — `launcher_env.bat` and the eight profile `.bat`
+files. **CORRECTED 2026-10-10: this paragraph said "all nine shipped launchers pass `--kv-dtype fp8`",
+which the k8v4 adoption then made false; five of the eight lanes now pass `k8v4`.** The argument still
+holds, because none passes bf16. What the correction changes is the *scope of the measurement above*:
+the 43.10 ms figure is an fp8-route figure, and the longest kernel on a shipped **k8v4** lane is
+unmeasured — the gap `docs/research/upstream-crash-class-2026-10-10.md` names beside upstream issue
+#333 (a launch timeout on k8v4 + DFlash2 after a ~98%-cache-replay prefill). So: closed by
+reachability for bf16, open as a measurement for k8v4.
 
 This also retires the corpus limitation as a reason to care. `bench/fixtures/bench_corpus.ids` cannot
 reach native context, and that stopped mattering the moment the serving route could: the lane served
