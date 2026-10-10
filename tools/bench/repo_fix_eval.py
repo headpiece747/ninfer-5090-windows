@@ -32,6 +32,19 @@ Usage:
 build, test) before any model is involved. Measured 2026-10-09 on 15cba227: the reverted tree fails
 `ninfer_linear_(add_)?bf16_a16_test`, the 94-line gold patch applies, builds and resolves it, and the
 tree is restored with zero residual changes.
+
+**Measured on the model path the same day, and it is the interesting half.** Asked once over HTTP -- no
+tools, no repository access -- the model returned a 54-line diff for a file that does not exist
+(`src/ops/linear_bf16_a16.cpp`, with a fabricated `index` line), and `git apply` correctly refused it.
+That is not a harness defect: a SWE-style task needs repository access, which is why the field's
+harnesses at this scale are agents (mini-SWE-agent, OpenHands) and why a 32B-class resolve rate like
+OpenHands-LM's 37.2% is quoted *with* a scaffold. The useful shape for `--lane` is an agent that can read
+the tree; the one-shot path stays as the cheap control it is.
+
+A model's diff can also be malformed in ways git repairs rather than rejects, so apply falls back to
+`--recount` and then `--3way`. `--recount` is proven against a count-corrupted hunk -- plain apply says
+`corrupt patch`, `--recount` applies it -- and its scope is measured: it recomputes counts, not start
+lines, so a hunk whose content moved is a different failure it cannot fix.
 """
 
 from __future__ import annotations
@@ -160,6 +173,7 @@ def main() -> int:
         code, tail = test(args.test)
         if code == 0:
             raise SystemExit("instance is invalid: the test passes without the fix")
+        failure_output = tail
         print("    validated: the test fails without the fix")
         if args.validate_only:
             exit_code = 0
@@ -172,7 +186,7 @@ def main() -> int:
         else:
             prompt = args.prompt.read_text(encoding="utf-8") if args.prompt else (
                 f"The repository at this commit cannot satisfy the case that tests/{args.test} covers.\n"
-                f"The failing test is `{args.test}`; run it for the exact failure.\n"
+                f"The failing test is `{args.test}`, and its output was:\n\n{failure_output}\n\n"
                 f"Implement the change in the source tree so that it passes. Reply with a unified diff "
                 f"(git format) only, no prose and no code fences around it.")
             print(f"    asking the lane {args.lane} for a patch")
@@ -180,6 +194,14 @@ def main() -> int:
         patch_file = TMP / "repo_fix_eval.patch"
         patch_file.write_text(patch, encoding="utf-8", newline="\n")
         apply_result = git("apply", "--verbose", str(patch_file))
+        if apply_result.returncode != 0:
+            # A model's diff is often malformed in ways git can repair rather than reject: --recount
+            # rebuilds the hunk headers, --3way uses the blob context. SWE-bench's own harness carries
+            # the same kind of fallback (git apply, then patch with fuzz) for exactly this reason.
+            print(f"    apply rc={apply_result.returncode}; retrying with --recount, then --3way")
+            apply_result = git("apply", "--recount", str(patch_file))
+            if apply_result.returncode != 0:
+                apply_result = git("apply", "--3way", str(patch_file))
         print(f"    patch: {len(patch.splitlines())} lines, apply rc={apply_result.returncode}")
         if apply_result.returncode != 0:
             print(f"    apply stderr: {apply_result.stderr.strip()[-300:]}")
