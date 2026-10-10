@@ -25,8 +25,13 @@ Qwen model or create a `.ninfer` artifact.
 
 ## Configuration
 
-See [`configs/capability-suite.yaml`](configs/capability-suite.yaml) for the initial AIME25,
-AIME26, GPQA-Diamond, and BFCL-v4 suites, and [`configs/mock-suite.yaml`](configs/mock-suite.yaml)
+See [`configs/capability-suite.yaml`](configs/capability-suite.yaml) for the suites: AIME25, AIME26,
+GPQA-Diamond and BFCL-v4 for reasoning, science and tool-calling; **`coding`** (humaneval,
+live_code_bench, longbench_v2) with its bounded **`coding_sample`** sibling, added 2026-10-09
+because the product's workload is coding and the upstream suite had no code dataset; and `smoke` /
+`coding_smoke` for fast validation. Two datasets are deliberately absent, with the reasons in the file:
+SWE-bench and Terminal-Bench (Docker harnesses, and Docker is not installed here) and MBPP (refuses to
+run without a sandbox). [`configs/mock-suite.yaml`](configs/mock-suite.yaml)
 for a network-free example.
 
 The published Qwen3.6 reasoning runs retain their exact configurations in

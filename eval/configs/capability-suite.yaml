@@ -174,9 +174,56 @@ suites:
         backend_args:
           allow_network_downloads: true
 
+  # A bounded version of the full coding suite. **`limit` is per subset, not per dataset**: the first run
+  # asked for 40 and delivered 470 live_code_bench samples across twelve subsets in 93 minutes, so the
+  # multi-subset jobs carry small limits and the single-subset one carries the real count. Measured
+  # 2026-10-09 on the NVIDIA lane as it ships (fp8, DFlash2 d9): humaneval 87.5%; live_code_bench pass@1
+  # 45.7% (subsets 45-50%); longbench_v2 short 31.6%, medium 35.0%, long 0% -- 17 of 19 long samples
+  # refused on the engine's 262144 context cap, so that split is a context result, not a capability one.
+  coding_sample:
+    jobs:
+      - id: humaneval_sample
+        backend: evalscope
+        dataset: humaneval
+        target: model_api
+        limit: 40
+        generation:
+          temperature: 0.2
+          top_p: 0.95
+          max_tokens: 2048
+          seed: 42
+
+      - id: live_code_bench_sample
+        backend: evalscope
+        dataset: live_code_bench
+        target: model_api
+        limit: 5
+        generation:
+          temperature: 0.2
+          top_p: 0.95
+          max_tokens: 2048
+          seed: 42
+        backend_args:
+          allow_network_downloads: true
+
+      - id: longbench_v2_sample
+        backend: evalscope
+        dataset: longbench_v2
+        target: model_api
+        limit: 10
+        generation:
+          temperature: 0
+          max_tokens: 4096
+          seed: 42
+        backend_args:
+          allow_network_downloads: true
+
   # What the coding landscape says to run, in one suite: LiveCodeBench for generation with a rolling
-  # contamination cutoff, HumanEval and MBPP as sanity floors rather than frontier comparisons (both
-  # are saturated and contaminated), and LongBench v2 for long-context code-repository questions.
+  # contamination cutoff, HumanEval as a sanity floor rather than a frontier comparison (saturated and
+  # contaminated), and LongBench v2 for long-context code-repository questions. MBPP is deliberately
+  # absent: the dataset refuses to run without `use_sandbox` -- measured 2026-10-09, "MBPP benchmark
+  # requires sandboxed code execution for safety reasons" -- and this harness has no sandbox because its
+  # targets are trusted local models; the field demotes MBPP in any case.
   # Deliberately absent: SWE-bench and Terminal-Bench, the two other names in the 2026 coding-
   # benchmark headline trio. Both are Docker harnesses -- EvalScope's adapters import
   # `DockerClient.from_env()` and build a per-instance image as the execution sandbox -- and Docker is
@@ -211,16 +258,6 @@ suites:
           seed: 42
         backend_args:
           allow_network_downloads: true
-
-      - id: mbpp
-        backend: evalscope
-        dataset: mbpp
-        target: model_api
-        generation:
-          temperature: 0.2
-          top_p: 0.95
-          max_tokens: 2048
-          seed: 42
 
       - id: longbench_v2
         backend: evalscope
