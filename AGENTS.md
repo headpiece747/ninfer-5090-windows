@@ -815,4 +815,9 @@ Sixty-six rules, each earned by a failure rather than chosen:
   ever reporting it, and two constructed probes of that same sequence -- the smoke alone, then a
   fingerprint followed by the smoke -- both refused to reproduce it. The cause is therefore unknown and
   the failure is silent, so the defences are the per-step log file, the start line, and giving each long
-  step its own background shell rather than chaining them.
+  step its own background shell rather than chaining them. **And the mechanism has a name**: this shell's
+  background commands run inside a Windows job object (`IsProcessInJob` true, measured 2026-10-09), and a
+  job close kills its members silently -- no flush, no traceback, which is the signature both deaths had.
+  The trigger that fired twice remains unreproduced, but the escape is verified: `CREATE_BREAKAWAY_FROM_JOB`
+  is allowed here, so a long step launched with it survives a job close that takes the driver and its own
+  log keeps the result.

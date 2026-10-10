@@ -63,12 +63,24 @@ def git(*args: str) -> subprocess.CompletedProcess:
 
 
 def msvc(args: list[str], timeout: int = 7200) -> subprocess.CompletedProcess:
-    """Run a build or test command inside the MSVC environment, the way the recipes do."""
+    """Run a build or test command inside the MSVC environment, the way the recipes do.
+
+    The child asks to break away from any job object: this shell's background commands run inside one
+    (measured 2026-10-09, `IsProcessInJob` true), and a job close kills its members silently -- no flush,
+    no traceback -- so a long build started that way would die with its session and take its own log with
+    it. Breakaway is permitted here; where it is not, the fallback keeps the call working.
+    """
     script = TMP / "repo_fix_eval_step.cmd"
     body = '@echo off\r\n' f'call "{VCVARS}" >nul 2>&1\r\n' + " ".join(args) + "\r\n"
     script.write_text(body, encoding="utf-8", newline="")
-    return subprocess.run(["cmd", "/c", str(script)], cwd=str(REPO), capture_output=True,
-                          encoding="utf-8", errors="replace", timeout=timeout, check=False)
+    flags = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    try:
+        return subprocess.run(["cmd", "/c", str(script)], cwd=str(REPO), capture_output=True,
+                              encoding="utf-8", errors="replace", timeout=timeout, check=False,
+                              creationflags=flags)
+    except OSError:
+        return subprocess.run(["cmd", "/c", str(script)], cwd=str(REPO), capture_output=True,
+                              encoding="utf-8", errors="replace", timeout=timeout, check=False)
 
 
 def changed_paths(commit: str) -> tuple[list[str], list[str]]:
@@ -185,10 +197,13 @@ def main() -> int:
     finally:
         git("reset", "--quiet")
         git("checkout", "HEAD", "--", *touched)
-        left = [line for line in git("status", "--porcelain").stdout.splitlines()
-                if line.strip() and ".audit/" not in line]
-        print(f"    restored; residual changes: {len(left)}"
-              + (f" -> {left[:3]}" if left else ""))
+        left = [line for line in git("status", "--porcelain", "--", *touched).stdout.splitlines()
+                if line.strip()]
+        others = [line for line in git("status", "--porcelain").stdout.splitlines()
+                  if line.strip() and ".audit/" not in line]
+        print(f"    restored; residual changes on the instance's paths: {len(left)}"
+              + (f" -> {left[:3]}" if left else "")
+              + (f"; other tree changes: {len(others)}" if others else ""))
     return exit_code
 
 
