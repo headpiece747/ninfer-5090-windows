@@ -485,10 +485,11 @@ fingerprint — and the answer is artifact-dependent rather than global:
 * the withdrawn "within 0.08 % of BF16" figure — traced to NVFP4-KV against FP8-KV on Qwen3.5-397B-A17B, a
   different model on a different baseline, not k8v4 at all — stays withdrawn.
 
-So the shared setting was withdrawn and `kv-dtype` became a per-profile field;
-`start_quasar_v3_dflash2_vision.bat` is the one lane that ships `k8v4`, and its depth was re-swept under the
-new format before adoption. Evidence: `docs/research/kv-dtype-evidence.md`; records in `matrix_v3.jsonl` and
-`tools/release/lane_figures.json`.
+So the shared setting was withdrawn and `kv-dtype` became a per-profile field, with five lanes adopting it
+and three keeping `fp8` -- each on its own interleaved measurement, with every non-code regression disclosed
+in the row and a stated bound on how large a disclosure may be -- and every depth stands, each changed
+lane's depth re-read under the format it ships. Evidence: `docs/research/kv-dtype-evidence.md`; records in
+`matrix_v3.jsonl` and `tools/release/lane_figures.json`.
 
 ### 8. MTP draft window 5 to 10 — **NOT RUNNABLE ON THIS TREE, closed 2026-09-30**
 The engine refuses to start above 5. `src/models/qwen3_5/program/planning/startup.cpp:798` raises

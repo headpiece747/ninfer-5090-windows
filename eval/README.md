@@ -98,8 +98,8 @@ eval/.venv/bin/python -m ninfer_eval plan \
   --config eval/configs/capability-suite.yaml --suite reasoning
 ```
 
-Add `--check-runtime` to resolve configured secret environment variables and check pinned backend
-packages.
+Add `--check-runtime` to **`plan`** (not `validate`) to resolve configured secret environment variables and
+check pinned backend packages.
 
 Run the network-free coordinator check:
 

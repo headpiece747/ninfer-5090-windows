@@ -241,6 +241,75 @@ acceptance points on this cell, and its other two cells gain 27.3% and 35.2% wit
 points; nvidia is flat; ninfer's DFlash2 lane loses on two cells (acceptance -5.9 points on code, -13.4 on
 long Chinese). A change that helps one lane, is neutral on a second and costs a third is not an invariant.
 
+### The acceptance axis filters all eight lanes
+
+Acceptance is deterministic per configuration, so it needs no interleaving and it can be read for every
+lane. The criterion is the one the depth decisions use -- the worst cell decides, with the mean breaking a
+tie -- and it is applied per cell of the lane, because the format applies to every cell at once:
+
+| lane | code | long-code | long-Chinese | worst cell fp8 -> k8v4 | verdict |
+|---|---|---|---|---|---|
+| quasar dflash2 | 48.5 -> 58.0 | 20.7 -> 29.4 | 16.8 -> 25.8 | 16.8 -> 25.8 **+9.0** | adopted |
+| swift mtp4 | 57.7 -> 60.2 | 30.6 -> 35.5 | 41.2 -> 35.0 | 30.6 -> 35.0 **+4.4** | candidate |
+| quasar mtp4 | 63.5 -> 64.0 | 31.0 -> 51.0 | 38.2 -> 31.4 | 31.0 -> 31.4 **+0.4** | candidate |
+| nvidia mtp4 | 57.3 -> 54.4 | 33.2 -> 30.5 | 37.3 -> 36.1 | 30.5 -> 30.5 **0.0** | tie, mean -2.3 |
+| ninfer mtp4 | 46.7 -> 52.7 | 34.1 -> 33.9 | 34.1 -> 41.1 | 34.1 -> 33.9 **-0.2** | refused |
+| ninfer dflash2 | 56.7 -> 50.8 | 23.4 -> 24.8 | 36.5 -> 23.1 | 23.4 -> 23.1 **-0.3** | refused |
+| swift dflash2 | 58.3 -> 51.8 | 31.1 -> 42.7 | 30.0 -> 27.5 | 30.0 -> 27.5 **-2.5** | refused |
+| nvidia dflash2 | 45.9 -> 46.8 | 35.7 -> 36.7 | 45.1 -> 26.1 | 35.7 -> 26.1 **-9.6** | refused |
+
+Two readings are possible and both are recorded. Under the worst-cell rule this repository ships depth
+decisions by, the two candidates pass and are measured further (the interleaved A/B above); under a
+stricter reading -- no served cell may regress at all -- only quasar's DFlash2 lane qualifies, because
+both candidates regress certainly on long Chinese (quasar mtp4 -6.8 points, swift mtp4 -6.2). The depth
+precedent is the same shape as the looser rule: nvidia's move to depth 9 shipped with prose -3.5% and
+dialogue -5.5% disclosed. So the candidates are decided on their interleaved decode and their measured
+quality cost, and any regression they carry lands in the row rather than in a footnote.
+
+**And the deciding set changed while this was being written.** On 2026-10-09 the product owner stated the
+workload is coding, and `CONTEXT.md` now records that the deciding scenarios are the code ones -- the
+225-character code prompt and 36,000 characters of real code -- with every other domain measured, recorded
+and disclosed rather than vetoing. For the format this is decisive: the candidates' code cells are positive
+(quasar mtp4 +0.5 acceptance points on the published cell and +20.0 on long code; swift mtp4 +2.5 and
++4.9), so their long-Chinese regressions are disclosed costs, not blocks. It also reopens every depth whose
+decision rested on Chinese, which is why the lanes are being re-read on served code rather than
+grandfathered.
+
+**Outcomes, measured the same day.** Four lanes ship `k8v4` and four keep `fp8`:
+
+| lane | deciding cells, interleaved | decision |
+|---|---|---|
+| quasar dflash2 | +13.8% published cell; +27.3/+35.2% served | adopted |
+| quasar mtp4 | +1.0%, +35.6% decode; acceptance +0.5, +20.0 | adopted |
+| swift mtp4 | +2.4%, +7.6% decode; acceptance +2.5, +4.9 | adopted |
+| ninfer mtp4 | +12.1%, +2.1% decode; acceptance +6.0, -0.2 | adopted via the tie-break: its worst deciding cell is 0.5% lower, inside the arms' spreads, so the mean over the deciding cells decides at +4.3% |
+| swift dflash2 | worst deciding cell 196.2 -> 244.4 (+24.6%), acceptance 31.06 -> 42.69; published cell -7.9% and -6.5 points disclosed | adopted |
+| nvidia dflash2 | +0.4%, +3.7% decode; acceptance +0.9, +1.0 | refused: a tie and a few percent on code against -31.5% long Chinese and -19.1 acceptance points |
+| ninfer dflash2 | worst deciding cell 184.9 -> 194.1 (+4.9%), acceptance 23.42 -> 24.84 | refused: +4.9% against -25.4% long Chinese and -13.4 points |
+| nvidia mtp4 | worst deciding cell falls 149.2 -> 133.9 (-10.2%) | refused |
+
+**The bound, stated once and applied to all eight.** The code-weighted rule decides on the code cells and
+discloses the rest; a disclosure with no bound is not a rule, so the bound is: **a change is adopted when
+the deciding cells' worst case improves by at least as much as the worst disclosed non-code cell gives
+up.** It is what separates swift dflash2 (+24.6% against -4.2%) from ninfer dflash2 (+4.9% against
+-25.4%) and nvidia dflash2 (+3.8% against -31.5%) -- three lanes whose code cells are all positive, and
+only one of which is a trade worth making.
+
+**Every depth stands, and each now rests on the format it ships.** The rule change forced five re-reads;
+none moved a lane, but three overturned a *reading*:
+
+* swift15 keeps depth 7: at served length depth 7 wins long code 208.2 against 182.0 (+14.4%) and long
+  Chinese 171.9 against 165.6. The "+19.3% for depth 9 on long code" carried in this session's own notes
+  is **withdrawn** -- no record carries it and the measurement is the other sign.
+* swift mtp4 moves to depth 5, and the arc is kept rather than tidied: moved on fp8 evidence (long code
+  158.2 against 140.2), reverted at the shipped format when the *published* cell fell 7.2% decode and 9.3
+  acceptance points, then re-applied once the comparison matched the rule -- **maximin compares each
+  option's worst deciding cell**, and depth 5's worst (long code 168.9) beats depth 4's (146.2) by 15.5%,
+  with acceptance's worst rising too (42.8 against 35.5). The per-cell comparison was the error, not the
+  measurement.
+* quasar mtp4, ninfer mtp4 and nvidia mtp4 keep depth 4, each re-confirmed at the format it ships
+  (long code: 183.8 against 133.0, 139.3 against 125.2, 141.9 against 128.0).
+
 ### The decision and its shape
 
 - **Global**: refused. `("--kv-dtype", "k8v4")` sat in `INVARIANT_FLAGS` during the investigation and was
@@ -266,3 +335,17 @@ memory — while the new record field, falling back to its parameter, claimed th
 passed. Both are fixed (the probe emits the format it varies; the record reads it from the argument list with
 null when absent), and `check_profile_consistency.py` now asserts the probe emits every flag it varies — seen
 failing on `--kv-dtype` and passing the other six flags before the fix.
+
+### Why the quality axis stops at perplexity
+
+The corpus perplexity resolves the cost exactly — deterministic, 1M tokens, four domains, and the fp8 arm
+reproduces the published baseline to fourteen significant figures. A generation-accuracy arm cannot resolve
+an effect of this size, and the arithmetic is why (derived, not measured): for a question whose answer is
+right about half the time the per-question standard deviation is 0.5, so a two-sigma resolution of a
+difference of δ points needs about `1/δ²` questions, unpaired. A 1-point difference needs roughly 10,000
+questions; a tenth of that needs a hundred times as many. Pairing narrows the variance of the *difference*
+and so improves on that arithmetic — the harness's own 258-question, 7-11 GPU-hour design is priced for the
+accuracy effects it was built for — but the order of magnitude stands: resolving fractions of a point takes
+thousands to tens of thousands of questions and hours of card per arm, where the corpus perplexity resolves
+the same change exactly in minutes. That is why the quality axis is measured there, and why the paired run
+stays the instrument for a change whose quality signature is points rather than fractions of a point.

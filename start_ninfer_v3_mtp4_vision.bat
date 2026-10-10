@@ -3,10 +3,10 @@ REM ============================================================================
 REM  NVFP4-full + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 175.8 tok/s   draft acceptance 46.7%
-REM      runtime 9.96 GiB   free VRAM 2.96 GiB
+REM      context 262,144   decode 189.5 tok/s   draft acceptance 52.7%
+REM      runtime 8.07 GiB   free VRAM 4.45 GiB
 REM
-REM  MTP lane on the second artifact, and the one lane where the BF16 exception projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's context costs that lane acceptance points and throughput, measured interleaved against the no-exception build. Re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes from 5 to 4: d4 wins prose (120.3 against 110.0), chinese (125.3 against 117.4) and dialogue (166.3 against 140.9), and loses only code (190.6 against 204.8) and repetition by 2.9%, so its worst case is -2.9% against d5's -7.5%. **The first pass of this sweep read the wrong artifact**: `widths --art ninfer` resolves to cometkim's base `qwen3_8_27b_nvfp4`, which is not a shipping lane, while this lane ships `nvfp4full`. Swept on the shipped image the verdict is the same, but it had to be re-measured to be known -- the two images differ by 26 tok/s on the same configuration, which is wider than the depth effect being decided. This lane's 2.96 GiB free is the fleet's tightest, because it carries the BF16 exceptions and so has the heaviest weights at the same runtime.
+REM  MTP lane on the second artifact, and the one lane where the BF16 exception projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's context costs that lane acceptance points and throughput, measured interleaved against the no-exception build. Re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes from 5 to 4: d4 wins prose (120.3 against 110.0), chinese (125.3 against 117.4) and dialogue (166.3 against 140.9), and loses only code (190.6 against 204.8) and repetition by 2.9%, so its worst case is -2.9% against d5's -7.5%. **The first pass of this sweep read the wrong artifact**: `widths --art ninfer` resolves to cometkim's base `qwen3_8_27b_nvfp4`, which is not a shipping lane, while this lane ships `nvfp4full`. Swept on the shipped image the verdict is the same, but it had to be re-measured to be known -- the two images differ by 26 tok/s on the same configuration, which is wider than the depth effect being decided. This lane's 2.96 GiB free is the fleet's tightest, because it carries the BF16 exceptions and so has the heaviest weights at the same runtime. KV format changed from fp8 to k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code cells decide, every other domain is disclosed). Interleaved on the three cells, each arm twice: code +12.1% decode and acceptance 46.67 -> 52.71, long code +2.1% and acceptance 34.07 -> 33.89 (the one cell that gives up a fifth of a point, disclosed rather than smoothed), and long Chinese +11.1% with acceptance 34.07 -> 41.10. Quality costs +0.035% corpus perplexity overall and +0.277% on the worst domain, the smallest quality cost of the five artifacts. Depth stays 4: re-read on served code at fp8, depth 5 loses long code by 26% (110.8 against 140.1), which reverses the short-domain reading that had depth 5 winning that column.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -145,7 +145,7 @@ if not errorlevel 1 (
   --spec mtp ^
   --draft-tokens 4 ^
   --lm-head-draft ^
-  --kv-dtype fp8 ^
+  --kv-dtype k8v4 ^
   --host 127.0.0.1 ^
   --port 8089 ^
   --model-id qwen3.8-27b-nvfp4-v3-mtp4-vision ^

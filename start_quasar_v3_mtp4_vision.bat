@@ -3,10 +3,10 @@ REM ============================================================================
 REM  QUASAR QAT + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 228.7 tok/s   draft acceptance 63.5%
-REM      runtime 9.96 GiB   free VRAM 3.40 GiB
+REM      context 262,144   decode 216.6 tok/s   draft acceptance 64.0%
+REM      runtime 8.07 GiB   free VRAM 5.17 GiB
 REM
-REM  Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against d4's 220.4 and chinese 113.2 against 129.0. On maximin -- the rule this table is chosen by, since the worst domain decides -- d4's worst case is 0.0% and d5's is -17.0%, so d5's best case does not buy its worst. d5 is still faster on prose (121.8 against 116.5) and dialogue (159.6 against 155.1), which is the reversal that makes the code domain alone the wrong single domain to read.
+REM  Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against d4's 220.4 and chinese 113.2 against 129.0. On maximin -- the rule this table is chosen by, since the worst domain decides -- d4's worst case is 0.0% and d5's is -17.0%, so d5's best case does not buy its worst. d5 is still faster on prose (121.8 against 116.5) and dialogue (159.6 against 155.1), which is the reversal that makes the code domain alone the wrong single domain to read. KV format changed from fp8 to k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code cells decide, every other domain is disclosed). Interleaved on the three cells, each arm twice: code +1.0% decode and acceptance 63.47 -> 63.98, long code +35.6% and acceptance 31.04 -> 51.05, and the disclosed cost is long Chinese at -10.2% decode and acceptance 38.19 -> 31.40. Quality costs +0.144% corpus perplexity overall and +0.202% on the worst domain, the same artifact as the DFlash2 row above. Depth stays 4 under that rule too: depth 5 loses this lane's code cell by 20% (183.0 against 220.4).
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -145,7 +145,7 @@ if not errorlevel 1 (
   --spec mtp ^
   --draft-tokens 4 ^
   --lm-head-draft ^
-  --kv-dtype fp8 ^
+  --kv-dtype k8v4 ^
   --host 127.0.0.1 ^
   --port 8087 ^
   --model-id qwen3.8-27b-quasar-v3-mtp4-vision ^

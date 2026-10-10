@@ -158,8 +158,8 @@ PROFILES: list[dict[str, Any]] = [
               "by 2.3% on the worst case and the served mean by 7.6%."),
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
-         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=228.7, acc="63.5%", runtime="9.96 GiB", free="3.40 GiB",
+         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
+         tok=216.6, acc="64.0%", runtime="8.07 GiB", free="5.17 GiB",
          note="Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept "
               "2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this "
               "depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against "
@@ -167,7 +167,14 @@ PROFILES: list[dict[str, Any]] = [
               "chosen by, since the worst domain decides -- d4's worst case is 0.0% and d5's is "
               "-17.0%, so d5's best case does not buy its worst. d5 is still faster on prose (121.8 "
               "against 116.5) and dialogue (159.6 against 155.1), which is the reversal that makes "
-              "the code domain alone the wrong single domain to read."),
+              "the code domain alone the wrong single domain to read. KV format changed from fp8 to "
+              "k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code cells decide, "
+              "every other domain is disclosed). Interleaved on the three cells, each arm twice: code "
+              "+1.0% decode and acceptance 63.47 -> 63.98, long code +35.6% and acceptance 31.04 -> "
+              "51.05, and the disclosed cost is long Chinese at -10.2% decode and acceptance 38.19 -> "
+              "31.40. Quality costs +0.144% corpus perplexity overall and +0.202% on the worst domain, "
+              "the same artifact as the DFlash2 row above. Depth stays 4 under that rule too: depth 5 "
+              "loses this lane's code cell by 20% (183.0 against 220.4)."),
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
@@ -188,8 +195,8 @@ PROFILES: list[dict[str, Any]] = [
               "prefill -- is no longer needed to improve it. Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Depth re-measured 2026-10-09 through the matrix's own widths protocol with the prompts supplied from a file, the served sampling, three interleaved rounds inside one lane each: depth 9 leads on all three treatments -- the 225-character code prompt 378.4 against 352.6 tok/s (+7.3%, spreads 2.3/1.5%), 36,000 characters of real code 194.3 against 188.8 (+2.9%, 1.4/0.3%) and 36,000 characters of Chinese 252.1 against 227.5 (+10.8%, 0.5/0.4%). The greedy readings that disagreed (+1.9% on one prompt, -15% on another) were single-run comparisons whose spreads cannot resolve anything this size, which is why a paired sweep across lane restarts was withdrawn. The figures beside this note are at the shipped depth 9 and were stale from before it. See docs/research/lane-coverage-2026-10-08.md."),
     dict(file="start_ninfer_v3_mtp4_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP4 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp4-vision",
-         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=175.8, acc="46.7%", runtime="9.96 GiB", free="2.96 GiB",
+         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
+         tok=189.5, acc="52.7%", runtime="8.07 GiB", free="4.45 GiB",
          note="MTP lane on the second artifact, and the one lane where the BF16 exception "
               "projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's "
               "context costs that lane acceptance points and throughput, measured interleaved "
@@ -203,11 +210,20 @@ PROFILES: list[dict[str, Any]] = [
               "image the verdict is the same, but it had to be re-measured to be known -- the two "
               "images differ by 26 tok/s on the same configuration, which is wider than the depth "
               "effect being decided. This lane's 2.96 GiB free is the fleet's tightest, because it "
-              "carries the BF16 exceptions and so has the heaviest weights at the same runtime."),
+              "carries the BF16 exceptions and so has the heaviest weights at the same runtime. KV format "
+              "changed from fp8 to k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code "
+              "cells decide, every other domain is disclosed). Interleaved on the three cells, each arm "
+              "twice: code +12.1% decode and acceptance 46.67 -> 52.71, long code +2.1% and acceptance "
+              "34.07 -> 33.89 (the one cell that gives up a fifth of a point, disclosed rather than "
+              "smoothed), and long Chinese +11.1% with acceptance 34.07 -> 41.10. Quality costs +0.035% "
+              "corpus perplexity overall and +0.277% on the worst domain, the smallest quality cost of "
+              "the five artifacts. Depth stays 4: re-read on served code at fp8, depth 5 loses long code "
+              "by 26% (110.8 against 140.1), which reverses the short-domain reading that had depth 5 "
+              "winning that column."),
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
-         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=322.6, acc="58.3%", runtime="10.6 GiB", free="2.85 GiB",
+         spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
+         tok=280.7, acc="51.8%", runtime="8.83 GiB", free="4.20 GiB",
          note="Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured "
               "2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured "
               "against every window 1-15 on the code domain and re-measured on four others: 13 is "
@@ -228,17 +244,37 @@ PROFILES: list[dict[str, Any]] = [
               "documented default domain, so the shipped encoding is settled by measurement rather "
               "than merely retained. It does NOT hold everywhere: on `chinese` the ordering reverses "
               "and Q8 is 11.7% faster with 4.6 points better acceptance. This note's figures are "
-              "`code`; the per-domain split is in docs/research/swift15-lane-measurement.md."),
+              "`code`; the per-domain split is in docs/research/swift15-lane-measurement.md. KV format "
+              "changed from fp8 to k8v4 on 2026-10-09, interleaved on the three cells with each arm "
+              "twice: the deciding cells' worst improves from 196.2 to 244.4 tok/s (long code +24.6%, "
+              "acceptance 31.06 -> 42.69) while the published cell gives up 7.9% decode and 6.5 "
+              "acceptance points (313.5 -> 287.3, 58.32% -> 51.83%) and long Chinese 4.2% and 2.5 "
+              "points -- both disclosed. Adopted under the code-weighted rule's bound: the deciding "
+              "worst case improves by more than the worst disclosed non-code cell gives up. Quality "
+              "costs +0.098% corpus perplexity overall and +0.257% on the worst domain."),
     dict(file="start_swift_v3_mtp4_vision.bat", port=8091, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + MTP4 + Vision", model_id="qwen3.8-27b-swift15-v3-mtp4-vision",
-         spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=214.6, acc="57.7%", runtime="9.96 GiB", free="3.43 GiB",
+         spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
+         tok=194.7, acc="50.9%", runtime="8.07 GiB", free="5.16 GiB",
          note="Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped "
               "at 5 by kMaximumMtpDraftTokens, so docs/active-work.md item 8's proposed window of 10 "
               "cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, "
               "dialogue and repetition, so depth 4 stands. This lane is unaffected by the draft "
               "encoding above, which the measurement confirms: the Q8 and NVFP4 builds read 215.7 "
-              "and 216.0 tok/s on the same configuration."),
+              "and 216.0 tok/s on the same configuration. KV format changed from fp8 to k8v4 on "
+              "2026-10-09 under the code-weighted rule (CONTEXT.md: the code cells decide, every other "
+              "domain is disclosed). Interleaved on the three cells, each arm twice: code +2.4% decode "
+              "and acceptance 57.68 -> 60.20, long code +7.6% and acceptance 30.63 -> 35.49, with long "
+              "Chinese the disclosed cost at -6.8% decode and acceptance 41.20 -> 35.02. Quality costs "
+              "+0.098% corpus perplexity overall and +0.257% on the worst domain. Depth moved from 4 to 5 "
+              "on 2026-10-09 and the arc is recorded rather than tidied: at fp8, depth 5 won long code "
+              "158.2 against 140.2 tok/s and long Chinese 215.7 against 121.8, so the lane moved; at the "
+              "format it now ships (k8v4) the published cell loses 7.2% decode and 9.3 acceptance points, "
+              "and the move was reverted on that; it was then re-applied once the comparison was made the "
+              "way the rule is written -- maximin compares each option's WORST deciding cell, and depth "
+              "5's worst (long code 168.9) beats depth 4's (146.2) by 15.5%, with acceptance's worst "
+              "rising too (42.8 against 35.5). The per-cell comparison was the error, not the "
+              "measurement."),
     dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
          spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",

@@ -66,7 +66,10 @@ cannot be measured, say so rather than inferring it.
 in this repo's docs came from transcription, not from wrong measurement.
 
 **maximin — "the worst domain decides"** — a lane's depth, width or recipe is chosen by the workload
-where it does *worst*, not by its average. The domains are the matrix's `code`, `prose`, `chinese`,
+where it does *worst*, not by its average. **Compare each option's worst case, not the same cell across
+options**: reading a per-cell delta as the comparison flipped a lane's depth twice in one afternoon before
+the rule's own form was applied, and it is the error the code-weighted bound below is written to prevent
+recurring. The domains are the matrix's `code`, `prose`, `chinese`,
 `dialogue` and `repetition` prompts (`v3_profile_matrix.py`). A candidate that wins three domains and
 loses one badly is rejected for it: see the quasar MTP4 row in `profiles.py`, where depth 5 was faster
 on prose and dialogue and lost code and chinese by 37 and 15 tok/s. Introduced 2026-09-30 (`4456fac6`)
@@ -78,10 +81,30 @@ protocol compares lane restarts. Evaluated 2026-10-09: the alternative of constr
 floor and then ranking by the mean was refused by measurement -- on Swift 1.5 it would have shipped depth 9,
 which is 28 % slower than depth 7 on long Chinese, acceptance falling from 30.0 % to 16.9 %.
 
+**The scenario set is the workload's (2026-10-09).** The rule above was applied over all five domains, and
+because Chinese is consistently the worst domain for speculative decoding it decided every lane -- so a
+domain this product is not used for vetoed choices that were best for the one it is. The product is used for
+coding (owner's statement, 2026-10-09), so the **deciding scenarios are the code ones**: the 225-character
+`code` prompt and 36,000 characters of real code, with the worst of the two deciding, as before. Every other
+domain is still measured on every candidate, recorded, and **disclosed in the row** -- a regression there no
+longer vetoes, and it is never hidden. The quality axis is weighted the same way: the deciding perplexity
+domain is `ninfer_code`, with the others reported. The Swift 1.5 case the paragraph above refused on is
+reopened by this and re-measured the same day: at served length depth 7 wins long code 208.2 against 182.0
+and long Chinese 171.9 against 165.6, so the incumbent stands and its Chinese cost never had to be weighed.
+What the reopening did change is the figure that reading rested on -- the "+19.3 % for depth 9 on long code"
+is withdrawn, because no record carries it and the measurement is the other sign.
+
+**The bound that makes disclosure a rule rather than a note:** a change is adopted when the deciding cells'
+worst case improves by at least as much as the worst disclosed non-code cell gives up. Without it,
+disclosure is decoration -- of three lanes whose code cells were all positive, only one was a trade worth
+making (swift dflash2's +24.6 % against -4.2 %, against ninfer dflash2's +4.9 % against -25.4 % and nvidia
+dflash2's +3.8 % against -31.5 %).
+
 What the rule is *for*, after that evaluation: at served length the candidates are separated by 10 to 28 %
 against spreads of 0.2 to 1.0 %, so the arithmetic decides nothing a measurement does not and any sane
-criterion agrees. Its value is the **discipline** -- measure every candidate across domains rather than on
-the one you care about, and protect the worst case -- plus three practices that keep it honest:
+criterion agrees. Its value is the **discipline** -- measure every candidate across domains rather than only
+the one you care about, and protect the worst case *of the scenarios that decide* -- plus three practices
+that keep it honest:
 
 * **select on served-length prompts.** The short domains give margins of 0.3 to 1.6 %, which invert: Swift
   1.5 loses 3.4 % of its worst short domain and 28 % of its worst served one, the same direction but a

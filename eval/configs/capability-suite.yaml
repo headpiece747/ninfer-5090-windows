@@ -70,6 +70,33 @@ suites:
           is_fc_model: true
           underscore_to_dot: true
 
+      # The code suite's smoke pair. The capability set above is math, science, tool-calling and
+      # retrieval; the product's workload is coding, and EvalScope already carries every benchmark the
+      # 2026 coding landscape names, so the gap was the configuration and not the framework.
+      - id: humaneval_smoke
+        backend: evalscope
+        dataset: humaneval
+        target: model_api
+        limit: 2
+        generation:
+          temperature: 0.2
+          top_p: 0.95
+          max_tokens: 2048
+          seed: 42
+
+      - id: live_code_bench_smoke
+        backend: evalscope
+        dataset: live_code_bench
+        target: model_api
+        limit: 2
+        generation:
+          temperature: 0.2
+          top_p: 0.95
+          max_tokens: 2048
+          seed: 42
+        backend_args:
+          allow_network_downloads: true
+
   reasoning:
     jobs:
       - id: aime25
@@ -118,6 +145,92 @@ suites:
           is_fc_model: true
           underscore_to_dot: true
           serpapi_api_key_env: SERPAPI_API_KEY
+          allow_network_downloads: true
+
+  # The code suite's own smoke, so validating it does not drag in the math and BFCL datasets.
+  coding_smoke:
+    jobs:
+      - id: humaneval_smoke
+        backend: evalscope
+        dataset: humaneval
+        target: model_api
+        limit: 2
+        generation:
+          temperature: 0.2
+          top_p: 0.95
+          max_tokens: 2048
+          seed: 42
+
+      - id: live_code_bench_smoke
+        backend: evalscope
+        dataset: live_code_bench
+        target: model_api
+        limit: 2
+        generation:
+          temperature: 0.2
+          top_p: 0.95
+          max_tokens: 2048
+          seed: 42
+        backend_args:
+          allow_network_downloads: true
+
+  # What the coding landscape says to run, in one suite: LiveCodeBench for generation with a rolling
+  # contamination cutoff, HumanEval and MBPP as sanity floors rather than frontier comparisons (both
+  # are saturated and contaminated), and LongBench v2 for long-context code-repository questions.
+  # Deliberately absent: SWE-bench and Terminal-Bench, the two other names in the 2026 coding-
+  # benchmark headline trio. Both are Docker harnesses -- EvalScope's adapters import
+  # `DockerClient.from_env()` and build a per-instance image as the execution sandbox -- and Docker is
+  # not installed on this machine, so they cannot run here at all rather than merely being heavy. They
+  # also score a system rather than a model (the same model moves about 20 points on harness alone),
+  # and the Windows split needed a purpose-built agent because SWE-agent, OpenHands and ClaudeCode
+  # cannot run Windows containers. Installing Docker Desktop with Linux containers is the prerequisite
+  # that makes swe_bench, swe_bench_pro and terminal_bench runnable; after that it is a project.
+  # Sources: the 2026 consensus (SWE-bench Verified/Pro, LiveCodeBench, Terminal-Bench), EvalScope's
+  # adapters in this venv, and the standing advice that a private evaluation on this repository's own
+  # transcripts beats any public score.
+  coding:
+    jobs:
+      - id: humaneval
+        backend: evalscope
+        dataset: humaneval
+        target: model_api
+        generation:
+          temperature: 0.2
+          top_p: 0.95
+          max_tokens: 2048
+          seed: 42
+
+      - id: live_code_bench
+        backend: evalscope
+        dataset: live_code_bench
+        target: model_api
+        generation:
+          temperature: 0.2
+          top_p: 0.95
+          max_tokens: 2048
+          seed: 42
+        backend_args:
+          allow_network_downloads: true
+
+      - id: mbpp
+        backend: evalscope
+        dataset: mbpp
+        target: model_api
+        generation:
+          temperature: 0.2
+          top_p: 0.95
+          max_tokens: 2048
+          seed: 42
+
+      - id: longbench_v2
+        backend: evalscope
+        dataset: longbench_v2
+        target: model_api
+        generation:
+          temperature: 0
+          max_tokens: 4096
+          seed: 42
+        backend_args:
           allow_network_downloads: true
 
 runtime:

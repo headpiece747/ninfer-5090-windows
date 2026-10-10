@@ -336,7 +336,7 @@ which of the four it means.
   cache capacity, which changes the prefill the plan chooses. A harness that does not record its own
   configuration cannot be compared with one that does, and a repeated run does not test that.
 
-Sixty-five rules, each earned by a failure rather than chosen:
+Sixty-six rules, each earned by a failure rather than chosen:
 
 - **Run a verification recipe through the recipe.** `ctest --test-dir build-asan -R <broad regex>`
   pulls in device tests, which ASan cannot instrument and which hang: one such run burned fifty
@@ -386,7 +386,11 @@ Sixty-five rules, each earned by a failure rather than chosen:
 - **Never inline a script through PowerShell.** Quotes inside quotes break the argument splitting.
   That happened five times in one session and the fix was always to write a file first. The failure
   is silent in both directions: the command can *succeed* while writing an empty file, so check the
-  output's size, not just its exit code.
+  output's size, not just its exit code. **A quoted path handed to the call operator --
+  `& "C:\Program Files\..."` -- is still an inline script**: it parses differently inside a compound
+  command, and it failed that way twice on 2026-10-09, once on escaped quotes (which the claims-gate
+  blocked outright) and once on the call operator, which PowerShell reported as "the string is missing
+  the terminator".
 - **A provider entry is not visible until the opencode service restarts.** The desktop app is V2
   (2.0.16) and takes its model list from the background service (port 49374 on this machine), which
   reads `~/.config/opencode/opencode.json` once at startup: the NVIDIA lanes added at 22:36 on 2026-09-24
@@ -796,3 +800,14 @@ Sixty-five rules, each earned by a failure rather than chosen:
   it is (-4, +6) while `0xFE` is the negative pair. Each was caught only because the expectation was
   written from the format's definition instead of from what the code happened to produce -- a recorded
   output would have recorded the bug. The grid is a table, not a magnitude list.
+- **A driver that buffers a step's output loses it when the driver dies.** A three-step chain ran for a
+  minute, died inside step 2, and took everything step 2 had produced with it -- the smoke's output
+  existed only in the dead process's pipe, and the chain's own log ended cleanly at step 1, which reads
+  exactly like "step 2 has not finished yet". Give every step its own log file and let the driver record
+  return codes only, so a chain that reports `rc=0` per step always has a file behind the claim. Earned
+  2026-10-09, where the loss cost a full re-run and was found only because the user asked whether it was
+  still running. **And print the step's start *before* running it**: two chains died inside a step without
+  ever reporting it, and two constructed probes of that same sequence -- the smoke alone, then a
+  fingerprint followed by the smoke -- both refused to reproduce it. The cause is therefore unknown and
+  the failure is silent, so the defences are the per-step log file, the start line, and giving each long
+  step its own background shell rather than chaining them.

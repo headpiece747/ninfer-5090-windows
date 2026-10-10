@@ -63,8 +63,9 @@ across a 16x span of context.
 
 ## Limits
 
-- The haystack is one corpus file **repeated** to depth, not a natural multi-document pile. Repetition could
-  make positional retrieval easier or harder than reality; a natural-context version is untested.
+- The haystack in the first version is one corpus file **repeated** to depth, not a natural multi-document
+  pile; the code-repository variant below uses this repository's own source instead and carries the same
+  result, so the repetition limit applies only to the table above.
 - One artifact (nvidia), one scorer, one sampling. No other lane was run.
 - The task is retrieval; the item's second suggestion, a code-repository task with no verbatim overlap,
   is still unbuilt.
@@ -74,3 +75,27 @@ across a 16x span of context.
 `profiles/bench/needle-2026-10-09/`: the five per-token CSVs (three matched depths, two mismatched controls)
 and the two run logs that carry each scorer's own summary lines. The construction is deterministic from the
 corpus file, the depth, and the needle values printed in the logs.
+
+---
+
+## The code-repository variant, built the same day
+
+The item asked for a multi-needle **or** code-repository task without verbatim overlap; this is the second
+half, and it also removes the repeated-haystack limit above. Same instrument, different haystack and facts:
+the text is this repository's own source (`src/**` and `include/**`, 6.4 M characters available, natural
+rather than repeated), with five code-flavoured notes planted at even fractions — a symbol that enforces a
+retry budget, a component owning an admission policy, a byte ceiling, a switch name, a function name — and
+questions phrased by role. The control is the same construction with different values.
+
+| depth | matched (last 40 / last 20) | control rise |
+|---|---|---|
+| 8,192 | -0.5636 / -0.1758 | +0.75 / +0.69 nats |
+| 32,768 | -0.6333 / -0.1853 | not run |
+| 131,072 | -0.5558 / -0.1585 | +0.72 / +0.65 nats |
+
+Flat to 131,072 again, and the control separates retrieval from a floor again, so the effective length of
+this construction is at least the deepest depth measured — on natural code text, with symbol and number
+answers rather than prose. Residual limits: the questions still share terms with the notes where a subject
+has only one natural phrasing, and the endpoint is still the reference answer's likelihood rather than a
+generation grade. The CSVs are `code-needle-*` and `code-needle-control-*` beside the first version's, in the
+same `profiles/bench/needle-2026-10-09/` directory.

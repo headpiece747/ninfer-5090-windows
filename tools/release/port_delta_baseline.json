@@ -53,7 +53,7 @@
     },
     "apps/CMakeLists.txt": {
       "status": "M",
-      "disposition": "unknown",
+      "disposition": "windows",
       "review": "product",
       "reason": "Part of the drafter-recall instrument: the CLI prints recall@1 and recall@16 by position from the vectors decode.cpp accumulates, and the per-position denominators are what make the two rates readable."
     },
@@ -63,9 +63,15 @@
       "review": "product",
       "reason": "Part of the drafter-recall instrument: the CLI prints recall@1 and recall@16 by position from the vectors decode.cpp accumulates, and the per-position denominators are what make the two rates readable."
     },
+    "apps/cli/options.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
+    },
     "apps/perplexity/main.cpp": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "windows",
       "review": "product",
       "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
     },
@@ -81,11 +87,23 @@
       "review": "product",
       "reason": "Cited in the diff -- ADR: 0012. Open it before changing this path."
     },
+    "bench/context_cost/context_cost_bench.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
+    },
     "bench/context_cost/model_context_fixture.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+    },
+    "bench/context_cost/model_context_fixture.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
     },
     "bench/fixtures/ttft/manifest.json": {
       "status": "M",
@@ -141,6 +159,12 @@
       "review": "product",
       "reason": "Reports the per-position recall split in both the JSON and the CSV, with proposed_per_position as the denominator for recall@1, recall@16 and path acceptance. The bench table is read by header name and never by column position."
     },
+    "bench/inference/ninfer_bench_support.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
+    },
     "bench/models/qwen3_5/benchmarks.cmake": {
       "status": "M",
       "disposition": "product",
@@ -164,6 +188,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "Cited in the diff -- port: this port. Open it before changing this path."
+    },
+    "docs/cli.md": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
     },
     "docs/maintainer/build-system.md": {
       "status": "M",
@@ -230,6 +260,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "Cited in the diff -- doc: docs/perplexity-baseline.md. Open it before changing this path."
+    },
+    "eval/configs/capability-suite.yaml": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "",
+      "reason": ""
     },
     "examples/cli/messages/long_niah_128k.json": {
       "status": "M",
@@ -1197,6 +1233,12 @@
       "review": "windows",
       "reason": "Windows necessity: MSVC has no __int128, so core/uint128.h provides the type -- a real 128-bit builtin under GCC and a two-word struct with the needed operators under MSVC. Here it replaces upstream's cast in a comparison whose product overflows 64 bits. Pinned by the port-delta baseline and protected by src/core/uint128.h's own tests."
     },
+    "src/serve/serve_options.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
+    },
     "src/text/jinja.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -1523,7 +1565,7 @@
     },
     "tools/bench/run_serve_ttft.py": {
       "status": "M",
-      "disposition": "windows",
+      "disposition": "unknown",
       "review": "windows",
       "reason": "The same Windows console-encoding defect as run_serve_ttft_campaign.py above, in the runner it drives: line 273 printed its result JSON with ensure_ascii=False to a cp1252 console, so a non-ASCII character raised UnicodeEncodeError after the run had succeeded and before line 274 returned the tool's own verdict (0 for a constructed run with no failed conditions, 2 otherwise). The crash turned a clean 0 into 1, and the campaign faithfully recorded two passing samples as failures on 2026-10-08. Fixed by dropping that argument; the sample file beside the run keeps encoding='utf-8', so only the console summary changes and it stays valid JSON."
     },
@@ -1541,7 +1583,7 @@
     },
     "tools/bench/ttft/cases.py": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "review": "product",
       "reason": "A bench case for the resource underflow reported as issue 5: three concurrent conversations that grow, at the reporter's configuration. The failure is state released that was not held, which needs several lanes active at once and a cache serving a shared prefix. Its first end-to-end run, 2026-10-06, found two things the case could not have revealed before it ran: `_assistant()` was called with one argument where it takes two, so the run failed with `TypeError: _assistant() missing 1 required positional argument: 'handle'` before round 2; and the comment claiming 60 rounds take each lane past 8,000 tokens was an assumption -- the run measured 2,078 -> 5,804 (lane a). Both corrected in place; the workload was left alone because that run is the case's first recorded baseline. 2026-10-08: the cancellation requirement relaxed to the contract its own layer's tests pin. `_require_transport_cancellation` demanded `http.cancelled`, but `execution.py:501` derives that from the client transport and `test_http_cancellation.py:112,144` assert `cancel_requested` with `transport_cancelled` False as a VALID state after a cancellation -- so cancel-before-first and cancel-after-first could never pass, and had never been run to notice. The requirement now accepts either cancellation-shaped outcome and still demands that the cancellation was requested, that no protocol terminal arrived, and that the request completed."
     },
@@ -1571,7 +1613,7 @@
     },
     "tools/convert/official_recipes.py": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "windows",
       "review": "product",
       "reason": "Cited in the diff -- doc: docs/maintainer/artifact-conventions.md. Open it before changing this path."
     },
@@ -1628,42 +1670,6 @@
       "disposition": "windows",
       "review": "windows",
       "reason": "The same Win32 branching as tools/artifact/file_io.py, for the same reason."
-    },
-    "apps/cli/options.h": {
-      "status": "M",
-      "disposition": "product",
-      "review": "product",
-      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
-    },
-    "src/serve/serve_options.h": {
-      "status": "M",
-      "disposition": "product",
-      "review": "product",
-      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
-    },
-    "docs/cli.md": {
-      "status": "M",
-      "disposition": "product",
-      "review": "product",
-      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
-    },
-    "bench/inference/ninfer_bench_support.h": {
-      "status": "M",
-      "disposition": "product",
-      "review": "product",
-      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
-    },
-    "bench/context_cost/context_cost_bench.cpp": {
-      "status": "M",
-      "disposition": "product",
-      "review": "product",
-      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
-    },
-    "bench/context_cost/model_context_fixture.h": {
-      "status": "M",
-      "disposition": "product",
-      "review": "product",
-      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
     }
   }
 }

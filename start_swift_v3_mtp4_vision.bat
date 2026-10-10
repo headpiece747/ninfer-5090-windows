@@ -3,10 +3,10 @@ REM ============================================================================
 REM  Swift 1.5 + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 214.6 tok/s   draft acceptance 57.7%
-REM      runtime 9.96 GiB   free VRAM 3.43 GiB
+REM      context 262,144   decode 194.7 tok/s   draft acceptance 50.9%
+REM      runtime 8.07 GiB   free VRAM 5.16 GiB
 REM
-REM  Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped at 5 by kMaximumMtpDraftTokens, so docs/active-work.md item 8's proposed window of 10 cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, dialogue and repetition, so depth 4 stands. This lane is unaffected by the draft encoding above, which the measurement confirms: the Q8 and NVFP4 builds read 215.7 and 216.0 tok/s on the same configuration.
+REM  Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped at 5 by kMaximumMtpDraftTokens, so docs/active-work.md item 8's proposed window of 10 cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, dialogue and repetition, so depth 4 stands. This lane is unaffected by the draft encoding above, which the measurement confirms: the Q8 and NVFP4 builds read 215.7 and 216.0 tok/s on the same configuration. KV format changed from fp8 to k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code cells decide, every other domain is disclosed). Interleaved on the three cells, each arm twice: code +2.4% decode and acceptance 57.68 -> 60.20, long code +7.6% and acceptance 30.63 -> 35.49, with long Chinese the disclosed cost at -6.8% decode and acceptance 41.20 -> 35.02. Quality costs +0.098% corpus perplexity overall and +0.257% on the worst domain. Depth moved from 4 to 5 on 2026-10-09 and the arc is recorded rather than tidied: at fp8, depth 5 won long code 158.2 against 140.2 tok/s and long Chinese 215.7 against 121.8, so the lane moved; at the format it now ships (k8v4) the published cell loses 7.2% decode and 9.3 acceptance points, and the move was reverted on that; it was then re-applied once the comparison was made the way the rule is written -- maximin compares each option's WORST deciding cell, and depth 5's worst (long code 168.9) beats depth 4's (146.2) by 15.5%, with acceptance's worst rising too (42.8 against 35.5). The per-cell comparison was the error, not the measurement.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
@@ -143,9 +143,9 @@ if not errorlevel 1 (
 "%SERVE%" "%MODEL%" ^
   --vision ^
   --spec mtp ^
-  --draft-tokens 4 ^
+  --draft-tokens 5 ^
   --lm-head-draft ^
-  --kv-dtype fp8 ^
+  --kv-dtype k8v4 ^
   --host 127.0.0.1 ^
   --port 8091 ^
   --model-id qwen3.8-27b-swift15-v3-mtp4-vision ^

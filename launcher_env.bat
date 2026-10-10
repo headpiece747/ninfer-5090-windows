@@ -18,7 +18,7 @@ set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
 if exist "%TEMPLATE%" goto :template_resolved
 set "TEMPLATE=%~dp0tools\chat_templates\qwen3_8.jinja"
 :template_resolved
-set "QUASAR_ARGS=--chat-template %TEMPLATE% --vision --spec mtp --draft-tokens 4 --lm-head-draft --max-context 262144 --kv-capacity auto --prefill-chunk 8192 --kv-dtype fp8"
+set "QUASAR_ARGS=--chat-template %TEMPLATE% --vision --spec mtp --draft-tokens 4 --lm-head-draft --max-context 262144 --kv-capacity auto --prefill-chunk 8192 --kv-dtype k8v4"
 
 :: Select Python 3.11 explicitly per AGENTS.md. Each candidate is checked in its own labelled
 :: branch: a one-line `if <cond> for /f ...` corrupts cmd's label scan ("cannot find the batch

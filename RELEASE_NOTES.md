@@ -137,11 +137,11 @@ that earlier builds shipped.
 | Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
 | --- | --- | --- | --- | --- | --- | --- |
 | `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (9) | yes | 262,144 | **368 tok/s** | 58.0% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **229 tok/s** | 63.5% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **217 tok/s** | 64.0% |
 | `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (9) | yes | 262,144 | **380 tok/s** | 56.7% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 176 tok/s | 46.7% |
-| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **323 tok/s** | 58.3% |
-| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (4) | yes | 262,144 | 215 tok/s | 57.7% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 190 tok/s | 52.7% |
+| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **281 tok/s** | 51.8% |
+| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (5) | yes | 262,144 | 195 tok/s | 50.9% |
 | `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (9) | yes | 262,144 | **323 tok/s** | 45.9% |
 | `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 210 tok/s | 57.3% |
 
@@ -153,9 +153,11 @@ across sessions, so it is the column to trust in a comparison. Each row is its l
 carrying the identity of what measured it in `tools/release/lane_figures.json`, which the pre-commit
 hook checks; the rows were re-measured on 2026-10-09, after the 2026-09-30 pass this table was first
 built from and the 2026-10-07 re-measurement that read 10.3-48.7% lower on seven of them.
-`start_quasar_v3_dflash2_vision.bat` is the one lane shipping `--kv-dtype k8v4`; the other seven ship
-`fp8`, because the format's measured effect is artifact-dependent
-([evidence](docs/research/kv-dtype-evidence.md)). **This block said "re-measured 2026-09-30" and dated
+**Five lanes ship `--kv-dtype k8v4`** — `start_quasar_v3_dflash2_vision.bat`,
+`start_quasar_v3_mtp4_vision.bat`, `start_ninfer_v3_mtp4_vision.bat`,
+`start_swift_v3_dflash2_vision.bat` and `start_swift_v3_mtp4_vision.bat`; the other three ship `fp8`,
+because the format's measured effect is artifact-dependent and each adoption had to clear the
+code-weighted bound ([evidence](docs/research/kv-dtype-evidence.md)). **This block said "re-measured 2026-09-30" and dated
 the table to that pass as if it were current** — the figures are now the 2026-10-09 re-measurements,
 and `profiles.py` names each earlier set they replaced.
 

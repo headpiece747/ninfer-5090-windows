@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from make_launchers_v3 import render  # noqa: E402
-from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, template_path  # noqa: E402
+from profiles import PROFILES, QUASAR, NVFP4FULL, cli_args, launcher_args, template_path  # noqa: E402
 from v3_profile_matrix import build_args  # noqa: E402
 from bench_opencode_settings import PROFILES as BENCH_PROFILES  # noqa: E402
 
@@ -202,6 +202,17 @@ def main() -> int:
                         if line.startswith("| `") and f"`{profile['file']}`" in line), "")
             check(f"{doc} pairs {profile['file']} with {want}", want in row,
                   f"row reads: {row.strip()[:100]}")
+        # A prose count of a configuration drifts silently: "one lane ships k8v4" became four and then
+        # five in a single day, each time caught by reading rather than by a gate. Assert the sentence's
+        # number against the rows.
+        words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
+                 8: "eight"}
+        stated = re.search(r"\*\*(\w+) lanes ship `--kv-dtype k8v4`\*\*", body)
+        k8v4_rows = len([p for p in PROFILES if p.get("kv_dtype") == "k8v4"])
+        check(f"{doc} states the k8v4 lane count correctly",
+              stated is not None
+              and stated.group(1).lower() == words.get(k8v4_rows, str(k8v4_rows)),
+              f"doc says {stated.group(1) if stated else 'nothing'}, rows have {k8v4_rows}")
         for retired in RETIRED:
             check(f"{doc} free of retired {retired}", retired not in body)
         check(f"{doc} free of sub-262k ceilings", "163,840" not in body and "180,224" not in body)
@@ -255,6 +266,19 @@ def main() -> int:
         for flag in ("--kv-capacity", "--kv-dtype", "--spec", "--draft-tokens",
                      "--max-context", "--vision", "--lm-head-draft"):
             check(f"the probe emits {flag} even though it varies it", flag in probe_flags)
+        # And the other half of the same class: a flag that leaves the invariant list entirely is
+        # dropped by the probe while the launchers keep it -- which is how kv-dtype silently stopped
+        # being passed at all. Assert the probe's flag set covers a launcher's, allowing the flags it
+        # deliberately varies and --device-state-slots, which the probe omits because the server's
+        # default is the value every launcher ships (1); that omission is noted rather than fixed here.
+        launcher_profile = next(p for p in PROFILES if p["file"] == "start_quasar_v3_dflash2_vision.bat")
+        launcher_flags = {token for token in launcher_args(launcher_profile) if token.startswith("--")}
+        varied = {"--kv-capacity", "--kv-dtype", "--spec", "--draft-tokens", "--max-context",
+                  "--lm-head-draft", "--vision", "--host", "--port", "--model-id",
+                  "--device-state-slots"}
+        missing = launcher_flags - probe_flags - varied
+        check("the probe covers every launcher flag it does not vary", not missing,
+              f"missing {sorted(missing)}")
 
     # download_model.py no longer fetches artifacts at all -- it fetches the SOURCE checkpoints this
     # port builds every artifact from, because each shipped image is produced locally ("converter:
