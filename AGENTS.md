@@ -527,7 +527,12 @@ Sixty-six rules, each earned by a failure rather than chosen:
   session: a multi-paragraph message passed with `-m` split on its own quotes and became
   pathspecs, and a file under `tools/build/` was silently ignored because `.gitignore` has
   `build/` with no leading slash, which matches at any depth. Use `git commit -F <file>` for
-  anything longer than a line, and check `git log -1` or `git status` after every commit.
+  anything longer than a line, and check `git log -1` or `git status` after every commit. **And a
+  failed attempt leaves the index staged**: four commits blocked at a gate had each staged their files,
+  the hook's failure does not unstage them, and the first commit after the gate was fixed took the whole
+  index -- four units of work under one unit's message, pushed before anyone noticed. Commit with
+  explicit paths (`git commit <paths> -F <msg>`), or reset the index between attempts, and read the file
+  list in `git show --stat` rather than the exit code alone.
 - **Prove an extraction by byte-identity.** Regenerating output that must not change is stronger
   evidence than re-running the behavior, because it rules out any change at all.
 - **Revert every diagnostic probe before committing, and never commit its rationale.** A threshold
