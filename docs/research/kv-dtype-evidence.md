@@ -275,7 +275,10 @@ and disclosed rather than vetoing. For the format this is decisive: the candidat
 decision rested on Chinese, which is why the lanes are being re-read on served code rather than
 grandfathered.
 
-**Outcomes, measured the same day.** Four lanes ship `k8v4` and four keep `fp8`:
+**Outcomes, measured the same day.** Five lanes ship `k8v4` and three keep `fp8` — **corrected
+2026-10-10: this sentence said "four and four", which its own table below already contradicted;
+`tools/release/profiles.py` carries five `kv_dtype="k8v4"` rows and three `"fp8"` ones, and the README's
+count gate checks the same number.** The table itself stands.
 
 | lane | deciding cells, interleaved | decision |
 |---|---|---|
