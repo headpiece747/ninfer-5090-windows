@@ -318,9 +318,11 @@ none moved a lane, but three overturned a *reading*:
 - **Global**: refused. `("--kv-dtype", "k8v4")` sat in `INVARIANT_FLAGS` during the investigation and was
   withdrawn; the worst single cell loses 36% decode and 19 acceptance points.
 - **Per-lane**: `kv-dtype` is now a per-profile field (`varying_flags`, rendered from each row), because the
-  per-lane column is where an artifact-dependent setting belongs. One row uses it:
+  per-lane column is where an artifact-dependent setting belongs. **At that stage one row used it**:
   `start_quasar_v3_dflash2_vision.bat` ships `k8v4`, on +13.8% decode and +9.5 acceptance points on its
   published cell, +27.3/+35.2% on its served cells, for +0.144% corpus perplexity (+0.202% worst domain).
+  **Corrected 2026-10-10: five rows use it now and three keep `fp8` — the outcomes table above is the count
+  that stands; this sentence read as current while describing the first decision.**
 - **The depth was re-swept under the new format** rather than inherited: on long Chinese the two depths tie
   under k8v4 (188.9 against 188.5 tok/s) where fp8 had depth 9 ahead by 8.8%, and on long code depth 9 leads
   by 15.1% (212.4 against 184.6, spreads 0.4/0.3%) where fp8 had depth 7 ahead by 3.3%. Maximin takes depth 9
