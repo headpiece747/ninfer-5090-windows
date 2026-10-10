@@ -185,7 +185,7 @@ def fetch_gauges(base: str, timeout: float = 10.0) -> dict[str, float]:
     their per-cycle floor immediately, and a per-cycle floor series is what the regression below reads.
     """
     wanted = ("device_kv_used_pages", "host_context_used_bytes", "device_state_used_slots",
-              "host_context_peak_bytes")
+              "host_context_peak_bytes", "host_context_capacity_bytes")
     try:
         with urllib.request.urlopen(f"{base}/metrics", timeout=timeout) as response:
             text = response.read().decode("utf-8", errors="replace")
@@ -396,6 +396,8 @@ def main() -> int:
             print(f"      {json.dumps(payload)[:400]}")
 
     print(f"    growth: {growth_summary(samples)}", flush=True)
+    capacity = max((entry.get("host_context_capacity_bytes", 0.0) for entry in samples), default=0.0)
+    peak = max((entry.get("host_context_peak_bytes", 0.0) for entry in samples), default=0.0)
     for key in ("device_kv_used_pages", "host_context_used_bytes"):
         points = cycle_floors(samples, key)
         verdict = slope_with_ci(points)
@@ -403,9 +405,15 @@ def main() -> int:
             print(f"    {key}: no verdict ({len(points)} cycle floors)", flush=True)
             continue
         slope, low, high = verdict
-        state = "LEAK (interval excludes zero)" if low > 0 or high < 0 else "flat within noise"
+        state = "rising (interval excludes zero)" if low > 0 or high < 0 else "flat within noise"
         print(f"    {key}: {len(points)} cycle floors, slope {slope:+.1f} per cycle "
               f"[{low:+.1f}, {high:+.1f}] 95% -> {state}", flush=True)
+    if capacity > 0.0:
+        print(f"    host context: high-water {peak / 2**30:.2f} GiB of {capacity / 2**30:.2f} GiB "
+              f"({100.0 * peak / capacity:.1f}%) -- a *cache*: a rising floor with the pool near full is "
+              "saturation, not a leak. Only a rising floor on a pool that is NOT near full is a leak, and "
+              "a floor still rising at the end of a short run is unresolved rather than either.",
+              flush=True)
     try:
         fetch_model(base)
         print("lane still answering /v1/models: no crash in this run")

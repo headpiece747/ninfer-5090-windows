@@ -826,16 +826,17 @@ Sixty-six rules, each earned by a failure rather than chosen:
   `IsProcessInJob` false, and a job member's children escape anyway (`SILENT_BREAKAWAY_OK`), so a close can
   kill only the middle process, never the tree. What reproduces the signature exactly is a **console
   teardown**: closing a console kills every attached process in the same second, exits `0xC000013A`, and
-  leaves no WER report and no event-log entry -- which is what all three deaths left. So the escape is
-  **no console at all**, verified by observation rather than assumed: `GetConsoleWindow()` is NULL for the
-  uv-managed interpreter launched directly under `DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB`, and
-  non-NULL for `vllm-env\Scripts\python.exe` under the same flags, because the venv trampoline allocates
-  one. A long detached run therefore launches the managed interpreter directly, and checks for a
-  `conhost.exe` in its own tree instead of trusting the flag. **And the trigger is named**: the service
+  leaves no WER report and no event-log entry -- which is what all three deaths left. **And the escape is
+  detachment, corrected 2026-10-10 by the field result**: the 5.5-hour soak that followed, launched with
+  `DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB` from a launcher that exits (so its parent chain reaches no
+  shell), ran through **five** hourly evictions and completed all 220 cycles *while carrying consoles of
+  its own* -- so the console is a separate hazard, not this vector: the eviction interrupts the session and
+  the shell tool's finalizer tears down the shell's own process tree, which a detached child escapes by not
+  being in it. `tools/scripts/check_console_free.py` still guards the console hazard, not this one. **And the trigger is named**: the service
   evicts and re-boots a location about hourly, and every shell that location hosts dies with it -- the log
   line is `"location services evicted"` followed by `InterruptError: All fibers interrupted without error
-  at ServerProcess.start`. A detached, console-free tree survives those evictions in the field; a hosted
-  one does not. Upstream: `anomalyco/opencode` #51828 and its siblings, twelve open PRs, none merged, and
+  at ServerProcess.start`. A detached tree survives those evictions in the field -- with consoles attached,
+  which is how the 5.5-hour soak ran -- while a hosted one does not. Upstream: `anomalyco/opencode` #51828 and its siblings, twelve open PRs, none merged, and
   no user-facing TTL setting in 2.0.26 -- and even a surviving detached job loses its completion
   notification, so the per-step log file is the only reliable report of a long run. Instruments, the
   falsified alternatives and two probe defects found on the way:

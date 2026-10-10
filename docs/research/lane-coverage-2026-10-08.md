@@ -338,8 +338,21 @@ mean by 7.6%. At the new format the published cell reads **367.9 tok/s at 58.0%*
   was taken before commit 8306f79d changed that lane's depth, so the row paired one depth's figures with
   the other's setting. The other seven lanes measure 4-15% faster than published, which is drift rather
   than a defect, and the acceptance columns reproduce exactly.
-- **item 1-5, 8 of the coverage list are now closed.** Still open and instrument-ready: soak, the
-  cancellation and queue cases, and cross-path determinism. Spec correctness at temperature > 0 closed
+- **item 1-5, 8 of the coverage list are now closed.** Still open and instrument-ready: the
+  cancellation and queue cases, and cross-path determinism. **Soak closed 2026-10-10**: 220 cycles of
+  chunked context fill (125k tokens) plus a 2,048-token decode each, 5.5 h on the shipped QUASAR DFlash2
+  lane, no crash and no growth -- host RSS 10,141 -> 10,187 MiB (+8.3 MiB/h whole-run, **+0.2 MiB/h in the
+  second half**), device flat to negative. The run survived five hourly location evictions, which is what
+  a detached launch buys (`docs/research/silent-shell-death-2026-10-10.md`). Its instrumentation changed
+  afterwards: the verdict is now a slope with a 95% interval on the engine's own counters
+  (`device_kv_used_pages`, `host_context_used_bytes`) rather than on RSS, so the same check runs in
+  minutes instead of hours. **Proved on a 10-cycle run (8 minutes of soak):** `device_kv_used_pages` floors
+  read flat within noise (slope +130 pages/cycle, [-118, +378]) -- the same verdict the 5.5-hour run
+  reached -- while `host_context_used_bytes` read as rising (slope +0.8 GB/cycle) *at 97.5% of its
+  capacity*. That is a **cache that fills and saturates**, not a leak, and it is why the run now prints the
+  high-water mark beside the slope: a rising floor on a pool that is not near full is a leak; a rising
+  floor on one that is near full is saturation, and a floor still rising at the end of a short run is
+  unresolved rather than either. Spec correctness at temperature > 0 closed
   2026-10-09: the engine-side accept rule already had an independent sampling oracle
   (`tests/ops/test_speculative_round.cpp` applies temperature, top_k, min_p, top_p and both penalties in
   `sparse_target_distribution`), and the assembled route reads no detectable difference between the

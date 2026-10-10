@@ -196,7 +196,10 @@ implementation to read, **not** a sweep of a value that is already determined.
 - **Task accuracy** → keep the paired design, size it by power, add one executable code task.
 - **Spec correctness** → port vLLM's chi-squared and greedy-equality tests, and cover the sampling parameters
   their own issue says are untested.
-- **Soak** → keep, and instrument leak and drift so a slow failure is a result.
+- **Soak** → keep, and instrument leak and drift so a slow failure is a result. **Done 2026-10-10**: the
+  instrument reports a slope with a 95% interval on the engine's own exact counters rather than on RSS, and
+  the first full run read flat -- 220 cycles, 5.5 h, no crash, host RSS +0.2 MiB/h in the second half
+  (`docs/research/lane-coverage-2026-10-08.md`).
 - **Drafter precision** → confirmed; add the n-gram supplement and the break-even instrument.
 - **q/k vs v/o** → mostly answered (K ≫ V, and `k8v4` is already the answer); verify k8v4 on served domains.
 - **MLP A8→A16** → reframe to sweeping the `activation_input_divisor` the converter already exposes.

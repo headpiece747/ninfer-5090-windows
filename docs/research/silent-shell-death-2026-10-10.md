@@ -40,9 +40,21 @@ spawned three ways, reports its own `GetConsoleWindow()` --
 | the uv-managed interpreter directly, same flags | **NULL** |
 | `vllm-env\Scripts\python.exe`, no flags | NULL (it inherits this shell, which has none) |
 
-So a long detached run must launch the **managed interpreter directly**, and console-freedom is checked
+So a long detached run should launch the **managed interpreter directly**, and console-freedom is checked
 by observation (`GetConsoleWindow()` in the process, or a `conhost.exe` whose parent is in the tree), not
 assumed. The monitors watching the running soak were relaunched that way and confirmed console-free.
+
+**Corrected 2026-10-10 by the field result: the console is *not* the vector here, and detachment is.**
+The 5.5-hour soak that followed -- launched detached (`DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB`, its
+launcher exiting so its parent chain no longer reaches any shell) -- **ran through five hourly evictions
+and completed all 220 cycles, while carrying consoles of its own** (`check_console_free.py` reports two
+`conhost`s inside that tree, and it did the same for the short soak that followed). So a console teardown
+*can* kill a tree -- arm A showed that -- but the harness's eviction does not kill through the console: it
+interrupts the session and the shell tool's finalizer tears down **the shell's own process tree**, which is
+what the upstream reporter describes and what a detached child escapes by not being in that tree. The
+escape is therefore **detachment**, and `check_console_free.py` guards a *different* hazard, not this one.
+The three earlier deaths are consistent with this: the first soak was launched by a harness shell and
+stayed in its tree, so the tree kill reached it.
 
 ## Instrument defects found on the way
 
