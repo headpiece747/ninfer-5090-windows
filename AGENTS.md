@@ -821,4 +821,15 @@ Sixty-six rules, each earned by a failure rather than chosen:
   job close kills its members silently -- no flush, no traceback, which is the signature both deaths had.
   The trigger that fired twice remains unreproduced, but the escape is verified: `CREATE_BREAKAWAY_FROM_JOB`
   is allowed here, so a long step launched with it survives a job close that takes the driver and its own
-  log keeps the result.
+  log keeps the result. **CORRECTED 2026-10-10 after a third silent death (a 220-cycle soak, cycle 68 of
+  220): the job object is not the mechanism.** The live tree's lane and outer driver report
+  `IsProcessInJob` false, and a job member's children escape anyway (`SILENT_BREAKAWAY_OK`), so a close can
+  kill only the middle process, never the tree. What reproduces the signature exactly is a **console
+  teardown**: closing a console kills every attached process in the same second, exits `0xC000013A`, and
+  leaves no WER report and no event-log entry -- which is what all three deaths left. So the escape is
+  **no console at all**, verified by observation rather than assumed: `GetConsoleWindow()` is NULL for the
+  uv-managed interpreter launched directly under `DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB`, and
+  non-NULL for `vllm-env\Scripts\python.exe` under the same flags, because the venv trampoline allocates
+  one. A long detached run therefore launches the managed interpreter directly, and checks for a
+  `conhost.exe` in its own tree instead of trusting the flag. Instruments, the falsified alternatives and
+  two probe defects found on the way: `docs/research/silent-shell-death-2026-10-10.md`.
