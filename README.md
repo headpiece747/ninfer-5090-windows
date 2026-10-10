@@ -280,8 +280,12 @@ Two build notes specific to Windows:
   timed wait in a process that has not raised the resolution resolves on the 15.625 ms system timer:
   measured before the change, `initial_binding` was bimodal at 0.9 ms or 16.0-17.0 ms and a request
   paid 18-45 ms of `queue_wait` + `initial_binding` + loop slack, against a flat 2.0-2.6 ms after.
-  Windows 10 2004 and later apply the request per-process, so only this server's timer changes; the
-  CLI and perplexity apps run the same engine loop and do not raise it.
+  Windows 10 2004 and later apply the request per-process, so only this server's timer changes. The
+  *generation* loop is the one that polls: the CLI runs it without raising the resolution and pays the
+  quanta once per invocation, which is invisible beside model load, while perplexity does not run it at
+  all -- `EnginePurpose::CausalScoring` takes a core that waits on a predicate (`causal_score_core.h`),
+  so it is notified rather than timed out. **(An earlier version of this note said the CLI and
+  perplexity "run the same engine loop"; that is true of the CLI and false of perplexity.)**
 
 ## Startup notes
 

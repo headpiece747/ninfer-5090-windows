@@ -325,8 +325,11 @@ mean by 7.6%. At the new format the published cell reads **367.9 tok/s at 58.0%*
   requests, the unpatched binary (`build-test`, built 2026-10-09 21:38) reads `initial_binding`
   16.1/16.1/15.5 with `queue_wait` 18.8/13.0/13.5/15.2/15.0 and `total` 77.3 ms mean; the patched one
   reads a flat 2.0-2.6 with 0.0-5.6 and 56.3 ms mean. Decode and acceptance are unmoved (fingerprint
-  `code` cell 320.1 tok/s / 45.9%). The CLI and perplexity apps run the same engine loop and do not
-  raise the resolution.
+  `code` cell 320.1 tok/s / 45.9%). **Corrected 2026-10-10: the CLI runs this generation loop and does
+  not raise the resolution** -- once per invocation, invisible beside model load -- **and perplexity
+  does not run it at all**: `EnginePurpose::CausalScoring` (`apps/perplexity/main.cpp:253`) takes the
+  causal-score core, whose wait is a predicate (`causal_score_core.h:141`) and therefore notified
+  rather than timed out. The first version of this paragraph claimed both apps shared the loop.
 - **Measured 2026-10-09: the VRAM columns are not stale.** All eight lanes were started through their own
   launchers and read their `capacity` lines: every `runtime` agrees to 0.00 GiB and every `free` to within
   0.07 GiB (seven within 0.03). What *is* stale is the throughput pair on one row and, favourably, the
