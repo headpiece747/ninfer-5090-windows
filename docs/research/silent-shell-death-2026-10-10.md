@@ -56,14 +56,32 @@ assumed. The monitors watching the running soak were relaunched that way and con
   the `conhost.exe` list -- so they were exposed to the teardown they exist to observe. Relaunched
   console-free.
 
-## What remains unknown, and the candidate trigger
+## The trigger, found in the harness's own log
 
-The **trigger** -- what closed the console -- is not identified. One pattern is worth recording because it
-fits all three deaths: **each dead shell had produced no output for a long time** (the soak's driver
-printed "lane up" and then nothing for 96 minutes, its per-turn output going to its own log). Whether a
-silent background shell is torn down by the harness is **not verified** for the chains, whose driver
-output pattern was never recorded, so this is a candidate to test rather than a finding.
+The harness logs every event it handles, and the death second is in it. At **15:24:25Z** (local 11:24:25,
+the second the soak's tree died) the service evicted and re-booted the location for this directory:
 
-The recurrence is now instrumented: two console-free monitors sample the soak tree (outer driver, middle
-driver, lane, client, console host) every 5 s and will record which dies first -- which is the one fact
-none of the three deaths produced.
+    15:24:25.015  "location services evicted" directory="C:\AI\ninfer-v3-windows"
+    15:24:25.027  "watcher stopped" (a burst of them)
+    15:24:25.188  "location services booted" ... durationMs=95
+    15:24:25.197  cause="InterruptError: All fibers interrupted without error at ServerProcess.start"
+
+A shell is hosted by that location's server process, so the eviction kills its whole tree at once -- arm A's
+signature, produced by the harness itself. The cadence is **roughly hourly per location**: 2026-10-10 shows
+12:14, 13:15, 14:16, 15:17, 15:24, 16:18, 17:19, 17:32, 18:20, 18:33, 19:21Z, and **2026-10-09 shows 34**
+(00:38, 01:39, 02:40 ... 22:00, 23:01, 23:39Z). That covers the two chain deaths as well: their shells were
+hosted the same way, and an hourly reaper ran throughout the window in which they died. Their own death
+*times* were never recorded, so that attribution rests on the mechanism being available and firing, not on
+a timestamp.
+
+**The escape is confirmed in the field, not only in the lab.** The detached, console-free soak ran straight
+through this location's later evictions (17:32Z and 18:33Z) and kept serving, while every hosted shell in
+the same window died with its location. `tools/scripts/check_console_free.py` is the verification, and
+`GetConsoleWindow()` is the in-process test.
+
+## What remains unknown
+
+**Why the service evicts a location about hourly** -- a policy, a leak, or a bug -- is opencode's business
+and not something this diagnosis can settle from outside. It is worth reporting upstream; the log lines
+above are the reproduction. The monitors stay in place for a recurrence, though the mechanism is now
+understood well enough that a recurrence would add little.

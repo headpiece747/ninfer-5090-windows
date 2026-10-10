@@ -831,5 +831,9 @@ Sixty-six rules, each earned by a failure rather than chosen:
   uv-managed interpreter launched directly under `DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB`, and
   non-NULL for `vllm-env\Scripts\python.exe` under the same flags, because the venv trampoline allocates
   one. A long detached run therefore launches the managed interpreter directly, and checks for a
-  `conhost.exe` in its own tree instead of trusting the flag. Instruments, the falsified alternatives and
-  two probe defects found on the way: `docs/research/silent-shell-death-2026-10-10.md`.
+  `conhost.exe` in its own tree instead of trusting the flag. **And the trigger is named**: the service
+  evicts and re-boots a location about hourly, and every shell that location hosts dies with it -- the log
+  line is `"location services evicted"` followed by `InterruptError: All fibers interrupted without error
+  at ServerProcess.start`. A detached, console-free tree survives those evictions in the field; a hosted
+  one does not. Instruments, the falsified alternatives and two probe defects found on the way:
+  `docs/research/silent-shell-death-2026-10-10.md`.
