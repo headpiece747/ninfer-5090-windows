@@ -105,12 +105,20 @@ def main() -> int:
     parser.add_argument("--models", type=Path, default=MODELS,
                         help="where the artifacts live")
     parser.add_argument("--no-write", action="store_true", help="measure and report, record nothing")
+    parser.add_argument("--kv-dtype", choices=["bf16", "int8", "fp8", "nvfp4", "k8v4"],
+                        help="override every selected lane's KV format, for a format A/B; the record "
+                             "carries the value actually passed, because the profile dict is what the "
+                             "matrix builds arguments from -- editing the launcher file does nothing")
     args = parser.parse_args()
 
     selected = [profile for profile in PROFILES if not args.files or profile["file"] in args.files]
     cells = [cell for cell in CELLS if not args.cell or cell[0] in args.cell]
     if not selected or not cells:
         raise SystemExit("no lane or cell selected")
+    if args.kv_dtype:
+        for profile in selected:
+            profile["kv_dtype"] = args.kv_dtype
+        print(f"    KV format overridden to {args.kv_dtype} for {len(selected)} lane(s)")
     stage_cells([cell[0] for cell in cells])
 
     # The matrix launches its own EXE constant, which lives inside its own tree -- and a CI checkout has no
