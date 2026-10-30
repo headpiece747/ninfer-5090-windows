@@ -3,7 +3,10 @@
 
 #include "ops/moe/kernels/cuda/block_scaled/nvfp4/dgx_spark/launch.cuh"
 
+#include "ops/moe/kernels/cuda/block_scaled/pool_down.cuh"
+
 #include <algorithm>
+#include <bit>
 #include <climits>
 
 namespace ninfer::ops::detail::moe_cuda::block_scaled::nvfp4 {
@@ -27,21 +30,26 @@ __global__ void quantize_input(const __nv_bfloat16* x, std::uint8_t* codes, std:
     }
 }
 
-template <bool Gate, int Columns, bool Atomic, int Stages, int KStep, int Eviction,
-          bool CachedExpertMajor = false>
+template <int Intermediate, bool Gate, int Columns, bool Atomic, int Stages, int KStep,
+          int Eviction, bool CachedExpertMajor = false>
 void launch_mma(const Tensor& x, const CudaSwiGLUExperts& experts, const ExpertRoutes& routes,
                 const Storage& s, const Plan& plan, CudaExecutionView execution,
                 int minimum_expert_count = 0, int maximum_expert_count = 0x7fffffff) {
-    using S               = Schedule<Columns, Gate, Stages, KStep, Eviction>;
-    constexpr int rows    = Gate ? kIntermediate : kHidden;
-    const int job_columns = plan.job_columns();
-    const int subtiles    = job_columns / Columns;
-    const int max_jobs    = (kTopK * x.ne[1] / job_columns + kExperts) * subtiles;
-    const int blocks      = std::min(max_jobs * (rows / S::rows),
-                                     execution.multiprocessor_count() * plan.queued_ctas_per_sm);
-    constexpr auto kernel =
-        grouped_mma<Columns, Gate, Atomic, Stages, KStep, Eviction, CachedExpertMajor>;
-    constexpr int bytes = sizeof(TileStorage<S>) > 48 * 1024 ? sizeof(TileStorage<S>) : 0;
+    constexpr int reduction   = Gate ? kHidden : Intermediate;
+    constexpr int stage_limit = (reduction + KStep - 1) / KStep;
+    constexpr int stages      = Stages < stage_limit ? Stages : stage_limit;
+    using S                   = Schedule<Columns, Gate, stages, KStep, Eviction, Intermediate>;
+    constexpr int rows        = Gate ? Intermediate : kHidden;
+    const int job_columns     = plan.job_columns();
+    // A load class never visits column tiles beyond its maximum expert count.
+    const int covered_columns = std::min(job_columns, maximum_expert_count);
+    const int subtiles        = std::bit_ceil(unsigned((covered_columns + Columns - 1) / Columns));
+    const int max_jobs        = (kTopK * x.ne[1] / job_columns + kExperts) * subtiles;
+    const int blocks          = std::min(max_jobs * (rows / S::rows),
+                                         execution.multiprocessor_count() * plan.queued_ctas_per_sm);
+    constexpr auto kernel     = grouped_mma<Columns, Gate, Atomic, stages, KStep, Eviction,
+                                            CachedExpertMajor, Intermediate>;
+    constexpr int bytes       = sizeof(TileStorage<S>) > 48 * 1024 ? sizeof(TileStorage<S>) : 0;
     if constexpr (bytes) {
         static const auto status =
             cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, bytes);
@@ -56,23 +64,24 @@ void launch_mma(const Tensor& x, const CudaSwiGLUExperts& experts, const ExpertR
         static_cast<std::uint8_t*>(s.product_scales), s.contributions,
         static_cast<const float*>(routes.coefficients.data), s.routed_sum, subtiles,
         plan.nvfp4.down_row_window, static_cast<int>(plan.nvfp4.cache), minimum_expert_count,
-        maximum_expert_count);
+        maximum_expert_count, plan.pool_expert_limit, plan.pool_min_experts,
+        plan.pool_token_threshold);
     CUDA_CHECK(cudaGetLastError());
 }
 
-template <bool Gate, int Columns, bool Atomic = false>
+template <int Intermediate, bool Gate, int Columns, bool Atomic = false>
 void launch_tuned_mma(const Tensor& x, const CudaSwiGLUExperts& experts, const ExpertRoutes& routes,
                       const Storage& s, const Plan& plan, CudaExecutionView execution,
                       int minimum_expert_count = 0, int maximum_expert_count = 0x7fffffff) {
     if (plan.nvfp4.pipeline == Nvfp4Pipeline::K128 &&
         plan.nvfp4.cache == Nvfp4CachePolicy::Cached && (Gate || plan.nvfp4.down_row_window == 0)) {
-        launch_mma<Gate, Columns, Atomic, 2, 128, 0, true>(
+        launch_mma<Intermediate, Gate, Columns, Atomic, 2, 128, 0, true>(
             x, experts, routes, s, plan, execution, minimum_expert_count, maximum_expert_count);
         return;
     }
-    with_nvfp4_tuning<Columns>(
+    with_nvfp4_tuning<Columns, true, Intermediate == 320 && !Gate && Columns == 128>(
         plan.nvfp4.pipeline, plan.nvfp4.cache, [&]<int Stages, int KStep, int Eviction>() {
-            launch_mma<Gate, Columns, Atomic, Stages, KStep, Eviction>(
+            launch_mma<Intermediate, Gate, Columns, Atomic, Stages, KStep, Eviction>(
                 x, experts, routes, s, plan, execution, minimum_expert_count, maximum_expert_count);
         });
 }
@@ -111,15 +120,22 @@ void launch_input(const Tensor& x, const CudaSwiGLUExperts& experts, const Stora
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_experts(const Tensor& x, const CudaSwiGLUExperts& experts, const ExpertRoutes& routes,
-                    const Plan& plan, const Storage& s, CudaExecutionView execution) {
+template <int Intermediate>
+void launch_experts_impl(const Tensor& x, const CudaSwiGLUExperts& experts,
+                         const ExpertRoutes& routes, const Plan& plan, const Storage& s,
+                         CudaExecutionView execution) {
     const int limit  = plan.dense.gate_columns ? plan.small_expert_limit : INT_MAX;
     const auto phase = [&]<bool Gate>() {
-        const auto project = [&](const Plan& tuning, int first, int last) {
+        const auto project = [&](const Plan& selected, int first, int last) {
+            if (first >= x.ne[1]) return;
+            auto tuning = selected;
+            if constexpr (!Gate) {
+                if (tuning.nvfp4_down) tuning.nvfp4 = *tuning.nvfp4_down;
+            }
             with_columns(Gate ? tuning.gate_columns : tuning.down_columns, [&]<int C>() {
                 const auto launch = [&]<bool Atomic>() {
-                    launch_tuned_mma<Gate, C, Atomic>(x, experts, routes, s, tuning, execution,
-                                                      first, last);
+                    launch_tuned_mma<Intermediate, Gate, C, Atomic>(x, experts, routes, s, tuning,
+                                                                    execution, first, last);
                 };
                 if constexpr (Gate) {
                     launch.template operator()<false>();
@@ -140,36 +156,61 @@ void launch_experts(const Tensor& x, const CudaSwiGLUExperts& experts, const Exp
             tuning.gate_columns       = schedule.gate_columns;
             tuning.down_columns       = schedule.down_columns;
             tuning.nvfp4              = schedule.tuning;
+            tuning.nvfp4_down         = schedule.down_tuning;
             tuning.queued_ctas_per_sm = schedule.queued_ctas_per_sm;
             project(tuning, first, last);
         };
         project(plan, 0, limit);
-        if (plan.medium.gate_columns) load_class(plan.medium, limit, plan.medium.max_load);
-        if (plan.dense.gate_columns)
-            load_class(plan.dense, plan.medium.gate_columns ? plan.medium.max_load : limit,
-                       INT_MAX);
+        int first = limit;
+        for (const auto* schedule : {&plan.medium, &plan.large, &plan.dense}) {
+            if (!schedule->gate_columns) continue;
+            load_class(*schedule, first, schedule->max_load);
+            first = schedule->max_load;
+        }
     };
     phase.template operator()<true>();
     if (plan.column_major_down) {
         launch_column_jobs(s.groups, x.ne[1], plan.job_columns(), plan.preserve_balanced_down,
                            execution);
     }
+    if constexpr (Intermediate == 320) {
+        if (plan.pool_expert_limit) {
+            const auto run = [&]<int C>() {
+                launch_pool_down<kHidden, kExperts, kTopK, C>(
+                    PoolContraction<C>{s.product_codes,
+                                       static_cast<const std::uint8_t*>(s.product_scales),
+                                       experts.bank.down, *experts.activation_divisors.down},
+                    s.groups, static_cast<const int*>(routes.ids.data),
+                    static_cast<const float*>(routes.coefficients.data), s.routed_sum, x.ne[1],
+                    plan.pool_min_experts, plan.pool_expert_limit, plan.pool_row_window,
+                    plan.pool_queued_ctas_per_sm, execution, plan.pool_token_threshold);
+            };
+            if (plan.pool_columns == 32)
+                run.template operator()<32>();
+            else if (plan.pool_columns == 128)
+                run.template operator()<128>();
+            else
+                throw std::logic_error("invalid expert pool column tile");
+        }
+    }
     phase.template operator()<false>();
 }
 
-void launch_vector(const Tensor& x, const CudaSwiGLUExperts& experts, const ExpertRoutes& routes,
-                   ExpertSubset subset, bool shared, MoeEpilogue mode, Tensor& destination,
-                   const Storage& s, CudaExecutionView execution) {
+template <int Intermediate>
+void launch_vector_impl(const Tensor& x, const CudaSwiGLUExperts& experts,
+                        const ExpertRoutes& routes, ExpertSubset subset, bool shared,
+                        MoeEpilogue mode, Tensor& destination, const Storage& s,
+                        CudaExecutionView execution) {
     const auto stream        = execution.stream();
     const auto* ids          = static_cast<const int*>(routes.ids.data);
     const auto* mask         = static_cast<const int*>(subset.mask.data);
     const auto* coefficients = static_cast<const float*>(routes.coefficients.data);
-    vector_gate<<<dim3(kIntermediate / 4, x.ne[1] * kTopK), 128, 0, stream>>>(
+    vector_gate<Intermediate><<<dim3(Intermediate / 4, x.ne[1] * kTopK), 128, 0, stream>>>(
         static_cast<const __nv_bfloat16*>(x.data), experts.bank.gate_up, ids, subset.kind, mask,
         s.vector_activation);
     CUDA_CHECK(cudaGetLastError());
     const auto down = [&](auto output) {
-        vector_down<8, 2><<<dim3(kHidden / 8, x.ne[1]), 2 * 32, 0, stream>>>(
+        vector_down<Intermediate, 8, 2><<<dim3(kHidden / 8, x.ne[1]), 2 * 32, 0, stream>>>(
             s.vector_activation, experts.bank.down, ids, coefficients, subset.kind, mask, output);
         CUDA_CHECK(cudaGetLastError());
     };
@@ -178,5 +219,24 @@ void launch_vector(const Tensor& x, const CudaSwiGLUExperts& experts, const Expe
     } else {
         with_output(destination, mode, down);
     }
+}
+
+void launch_experts(const Tensor& x, const CudaSwiGLUExperts& experts, const ExpertRoutes& routes,
+                    const Plan& plan, const Storage& s, CudaExecutionView execution) {
+    if (plan.intermediate == 320)
+        launch_experts_impl<320>(x, experts, routes, plan, s, execution);
+    else
+        launch_experts_impl<640>(x, experts, routes, plan, s, execution);
+}
+
+void launch_vector(const Tensor& x, const CudaSwiGLUExperts& experts, const ExpertRoutes& routes,
+                   ExpertSubset subset, bool shared, MoeEpilogue mode, Tensor& destination,
+                   const Storage& s, const Plan& plan, CudaExecutionView execution) {
+    if (plan.intermediate == 320)
+        launch_vector_impl<320>(x, experts, routes, subset, shared, mode, destination, s,
+                                execution);
+    else
+        launch_vector_impl<640>(x, experts, routes, subset, shared, mode, destination, s,
+                                execution);
 }
 } // namespace ninfer::ops::detail::moe_cuda::block_scaled::nvfp4

@@ -62,7 +62,7 @@ frontier. A Device-resident checkpoint resumes directly. Under pressure, the pla
 retention, pinned Host State/KV, and eviction by immediate restore work and later reuse cost. Active
 requests retain their completion reservations.
 
-See [Resource scheduling and context cache](docs/maintainer/resource-scheduling-and-context-cache.md)
+See [Resource scheduling and context cache](docs/maintainer/context-management.md)
 for the algorithm and [Serve TTFT benchmark](tools/bench/ttft/) for public-HTTP coverage of hot
 reuse, Host resume, eviction, shared prefixes, scheduling boundaries, and multimodal load.
 
@@ -144,14 +144,14 @@ ships, and every profile reaches the full native context. **Three lanes ship `--
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **305 tok/s** | 54.8% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 210 tok/s | 59.7% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (9) | yes | 262,144 | **366 tok/s** | 51.7% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 213 tok/s | 56.1% |
-| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **319 tok/s** | 50.9% |
-| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 216 tok/s | 58.0% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **314 tok/s** | 44.9% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 173 tok/s | 45.4% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **262 tok/s** | 45.5% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 188 tok/s | 57.1% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (9) | yes | 262,144 | **314 tok/s** | 47.3% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 163 tok/s | 45.6% |
+| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **310 tok/s** | 56.7% |
+| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 180 tok/s | 51.7% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **292 tok/s** | 45.6% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 165 tok/s | 46.7% |
 
 Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
 runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after
@@ -283,7 +283,7 @@ Qwen3.8-Flash-Next uses CPU/GPU Main experts, disk-backed NF4 PLE and segmented 
 Its native MTP uses the full shared head; DFlash/DFlash2 and optimized proposal heads are not
 supported for this architecture. See the [CLI commands](docs/cli.md),
 [conversion recipe](docs/weight-conversion.md) and
-[current support reference](docs/maintainer/qwen4_exp-execution.md).
+[current support reference](docs/maintainer/qwen4_exp-model.md).
 
 The product boundary remains intentionally small:
 
@@ -309,7 +309,7 @@ startup planning headroom. Explicit capacities remain fixed for the process life
 - [Performance](docs/performance.md)
 - [Perplexity evaluation](docs/perplexity.md)
 - [Weight conversion and custom recipes](docs/weight-conversion.md)
-- [Resource scheduling and context cache](docs/maintainer/resource-scheduling-and-context-cache.md)
+- [Resource scheduling and context cache](docs/maintainer/context-management.md)
 - [Serve TTFT benchmark](tools/bench/ttft/)
 - [CLI examples](examples/cli/)
 - [Contributing](CONTRIBUTING.md)

@@ -37,7 +37,7 @@ captures[offered=0 no_vacancy=0 plan_refused=0 infeasible=0 completed=2 aborted=
 `path=1` is `PrefixReusePath::PrivateEndpoint`; the case requires `PrivateTurnClosure` (2). The KV
 prefix is reused (316 tokens), no State is restored (`state_h2d=0`), and one private owner is degraded.
 
-Upstream's design intent, in `docs/maintainer/resource-scheduling-and-context-cache.md` §4.3, says the
+Upstream's design intent, in `docs/maintainer/context-management.md` §保存、来源与回收, says the
 last part cannot happen: after a checkpoint is published its identity, frontier and required coverage
 are unchanged, and only Device/Host placement may move.
 

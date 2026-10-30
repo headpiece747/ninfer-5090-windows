@@ -147,6 +147,19 @@ public:
                 "finite native unit was not reserved");
     }
 
+    void append_forced(q35::SequenceHandle sequence, std::span<const TokenId> tokens) {
+        const std::array members{sequence};
+        const std::array<std::optional<std::uint32_t>, 1> splits{std::nullopt};
+        while (!tokens.empty()) {
+            const auto n =
+                std::min<std::size_t>(tokens.size(), program_.plan.profile->control_token_limit);
+            require(n != 0, "fixture has no prepared control input");
+            reserve(sequence, q35::ExecutionUnitKind::Control, n);
+            (void)driver_.control(members, tokens.first(n), n, splits);
+            tokens = tokens.subspan(n);
+        }
+    }
+
     void prefill_prefix(q35::SequenceHandle sequence, std::uint32_t tokens) {
         std::uint32_t processed = 0;
         while (processed < tokens) {
@@ -685,9 +698,7 @@ public:
         const std::array<q35::SequenceHandle, 1> members{active};
         std::array<TokenId, kChunk> forced;
         forced.fill(198);
-        const std::array<std::optional<std::uint32_t>, 1> splits{std::nullopt};
-        reserve(active, q35::ExecutionUnitKind::Control, forced.size());
-        (void)driver_.control(members, forced, forced.size(), splits);
+        append_forced(active, forced);
         endpoint_input.insert(endpoint_input.end(), forced.begin(), forced.end());
         reserve(active, q35::ExecutionUnitKind::Decode, 1);
         const std::array<runtime::RoundBudget, 1> budgets{{{.generated_tokens_remaining = 1}}};
@@ -1079,9 +1090,7 @@ public:
             if (releases_suffix) {
                 std::array<TokenId, kChunk> forced;
                 forced.fill(198);
-                const std::array<std::optional<std::uint32_t>, 1> splits{std::nullopt};
-                reserve(active, q35::ExecutionUnitKind::Control, forced.size());
-                (void)driver_.control(members, forced, forced.size(), splits);
+                append_forced(active, forced);
             }
             reserve(active, q35::ExecutionUnitKind::Decode, 1);
             const std::array<runtime::RoundBudget, 1> budgets{{{.generated_tokens_remaining = 1}}};
@@ -1986,7 +1995,7 @@ int main(int argc, char** argv) {
         options.max_context              = kCapacity;
         options.prefill_chunk            = kChunk;
         options.max_concurrency          = 2;
-        options.kv_cache                 = KvCacheStorage::Fp8E4M3Row256;
+        options.kv_cache                 = KvCacheStorage::Fp8E4m3fnGroup128Ue8m0;
         options.use_cuda_graph           = false;
         options.speculative.backend      = backend;
         options.speculative.draft_tokens = backend == SpeculativeBackend::None ? 0U : 3U;

@@ -1,7 +1,12 @@
 #include "ninfer/engine.h"
 #include "context_budget.h"
-#include "ninfer/kv_storage.h"
+#include "ninfer/kv_cache_format.h"
+#include "symbol_interpose.h"
 
+#include <cuda_runtime_api.h>
+
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -12,6 +17,25 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#ifndef _MSC_VER
+namespace {
+
+std::atomic<bool> fail_next_event_query{false};
+std::atomic<bool> event_failure_injected{false};
+
+} // namespace
+
+extern "C" cudaError_t CUDARTAPI cudaEventQuery(cudaEvent_t event) {
+    static const auto real =
+        ninfer::test::next_symbol<cudaError_t (*)(cudaEvent_t)>("cudaEventQuery");
+    if (fail_next_event_query.exchange(false)) {
+        event_failure_injected.store(true);
+        return cudaErrorInvalidResourceHandle;
+    }
+    return real(event);
+}
+#endif // !_MSC_VER
 
 namespace {
 
@@ -73,7 +97,7 @@ ninfer::EngineOptions shared_rewrite_materialization_engine_options(const char* 
     options.artifact_path                     = artifact;
     options.max_context                       = 100000;
     options.prefill_chunk                     = 1024;
-    options.kv_cache                          = ninfer::KvCacheStorage::Fp8E4M3Row256;
+    options.kv_cache                          = ninfer::KvCacheStorage::Fp8E4m3fnGroup128Ue8m0;
     options.speculative.backend               = ninfer::SpeculativeBackend::Mtp;
     options.speculative.draft_tokens          = 3;
     options.speculative.proposal_head         = ninfer::ProposalHead::Optimized;
@@ -94,6 +118,13 @@ ninfer::EngineOptions explicit_anchor_engine_options(const char* artifact) {
     options.max_pending_requests              = 1;
     options.context_cache.host_capacity_bytes = 0;
     ninfer::test::qwen3_5::set_context_capacity(options, 4);
+    // The materialization source and its destination coexist through the handover, and the
+    // computed capacity covers one working set. Measured with this artifact: the computed value
+    // alone (1,231,634,432 bytes at max_context 512) leaves the request stalled in materializing
+    // forever, while twice that serves. The engine half is upstream's deadlock and is written up
+    // in docs/upstream-reports/ninfer-small-context-reuse-hang.md.
+    options.context_capacity = ninfer::ContextCapacityPolicy::explicit_capacity(
+        options.context_capacity.explicit_bytes * 2U);
     return options;
 }
 
@@ -258,6 +289,8 @@ int exercise_stream_observations(ninfer::Engine& engine) {
     ninfer::GenerationHandle generation =
         engine.submit(engine.prepare_tokens(std::move(prompt)), std::move(request),
                       ninfer::OutputConsumerMode::Streaming, observation);
+    generation.wait_for_admission();
+    generation.wait_for_admission();
     const ninfer::GenerationResult result = generation.wait(&sink);
     if (result.generated_token_ids.size() != 3 || !sink.valid_for(result)) {
         std::cerr
@@ -290,6 +323,199 @@ int exercise_stream_observations(ninfer::Engine& engine) {
         std::cerr << "cancellation before output fabricated a first-output snapshot\n";
         return 1;
     }
+    return 0;
+}
+
+int exercise_admission_wait(ninfer::Engine& engine) {
+    const auto prompt = [&] {
+        return engine.prepare_tokens({248045, 846, 198, 5834, 248046, 198});
+    };
+    ninfer::RequestOptions request;
+    request.execution.requested_output_tokens = 4090;
+    request.execution.sampling.temperature    = 0.0F;
+    request.execution.allow_prefix_reuse      = false;
+    request.stop.include_model_defaults       = false;
+
+    auto active = engine.submit(prompt(), request);
+    active.wait_for_admission();
+    request.execution.requested_output_tokens = 1;
+
+    auto prepared = prompt();
+    auto pending =
+        engine.submit(std::move(prepared), request, ninfer::OutputConsumerMode::Streaming, {},
+                      std::chrono::steady_clock::now() + std::chrono::milliseconds(30));
+    bool timed_out = false;
+    try {
+        pending.wait_for_admission();
+    } catch (const ninfer::RequestError& error) {
+        timed_out = error.kind() == ninfer::RequestErrorKind::QueueTimeout;
+    }
+    ObservationSink pending_sink;
+    bool retained_error = false;
+    try {
+        (void)pending.wait(&pending_sink);
+    } catch (const ninfer::RequestError& error) {
+        retained_error = error.kind() == ninfer::RequestErrorKind::QueueTimeout;
+    }
+    if (!timed_out || !retained_error || pending_sink.published_output()) {
+        std::cerr << "admission wait lost the pending deadline or consumed the failure\n";
+        return 1;
+    }
+    const auto after_timeout = engine.snapshot().runtime;
+    if (after_timeout.waiting_requests != 0 ||
+        after_timeout.running_requests + after_timeout.materializing_requests != 1) {
+        std::cerr << "pending timeout was visible before its scheduling snapshot\n";
+        return 1;
+    }
+
+    auto cancelled             = engine.submit(prompt(), request);
+    bool cancellation_reported = false;
+    try {
+        cancelled.wait_for_admission(ninfer::CancellationView([] { return true; }));
+    } catch (const ninfer::RequestError& error) {
+        cancellation_reported = error.kind() == ninfer::RequestErrorKind::Cancelled;
+    }
+    const auto cancelled_result = cancelled.wait();
+    if (!cancellation_reported ||
+        cancelled_result.finish_reason != ninfer::FinishReason::Cancelled ||
+        !cancelled_result.generated_token_ids.empty()) {
+        std::cerr << "admission cancellation did not settle the pending request\n";
+        return 1;
+    }
+    const auto after_pending_cancel = engine.snapshot().runtime;
+    if (after_pending_cancel.waiting_requests != 0 ||
+        after_pending_cancel.running_requests + after_pending_cancel.materializing_requests != 1) {
+        std::cerr << "pending cancellation changed the surviving request's membership\n";
+        return 1;
+    }
+
+    request.execution.requested_output_tokens = 0;
+    auto immediate                            = engine.submit(prompt(), request);
+    immediate.wait_for_admission();
+    const auto immediate_result = immediate.wait();
+    if (immediate_result.finish_reason != ninfer::FinishReason::OutputLimit ||
+        !immediate_result.generated_token_ids.empty()) {
+        std::cerr << "admission wait blocked or consumed an immediate result\n";
+        return 1;
+    }
+
+    const auto stopped = active.wait(nullptr, ninfer::CancellationView([] { return true; }));
+    if (stopped.finish_reason != ninfer::FinishReason::Cancelled) {
+        std::cerr << "admitted request did not retain its cancellation lifetime\n";
+        return 1;
+    }
+    return 0;
+}
+
+void require_no_requests(const ninfer::RuntimeStats& stats) {
+    if (stats.running_requests || stats.waiting_requests || stats.materializing_requests ||
+        stats.paused_requests || stats.replaying_requests || stats.prefilling_requests ||
+        stats.decode_ready_requests || stats.capture_pending_requests ||
+        stats.terminal_pending_requests) {
+        throw std::runtime_error("terminal response preceded logical membership release");
+    }
+}
+
+int exercise_terminal_publication(ninfer::Engine& engine) {
+    const auto prompt = [&] {
+        return engine.prepare_tokens({248045, 846, 198, 5834, 248046, 198});
+    };
+    ninfer::RequestOptions request;
+    request.execution.sampling.temperature = 0.0F;
+    request.execution.allow_prefix_reuse   = false;
+    request.stop.include_model_defaults    = false;
+
+    for (const bool cancel : {false, true}) {
+        const auto before                         = engine.snapshot();
+        request.execution.requested_output_tokens = cancel ? 128 : 1;
+        bool first_token                          = false;
+        ninfer::GenerationObservationOptions observation;
+        observation.first_token = [&](const auto&) { first_token = true; };
+        auto handle = engine.submit(prompt(), request, ninfer::OutputConsumerMode::Aggregate,
+                                    std::move(observation));
+        const auto result =
+            handle.wait(nullptr, ninfer::CancellationView([&] { return cancel && first_token; }));
+        const auto after = engine.snapshot();
+        require_no_requests(after.runtime);
+        if (!first_token ||
+            result.finish_reason !=
+                (cancel ? ninfer::FinishReason::Cancelled : ninfer::FinishReason::OutputLimit) ||
+            after.stamp.sequence <= before.stamp.sequence ||
+            after.runtime.generated_tokens - before.runtime.generated_tokens !=
+                result.generated_token_ids.size()) {
+            throw std::runtime_error("terminal response lost committed output or its snapshot");
+        }
+    }
+    if (const int result = exercise_admission_wait(engine); result != 0) { return result; }
+    require_no_requests(engine.snapshot().runtime);
+
+    const auto features = engine.snapshot().ranks.at(0).memory.vision->max_window_features;
+    int side            = 32;
+    while (std::uint64_t(side / 32) * (side / 32) <= features) { side += 32; }
+    ninfer::MessagePart image;
+    image.kind              = ninfer::MessagePartKind::Media;
+    image.media.kind        = ninfer::MediaKind::Image;
+    image.media.bytes       = gradient_ppm(side, side);
+    image.media.media_type  = "image/x-portable-pixmap";
+    image.media.source_name = "above-window.ppm";
+    ninfer::ChatMessage message;
+    message.role = ninfer::ChatRole::User;
+    message.parts.push_back(std::move(image));
+    message.parts.push_back(ninfer::MessagePart{.text = "Describe this image."});
+    ninfer::PromptInput input;
+    input.options.enable_thinking = false;
+    input.messages.push_back(std::move(message));
+    request.execution.requested_output_tokens = 1;
+    auto rejected     = engine.submit(engine.prepare(std::move(input)), request);
+    bool budget_error = false;
+    try {
+        (void)rejected.wait();
+    } catch (const ninfer::RequestError& error) {
+        budget_error = error.kind() == ninfer::RequestErrorKind::MediaBudgetExceeded;
+    }
+    require_no_requests(engine.snapshot().runtime);
+    if (!budget_error || !engine.is_available()) {
+        throw std::runtime_error("native request rejection did not settle independently");
+    }
+
+#ifndef _MSC_VER
+    // Both an admitted and a queued request must observe the same instance failure only after
+    // all logical membership has been released. The injected error leaves CUDA usable for cleanup.
+    request.execution.requested_output_tokens = 4090;
+    ninfer::GenerationObservationOptions failure_observation;
+    failure_observation.first_token = [](const auto&) { fail_next_event_query.store(true); };
+    auto active = engine.submit(prompt(), request, ninfer::OutputConsumerMode::Aggregate,
+                                std::move(failure_observation));
+    active.wait_for_admission();
+    auto pending = engine.submit(prompt(), request);
+    std::string first_error;
+    for (auto* handle : {&active, &pending}) {
+        std::string error;
+        try {
+            (void)handle->wait();
+        } catch (const std::exception& failure) { error = failure.what(); }
+        require_no_requests(engine.snapshot().runtime);
+        if (error.find("cudaEventQuery failed") == std::string::npos || engine.is_available()) {
+            throw std::runtime_error("instance failure did not preserve its execution error");
+        }
+        if (first_error.empty()) first_error = error;
+        if (error != first_error) {
+            throw std::runtime_error("instance failure changed across affected requests");
+        }
+    }
+    if (!event_failure_injected.load()) {
+        throw std::runtime_error("terminal failure fixture did not reach execution");
+    }
+    std::cout << "terminal publication: completion, cancellation, queue/native errors and instance "
+                 "failure\n";
+#else
+    // Interposing cudaEventQuery needs dlsym(RTLD_NEXT), which MSVC does not have, so the
+    // instance-failure case is not exercised here. Reported rather than silently skipped so the
+    // gap stays visible; the completion and cancellation parts above still run.
+    std::cout << "terminal publication: completion and cancellation; "
+                 "SKIP: cudaEventQuery failure injection is unavailable on MSVC, "
+                 "instance-failure case not exercised\n";
+#endif
     return 0;
 }
 
@@ -326,6 +552,7 @@ int exercise_abandoned_handle_capacity(ninfer::Engine& engine) {
             std::cerr << "abandonment fixture did not create a generation handle\n";
             return 1;
         }
+        abandoned.wait_for_admission();
     }
     const auto crossed = engine.generate(engine.prepare_tokens(prompt), request);
     if (crossed.generated_token_ids.size() != 1) {
@@ -1444,7 +1671,6 @@ int exercise_rewrite_branch(const char* artifact) {
 
 int exercise_late_instructions(const char* artifact) {
     auto configured = explicit_anchor_engine_options(artifact);
-    ninfer::test::qwen3_5::set_context_capacity(configured);
     ninfer::Engine engine(std::move(configured));
     const auto text_message = [](ninfer::ChatRole role, std::string text) {
         ninfer::ChatMessage message;
@@ -1872,6 +2098,7 @@ int exercise_artifact(const char* artifact) {
         if (const int result = verify_loaded_product(engine); result != 0) { return result; }
         if (const int result = exercise_artifact_frontend(engine); result != 0) { return result; }
         if (const int result = exercise_stream_observations(engine); result != 0) { return result; }
+        if (const int result = exercise_admission_wait(engine); result != 0) { return result; }
         if (const int result = exercise_full_prefill_chunk(engine); result != 0) { return result; }
         if (const int result = exercise_rewrite_checkpoints(engine); result != 0) { return result; }
         if (const int result = exercise_prefix(engine); result != 0) { return result; }
@@ -1904,7 +2131,7 @@ int exercise_attention_integration(const char* artifact) {
         return std::string_view(value && *value ? value : fallback);
     };
     const auto storage =
-        ninfer::parse_kv_storage(setting("NINFER_TEST_KV_DTYPE", "bf16"));
+        ninfer::kv_cache_storage_from_option(setting("NINFER_TEST_KV_DTYPE", "bf16"));
     const auto backend_name = setting("NINFER_TEST_SPECULATIVE", "mtp");
     ninfer::SpeculativeBackend backend;
     if (backend_name == "none")
@@ -2057,19 +2284,27 @@ int main() {
         ninfer::test::qwen3_5::set_context_capacity(options, 2);
         ninfer::Engine engine(std::move(options));
         result = exercise_rewrite_checkpoints(engine);
-    } else if (scenario == "stream-observations") {
+    } else if (scenario == "terminal-publication" || scenario == "stream-observations") {
         auto options          = engine_options(artifact);
-        options.enable_vision = false;
+        options.enable_vision = scenario == "terminal-publication";
+        if (options.enable_vision) { options.vision_memory_budget_bytes = 64ULL << 20; }
         options.context_cache = ninfer::ContextCacheOptions{.enabled = false};
         ninfer::test::qwen3_5::set_context_capacity(options);
         ninfer::Engine engine(std::move(options));
-        result = exercise_stream_observations(engine);
+        if (scenario == "terminal-publication") {
+            result = exercise_abandoned_handle_capacity(engine);
+            if (result == 0) { result = exercise_terminal_publication(engine); }
+        } else {
+            result = exercise_stream_observations(engine);
+            if (result == 0) { result = exercise_admission_wait(engine); }
+            if (result == 0) { result = exercise_abandoned_handle_capacity(engine); }
+        }
     } else {
         std::cerr << "unknown prefix integration scenario: " << scenario << '\n'
                   << "  valid: all, agent-continuation, anthropic-prefix-regression, attention,"
                      " concurrent, explicit-anchor, explicit-prefix, late-instructions,"
                      " nested-tool-markers, rewrite-checkpoint, shared-rewrite-materialization,"
-                     " stream-observations, vision\n";
+                     " stream-observations, terminal-publication, vision\n";
         return 1;
     }
     } catch (const std::exception& error) {

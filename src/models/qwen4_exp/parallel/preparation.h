@@ -17,12 +17,16 @@ public:
 
     RankPreparation(const artifact::Reader&, std::span<const std::byte>,
                     const distributed::RankIdentity&, DeviceContext&,
-                    const distributed::ExecutionTopology&, distributed::CommunicationContext&);
+                    const distributed::ExecutionTopology&, distributed::CommunicationContext&,
+                    const StartupObserver&);
 
     [[nodiscard]] runtime::PreparationMemory memory() const;
     void materialize();
+    void prepare_communication();
     void prepare_probe();
     void calibrate();
+    void prepare_rebuild_probe();
+    void calibrate_rebuild();
     void prepare_execution();
     [[nodiscard]] runtime::RankPreparationReport report(std::size_t available_bytes) const;
 
@@ -34,6 +38,7 @@ public:
     [[nodiscard]] std::unique_ptr<Instance> finish() &&;
 
 private:
+    void create_probe(GraphProbeBacking);
     EngineOptions options_;
     DeviceContext& device_;
     ParallelBinding binding_;

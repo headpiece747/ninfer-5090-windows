@@ -35,9 +35,12 @@ RankProgramImpl::~RankProgramImpl() {
 }
 
 WorkContract RankProgramImpl::contract() const {
-    return {shape, parameters.profile->config.text.vocabulary, parameters.profile->public_tokens,
+    return {shape,
+            parameters.profile->config.text.vocabulary,
+            parameters.profile->public_tokens,
             parameters.profile->local.size,
-            resources.vision ? resources.vision->capacity().max_features : 0};
+            resources.vision ? resources.vision->capacity().max_features : 0,
+            parameters.profile->control_token_limit};
 }
 
 void RankProgramImpl::validate_work(const Work& work, runtime::FrameKind kind) const {
@@ -190,13 +193,12 @@ void RankProgramImpl::advance_context() {
             bindings[lane]  = b.member;
             if (!resources.plan.frame.token_counts) continue;
             auto counts = resources.tensor(*resources.plan.frame.token_counts).slice(1, lane, 1);
-            if (b.generated.empty())
+            if (b.counts.empty())
                 CUDA_CHECK(cudaMemsetAsync(counts.data, 0, counts.bytes(), transfer.stream()));
             else {
                 auto* host =
                     static_cast<std::int32_t*>(resources.context_counts().data) + i * vocabulary;
-                std::fill_n(host, vocabulary, 0);
-                for (auto id : b.generated) ++host[id];
+                b.counts.restore({host, vocabulary});
                 copy_bytes_async({counts.data, counts.bytes(), transfer.device()},
                                  {host, counts.bytes(), Device::cpu(), true}, transfer);
             }
@@ -310,7 +312,9 @@ RankMemoryUsage RankProgram::observe_resources() const { return impl_->memory();
 
 RankMemoryBudget RankProgram::resource_budget() const { return impl_->budget(); }
 
-void RankProgram::prepare_execution() { impl_->prepare_graphs(); }
+GraphPreparationSample RankProgram::prepare_execution(GraphPreparationMode mode) {
+    return impl_->prepare_graphs(mode);
+}
 
 void RankProgram::release_execution() { impl_->release_graphs(); }
 

@@ -10,10 +10,18 @@ inline constexpr int kScoreRows = (kExperts + 4) / 4 * 4;
 
 enum class SharedAlgorithm { Vector, Mma };
 
+struct Fp8LoadTuning {
+    int maximum_small_load = 0;
+    int large_gate_columns = 0, large_down_columns = 0;
+    int large_queued_ctas_per_sm = 0;
+    int maximum_large_load = 0, dense_queued_ctas_per_sm = 0;
+};
+
 struct Plan {
     // Policies select these widths from slice M, but each tile covers assignments
     // belonging to one expert. The entry policy owns the maximum slice size.
     QType format     = QType::NVFP4;
+    int intermediate = kIntermediate;
     int gate_columns = 0, down_columns = 0;
     bool vector                = false;
     bool atomic_output         = false;
@@ -29,12 +37,22 @@ struct Plan {
     int shared_columns     = 32;
     int queued_ctas_per_sm = 0;
 
+    int pool_min_experts = 0, pool_expert_limit = 0, pool_columns = 0;
+    int pool_row_window = 0, pool_queued_ctas_per_sm = 0;
+    int pool_token_threshold = 0;
+
     Nvfp4Tuning nvfp4;
+    std::optional<Nvfp4Tuning> nvfp4_down;
+    Fp8LoadTuning fp8;
     int group_columns = 0, small_expert_limit = 0;
-    Nvfp4LoadSchedule medium, dense;
+    Nvfp4LoadSchedule medium, large, dense;
 
     int job_columns() const {
-        const int columns = gate_columns > down_columns ? gate_columns : down_columns;
+        int columns = gate_columns > down_columns ? gate_columns : down_columns;
+        if (fp8.maximum_small_load) {
+            if (fp8.large_gate_columns > columns) columns = fp8.large_gate_columns;
+            if (fp8.large_down_columns > columns) columns = fp8.large_down_columns;
+        }
         return columns > group_columns ? columns : group_columns;
     }
 };

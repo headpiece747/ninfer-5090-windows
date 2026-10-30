@@ -18,13 +18,16 @@ namespace wire = distributed::wire;
 // Abort communication before releasing owners that may wait on device work.
 template <class Preparation>
 void run_rank(distributed::WorkerConnection& connection, std::unique_ptr<artifact::Reader> reader,
-              std::span<const std::byte> payload) {
+              const RankPreparationRequest& request) {
     using Types = typename Preparation::Types;
     std::unique_ptr<Preparation> preparing;
     std::unique_ptr<typename Preparation::Instance> instance;
     try {
-        const auto attempt = prepare_rank(connection, std::move(reader), payload, preparing);
+        const auto attempt = prepare_rank(connection, std::move(reader), request.model_payload,
+                                          request.memory_headroom_bytes, preparing);
         if (attempt) {
+            const auto observer = connection.startup_observer();
+            StartupPhaseScope phase(observer, StartupPhase::EngineFinalize);
             auto codec = preparing->codec(connection.topology());
             instance   = std::move(*preparing).finish();
             preparing.reset();
@@ -33,6 +36,7 @@ void run_rank(distributed::WorkerConnection& connection, std::unique_ptr<artifac
             wire::Encoder ready;
             ready.u64(connection.topology().plan);
             ready.u32(*attempt);
+            phase.complete();
             connection.send(wire::Kind::Ready, std::move(ready).take());
             while (loop.advance()) std::this_thread::yield();
         }
@@ -45,32 +49,12 @@ void run_rank(distributed::WorkerConnection& connection, std::unique_ptr<artifac
     }
 }
 
-void warm_communication(distributed::WorkerConnection& connection) {
-    auto& device = connection.device();
-    DeviceBuffer words(device.device(), 4096);
-    try {
-        words.fill();
-        for (const auto& group : connection.topology().groups) {
-            const auto rank = connection.bootstrap().identity.rank;
-            if (std::find(group.members.begin(), group.members.end(), rank) == group.members.end())
-                continue;
-            connection.communication().group(group.id).enqueue(
-                distributed::Collective::AllReduce, words.data(), words.data(), 1024, DType::FP32,
-                distributed::Reduction::Sum, 0, device.execution_view());
-        }
-        device.synchronize();
-    } catch (const std::exception& error) {
-        connection.fail(error.what());
-        throw;
-    }
-}
 } // namespace
 
 void run_worker(distributed::WorkerBootstrap bootstrap) {
     distributed::WorkerConnection connection(std::move(bootstrap));
     try {
         std::cerr << distributed::rank_description(connection.bootstrap().identity) << std::endl;
-        warm_communication(connection);
         auto message = receive_preparation_command(connection);
         if (message.kind == wire::Kind::Shutdown) {
             connection.shutdown();
@@ -79,17 +63,23 @@ void run_worker(distributed::WorkerBootstrap bootstrap) {
         if (message.kind != wire::Kind::Prepare)
             throw std::runtime_error("worker expected a model preparation request");
         wire::Decoder in(message.payload);
-        if (in.u64() != connection.topology().plan)
-            throw std::runtime_error("worker model plan identity differs");
-        const auto payload = in.bytes();
+        const auto request = decode_preparation_request(in);
         in.finish();
-        auto reader = std::make_unique<artifact::Reader>(connection.bootstrap().artifact);
+        if (request.plan != connection.topology().plan)
+            throw std::runtime_error("worker model plan identity differs");
+        const auto observer = connection.startup_observer();
+        std::unique_ptr<artifact::Reader> reader;
+        {
+            StartupPhaseScope phase(observer, StartupPhase::ArtifactInspect);
+            reader = std::make_unique<artifact::Reader>(connection.bootstrap().artifact);
+            phase.complete();
+        }
         switch (models::resolve_architecture(reader->directory())) {
         case models::Architecture::Qwen4Exp:
-            run_rank<models::qwen4_exp::RankPreparation>(connection, std::move(reader), payload);
+            run_rank<models::qwen4_exp::RankPreparation>(connection, std::move(reader), request);
             break;
         case models::Architecture::Glm5Next:
-            run_rank<models::glm5next::RankPreparation>(connection, std::move(reader), payload);
+            run_rank<models::glm5next::RankPreparation>(connection, std::move(reader), request);
             break;
         default:
             throw std::invalid_argument("architecture has no distributed worker implementation");

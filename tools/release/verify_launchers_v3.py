@@ -114,20 +114,21 @@ def main() -> int:
         rec: dict = {"bat": bat, "port": port, "model_id": model_id, "vision": vision,
                      "spec": spec, "ready": ready, "startup_seconds": round(secs, 1),
                      "vram_before_mib": vram_before, "vram_freed": freed}
-        # The engine reports the KV it actually committed, which is the real ceiling.
+        # The engine reports the KV it can commit as an estimate, on the `context` line, and the
+        # rank's runtime/free on the `rank 0` line. Upstream split these across lines (e5e18b974),
+        # and the estimate carries a `~`, so each is matched by its own pattern rather than only
+        # inside the `capacity |` line.
         capacity = 0
         runtime = free = ""
         for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
-            if "capacity |" not in line:
-                continue
-            match = re.search(r"KV ([\d,]+) tokens", line)
+            match = re.search(r"KV ~?([\d,]+) tokens", line)
             if match:
                 capacity = int(match.group(1).replace(",", ""))
             for part in line.split("|"):
                 part = part.strip()
                 if part.startswith("runtime"):
                     runtime = part
-                elif part.startswith("free"):
+                elif "free" in part:
                     free = part
         rec["kv_committed"] = capacity
         rec["runtime"] = runtime

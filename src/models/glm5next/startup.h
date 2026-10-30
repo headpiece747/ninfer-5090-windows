@@ -13,6 +13,8 @@
 namespace ninfer::models::glm5next {
 class ExecutionCodec;
 
+[[nodiscard]] KvCacheVectorFormat index_format_from_environment();
+
 // Owns the same rank instance from weight materialization through execution activation.
 // Reader is borrowed until materialize(); DeviceContext and communicators outlive the instance.
 class RankPreparation {
@@ -23,7 +25,8 @@ public:
                     ContextCommunication = {});
     RankPreparation(const artifact::Reader&, std::span<const std::byte>,
                     const distributed::RankIdentity&, DeviceContext&,
-                    const distributed::ExecutionTopology&, distributed::CommunicationContext&);
+                    const distributed::ExecutionTopology&, distributed::CommunicationContext&,
+                    const StartupObserver&);
     ~RankPreparation();
     RankPreparation(const RankPreparation&)            = delete;
     RankPreparation& operator=(const RankPreparation&) = delete;
@@ -31,8 +34,11 @@ public:
     [[nodiscard]] runtime::PreparationMemory memory() const;
     [[nodiscard]] runtime::RankPreparationReport report(std::size_t available_bytes) const;
     void materialize();
+    void prepare_communication();
     void prepare_probe();
     void calibrate();
+    void prepare_rebuild_probe();
+    void calibrate_rebuild();
     void prepare_execution();
     void prepare(runtime::ContextCapacity, std::size_t available_bytes,
                  std::size_t available_host_bytes);
@@ -42,6 +48,7 @@ public:
     [[nodiscard]] std::unique_ptr<Instance> finish() &&;
 
 private:
+    void create_probe(std::size_t context_bytes);
     DeviceContext& device_;
     EngineOptions options_;
     ContextCommunication peer_;
@@ -76,10 +83,11 @@ public:
 private:
     std::shared_ptr<const ModelDefinition> definition_;
     RankPlan rank_;
+    KvCacheVectorFormat index_format_;
 };
 
 [[nodiscard]] std::string prefill_signature(const ModelDefinition&, std::uint32_t chunk,
-                                            std::uint32_t ranks);
+                                            std::uint32_t ranks, std::uint32_t ep_size);
 
 [[nodiscard]] Frontend create_frontend(const ModelDefinition&, const EngineOptions&);
 

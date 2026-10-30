@@ -1,5 +1,6 @@
 #pragma once
 #include "models/common/parallel_execution.h"
+#include "models/common/graph_preparation.h"
 #include "models/glm5next/execution/parameters.h"
 #include "models/glm5next/program/resources.h"
 #include "models/glm5next/work.h"
@@ -17,7 +18,7 @@ public:
     RankProgram(const RankProgram&)            = delete;
     RankProgram& operator=(const RankProgram&) = delete;
 
-    [[nodiscard]] runtime::ExecutionCapacity capacity() const noexcept { return {1, 1}; }
+    [[nodiscard]] static constexpr runtime::ExecutionCapacity capacity() noexcept { return {1, 1}; }
 
     void validate_work(const Work&, runtime::FrameKind) const;
     void start(runtime::ExecutionRequest<ExecutionTypes>&&);
@@ -29,7 +30,7 @@ public:
     [[nodiscard]] bool can_discard(runtime::ExecutionTicket) const;
     [[nodiscard]] std::optional<runtime::ExecutionEvent<ExecutionTypes>> poll();
     void drain();
-    void prepare_execution();
+    GraphPreparationSample prepare_execution(GraphPreparationMode = GraphPreparationMode::Complete);
     void release_execution();
     [[nodiscard]] const ExecutionPlan& plan() const;
     [[nodiscard]] MemorySpan input_storage();

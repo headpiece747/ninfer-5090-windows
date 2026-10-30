@@ -8,6 +8,6 @@ It preserves tile-aligned NVFP4 subview scale offsets and admits lookup codebook
 without requiring activation Use metadata that conversion does not produce.
 
 Use a compatible `.ninfer` artifact with a DFlash2 component and select
-`--spec dflash2 --draft-tokens 7`; see [DFlash semantics](../maintainer/dflash.md).
+`--spec dflash2 --draft-tokens 7`; see [speculative execution](../maintainer/speculative-decoding.md).
 This patch contains neither a converter recipe nor Windows, HQ or long-context changes.
 Conversion allocation and model-quality qualification remain separate from runtime support.

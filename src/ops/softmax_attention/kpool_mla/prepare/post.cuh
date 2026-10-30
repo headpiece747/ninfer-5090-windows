@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ops/softmax_attention/kpool_mla/prepare/coordinates.cuh"
+#include "ops/softmax_attention/kpool_mla/index_fp8.cuh"
 #include "ops/common/cuda/reduce.cuh"
 
 namespace ninfer::ops::detail::kpool {
@@ -135,13 +136,70 @@ __device__ __forceinline__ void raw_pool(const PrepareArguments& a, std::int64_t
     __syncthreads();
 }
 
+__device__ __forceinline__ float pooled_feature(const PrepareArguments& a, int d,
+                                                const __nv_bfloat16 (&keys)[4][128],
+                                                const __nv_bfloat16 (&gates)[4][128]) {
+    float logit[4], maximum = -CUDART_INF_F;
+#pragma unroll
+    for (int r = 0; r < 4; ++r) {
+        logit[r] = __bfloat162float(gates[r][d]) + __bfloat162float(a.ape[r * 128 + d]);
+        maximum  = fmaxf(maximum, logit[r]);
+    }
+    float sum = 0.F, value = 0.F;
+#pragma unroll
+    for (int r = 0; r < 4; ++r) {
+        const float weight = __expf(logit[r] - maximum);
+        sum += weight;
+        value = fmaf(weight, __bfloat162float(keys[r][d]), value);
+    }
+    return value / sum;
+}
+
+__device__ __forceinline__ void latent_fp8_job(const PrepareArguments& a, std::int64_t begin,
+                                               int column, float* reduction) {
+    int b, t;
+    coordinate(a, column, b, t);
+    if (t >= a.valid[b]) return;
+    const auto m   = begin + column;
+    const int lane = threadIdx.x % 32, group = threadIdx.x / 32;
+    const int first = group * 128 + lane * 4;
+    float values[4], sum = 0.F;
+#pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        values[i] = projection_value(a, column, first + i);
+        sum       = fmaf(values[i], values[i], sum);
+    }
+    sum = common::block_reduce_sum<128>(sum, reduction);
+    if (threadIdx.x == 0) reduction[0] = rsqrtf(sum / 512 + a.rms_epsilon);
+    __syncthreads();
+    float maximum = 0.F;
+#pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        values[i] *= reduction[0] * __bfloat162float(a.latent_norm[first + i]);
+        maximum = fmaxf(maximum, fabsf(values[i]));
+    }
+    const auto scale = common::fp8_ue8m0_scale(common::warp_max(maximum));
+    const unsigned codes =
+        common::fp8_quant_code2(values[0], values[1], scale.inverse_scale) |
+        unsigned(common::fp8_quant_code2(values[2], values[3], scale.inverse_scale)) << 16;
+    const int position = a.positions[m];
+    const auto page =
+        a.page_offsets[std::int64_t(a.table_rows[b]) * a.table_stride + position / 64];
+    *reinterpret_cast<unsigned*>(a.latent_fp8 + page + (position % 64) * 512 + first) = codes;
+    if (lane == 0) a.latent_scales[page + (position % 64) * 4 + group] = scale.scale;
+}
+
+template <bool Fp8Index, bool Fp8Latent = false>
 __global__ __launch_bounds__(128) void prepare_post_kernel(PrepareArguments a, std::int64_t begin,
                                                            int columns) {
     __shared__ float reduction[4];
     __shared__ __nv_bfloat16 keys[4][128], gates[4][128];
     int job = blockIdx.x;
     if (job < columns) {
-        rms_job<512, 0, false>(a, begin, job, reduction);
+        if constexpr (Fp8Latent)
+            latent_fp8_job(a, begin, job, reduction);
+        else
+            rms_job<512, 0, false>(a, begin, job, reduction);
         return;
     }
     job -= columns;
@@ -174,22 +232,24 @@ __global__ __launch_bounds__(128) void prepare_post_kernel(PrepareArguments a, s
     if (pool < full_end || !a.update) {
         raw_pool(a, begin, b, t0, frontier, end, pool, !a.update, keys, gates);
         if (pool < full_end) {
-            const int d = threadIdx.x;
-            float logit[4], maximum = -CUDART_INF_F;
-#pragma unroll
-            for (int r = 0; r < 4; ++r) {
-                logit[r] = __bfloat162float(gates[r][d]) + __bfloat162float(a.ape[r * 128 + d]);
-                maximum  = fmaxf(maximum, logit[r]);
-            }
-            float sum = 0.F, value = 0.F;
-#pragma unroll
-            for (int r = 0; r < 4; ++r) {
-                const float weight = __expf(logit[r] - maximum);
-                sum += weight;
-                value = fmaf(weight, __bfloat162float(keys[r][d]), value);
-            }
             const auto offset = a.page_offsets[a.table_rows[b] * a.table_stride + pool / 16];
-            a.index[offset / 2 + (pool % 16) * 128 + d] = __float2bfloat16_rn(value / sum);
+            if constexpr (Fp8Index) {
+                if (threadIdx.x < 32) {
+                    const int lane = threadIdx.x;
+                    float values[4];
+#pragma unroll
+                    for (int j = 0; j < 4; ++j)
+                        values[j] = pooled_feature(a, lane * 4 + j, keys, gates);
+                    const auto encoded = encode_index_lane<false>(values);
+                    auto* codes = static_cast<std::uint8_t*>(a.index) + offset + (pool % 16) * 128;
+                    reinterpret_cast<unsigned*>(codes)[lane] = encoded.codes;
+                    if (lane == 0) a.index_scales[offset + pool % 16] = encoded.scale;
+                }
+            } else {
+                const int d = threadIdx.x;
+                static_cast<__nv_bfloat16*>(a.index)[offset / 2 + (pool % 16) * 128 + d] =
+                    __float2bfloat16_rn(pooled_feature(a, d, keys, gates));
+            }
         }
     }
     if (a.update && job == 0) {

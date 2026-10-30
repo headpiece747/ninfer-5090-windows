@@ -3,7 +3,7 @@
 #include "core/paged_kv_cache.h"
 #include "ninfer/ops/kv_cache_append.h"
 #include "ninfer/ops/softmax_attention.h"
-#include "ninfer/kv_storage.h"
+#include "ninfer/kv_cache_format.h"
 #include "ops/op_tester.h"
 #include "ops/softmax_attention/oracle.h"
 
@@ -95,7 +95,7 @@ TestCacheLayout test_cache_layout(KvCacheStorage storage) {
     case KvCacheStorage::Int8Group64:
         return {{DType::I8, kHeadDim, DType::FP16, kQuantGroups},
                 {DType::I8, kHeadDim, DType::FP16, kQuantGroups}};
-    case KvCacheStorage::Fp8E4M3Row256:
+    case KvCacheStorage::Fp8E4m3fnGroup128Ue8m0:
         return {{DType::FP8_E4M3FN, kHeadDim, DType::FP16, kFp8QuantGroups},
                 {DType::FP8_E4M3FN, kHeadDim, DType::FP16, kFp8QuantGroups}};
     case KvCacheStorage::Nvfp4Group16:
@@ -724,7 +724,7 @@ HostCache make_cache(const Geometry& geometry, KvCacheStorage storage, std::int3
                                    : fp8_scale_elements(geometry, logical_capacity);
     cache.k_scale.assign(scales, 0);
     cache.v_scale.assign(scales, 0);
-    if (storage == KvCacheStorage::Fp8E4M3Row256) {
+    if (storage == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0) {
         cache.k_fp8.assign(elements, 0);
         cache.v_fp8.assign(elements, 0);
         for (std::int32_t head = 0; head < geometry.kv_heads; ++head) {
@@ -808,7 +808,7 @@ void append_cache(HostCache& cache, const std::vector<float>& k, const std::vect
                                          v_scale);
                 continue;
             }
-            if (cache.storage == KvCacheStorage::Fp8E4M3Row256) {
+            if (cache.storage == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0) {
                 const std::size_t scale =
                     fp8_scale_index(geometry, cache.logical_capacity, head, position);
                 encode_fp8_rotated_row(k, source, cache.k_fp8, target, cache.k_scale, scale);
@@ -848,7 +848,7 @@ double cache_value(const HostCache& cache, bool key, int head, int position, int
         return double(codes[index]) *
                double(f16_bits_to_f32(scales[row * kQuantGroups + d / kQuantGroup]));
     }
-    if (cache.storage == KvCacheStorage::Fp8E4M3Row256 ||
+    if (cache.storage == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0 ||
         (key && cache.storage == KvCacheStorage::Fp8KeyNvfp4Value)) {
         const auto& codes  = key ? cache.k_fp8 : cache.v_fp8;
         const auto& scales = key ? cache.k_scale : cache.v_scale;
@@ -987,7 +987,7 @@ public:
             v_.copy_from_host(v_physical.data(), v_physical.size() * sizeof(std::int8_t));
             k_scale_.copy_from_host(ks_physical.data(), ks_physical.size() * sizeof(std::uint16_t));
             v_scale_.copy_from_host(vs_physical.data(), vs_physical.size() * sizeof(std::uint16_t));
-        } else if (storage_ == KvCacheStorage::Fp8E4M3Row256) {
+        } else if (storage_ == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0) {
             const auto k_physical =
                 scatter_paged(cache.k_fp8, kHeadDim, geometry_, logical_capacity_,
                               block_table_host_, physical_pages_);
@@ -1102,7 +1102,7 @@ public:
                                                         logical_capacity_, block_table_host_);
             cache.v_scale = gather_paged<std::uint16_t>(vs_physical, kQuantGroups, geometry_,
                                                         logical_capacity_, block_table_host_);
-        } else if (storage_ == KvCacheStorage::Fp8E4M3Row256) {
+        } else if (storage_ == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0) {
             const auto k_physical  = copy_from_guarded<std::uint8_t>(k_, k_code_elements_);
             const auto v_physical  = copy_from_guarded<std::uint8_t>(v_, v_code_elements_);
             const auto ks_physical = copy_from_guarded<std::uint16_t>(k_scale_, k_scale_elements_);
@@ -1378,7 +1378,7 @@ public:
             failures += verify_exact((label + " cache-v-scale").c_str(),
                                      copy_from_guarded<std::uint16_t>(v_scale_, v_scale_elements_),
                                      expected_vs);
-        } else if (storage_ == KvCacheStorage::Fp8E4M3Row256) {
+        } else if (storage_ == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0) {
             std::vector<std::uint8_t> expected_k(k_code_elements_, 0);
             std::vector<std::uint8_t> expected_v(v_code_elements_, 0);
             std::vector<std::uint16_t> expected_ks(k_scale_elements_, 0);
@@ -1526,7 +1526,7 @@ private:
             v_scale_.copy_from_host(physical_vs.data(), physical_vs.size() * sizeof(std::uint16_t));
             return;
         }
-        if (storage_ == KvCacheStorage::Fp8E4M3Row256) {
+        if (storage_ == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0) {
             std::vector<std::uint8_t> physical_k(k_code_elements_, 0);
             std::vector<std::uint8_t> physical_v(v_code_elements_, 0);
             std::vector<std::uint16_t> physical_ks(k_scale_elements_, 0);
@@ -1622,7 +1622,7 @@ int verify_cache(const std::string& label, const HostCache& got, const HostCache
 
         failures += verify_exact((label + " cache-v-code").c_str(), got.v_i8, expected.v_i8);
         failures += verify_exact((label + " cache-v-scale").c_str(), got.v_scale, expected.v_scale);
-    } else if (expected.storage == KvCacheStorage::Fp8E4M3Row256) {
+    } else if (expected.storage == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0) {
         failures += verify_exact((label + " cache-k-code").c_str(), got.k_fp8, expected.k_fp8);
         failures += verify_exact((label + " cache-k-scale").c_str(), got.k_scale, expected.k_scale);
 
@@ -1669,7 +1669,7 @@ int verify_positions(const std::string& label, const GuardedDeviceBuffer& device
 ReductionCriterion attention_criterion(KvCacheStorage storage) {
     if (storage == KvCacheStorage::BFloat16) return kAttentionBf16Criterion;
     if (storage == KvCacheStorage::Int8Group64) return kAttentionInt8Criterion;
-    if (storage == KvCacheStorage::Fp8E4M3Row256) return kAttentionFp8Criterion;
+    if (storage == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0) return kAttentionFp8Criterion;
     if (storage == KvCacheStorage::Nvfp4Group16) return kAttentionNvfp4Criterion;
     if (storage == KvCacheStorage::Fp8KeyNvfp4Value) return kAttentionK8V4Criterion;
     throw std::logic_error("unregistered causal-attention test storage");
@@ -1682,7 +1682,7 @@ int verify_attention(const std::string& label, const std::vector<double>& actual
 
 std::string case_label(const char* entry, const Geometry& geometry, KvCacheStorage storage,
                        const AttentionCase& test_case, MappingPattern mapping) {
-    return std::string(entry) + " " + geometry.name + " " + kv_storage_name(storage) +
+    return std::string(entry) + " " + geometry.name + " " + kv_cache_profile_info(storage).name +
            " mapping=" + mapping_name(mapping) + " T=" + std::to_string(test_case.tokens) +
            " keys=" + std::to_string(test_case.base + test_case.tokens) +
            " envelope_max=" + std::to_string(test_case.envelope_max) +
@@ -1839,7 +1839,7 @@ int run_a1_case(CudaExecutionView execution, const Geometry& geometry, KvCacheSt
             cuda_synchronize();
             const auto actual = copy_from_guarded<std::uint16_t>(dout, q_bits.size());
             graph_failures +=
-                verify_attention(std::string(kv_storage_name(storage)) + " attention envelope update",
+                verify_attention(std::string(kv_cache_profile_info(storage).name) + " attention envelope update",
                                  bf16_bits_to_double(select_query_columns(
                                      actual, kHeadDim * geometry.q_heads, oracle_queries)),
                                  reference, attention_criterion(storage));
@@ -2128,7 +2128,7 @@ int run_batch_case(CudaExecutionView execution, const Geometry& geometry, KvCach
             launch();
         cuda_synchronize(execution.stream());
         const std::string label = std::string("causal batch ") + geometry.name + " " +
-                                  kv_storage_name(storage) + " W=" + std::to_string(width) +
+                                  kv_cache_profile_info(storage).name + " W=" + std::to_string(width) +
                                   " B=" + std::to_string(batch) + " phase=" + std::to_string(phase);
         const auto output = copy_from_guarded<std::uint16_t>(dout, q.size());
         failures += verify_attention(label, bf16_bits_to_double(output), reference,
@@ -2210,11 +2210,11 @@ int report_quantization_quality(KvCacheStorage storage, std::uint32_t seed) {
     const double relative_rmse = reference_rms == 0.0 ? 0.0 : rmse / reference_rms;
     if (!std::isfinite(mae) || !std::isfinite(rmse) || !std::isfinite(relative_rmse) ||
         !std::isfinite(maximum_error)) {
-        std::cerr << kv_storage_name(storage)
+        std::cerr << kv_cache_profile_info(storage).name
                   << " quantization quality produced non-finite statistics\n";
         return 1;
     }
-    std::cout << kv_storage_name(storage) << " quantized-vs-bf16 oracle quality" << " mae=" << mae
+    std::cout << kv_cache_profile_info(storage).name << " quantized-vs-bf16 oracle quality" << " mae=" << mae
               << " rmse=" << rmse << " rel_rmse=" << relative_rmse << " max_abs=" << maximum_error
               << '\n';
     return 0;
@@ -2327,7 +2327,7 @@ int run_batch_cases(CudaExecutionView execution, KvCacheStorage storage) {
         failures += run_batch_case(
             execution, kGeometries[0], storage,
             {6, {61, 127, 511}, {6, 3, 0}, {2, 0, 1}, MappingPattern::Fragmented, 503u});
-    } else if (storage == KvCacheStorage::Fp8E4M3Row256) {
+    } else if (storage == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0) {
         failures += run_batch_case(
             execution, kGeometries[0], storage,
             {6, {61, 127, 511}, {6, 3, 0}, {2, 0, 1}, MappingPattern::Fragmented, 505u});
@@ -2441,7 +2441,7 @@ int run_quantized_causal_cases(CudaExecutionView execution, KvCacheStorage stora
         const std::array<int, 4> queries{0, 63, 64, 1023};
         failures += run_a1_case(execution, geometry, storage, {1024, 8192, 9216, 611u},
                                 MappingPattern::Fragmented, queries);
-        if (storage == KvCacheStorage::Fp8E4M3Row256 ||
+        if (storage == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0 ||
             storage == KvCacheStorage::Fp8KeyNvfp4Value) {
             // Ragged prefill, changing page metadata, and wholly masked query tiles.
             failures += run_batch_case(execution, geometry, storage,
@@ -2693,7 +2693,7 @@ int run_small_prefill_cases(CudaExecutionView execution, KvCacheStorage storage)
         failures +=
             run_batch_case(execution, geometry, storage,
                            {65, {8191}, {17}, {0}, MappingPattern::Fragmented, 1304u}, 32768);
-        if (storage == KvCacheStorage::Fp8E4M3Row256 ||
+        if (storage == KvCacheStorage::Fp8E4m3fnGroup128Ue8m0 ||
             storage == KvCacheStorage::Fp8KeyNvfp4Value) {
             failures += run_a3_case(execution, geometry, storage,
                                     {34, 8192, 32768, 1305u, false, false, 1.8f * std::sqrt(3.0f)},
@@ -2748,16 +2748,16 @@ int run_softmax_attention_causal_cache_tests(std::optional<KvCacheStorage> selec
     const auto execution = device.execution_view();
     int failures         = 0;
     for (const auto storage :
-         {KvCacheStorage::BFloat16, KvCacheStorage::Int8Group64, KvCacheStorage::Fp8E4M3Row256,
+         {KvCacheStorage::BFloat16, KvCacheStorage::Int8Group64, KvCacheStorage::Fp8E4m3fnGroup128Ue8m0,
           KvCacheStorage::Nvfp4Group16, KvCacheStorage::Fp8KeyNvfp4Value}) {
         if (selected && storage != *selected) continue;
         const auto start = std::chrono::steady_clock::now();
-        std::cout << "RUN causal_softmax_attention " << kv_storage_name(storage) << std::endl;
+        std::cout << "RUN causal_softmax_attention " << kv_cache_profile_info(storage).name << std::endl;
         const int current = run_storage_cases(execution, storage);
         const auto seconds =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         std::cout << (current ? "FAIL" : "PASS") << " causal_softmax_attention "
-                  << kv_storage_name(storage) << " public-contract correctness (" << seconds << " s)"
+                  << kv_cache_profile_info(storage).name << " public-contract correctness (" << seconds << " s)"
                   << std::endl;
         failures += current;
     }

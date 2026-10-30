@@ -21,21 +21,7 @@ ConfigurationValue optional_value(const std::optional<T>& value, const char* fal
         return static_cast<std::uint64_t>(*value);
 }
 
-const char* kv_name(KvCacheStorage storage) {
-    switch (storage) {
-    case KvCacheStorage::BFloat16:
-        return "bf16";
-    case KvCacheStorage::Int8Group64:
-        return "int8";
-    case KvCacheStorage::Fp8E4M3Row256:
-        return "fp8";
-    case KvCacheStorage::Nvfp4Group16:
-        return "nvfp4";
-    case KvCacheStorage::Fp8KeyNvfp4Value:
-        return "k8v4";
-    }
-    return "unknown";
-}
+const char* kv_name(KvCacheStorage storage) { return kv_cache_profile_info(storage).name; }
 
 const char* effort_name(ReasoningEffort effort) {
     switch (effort) {
@@ -134,6 +120,9 @@ StartupConfigurationView view(const LaunchOptions& launch, EntryPoint entry, con
                 value = std::string("auto");
             else
                 value = std::uint64_t{e.context_capacity.explicit_bytes};
+            break;
+        case Field::MemoryHeadroom:
+            value = std::uint64_t{e.memory_headroom_bytes};
             break;
         case Field::PrefillChunk:
             if (e.prefill_chunk == 0)
@@ -357,7 +346,8 @@ StartupConfigurationView view(const LaunchOptions& launch, EntryPoint entry, con
             append(key + "device", static_cast<std::uint64_t>(rank.device));
         }
     }
-    for (const char* name : {"NINFER_VRAM_BUDGET_MIB", "NINFER_CUDA_SYNC"}) {
+    for (const char* name :
+         {"NINFER_VRAM_BUDGET_MIB", "NINFER_CUDA_SYNC", "NINFER_KPOOL_INDEXER_BF16"}) {
         if (const char* value = std::getenv(name)) out.environment.emplace(name, value);
     }
     return out;

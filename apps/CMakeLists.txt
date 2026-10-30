@@ -23,11 +23,13 @@ endif()
 
 add_executable(ninfer-perplexity
   perplexity/main.cpp
+  perplexity/options.cpp
+  perplexity/report.cpp
   perplexity/corpus.cpp
   perplexity/evaluation.cpp)
 ninfer_internal_includes(ninfer-perplexity)
 target_link_libraries(ninfer-perplexity PRIVATE
-  ninfer_engine ninfer_product_logging ninfer::json)
+  ninfer_engine ninfer_product_config ninfer_product_logging ninfer::json)
 
 # The three apps embed a UTF-8 process code page, because none of them sets a console code page and
 # all of them write UTF-8 through printf/std::cout, so their output was correct only on a console

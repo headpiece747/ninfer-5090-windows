@@ -2,11 +2,11 @@
   "what": "The shipped lanes' measured figures, each with the identity of what it was measured on.",
   "engine": {
     "file": "C:\\AI\\ninfer-v3-windows\\build\\apps\\ninfer-serve.exe",
-    "sha256": "ee296ae77f217b1aaf6990611f2b94a53ae9ff30b2262b1385cd8e7985ec6e01",
-    "bytes": 8948224,
-    "built_utc": "2026-10-26T13:38:00Z"
+    "sha256": "b33773962c65ca0aa316afe9eb26917defea534894efeb43a18aa410b6d8d424",
+    "bytes": 9025024,
+    "built_utc": "2026-10-30T00:27:42Z"
   },
-  "measured_utc": "2026-10-25T00:03:51Z",
+  "measured_utc": "2026-10-30T00:41:24Z",
   "lanes": {
     "start_quasar_v3_dflash2_vision.bat": {
       "artifact": {
@@ -16,23 +16,47 @@
       },
       "cells": {
         "code": {
-          "decode_avg": 315.0,
-          "accept_rate": 0.5503,
-          "spread": 0.6,
+          "decode_avg": 262.2,
+          "accept_rate": 0.4545,
+          "spread": 2.7,
           "decode_tps": [
-            315.2,
-            315.2,
-            314.6
+            262.0,
+            263.6,
+            260.9
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-code": {
+          "decode_avg": 222.6,
+          "accept_rate": 0.3996,
+          "spread": 5.0,
+          "decode_tps": [
+            219.9,
+            223.0,
+            224.9
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-chinese": {
+          "decode_avg": 164.2,
+          "accept_rate": 0.2486,
+          "spread": 2.0,
+          "decode_tps": [
+            164.8,
+            164.8,
+            162.8
           ],
           "sampling": "default",
           "source": "measured"
         }
       },
       "gpu_state": {
-        "before": "51.27, 1402 MHz, 14001 MHz, 81.63 W, 4 %, P0",
-        "after": "53.96, 2895 MHz, 14001 MHz, 311.08 W, 4 %, P0"
+        "before": "51.27, 2895 MHz, 14001 MHz, 324.97 W, 8 %, P0",
+        "after": "57.05, 2895 MHz, 14001 MHz, 304.03 W, 14 %, P0"
       },
-      "run_level_pct": 3.2
+      "run_level_pct": -14.1
     },
     "start_quasar_v3_mtp4_vision.bat": {
       "artifact": {
@@ -42,23 +66,47 @@
       },
       "cells": {
         "code": {
-          "decode_avg": 213.5,
-          "accept_rate": 0.5935,
-          "spread": 0.9,
+          "decode_avg": 188.5,
+          "accept_rate": 0.5714,
+          "spread": 13.0,
           "decode_tps": [
-            213.9,
-            213.7,
-            213.0
+            196.6,
+            185.4,
+            183.6
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-code": {
+          "decode_avg": 154.1,
+          "accept_rate": 0.4181,
+          "spread": 2.2,
+          "decode_tps": [
+            153.4,
+            153.3,
+            155.5
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-chinese": {
+          "decode_avg": 126.7,
+          "accept_rate": 0.301,
+          "spread": 1.5,
+          "decode_tps": [
+            126.9,
+            127.3,
+            125.8
           ],
           "sampling": "default",
           "source": "measured"
         }
       },
       "gpu_state": {
-        "before": "53.96, 2895 MHz, 14001 MHz, 311.08 W, 4 %, P0",
-        "after": "55.30, 2887 MHz, 14001 MHz, 334.46 W, 3 %, P0"
+        "before": "57.05, 2895 MHz, 14001 MHz, 304.03 W, 14 %, P0",
+        "after": "60.70, 2850 MHz, 14001 MHz, 374.86 W, 9 %, P0"
       },
-      "run_level_pct": 1.7
+      "run_level_pct": -10.2
     },
     "start_ninfer_v3_dflash2_vision.bat": {
       "artifact": {
@@ -68,23 +116,47 @@
       },
       "cells": {
         "code": {
-          "decode_avg": 354.0,
-          "accept_rate": 0.5211,
-          "spread": 7.8,
+          "decode_avg": 314.1,
+          "accept_rate": 0.4727,
+          "spread": 8.2,
           "decode_tps": [
-            356.6,
-            348.8,
-            356.5
+            308.7,
+            316.9,
+            316.5
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-code": {
+          "decode_avg": 195.4,
+          "accept_rate": 0.2823,
+          "spread": 3.7,
+          "decode_tps": [
+            194.6,
+            194.0,
+            197.7
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-chinese": {
+          "decode_avg": 220.5,
+          "accept_rate": 0.3193,
+          "spread": 5.0,
+          "decode_tps": [
+            217.6,
+            222.6,
+            221.3
           ],
           "sampling": "default",
           "source": "measured"
         }
       },
       "gpu_state": {
-        "before": "52.18, 1395 MHz, 14001 MHz, 89.52 W, 4 %, P0",
-        "after": "54.95, 2872 MHz, 14001 MHz, 378.12 W, 3 %, P0"
+        "before": "60.70, 2850 MHz, 14001 MHz, 374.86 W, 9 %, P0",
+        "after": "59.76, 2857 MHz, 14001 MHz, 350.56 W, 19 %, P0"
       },
-      "run_level_pct": -3.2
+      "run_level_pct": -14.1
     },
     "start_ninfer_v3_mtp4_vision.bat": {
       "artifact": {
@@ -94,23 +166,47 @@
       },
       "cells": {
         "code": {
-          "decode_avg": 198.5,
-          "accept_rate": 0.5612,
-          "spread": 0.6,
+          "decode_avg": 162.8,
+          "accept_rate": 0.4562,
+          "spread": 6.2,
           "decode_tps": [
-            198.7,
-            198.1,
-            198.5
+            160.0,
+            162.1,
+            166.2
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-code": {
+          "decode_avg": 55.0,
+          "accept_rate": 0.3059,
+          "spread": 27.6,
+          "decode_tps": [
+            71.8,
+            49.1,
+            44.2
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-chinese": {
+          "decode_avg": 105.2,
+          "accept_rate": 0.25,
+          "spread": 2.2,
+          "decode_tps": [
+            104.9,
+            104.2,
+            106.4
           ],
           "sampling": "default",
           "source": "measured"
         }
       },
       "gpu_state": {
-        "before": "50.02, 1267 MHz, 14001 MHz, 79.46 W, 4 %, P0",
-        "after": "56.38, 2812 MHz, 14001 MHz, 425.77 W, 4 %, P0"
+        "before": "58.68, 2895 MHz, 14001 MHz, 285.10 W, 14 %, P0",
+        "after": "60.35, 2895 MHz, 14001 MHz, 332.79 W, 9 %, P0"
       },
-      "run_level_pct": -6.7
+      "run_level_pct": -23.5
     },
     "start_swift_v3_dflash2_vision.bat": {
       "artifact": {
@@ -120,23 +216,47 @@
       },
       "cells": {
         "code": {
-          "decode_avg": 305.3,
-          "accept_rate": 0.5092,
-          "spread": 0.7,
+          "decode_avg": 310.1,
+          "accept_rate": 0.567,
+          "spread": 10.7,
           "decode_tps": [
-            305.3,
-            304.9,
-            305.6
+            308.5,
+            305.6,
+            316.3
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-code": {
+          "decode_avg": 203.2,
+          "accept_rate": 0.3337,
+          "spread": 0.8,
+          "decode_tps": [
+            203.3,
+            203.5,
+            202.7
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-chinese": {
+          "decode_avg": 182.9,
+          "accept_rate": 0.2911,
+          "spread": 2.0,
+          "decode_tps": [
+            184.0,
+            182.0,
+            182.7
           ],
           "sampling": "default",
           "source": "measured"
         }
       },
       "gpu_state": {
-        "before": "54.95, 2872 MHz, 14001 MHz, 378.12 W, 3 %, P0",
-        "after": "54.57, 2880 MHz, 14001 MHz, 346.35 W, 3 %, P0"
+        "before": "60.35, 2895 MHz, 14001 MHz, 332.79 W, 9 %, P0",
+        "after": "59.62, 2895 MHz, 14001 MHz, 322.33 W, 8 %, P0"
       },
-      "run_level_pct": -4.4
+      "run_level_pct": -2.9
     },
     "start_swift_v3_mtp4_vision.bat": {
       "artifact": {
@@ -146,23 +266,47 @@
       },
       "cells": {
         "code": {
-          "decode_avg": 220.5,
-          "accept_rate": 0.5815,
-          "spread": 0.3,
+          "decode_avg": 179.8,
+          "accept_rate": 0.5172,
+          "spread": 6.7,
           "decode_tps": [
-            220.7,
-            220.5,
-            220.4
+            184.2,
+            177.7,
+            177.5
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-code": {
+          "decode_avg": 118.0,
+          "accept_rate": 0.2663,
+          "spread": 3.5,
+          "decode_tps": [
+            120.0,
+            117.6,
+            116.5
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-chinese": {
+          "decode_avg": 124.5,
+          "accept_rate": 0.2997,
+          "spread": 2.2,
+          "decode_tps": [
+            123.7,
+            125.9,
+            124.0
           ],
           "sampling": "default",
           "source": "measured"
         }
       },
       "gpu_state": {
-        "before": "49.79, 1162 MHz, 14001 MHz, 77.20 W, 4 %, P0",
-        "after": "55.59, 2895 MHz, 14001 MHz, 404.71 W, 4 %, P0"
+        "before": "59.62, 2895 MHz, 14001 MHz, 322.33 W, 8 %, P0",
+        "after": "60.49, 2887 MHz, 14001 MHz, 312.36 W, 13 %, P0"
       },
-      "run_level_pct": 2.0
+      "run_level_pct": -16.8
     },
     "start_nvidia_v3_dflash2_vision.bat": {
       "artifact": {
@@ -172,23 +316,47 @@
       },
       "cells": {
         "code": {
-          "decode_avg": 322.8,
-          "accept_rate": 0.4472,
-          "spread": 6.4,
+          "decode_avg": 291.7,
+          "accept_rate": 0.4558,
+          "spread": 3.0,
           "decode_tps": [
-            325.0,
-            318.6,
-            324.9
+            290.4,
+            291.3,
+            293.4
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-code": {
+          "decode_avg": 192.6,
+          "accept_rate": 0.2577,
+          "spread": 1.2,
+          "decode_tps": [
+            193.3,
+            192.6,
+            192.1
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-chinese": {
+          "decode_avg": 128.6,
+          "accept_rate": 0.1434,
+          "spread": 7.2,
+          "decode_tps": [
+            124.1,
+            130.4,
+            131.3
           ],
           "sampling": "default",
           "source": "measured"
         }
       },
       "gpu_state": {
-        "before": "51.57, 1402 MHz, 14001 MHz, 95.26 W, 4 %, P0",
-        "after": "54.25, 2895 MHz, 14001 MHz, 348.87 W, 3 %, P0"
+        "before": "60.49, 2887 MHz, 14001 MHz, 312.36 W, 13 %, P0",
+        "after": "60.23, 2895 MHz, 14001 MHz, 285.78 W, 9 %, P0"
       },
-      "run_level_pct": 2.8
+      "run_level_pct": -7.1
     },
     "start_nvidia_v3_mtp4_vision.bat": {
       "artifact": {
@@ -198,29 +366,53 @@
       },
       "cells": {
         "code": {
-          "decode_avg": 179.9,
-          "accept_rate": 0.4542,
-          "spread": 0.0,
+          "decode_avg": 165.3,
+          "accept_rate": 0.4665,
+          "spread": 6.3,
           "decode_tps": [
-            179.9,
-            179.9,
-            179.9
+            169.2,
+            163.7,
+            162.9
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-code": {
+          "decode_avg": 127.6,
+          "accept_rate": 0.3005,
+          "spread": 5.9,
+          "decode_tps": [
+            129.8,
+            129.0,
+            123.9
+          ],
+          "sampling": "default",
+          "source": "measured"
+        },
+        "long-chinese": {
+          "decode_avg": 229.8,
+          "accept_rate": 0.7571,
+          "spread": 2.6,
+          "decode_tps": [
+            231.4,
+            228.8,
+            229.1
           ],
           "sampling": "default",
           "source": "measured"
         }
       },
       "gpu_state": {
-        "before": "54.25, 2895 MHz, 14001 MHz, 348.87 W, 3 %, P0",
-        "after": "56.82, 2895 MHz, 14001 MHz, 410.62 W, 4 %, P0"
+        "before": "60.23, 2895 MHz, 14001 MHz, 285.78 W, 9 %, P0",
+        "after": "60.96, 2887 MHz, 14001 MHz, 363.90 W, 7 %, P0"
       },
-      "run_level_pct": 3.8
+      "run_level_pct": -4.6
     }
   },
   "run_level": {
-    "lanes": 2,
-    "median_vs_table_pct": 3.8,
-    "min_pct": 2.8,
-    "max_pct": 3.8
+    "lanes": 8,
+    "median_vs_table_pct": -10.2,
+    "min_pct": -23.5,
+    "max_pct": -2.9
   }
 }

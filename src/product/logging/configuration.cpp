@@ -48,11 +48,22 @@ std::string value_text(const ConfigurationItem& item) {
 
 std::string format_configuration(const StartupConfigurationView& view) {
     std::ostringstream out;
-    out << "configuration  "
-        << (view.entry == EntryPoint::Cli     ? "cli"
-            : view.entry == EntryPoint::Serve ? "serve"
-                                              : "bench")
-        << '\n';
+    out << "configuration  ";
+    switch (view.entry) {
+    case EntryPoint::Cli:
+        out << "cli";
+        break;
+    case EntryPoint::Serve:
+        out << "serve";
+        break;
+    case EntryPoint::Bench:
+        out << "bench";
+        break;
+    case EntryPoint::Perplexity:
+        out << "perplexity";
+        break;
+    }
+    out << '\n';
     if (!view.config_path.empty())
         out << "  file         " << format_pretty_text(view.config_path.string()) << '\n';
     std::string previous;
@@ -82,13 +93,38 @@ void log_configuration(spdlog::logger& logger, const StartupConfigurationView& v
     if (logger.should_log(spdlog::level::info)) logger.info("\n{}", format_configuration(view));
 }
 
+std::string format_context_capacity(const EngineDescription& description) {
+    std::uint64_t device_bytes = 0, host_bytes = 0;
+    for (const auto& pool : description.context_pools) {
+        if (pool.domain == ContextMemoryDomain::Device)
+            device_bytes += pool.capacity_bytes;
+        else
+            host_bytes += pool.capacity_bytes;
+    }
+    std::ostringstream out;
+    out << "context | device " << format_pretty_bytes(device_bytes) << " across "
+        << description.ranks.size() << (description.ranks.size() == 1 ? " rank" : " ranks");
+    if (host_bytes) out << " | host " << format_pretty_bytes(host_bytes);
+    out << " | KV ~" << format_pretty_count(description.context_token_capacity_estimate)
+        << " tokens | ~" << std::fixed << std::setprecision(1)
+        << static_cast<double>(description.context_token_capacity_estimate) /
+               description.max_context
+        << " x " << description.max_context << "-token contexts";
+    return out.str();
+}
+
+void log_context_capacity(spdlog::logger& logger, const EngineDescription& description) {
+    logger.info("{}", format_context_capacity(description));
+    for (const auto& pool : description.context_pools)
+        logger.debug("context rank {} | {} {} | block {}", pool.rank,
+                     pool.domain == ContextMemoryDomain::Device ? "device" : "host",
+                     format_pretty_bytes(pool.capacity_bytes),
+                     format_pretty_bytes(pool.block_bytes));
+}
+
 void log_resolved_configuration(spdlog::logger& logger, const EngineDescription& description) {
     logger.info("resolved       prefill chunk={}", description.prefill_chunk);
-    for (const auto& pool : description.context_pools)
-        logger.info("context        rank={}  {}={}  block={}", pool.rank,
-                    pool.domain == ContextMemoryDomain::Device ? "device" : "host",
-                    format_pretty_bytes(pool.capacity_bytes),
-                    format_pretty_bytes(pool.block_bytes));
+    log_context_capacity(logger, description);
 }
 
 } // namespace ninfer::product

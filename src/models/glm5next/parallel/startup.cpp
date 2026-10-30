@@ -8,7 +8,8 @@ namespace ninfer::models::glm5next {
 
 ParallelStartup::ParallelStartup(const artifact::Reader& reader, const EngineOptions& options)
     : definition_(read_definition(reader, load_options(options))),
-      parallel_(plan_parallel(*definition_, *options.deployment)) {}
+      parallel_(plan_parallel(*definition_, *options.deployment)),
+      index_format_(index_format_from_environment()) {}
 
 Frontend ParallelStartup::frontend(const EngineOptions& options) const {
     return create_frontend(*definition_, options);
@@ -25,14 +26,18 @@ ParallelStartup::requests(const EngineOptions& options) const {
     for (const auto& rank : parallel_.ranks) {
         const bool control_owner = control != parallel_.ranks.end() && control->rank == rank.rank;
         distributed::wire::Encoder out;
-        encode_rank_load(out, {definition_->artifact_id(), rank, options, control_owner ? media : 0,
-                               control_owner});
+        encode_rank_load(out, {.artifact               = definition_->artifact_id(),
+                               .rank                   = rank,
+                               .options                = options,
+                               .index_format           = index_format_,
+                               .host_reservation_bytes = control_owner ? media : 0,
+                               .control_owner          = control_owner});
         payloads.push_back(std::move(out).take());
     }
     return payloads;
 }
 
-void ParallelStartup::resolve(std::span<const distributed::wire::Bytes> descriptions,
+void ParallelStartup::resolve(std::span<const distributed::wire::Payload> descriptions,
                               EngineOptions& options) {
     ranks_.clear();
     for (const auto& bytes : descriptions) {
@@ -67,6 +72,7 @@ std::vector<RankMemoryBudget> ParallelStartup::memory_budgets() const {
 }
 
 std::string ParallelStartup::prefill_signature(std::uint32_t chunk) const {
-    return glm5next::prefill_signature(*definition_, chunk, parallel_.ranks.size());
+    return glm5next::prefill_signature(*definition_, chunk, parallel_.ranks.size(),
+                                       parallel_.ranks.front().ep_size);
 }
 } // namespace ninfer::models::glm5next

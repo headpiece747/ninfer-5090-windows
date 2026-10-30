@@ -9,7 +9,7 @@ Storage allocate(Arena& arena, const Plan& plan, int tokens, bool routed, int sh
     Storage out;
     if (routed && plan.vector) {
         out.vector_activation =
-            static_cast<float*>(arena.alloc(DType::FP32, {kIntermediate, kTopK * tokens}).data);
+            static_cast<float*>(arena.alloc(DType::FP32, {plan.intermediate, kTopK * tokens}).data);
         if (shared_intermediate) {
             out.routed_sum = static_cast<float*>(arena.alloc(DType::FP32, {kHidden, tokens}).data);
         }
@@ -21,14 +21,16 @@ Storage allocate(Arena& arena, const Plan& plan, int tokens, bool routed, int sh
         const auto integers = [&](int count) {
             return static_cast<int*>(arena.alloc(DType::I32, {count}).data);
         };
-        const bool fp8    = plan.format == QType::FP8_E4M3FN_BLOCK128X128_BF16;
+        const bool fp8 = plan.format == QType::FP8_E4M3FN_BLOCK128X128_BF16 ||
+                         plan.format == QType::FP8_E4M3FN_BLOCK64X64_BF16;
         const int packing = fp8 ? 1 : 2, scale_group = fp8 ? 128 : 16;
         const auto scale_bytes = fp8 ? sizeof(float) : sizeof(std::uint8_t);
         out.input_codes        = bytes(std::size_t(tokens) * kHidden / packing);
         out.input_scales       = bytes(std::size_t(tokens) * (kHidden / scale_group) * scale_bytes);
-        out.product_codes      = bytes(std::size_t(assignments) * kIntermediate / packing);
-        out.product_scales =
-            bytes(std::size_t(assignments) * (kIntermediate / scale_group) * scale_bytes);
+        out.product_codes      = bytes(std::size_t(assignments) * plan.intermediate / packing);
+        const int product_scale_stride = fp8 ? (plan.intermediate + 127) / 128
+                                             : nvfp4_activation_scale_stride(plan.intermediate);
+        out.product_scales = bytes(std::size_t(assignments) * product_scale_stride * scale_bytes);
         if (plan.atomic_output) {
             out.routed_sum = static_cast<float*>(arena.alloc(DType::FP32, {kHidden, tokens}).data);
         } else {
@@ -43,9 +45,10 @@ Storage allocate(Arena& arena, const Plan& plan, int tokens, bool routed, int sh
         g.job_experts      = integers(max_jobs);
         g.job_columns      = integers(max_jobs);
         g.jobs             = integers(1);
-        if (plan.dense.gate_columns) g.load_range = integers(2);
+        if (plan.dense.gate_columns || plan.fp8.maximum_small_load || plan.pool_expert_limit)
+            g.load_range = integers(3);
         g.assignments = integers(assignments);
-        if (!plan.atomic_output) { g.inverse = integers(assignments); }
+        if (!plan.atomic_output || plan.pool_expert_limit) { g.inverse = integers(assignments); }
     }
     if (shared_intermediate) {
         const bool vector     = plan.shared_algorithm == SharedAlgorithm::Vector;

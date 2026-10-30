@@ -125,15 +125,17 @@ bool SseTransport::poll(Clock::time_point now) {
 }
 
 void configure_http_server_socket(socket_t socket) noexcept {
-    httplib::default_socket_options(socket);
 #if defined(__linux__)
     const int enabled = 1;
+    // Reuse closed connections' addresses while keeping the active listener exclusive.
+    set_socket_option(socket, SOL_SOCKET, SO_REUSEADDR, enabled);
     set_socket_option(socket, SOL_SOCKET, SO_KEEPALIVE, enabled);
     set_socket_option(socket, IPPROTO_TCP, TCP_KEEPIDLE, kKeepAliveIdleSeconds);
     set_socket_option(socket, IPPROTO_TCP, TCP_KEEPINTVL, kKeepAliveIntervalSeconds);
     set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, kKeepAliveProbeCount);
     set_socket_option(socket, IPPROTO_TCP, TCP_USER_TIMEOUT, kTcpUserTimeoutMilliseconds);
 #elif defined(_WIN32)
+    httplib::default_socket_options(socket);
     // SO_EXCLUSIVEADDRUSE prevents another process from hijacking the port, and it only does so when
     // SO_REUSEADDR is not already set: default_socket_options above sets that on Windows, and a later
     // SO_EXCLUSIVEADDRUSE does not override it. Measured with a three-arm bind probe -- with
@@ -164,6 +166,8 @@ void configure_http_server_socket(socket_t socket) noexcept {
 #    if defined(TCP_KEEPCNT)
     set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, kKeepAliveProbeCount);
 #    endif
+#else
+    httplib::default_socket_options(socket);
 #endif
 }
 

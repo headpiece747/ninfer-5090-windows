@@ -27,6 +27,16 @@ public:
 
     [[nodiscard]] const KVPageLayout& layout() const noexcept { return layout_; }
 
+    [[nodiscard]] std::size_t plane_index(const KVPlaneLayout& plane) const {
+        for (std::size_t i = 0; i < layout_.planes.size(); ++i)
+            if (layout_.planes[i].tensor.region.offset == plane.tensor.region.offset &&
+                layout_.planes[i].tensor.region.bytes == plane.tensor.region.bytes &&
+                layout_.planes[i].tensor.dtype == plane.tensor.dtype &&
+                layout_.planes[i].tensor.shape == plane.tensor.shape)
+                return i;
+        throw std::invalid_argument("fixture plane does not belong to these records");
+    }
+
     [[nodiscard]] MemorySpan storage() noexcept { return storage_.span(); }
 
     [[nodiscard]] ConstMemorySpan storage() const noexcept { return storage_.span(); }
@@ -126,7 +136,9 @@ private:
                 CUDA_CHECK(cudaMemcpy2D(dense_plane, width, record_plane, stride_, width, pages_,
                                         cudaMemcpyDefault));
         }
-        CUDA_CHECK(cudaDeviceSynchronize());
+        // Device-to-device cudaMemcpy2D may return before completion. Callers launch
+        // on independent nonblocking streams, so complete this fixture-owned copy.
+        CUDA_CHECK(cudaStreamSynchronize(nullptr));
     }
 
     KVPageLayout layout_;

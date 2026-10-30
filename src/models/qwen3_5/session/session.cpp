@@ -399,8 +399,12 @@ SessionImpl::SessionImpl(std::shared_ptr<const ModelDefinition> definition_in, S
       causal_scoring(plan.causal_scoring) {
     if (!definition || !plan.profile || plan.context.pools.empty())
         throw std::invalid_argument("Session preparation is incomplete");
-    checkpoints.configure(4ULL * plan.context.state.logical_capacity + 2ULL * max_concurrency,
-                          directory.metadata_budget());
+    checkpoints.configure(Checkpoints::capacity_for_metadata(directory.metadata_budget().limit()),
+                          directory.metadata_budget(), &recovery_index);
+    if (!causal_scoring) {
+        count_storage.acquire(TokenCountBuilder::capacity_bytes(plan.profile->public_tokens));
+        count_builder.prepare(plan.profile->public_tokens);
+    }
     releases.reserve(max_concurrency);
     for (std::uint32_t i = 0; i < max_concurrency; ++i) sequences[i].lane = i;
 }

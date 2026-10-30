@@ -9,31 +9,44 @@ upstream publishes. Read this before pulling an upstream release.
 ancestors of `dev`:
 
 ```
-git merge-base dev upstream/master   ->  594930e7   (== upstream/master's tip)
+git merge-base dev upstream/master   ->  1882c6adb   (== upstream/master's tip)
 git rev-list --count <base>..upstream/master  ->  0
-git rev-list --count <base>..dev              ->  267
+git rev-list --count <base>..dev              ->  913
 ```
 
-**Last integrated: `594930e7`, 2026-09-23** (`fd548294`), one commit: the Q5 parent of both q4/q5
-small-column input projections moving to the split4 shape, with the row-block experiment header
-removed. No conflicts, and nothing in it touches the divergence surface below; two op tests were
-auto-merged rather than taken whole, because the port carries its own MSVC changes in them, and the
-gate passed on the combination.
+**Last integrated: `458863be2`, 2026-10-29** (`chore(merge): integrate upstream/dev (35 commits)
+into the port`), 35 commits from `996d92146`. Code conflicts were five: `http_transport.cpp` (upstream
+added Linux `SO_REUSEADDR`; the port kept its Windows `SO_EXCLUSIVEADDRUSE` branch and moved
+`httplib::default_socket_options` into it), `anthropic_messages_http.cpp` (upstream restructured the
+handler around `wait_for_admission`; the port's Cancelled check moved inside the non-stream branch),
+`test_engine_prefix_real.cpp` (include rename plus upstream's new `terminal-publication` scenario),
+`test_sparse_gqa.cpp` (upstream's FP8 scale branch, port `half_bits` helper), and
+`paged_kv_fixture.h` (upstream's `cudaStreamSynchronize` supersedes the port's
+`cudaDeviceSynchronize`). Everything else was documentation or a delete/modify.
 
-Before that, **`4c0fe48a`** (`7d28a683`): `4c0fe48a` blocking CUDA synchronization (PR #302, closing
-issue #301) and `c4ae8a9c` restoring the accurate silu in the NVFP4 SwiGLU. Neither touched the
-divergence surface either; the silu commit conflicted only in a comment and was resolved in
-upstream's favour on the code, since the port already carried the same accurate activation.
+Two structural reconciliations are worth knowing:
 
-So there is **no merge debt and nothing blocked on upstream**. Their future fixes apply to a base
-we already contain. The work below is about recognising our own patches when upstream touches the
-same files, not about catching up.
+* **KV format header.** Upstream's `824bd3a41` created `include/ninfer/kv_cache_format.h` with its own
+  `KvCacheStorage` and `KvCacheProfileInfo`, superseding both port headers (`kv_types.h`'s narrow enum
+  and `kv_storage.h`'s name/parse table). Both port headers are deleted; the three call sites use
+  `kv_cache_format.h`, and the enum spelling is upstream's (`Fp8E4m3fnGroup128Ue8m0`, not
+  `Fp8E4M3Row256`). The device-tree include-narrowing purpose is preserved by upstream's header.
+* **`__int128` in upstream's new code.** `src/runtime/engine/context_capacity.cpp` gained a 128-bit
+  budget product in `e5e18b974`; it is computed through `ninfer::Uint128` here.
+
+**Documentation language.** Upstream's `19c3a2ae4` translated `build-system.md`, `op-development.md`
+and five support READMEs (`bench/`, `tests/`, `tools/`, `eval/`, and three maintainer pages) into
+Chinese and condensed them heavily (bench 1786 -> 108 lines, tests 598 -> 77). This port keeps its
+**English** `build-system.md` and the five support READMEs, which are current and carry the Windows
+recipes; `op-development.md` follows upstream's Chinese original with the port's §6.4 appended, because
+upstream's other Chinese pages link into its Chinese headings. `docs/maintainer/README.md` indexes the
+twelve Chinese originals.
 
 ## Scale
 
-`git diff --stat upstream/master dev` reports **384 files, +27,572 / -5,342** at `594930e7`
-(was 384 files, +27,304 / -5,342 at `4c0fe48a`, and 250 files, +22,017 / -342 at `9e163eee`; the
-per-area table below is the `9e163eee` snapshot).
+`git diff --stat upstream/master dev` reports **588 files, +58,641 / -6,084** after the
+`458863be2` merge (was 384 files, +27,572 / -5,342 at `594930e7`; the per-area table below is the
+older `9e163eee` snapshot and is kept as a shape reference, not as a count).
 
 | Area | Files | Kind |
 | --- | --- | --- |
@@ -63,6 +76,9 @@ arise for them.
 | `CMakeLists.txt`, `src/CMakeLists.txt` | `WIN32_LEAN_AND_MEAN`, FFmpeg target decoupling, libcurl conditionality | `8d9a26f9`, `590ccfc8`, `b77d64bf` |
 | `tests/*` | MSVC portability: `<array>` for CTAD, `constexpr` on `std::sqrt`, fixture share mode | `24e8850d`, `7effcafb`, `d8117ed4`, `1d4c108c` |
 | `bench/context_cost/model_context_fixture.cpp` | `attention_pairs` divided through `ninfer::Uint128` instead of `__int128`, which MSVC x64 does not support - with it, every target in the benchmark tree failed to compile, so `NINFER_BUILD_BENCHMARKS=ON` could not build on Windows at all | `e9328d03` |
+| `src/runtime/engine/context_capacity.cpp` | the context-capacity budget product (added by upstream `e5e18b974`) computed through `ninfer::Uint128` instead of `unsigned __int128` | this merge |
+| `src/product/config/schema.cpp` | quantity parsing through `Uint128`; the multiply is done in 64 bits after the quotient is cast, which is the same value modulo 2^64 as upstream's 128-bit multiply-then-cast | `e16f2aef6` |
+| `apps/perplexity/report.cpp` | `gmtime_s` under `_WIN32` in `timestamp()`, which upstream moved out of `main.cpp`; MSVC has no `gmtime_r` | this merge |
 | `bench/models/qwen3_5/benchmarks.cmake`, `bench/models/qwen3_5/chat_render_bench.cpp`, `bench/README.md` | host-only chat-template render cost bench: reads a template, synthesizes its conversation, needs no artifact and no GPU | `c81e5bcf` |
 | `.codex/hooks.json`, `.codex/hooks/clang_format.py` | removed: upstream's Codex hook runs clang-format from a Linux path and is not usable on this port. A merge resolves the modify/delete silently as "deleted by us", so it stays removed by design rather than by accident — worth knowing, because an incoming change to it will not conflict and will not appear in the merge stat | `c49eed3b` |
 
@@ -98,12 +114,25 @@ identical between `dev` and upstream, and the only remaining difference in
 `nvfp4_linear_swiglu_w4a4_tma.cuh` is the port's own descriptor-by-value fix (`1218d574`) plus the
 comment recording why the accurate activation is kept.
 
-## Two upstream issues we have already fixed
+## Two upstream issues we had fixed, now closed upstream
 
 `#251` (prefix reuse stops after the checkpoint budget) and `#229` (5 ms materialization budget
-forces root re-prefill) are **fixed in this tree** — `d05ee90a` and `e92cd9d7`. They remain open
-upstream. When upstream lands their own fix, compare against ours rather than merging blindly: our
-`resource_manager.h` and `materialization_budget.h` changes are the two files to check.
+forces root re-prefill) were fixed in this tree by `d05ee90a` and `e92cd9d7`. **Upstream closed both
+on 2026-10-29** with the context-cache rewrite (`366`, `bea5a04ec` and `2cf044529`), and the
+`458863be2` merge takes that rewrite:
+
+- `src/runtime/engine/context_cache/materialization_budget.h` is **gone** from upstream and from this
+  tree. The port's scaled-grant fix went with the file it lived in; the grant policy is upstream's.
+  The port has not re-applied it, because its subject (a flat 5 ms cap) no longer exists. Nothing in
+  the merged tree references it.
+- `src/runtime/engine/context_cache/resource_manager.h` still carries the port's one semantic line:
+  `release_unreferenced` returns instead of throwing when Native refuses a release, because the throw
+  reaches a `noexcept` engine path and becomes `std::terminate`. Upstream's rewrite did not change
+  that call site, so the guard is kept as a safety net; it is not a behaviour claim about #251.
+
+The port's `resource_manager.h` reclaim-at-admission work (`d05ee90a`) is also gone with upstream's
+rewritten manager. Nothing in the merged tree references `can_release_continuation` or the old
+reclaim, so the port's replacement is upstream's, by contract precedence.
 
 ## Procedure when pulling an upstream release
 

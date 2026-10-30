@@ -474,7 +474,7 @@ helpers do not promise equal capacities across different Ops.
 Stateful integration fixtures establish the prerequisites of the path they test. Isolate unrelated
 cache history when qualifying restoration; share history deliberately when testing retention or
 resource pressure. Enabling prefix reuse does not guarantee a cache hit after arbitrary preceding
-work: availability and selection follow the [context-cache policy](../docs/maintainer/resource-scheduling-and-context-cache.md).
+work: availability and selection follow the [context-cache policy](../docs/maintainer/context-management.md).
 
 Performance-only assertions belong in benchmarks and profiler review. Source scans,
 implementation-shape assertions, trivial getters/configuration, retired command surfaces, and
@@ -566,7 +566,7 @@ parameter sharing, constructs its execution resources, and reads/uploads a PLE w
 about 64 GiB of available Host memory plus system headroom with `--host-experts`. For resident
 loading on Spark, use its build directory and omit `--host-experts`. These are loading/resource checks;
 Text/Vision/MTP generation, eager or CUDA Graph decode, and text causal scoring use the public Engine,
-with current support described in the [execution reference](../docs/maintainer/qwen4_exp-execution.md)
+with current support described in the [model reference](../docs/maintainer/qwen4_exp-model.md)
 and commands in the [CLI guide](../docs/cli.md).
 
 The reclaim test loads Main experts on Host and MTP/fixed weights on Device, then constructs

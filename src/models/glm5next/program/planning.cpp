@@ -12,7 +12,8 @@ std::uint32_t count(std::uint64_t value) {
     return static_cast<std::uint32_t>(value);
 }
 
-ExecutionShape shape(const execution::ModelProfile& p, const EngineOptions& o) {
+ExecutionShape shape(const execution::ModelProfile& p, const EngineOptions& o,
+                     KvCacheVectorFormat index_format) {
     if (load_options(o) != p.options)
         throw std::invalid_argument("GLM5Next execution components differ from selected weights");
     if (!o.max_context || o.max_context > p.config.text.max_context || !o.max_concurrency ||
@@ -31,6 +32,7 @@ ExecutionShape shape(const execution::ModelProfile& p, const EngineOptions& o) {
             std::min(o.prefill_chunk ? o.prefill_chunk : 4096U, o.max_context),
             o.speculative.draft_tokens,
             o.kv_cache,
+            index_format,
             o.purpose,
             o.context_cache.enabled,
             o.observability.gpu_timing};
@@ -56,8 +58,8 @@ context::ContextDirectorySpec schema(const ExecutionPlan& p, std::size_t capacit
             .pool_id = count(spec.pools.size()),
             .logical_pages =
                 count(capacity / cache.cache.page.page_bytes + 2ULL * p.shape.max_concurrency),
-            .histories =
-                count(4ULL * spec.state.logical_capacity + 3ULL * p.shape.max_concurrency + 2),
+            .histories     = count(std::uint64_t(spec.state.logical_capacity) +
+                                   3ULL * p.shape.max_concurrency + 2),
             .page_capacity = cache.tables.spec.logical_page_capacity,
             .table_rows    = static_cast<std::uint32_t>(cache.tables.spec.table_rows)};
         for (const auto& part : spec.ranks)
@@ -88,12 +90,13 @@ std::size_t ExecutionPlan::reservation_bytes() const {
 }
 
 ExecutionPlan plan_execution(std::shared_ptr<const execution::ModelProfile> profile,
-                             const EngineOptions& o, int sm_count) {
+                             const EngineOptions& o, KvCacheVectorFormat index_format,
+                             int sm_count) {
     if (!profile)
         throw std::invalid_argument("GLM5Next execution planning requires its weight profile");
     ExecutionPlan out;
     out.profile        = std::move(profile);
-    out.shape          = shape(*out.profile, o);
+    out.shape          = shape(*out.profile, o, index_format);
     out.use_cuda_graph = o.use_cuda_graph && o.purpose == EnginePurpose::Generation;
     out.state          = plan_state(*out.profile);
     out.workspace =
@@ -102,10 +105,10 @@ ExecutionPlan plan_execution(std::shared_ptr<const execution::ModelProfile> prof
     LayoutBuilder b;
     const auto storage = latent_storage(o.kv_cache);
     out.main = plan_cache(b, c.mla, c.mla_layers, out.shape.max_context, out.shape.max_concurrency,
-                          storage);
+                          storage, index_format);
     if (out.profile->mtp)
-        out.mtp =
-            plan_cache(b, c.mla, 1, out.shape.max_context, out.shape.max_concurrency, storage);
+        out.mtp = plan_cache(b, c.mla, 1, out.shape.max_context, out.shape.max_concurrency, storage,
+                             index_format);
     out.frame = plan_frame(b, *out.profile, out.shape);
     if (out.profile->local.size > 1)
         for (auto& region : out.peer_staging)
@@ -140,19 +143,29 @@ runtime::ContextCapacityPlan describe_execution_capacity(const ExecutionPlan& p)
         set.records.push_back({geometry.spec_classes[rank], states});
         set.records.push_back({geometry.spec_classes[size], main});
         if (p.mtp) set.records.push_back({geometry.spec_classes[size + 1], mtp});
-        out.working_sets.push_back(std::move(set));
+        return set;
     };
     // A retained source and a writable destination coexist through publication. COW/provisional
     // suffixes are reserved with the same unit; this does not reserve a full history per draft.
-    const auto suffix_pages = pages(std::uint64_t(p.shape.draft_tokens) + 1) + 1;
-    working_set("maximum owner context", 2, pages(p.shape.max_context) + 1,
-                pages(p.shape.max_context - 1) + suffix_pages);
+    const auto suffix_pages     = pages(std::uint64_t(p.shape.draft_tokens) + 1) + 1;
+    constexpr auto state_copies = 2U;
+    auto maximum =
+        working_set("maximum owner context", state_copies, pages(p.shape.max_context) + 1,
+                    pages(p.shape.max_context - 1) + suffix_pages);
+    auto reference_records = maximum.records;
+    // One full-context request per attention owner: remote owners still need this KDA shard.
+    for (std::uint32_t owner = 0; owner < size; ++owner)
+        if (owner != rank)
+            reference_records.push_back({geometry.spec_classes[owner], state_copies});
+    out.reference = {p.shape.max_context, size, geometry.required_bytes(reference_records)};
+    out.working_sets.push_back(std::move(maximum));
     const auto concurrent   = p.shape.max_concurrency;
     const auto short_tokens = std::min<std::uint64_t>(
         p.shape.max_context, std::uint64_t(p.shape.prefill_chunk) + p.shape.draft_tokens + 1);
-    working_set("concurrent owner requests", count(2ULL * concurrent),
-                count(std::uint64_t(concurrent) * (pages(short_tokens) + 1)),
-                count(std::uint64_t(concurrent) * (pages(short_tokens - 1) + suffix_pages)));
+    out.working_sets.push_back(
+        working_set("concurrent owner requests", count(std::uint64_t(state_copies) * concurrent),
+                    count(std::uint64_t(concurrent) * (pages(short_tokens) + 1)),
+                    count(std::uint64_t(concurrent) * (pages(short_tokens - 1) + suffix_pages))));
     out.fixed_device_bytes = p.fixed_bytes + p.workspace.bytes +
                              (p.workspace.vision ? p.workspace.vision->output_bytes : 0) +
                              (NINFER_SHARED_PHYSICAL_MEMORY ? p.pinned_bytes() : 0);
@@ -160,14 +173,18 @@ runtime::ContextCapacityPlan describe_execution_capacity(const ExecutionPlan& p)
     // The selected TP plan has equal KDA shards. Describe whole logical objects for metadata
     // costs, while charging allocator metadata to each rank and fixed control storage once.
     auto description = schema(p, 0, true);
-    out.metadata     = session_metadata_plan(description, geometry, rank);
-    if (rank != 0) out.metadata.fixed_bytes = 0;
+    out.metadata     = session_metadata_plan(
+        description, geometry, rank,
+        p.shape.purpose == EnginePurpose::Generation ? p.profile->public_tokens : 0);
     return out;
 }
 
 context::ContextDirectorySpec describe_context(const ExecutionPlan& p) {
     auto out                  = schema(p, p.capacity.device_bytes, false);
     out.metadata_budget_bytes = p.capacity.metadata_budget_bytes;
+    for (auto& pool : out.pools)
+        pool.histories =
+            context::HistoryDirectory::capacity_for_metadata(out.metadata_budget_bytes);
     return out;
 }
 

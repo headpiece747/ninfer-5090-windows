@@ -40,17 +40,19 @@ void mla(WorkspaceLayoutBuilder& a, const ModelProfile& p, const MlaProfile& m,
             const auto& profile = m.prepare.at(
                 static_cast<std::size_t>(reuse ? ops::KpoolMlaPrepareProjection::QueryAndHistory
                                                : ops::KpoolMlaPrepareProjection::Full));
-            scratch(a, record ? ops::kpool_mla_prepare_record_workspace_capacity_bytes(
-                                    profile, storage, local, first, last, sm_count)
-                              : ops::kpool_mla_prepare_update_workspace_capacity_bytes(
-                                    profile, storage, local, first, last, sm_count));
+            scratch(a, record
+                           ? ops::kpool_mla_prepare_record_workspace_capacity_bytes(
+                                 profile, storage, s.index_format, local, first, last, sm_count)
+                           : ops::kpool_mla_prepare_update_workspace_capacity_bytes(
+                                 profile, storage, s.index_format, local, first, last, sm_count));
             if (reuse)
                 scratch(a, linear(m.query, minimum, columns));
             else {
                 scratch(a, ops::linear_split_workspace_capacity_bytes(
                                {m.query_index, {}}, m.query_rows, minimum, columns));
-                scratch(a, ops::kpool_indexer_workspace_capacity_bytes(
-                               m.indexer, {s.max_context}, local, first, last, sm_count));
+                scratch(a, ops::kpool_indexer_workspace_capacity_bytes(m.indexer, s.index_format,
+                                                                       {s.max_context}, local,
+                                                                       first, last, sm_count));
             }
             scratch(a, ops::kpool_sparse_mla_workspace_capacity_bytes(
                            m.attention, storage, {s.max_context}, local, first, last, sm_count));
@@ -75,7 +77,7 @@ std::size_t body(const ModelProfile& p, const ExecutionShape& s, int first, int 
         }
         mla(a, p, p.mtp->attention, s, first, last, batch, sm_count, false, true);
         scratch(a, ops::topk_sigmoid_swiglu_moe_workspace_capacity_bytes(
-                       p.mtp->moe.math, ops::ExpertSubsetKind::MaskOnes, minimum, columns));
+                       p.mtp->moe.math, p.mtp->moe.subset, minimum, columns));
         return a.peak_bytes();
     }
     (void)workspace::roots(a, p.config.text, columns);
@@ -117,8 +119,8 @@ std::size_t body(const ModelProfile& p, const ExecutionShape& s, int first, int 
             scratch(a, ops::swiglu_workspace_capacity_bytes(d->math, minimum, columns));
         else
             scratch(a, ops::topk_sigmoid_swiglu_moe_workspace_capacity_bytes(
-                           std::get<MoeProfile>(layer.ffn).math, ops::ExpertSubsetKind::MaskOnes,
-                           minimum, columns));
+                           std::get<MoeProfile>(layer.ffn).math,
+                           std::get<MoeProfile>(layer.ffn).subset, minimum, columns));
     }
     return a.peak_bytes();
 }
@@ -142,7 +144,8 @@ std::size_t history(const ModelProfile& p, const ExecutionShape& s, int first, i
         const auto& profile = p.mtp->attention.prepare.at(
             static_cast<std::size_t>(ops::KpoolMlaPrepareProjection::History));
         scratch(a, ops::kpool_mla_prepare_update_workspace_capacity_bytes(
-                       profile, latent_storage(s.kv_storage), local, first, last, sm_count));
+                       profile, latent_storage(s.kv_storage), s.index_format, local, first, last,
+                       sm_count));
     }
     return a.peak_bytes();
 }

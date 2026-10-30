@@ -117,19 +117,7 @@ Json requested_reasoning_effort_json(const std::optional<RequestedReasoningEffor
 }
 
 const char* kv_cache_name(ninfer::KvCacheStorage storage) {
-    switch (storage) {
-    case ninfer::KvCacheStorage::BFloat16:
-        return "bf16";
-    case ninfer::KvCacheStorage::Int8Group64:
-        return "int8-group64";
-    case ninfer::KvCacheStorage::Fp8E4M3Row256:
-        return "fp8-e4m3-row256";
-    case ninfer::KvCacheStorage::Nvfp4Group16:
-        return "nvfp4";
-    case ninfer::KvCacheStorage::Fp8KeyNvfp4Value:
-        return "k8v4";
-    }
-    return "unknown";
+    return ninfer::kv_cache_profile_info(storage).name;
 }
 
 const char* context_capacity_mode_name(ninfer::ContextCapacityMode mode) {
@@ -560,6 +548,7 @@ std::string format_server_start_json(const std::string& server_instance_id, std:
                                       {"max_context", engine_options.max_context},
                                       {"context_capacity_mode", context_capacity_mode_name(engine_options.context_capacity.mode)},
                                       {"context_pools", product::context_capacity_json(description.context_pools)},
+                                      {"context_token_capacity_estimate", description.context_token_capacity_estimate},
                                       {"max_concurrency", engine_options.max_concurrency},
                                       {"max_pending_requests", engine_options.max_pending_requests},
                                       {"pending_timeout_ms", engine_options.pending_timeout_ms},

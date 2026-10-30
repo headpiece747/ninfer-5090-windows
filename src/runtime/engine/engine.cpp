@@ -48,11 +48,6 @@ runtime::ResolvedRequestOptions resolve_request_options(const SamplingPreset& pr
     return resolved;
 }
 
-std::string context_capacity_error(std::size_t prompt_tokens, std::uint32_t max_context) {
-    return "prepared prompt has " + std::to_string(prompt_tokens) +
-           " tokens, exceeding Engine max_context " + std::to_string(max_context);
-}
-
 } // namespace
 
 class PreparedPrompt::Impl {
@@ -113,7 +108,8 @@ class GenerationHandle::Impl {
 public:
     class Concept {
     public:
-        virtual ~Concept() = default;
+        virtual ~Concept()                                                    = default;
+        virtual void wait_for_admission(const CancellationView& cancellation) = 0;
         virtual GenerationResult wait(OutputSink* sink, const CancellationView& cancellation) = 0;
     };
 
@@ -122,6 +118,10 @@ public:
     public:
         Model(std::shared_ptr<void> keep_alive, Submission submission)
             : keep_alive_(std::move(keep_alive)), submission_(std::move(submission)) {}
+
+        void wait_for_admission(const CancellationView& cancellation) override {
+            submission_.wait_for_admission(cancellation);
+        }
 
         GenerationResult wait(OutputSink* sink, const CancellationView& cancellation) override {
             return submission_.wait(sink, cancellation);
@@ -137,6 +137,10 @@ public:
          ResolvedSamplingParameters sampling)
         : state_(std::make_unique<Model<Submission>>(std::move(keep_alive), std::move(submission))),
           sampling_(sampling) {}
+
+    void wait_for_admission(const CancellationView& cancellation) {
+        state_->wait_for_admission(cancellation);
+    }
 
     GenerationResult wait(OutputSink* sink, const CancellationView& cancellation) {
         return state_->wait(sink, cancellation);
@@ -163,6 +167,11 @@ GenerationHandle::operator bool() const noexcept { return impl_ != nullptr; }
 const ResolvedSamplingParameters& GenerationHandle::resolved_sampling() const noexcept {
     static const ResolvedSamplingParameters empty;
     return impl_ != nullptr ? impl_->resolved_sampling() : empty;
+}
+
+void GenerationHandle::wait_for_admission(const CancellationView& cancellation) {
+    if (impl_ == nullptr) { throw std::logic_error("GenerationHandle is empty"); }
+    impl_->wait_for_admission(cancellation);
 }
 
 GenerationResult GenerationHandle::wait(OutputSink* sink, const CancellationView& cancellation) {
@@ -260,6 +269,8 @@ private:
         description.kv_cache        = options.kv_cache;
         std::visit(
             [&](const auto& instance) {
+                description.context_token_capacity_estimate =
+                    runtime::estimate_context_token_capacity(instance->context_capacities);
                 const auto usage = instance->session->physical_usage();
                 for (const auto& pool : usage.pools)
                     description.context_pools.push_back(
@@ -312,8 +323,9 @@ PreparedPrompt Engine::prepare_tokens(std::vector<TokenId> token_ids,
                                     static_cast<std::uint64_t>(token_ids.size()));
     if (impl_ == nullptr) { throw std::logic_error("Engine is moved from"); }
     if (token_ids.size() > impl_->options.max_context) {
-        throw RequestError(RequestErrorKind::ContextLengthExceeded,
-                           context_capacity_error(token_ids.size(), impl_->options.max_context));
+        throw RequestError(
+            RequestErrorKind::ContextLengthExceeded,
+            runtime::context_length_error_message(token_ids.size(), impl_->options.max_context));
     }
     auto prepared = std::visit(
         [&](const auto& instance) {
@@ -404,15 +416,30 @@ GenerationHandle Engine::submit(PreparedPrompt prompt, RequestOptions options,
 
     const PromptSummary prompt_summary = prompt.impl_->summary;
     if (prompt_summary.prompt_tokens > impl_->options.max_context) {
-        throw RequestError(
-            RequestErrorKind::ContextLengthExceeded,
-            context_capacity_error(prompt_summary.prompt_tokens, impl_->options.max_context));
+        throw RequestError(RequestErrorKind::ContextLengthExceeded,
+                           runtime::context_length_error_message(prompt_summary.prompt_tokens,
+                                                                 impl_->options.max_context));
     }
     const double prepare_seconds = prompt.impl_->prepare.seconds;
     if (resolved_options.execution.requested_output_tokens == 0) {
         struct ImmediateSubmission {
             GenerationResult result;
             OutputConsumerMode consumer_mode = OutputConsumerMode::Aggregate;
+
+            void wait_for_admission(const CancellationView& cancellation) {
+                try {
+                    if (cancellation.requested()) {
+                        result.finish_reason = FinishReason::Cancelled;
+                    }
+                } catch (...) {
+                    result.finish_reason = FinishReason::Cancelled;
+                    throw;
+                }
+                if (result.finish_reason == FinishReason::Cancelled) {
+                    throw RequestError(RequestErrorKind::Cancelled,
+                                       "inference request cancelled before admission");
+                }
+            }
 
             GenerationResult wait(OutputSink* sink, const CancellationView& cancellation) {
                 const bool streaming = consumer_mode == OutputConsumerMode::Streaming;

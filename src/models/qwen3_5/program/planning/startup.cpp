@@ -108,15 +108,16 @@ ResourceLayout persistent_layout(const SequencePlanImpl& plan) {
         };
     }
     spec.frame = {
-        .hidden         = dimension(config.hidden_size),
-        .output_rows    = dimension(config.vocab_size),
-        .public_tokens  = dimension(profile.public_tokens),
-        .prefill_chunk  = std::min(plan.prefill_chunk, plan.capacity),
-        .batch_capacity = plan.max_concurrency,
-        .draft_window   = plan.draft_window,
-        .backend        = plan.speculative_backend,
-        .causal_scoring = plan.causal_scoring,
-        .vision         = plan.features.vision,
+        .hidden              = dimension(config.hidden_size),
+        .output_rows         = dimension(config.vocab_size),
+        .public_tokens       = dimension(profile.public_tokens),
+        .prefill_chunk       = std::min(plan.prefill_chunk, plan.capacity),
+        .batch_capacity      = plan.max_concurrency,
+        .draft_window        = plan.draft_window,
+        .backend             = plan.speculative_backend,
+        .causal_scoring      = plan.causal_scoring,
+        .vision              = plan.features.vision,
+        .control_token_limit = profile.control_token_limit,
     };
     spec.context_bytes      = plan.context_bytes;
     spec.host_context_bytes = plan.context_cache.host_capacity_bytes.value_or(0);
@@ -660,22 +661,25 @@ make_sequence_planner_impl(std::shared_ptr<const execution::ModelProfile> profil
         set.records.push_back({geometry.spec_classes[0], states});
         set.records.push_back({geometry.spec_classes[1], main});
         if (capacity.records.size() > 2) set.records.push_back({geometry.spec_classes[2], backend});
-        capacity.working_sets.push_back(std::move(set));
+        return set;
     };
     const auto transition    = inputs.speculative_backend == SpeculativeBackend::None ? 0U : 1U;
     const auto maximum_pages = page_count(inputs.capacity);
-    working_set("maximum context", 1 + transition, maximum_pages + transition,
-                maximum_pages + transition);
+    auto maximum       = working_set("maximum context", 1 + transition, maximum_pages + transition,
+                                     maximum_pages + transition);
+    capacity.reference = {inputs.capacity, 1, geometry.required_bytes(maximum.records)};
+    capacity.working_sets.push_back(std::move(maximum));
     if (!inputs.causal_scoring) {
         const auto short_tokens = static_cast<std::uint32_t>(std::min<std::uint64_t>(
             inputs.capacity, std::uint64_t(inputs.prefill_chunk) + inputs.draft_window + 1));
         const auto short_pages  = page_count(short_tokens) + transition;
-        working_set("concurrent requests", inputs.max_concurrency * (1 + transition),
-                    inputs.max_concurrency * short_pages, inputs.max_concurrency * short_pages);
+        capacity.working_sets.push_back(working_set(
+            "concurrent requests", inputs.max_concurrency * (1 + transition),
+            inputs.max_concurrency * short_pages, inputs.max_concurrency * short_pages));
         if (inputs.context_cache.enabled)
-            working_set("checkpoint handover", inputs.max_concurrency + 1 + transition,
-                        maximum_pages + inputs.max_concurrency,
-                        maximum_pages + inputs.max_concurrency);
+            capacity.working_sets.push_back(working_set(
+                "checkpoint handover", inputs.max_concurrency + 1 + transition,
+                maximum_pages + inputs.max_concurrency, maximum_pages + inputs.max_concurrency));
     }
     capacity.fixed_device_bytes = base->device_reservation_bytes;
     capacity.fixed_host_bytes =
@@ -692,7 +696,8 @@ make_sequence_planner_impl(std::shared_ptr<const execution::ModelProfile> profil
 
 std::unique_ptr<SequencePlanImpl>
 make_graph_probe_plan(std::shared_ptr<const execution::ModelProfile> profile, DeviceContext& device,
-                      const EngineOptions& options, std::shared_ptr<const moe::Plan> moe) {
+                      const EngineOptions& options, std::shared_ptr<const moe::Plan> moe,
+                      GraphProbeBacking backing) {
     auto planner = make_sequence_planner_impl(std::move(profile), device, options, std::move(moe));
     auto inputs  = std::move(planner->inputs);
     inputs.context_cache.host_capacity_bytes = 0;
@@ -700,7 +705,10 @@ make_graph_probe_plan(std::shared_ptr<const execution::ModelProfile> profile, De
     const auto geometry                      = describe_context_pool(records);
     std::vector<RecordRequest> demand;
     for (const auto id : geometry.spec_classes) demand.push_back({id, inputs.max_concurrency});
-    auto plan         = build_sequence_candidate(inputs, geometry.required_bytes(demand));
+    const auto bytes  = backing == GraphProbeBacking::Inputs
+                            ? geometry.required_bytes(demand)
+                            : planner->capacity_plan.minimum_capacity().device_bytes;
+    auto plan         = build_sequence_candidate(inputs, bytes);
     plan->graph_probe = true;
     return plan;
 }

@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
         std::string ids_path;
         std::uint32_t first_target = 1;
         std::uint32_t context      = 2048;
-        ninfer::KvCacheStorage kv   = ninfer::KvCacheStorage::Fp8E4M3Row256;
+        ninfer::KvCacheStorage kv   = ninfer::KvCacheStorage::Fp8E4m3fnGroup128Ue8m0;
         for (int i = 2; i < argc; ++i) {
             const std::string option = argv[i];
             const auto value = [&]() -> std::string {
@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
                 } else if (mode == "int8") {
                     kv = ninfer::KvCacheStorage::Int8Group64;
                 } else if (mode == "fp8") {
-                    kv = ninfer::KvCacheStorage::Fp8E4M3Row256;
+                    kv = ninfer::KvCacheStorage::Fp8E4m3fnGroup128Ue8m0;
                 } else if (mode == "nvfp4") {
                     kv = ninfer::KvCacheStorage::Nvfp4Group16;
                 } else if (mode == "k8v4") {

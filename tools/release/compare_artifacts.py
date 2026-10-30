@@ -6,7 +6,7 @@ model? Written because a locally-upgraded copy and the repository's own v3 produ
 (61.8% against 62.5% acceptance, different digests) while being only 4,283 bytes apart -- 4,096 of
 that JSON trailing-whitespace padding -- which no size check can see.
 
-Per docs/maintainer/artifact-container.md 3.1 the entry header is 32 bytes (magic, json_bytes,
+Per docs/maintainer/weights-and-loading.md the entry header is 32 bytes (magic, json_bytes,
 artifact_id), the JSON occupies [32, metadata_end), and the payload starts at
 align_up(metadata_end, 4096).
 

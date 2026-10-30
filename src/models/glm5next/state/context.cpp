@@ -33,18 +33,18 @@ ops::KpoolMlaStorage latent_storage(KvCacheStorage storage) {
     switch (storage) {
     case KvCacheStorage::BFloat16:
         return ops::KpoolMlaStorage::BFloat16;
-    case KvCacheStorage::Fp8E4M3Row256:
-        return ops::KpoolMlaStorage::Fp8E4m3fnGroup128F32;
+    case KvCacheStorage::Fp8E4m3fnGroup128Ue8m0:
+        return ops::KpoolMlaStorage::Fp8E4m3fnGroup128Ue8m0;
     default:
         throw std::invalid_argument("GLM5Next has no latent representation for this KV format");
     }
 }
 
 CacheLayout plan_cache(LayoutBuilder& b, const MlaConfig& c, std::uint32_t layers,
-                       std::uint32_t max_context, std::uint32_t rows,
-                       ops::KpoolMlaStorage storage) {
-    auto layout = ops::plan_kpool_mla_cache_layout(
-        {storage, dimension(c.latent_dim), dimension(c.index_dim), dimension(layers)});
+                       std::uint32_t max_context, std::uint32_t rows, ops::KpoolMlaStorage storage,
+                       KvCacheVectorFormat index_format) {
+    auto layout = ops::plan_kpool_mla_cache_layout({storage, index_format, dimension(c.latent_dim),
+                                                    dimension(c.index_dim), dimension(layers)});
     const auto tokens = layout.page.geometry.page_tokens;
     return {std::move(layout),
             plan_kv_execution_tables(b, {(max_context - 1) / tokens + 1, dimension(rows)})};

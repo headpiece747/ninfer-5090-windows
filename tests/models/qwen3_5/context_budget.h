@@ -23,13 +23,29 @@ context_capacity_plan(const EngineOptions& options) {
 
 // Optional checkpoints compete with each complete production working set, including its
 // write/commit peak. Record packing, rather than payload-byte sums, determines the budget.
+//
+// A retained checkpoint is a State record **and** the KV pages of the history it resumes: upstream
+// unified KV and State into one pool (bea5a04ec), so counting the State record alone under-budgets
+// the pool, and an explicit capacity that is too small for a unit deadlocks the reservation path
+// instead of failing. The pages are the reference request's own ceiling, which is the worst case a
+// retained checkpoint can occupy.
 [[nodiscard]] inline std::size_t context_capacity_bytes(const runtime::ContextCapacityPlan& plan,
                                                         std::uint32_t retained_states = 0) {
-    const auto geometry = describe_context_pool(plan.records);
-    auto bytes          = plan.minimum_capacity().device_bytes;
+    const auto geometry        = describe_context_pool(plan.records);
+    constexpr auto page_tokens = static_cast<std::uint32_t>(kPagedKVPageSize);
+    const std::uint64_t tokens = plan.reference.tokens_per_request;
+    const auto pages =
+        static_cast<std::uint32_t>(tokens / page_tokens + (tokens % page_tokens != 0));
+    auto bytes = plan.minimum_capacity().device_bytes;
     for (const auto& set : plan.working_sets) {
         auto records = set.records;
         records.push_back({geometry.spec_classes.at(0), retained_states});
+        if (retained_states != 0) {
+            if (geometry.spec_classes.size() > 1)
+                records.push_back({geometry.spec_classes.at(1), retained_states * pages});
+            if (geometry.spec_classes.size() > 2)
+                records.push_back({geometry.spec_classes.at(2), retained_states * pages});
+        }
         bytes = std::max(bytes, geometry.required_bytes(records));
     }
     return bytes;

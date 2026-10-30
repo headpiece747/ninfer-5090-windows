@@ -2,6 +2,7 @@
 #include "product/statistics.h"
 
 #include "product/logging/pretty_format.h"
+#include "product/logging/configuration.h"
 #include "product/speculative_options.h"
 
 #include <spdlog/logger.h>
@@ -112,20 +113,8 @@ const char* protocol_name(std::string_view protocol) noexcept {
     return "http";
 }
 
-const char* kv_cache_name(ninfer::KvCacheStorage storage) noexcept {
-    switch (storage) {
-    case ninfer::KvCacheStorage::BFloat16:
-        return "bf16";
-    case ninfer::KvCacheStorage::Int8Group64:
-        return "int8";
-    case ninfer::KvCacheStorage::Fp8E4M3Row256:
-        return "fp8";
-    case ninfer::KvCacheStorage::Nvfp4Group16:
-        return "nvfp4";
-    case ninfer::KvCacheStorage::Fp8KeyNvfp4Value:
-        return "k8v4";
-    }
-    return "unknown";
+const char* kv_cache_name(ninfer::KvCacheStorage storage) {
+    return ninfer::kv_cache_profile_info(storage).name;
 }
 
 void append_clause(std::ostringstream& out, std::string_view clause) { out << " | " << clause; }
@@ -459,11 +448,7 @@ void OperationalLog::engine_capacity(const GenerationService& service) const {
     const auto& context_cost = startup.load.context_cost;
     logger_->info("capacity | {} | {} ranks | {} active lanes", kv_cache_name(description.kv_cache),
                   description.ranks.size(), engine.max_concurrency);
-    for (const auto& pool : description.context_pools)
-        logger_->info("context rank {} | {} {} | block {}", pool.rank,
-                      pool.domain == ninfer::ContextMemoryDomain::Device ? "device" : "host",
-                      product::format_pretty_bytes(pool.capacity_bytes),
-                      product::format_pretty_bytes(pool.block_bytes));
+    product::log_context_capacity(*logger_, description);
     for (std::size_t i = 0; i < description.ranks.size(); ++i) {
         const auto& rank   = description.ranks[i];
         const auto& budget = startup.ranks.at(i);
@@ -473,10 +458,11 @@ void OperationalLog::engine_capacity(const GenerationService& service) const {
                       product::format_pretty_bytes(budget.runtime_reservation_bytes),
                       product::format_pretty_bytes(budget.available_after_startup_bytes));
         if (budget.graphs)
-            logger_->debug(
-                "rank {} | graph rebuild estimate {} | preparation delta {} B | retained {} B",
-                rank.rank, product::format_pretty_bytes(budget.graphs->rebuild_estimate_bytes),
-                budget.graphs->preparation_increment_bytes, budget.retained_bytes);
+            logger_->debug("rank {} | graph rebuild estimate {} | preparation peak {} | delta {} B",
+                           rank.rank,
+                           product::format_pretty_bytes(budget.graphs->rebuild_estimate_bytes),
+                           product::format_pretty_bytes(budget.graphs->preparation_peak_bytes),
+                           budget.graphs->preparation_increment_bytes);
     }
 
     logger_->info("context | history {} | checkpoint interval {} tokens",

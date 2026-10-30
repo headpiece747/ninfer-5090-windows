@@ -9,6 +9,8 @@
 
 namespace ninfer::runtime {
 
+// Available bytes are net allowances supplied by startup budgeting. Capacity selection charges
+// model resources and their metadata; it does not reserve startup headroom again.
 [[nodiscard]] ContextCapacityResolution
 resolve_context_capacity(const ContextCapacityPolicy&, const ContextCapacityPlan&,
                          std::size_t available_runtime_bytes, std::size_t available_host_bytes,
@@ -25,5 +27,8 @@ struct RankCapacityOffer {
 [[nodiscard]] std::vector<ContextCapacityResolution>
 resolve_group_context_capacity(const ContextCapacityPolicy&, std::span<const RankCapacityOffer>,
                                std::optional<std::size_t> control_memory_owner);
+
+[[nodiscard]] std::uint64_t
+estimate_context_token_capacity(std::span<const ContextCapacityResolution> capacities);
 
 } // namespace ninfer::runtime

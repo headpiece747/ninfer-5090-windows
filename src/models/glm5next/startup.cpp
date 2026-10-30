@@ -4,8 +4,18 @@
 #include "models/glm5next/program/graph_inputs.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <string_view>
 
 namespace ninfer::models::glm5next {
+
+KvCacheVectorFormat index_format_from_environment() {
+    const auto* value = std::getenv("NINFER_KPOOL_INDEXER_BF16");
+    if (!value || std::string_view(value) == "0")
+        return KvCacheVectorFormat::Fp8E4m3fnGroup128Ue8m0;
+    if (std::string_view(value) == "1") return KvCacheVectorFormat::BFloat16;
+    throw std::invalid_argument("NINFER_KPOOL_INDEXER_BF16 must be 0 or 1");
+}
 
 RankPreparation::RankPreparation(const artifact::Reader& reader, RankLoadRequest request,
                                  DeviceContext& device, ContextCommunication peer)
@@ -16,13 +26,13 @@ RankPreparation::RankPreparation(const artifact::Reader& reader, RankLoadRequest
     auto definition = read_definition(reader, load_options(options_));
     load_.emplace(
         resolve_rank_load(reader, std::move(definition), std::move(request.rank), device.device()));
-    memory_ = {load_->materialization().device_capacity_bytes,
-               load_->materialization().host_capacity_bytes,
-               options_.context_capacity.automatic_headroom_bytes, request.host_reservation_bytes};
-    auto profile =
-        execution::describe_model(load_->definition(), load_->weight_data(), load_->rank_plan());
-    plan_     = plan_execution(std::move(profile), options_, device.multiprocessor_count());
-    capacity_ = describe_execution_capacity(plan_);
+    memory_      = {load_->materialization().device_capacity_bytes,
+                    load_->materialization().host_capacity_bytes, request.host_reservation_bytes};
+    auto profile = execution::describe_model(load_->definition(), load_->weight_data(),
+                                             load_->expert_data(), load_->rank_plan());
+    plan_        = plan_execution(std::move(profile), options_, request.index_format,
+                                  device.multiprocessor_count());
+    capacity_    = describe_execution_capacity(plan_);
 }
 
 RankPreparation::~RankPreparation() = default;
@@ -56,9 +66,18 @@ runtime::RankPreparationReport RankPreparation::report(std::size_t available) co
 
 void RankPreparation::prepare_probe() {
     if (!plan_.use_cuda_graph) return;
+    create_probe(detail::graph_context_bytes(plan_));
+}
+
+void RankPreparation::prepare_rebuild_probe() {
+    if (!plan_.use_cuda_graph) return;
+    create_probe(capacity_.minimum_capacity().device_bytes);
+}
+
+void RankPreparation::create_probe(std::size_t context_bytes) {
     auto plan                               = plan_;
     plan.capacity                           = {};
-    plan.capacity.device_bytes              = detail::graph_context_bytes(plan);
+    plan.capacity.device_bytes              = context_bytes;
     plan.capacity.runtime_reservation_bytes = plan.reservation_bytes();
     auto resources                          = std::make_unique<Resources>(std::move(plan), device_);
     probe_ = std::make_unique<RankProgram>(instance_->parameters, std::move(resources), device_,
@@ -67,20 +86,26 @@ void RankPreparation::prepare_probe() {
 
 void RankPreparation::calibrate() {
     if (!probe_) return;
-    const auto before = device_memory_snapshot(device_.device());
-    probe_->prepare_execution();
-    const auto ready = device_memory_snapshot(device_.device());
-    probe_->release_execution();
-    const auto released                       = device_memory_snapshot(device_.device());
-    graph_memory_.calibration_increment_bytes = device_memory_growth(before, ready);
-    graph_memory_.calibration_retained_bytes  = device_memory_growth(before, released);
-    graph_memory_.rebuild_estimate_bytes =
-        std::max<std::int64_t>(0, device_memory_growth(released, ready));
+    graph_memory_ = begin_graph_calibration(
+        device_, [&](GraphPreparationMode mode) { return probe_->prepare_execution(mode); },
+        [&] { probe_->release_execution(); });
     probe_.reset();
     device_.synchronize();
 }
 
-void RankPreparation::prepare_execution() { instance_->program->prepare_execution(); }
+void RankPreparation::calibrate_rebuild() {
+    if (!probe_) return;
+    complete_graph_calibration(
+        graph_memory_, device_,
+        [&](GraphPreparationMode mode) { return probe_->prepare_execution(mode); },
+        [&] { probe_->release_execution(); });
+    probe_.reset();
+    device_.synchronize();
+}
+
+void RankPreparation::prepare_execution() {
+    instance_->program->prepare_execution(GraphPreparationMode::Capture);
+}
 
 void RankPreparation::prepare(runtime::ContextCapacity capacity, std::size_t available,
                               std::size_t available_host) {
@@ -92,9 +117,13 @@ void RankPreparation::prepare(runtime::ContextCapacity capacity, std::size_t ava
     const auto reserved = capacity_.reservation_bytes(capacity);
     const auto control =
         control_owner_ && NINFER_SHARED_PHYSICAL_MEMORY ? capacity_.control_bytes(capacity) : 0;
-    if (reserved > available || control > available - reserved)
-        throw DeviceAllocationError("GLM5Next rank runtime capacity exceeds available memory",
-                                    reserved);
+    if (reserved > available || control > available - reserved) {
+        const auto required = reserved + control;
+        throw std::runtime_error("GLM5Next rank allocation budget exceeded: required " +
+                                 std::to_string(required) + " bytes, available " +
+                                 std::to_string(available) + " bytes, shortfall " +
+                                 std::to_string(required - available) + " bytes");
+    }
     auto plan     = plan_;
     plan.capacity = runtime::resolve_context_capacity(
         ContextCapacityPolicy::explicit_capacity(capacity.device_bytes), capacity_, available,
@@ -107,6 +136,9 @@ void RankPreparation::prepare(runtime::ContextCapacity capacity, std::size_t ava
 void RankPreparation::release_resources() {
     if (instance_ && instance_->program) {
         instance_->program->drain();
+        if (const auto graph = instance_->program->resource_budget().graphs)
+            graph_memory_.rebuild_estimate_bytes =
+                std::max(graph_memory_.rebuild_estimate_bytes, graph->preparation_peak_bytes);
         instance_->program.reset();
     }
 }
@@ -130,13 +162,14 @@ RankResourceDescription RankPreparation::describe() const {
                   .minimum_context_capacity_bytes    = c.minimum_device_bytes,
                   .context_control_budget_bytes      = c.control_reservation_bytes,
                   .available_after_weights_bytes     = c.available_after_weights_bytes,
-                  .headroom_bytes                    = c.automatic_headroom_bytes,
                   .planned_slack_bytes               = c.planned_slack_bytes};
     if (plan_.use_cuda_graph) {
         auto observed     = instance_->program->resource_budget().graphs;
         out.budget.graphs = graph_memory_;
-        if (observed)
+        if (observed) {
             out.budget.graphs->preparation_increment_bytes = observed->preparation_increment_bytes;
+            out.budget.graphs->preparation_peak_bytes      = observed->preparation_peak_bytes;
+        }
     }
     out.caches.push_back(p.main.cache.page.geometry);
     if (p.mtp) out.caches.push_back(p.mtp->cache.page.geometry);
@@ -159,7 +192,8 @@ Frontend create_frontend(const ModelDefinition& definition, const EngineOptions&
 
 Startup::Startup(const artifact::Reader& reader, const artifact::Reader& rank,
                  const EngineOptions& options, Device)
-    : definition_(read_definition(reader, load_options(options))) {
+    : definition_(read_definition(reader, load_options(options))),
+      index_format_(index_format_from_environment()) {
     if (reader.artifact_id() != rank.artifact_id())
         throw artifact::ArtifactError("GLM5Next local artifact differs from coordinator");
     rank_ = options.deployment ? plan_parallel(*definition_, *options.deployment).ranks.at(0)
@@ -176,8 +210,13 @@ std::unique_ptr<RankPreparation> Startup::preparation(const artifact::Reader& re
                                                       DeviceContext& device) const {
     return std::make_unique<RankPreparation>(
         reader,
-        RankLoadRequest{definition_->artifact_id(), rank_, options,
-                        options.enable_vision ? options.media_live_bytes : 0, true},
+        RankLoadRequest{.artifact     = definition_->artifact_id(),
+                        .rank         = rank_,
+                        .options      = options,
+                        .index_format = index_format_,
+                        .host_reservation_bytes =
+                            options.enable_vision ? options.media_live_bytes : 0,
+                        .control_owner = true},
         device);
 }
 
@@ -188,15 +227,16 @@ PreparedSession Startup::session(const RankResourceDescription& rank,
     return prepare_session(definition_, prepare_context(group, {&rank, 1}), interval);
 }
 
-std::string prefill_signature(const ModelDefinition& d, std::uint32_t chunk, std::uint32_t ranks) {
+std::string prefill_signature(const ModelDefinition& d, std::uint32_t chunk, std::uint32_t ranks,
+                              std::uint32_t ep_size) {
     const auto& c = d.config().text;
     return "glm5next:h=" + std::to_string(c.hidden) + ";layers=" + std::to_string(c.layers.size()) +
            ";chunk=" + std::to_string(chunk) + ";tp=" + std::to_string(ranks) +
-           ";ep=" + std::to_string(ranks) + ";adp=" + std::to_string(ranks);
+           ";ep=" + std::to_string(ep_size) + ";adp=" + std::to_string(ranks);
 }
 
 std::string Startup::prefill_signature(std::uint32_t chunk) const {
-    return glm5next::prefill_signature(*definition_, chunk, 1);
+    return glm5next::prefill_signature(*definition_, chunk, 1, 1);
 }
 
 } // namespace ninfer::models::glm5next

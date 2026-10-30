@@ -7,10 +7,8 @@ suffix shared by both profiles; Section 13 defines the `groupwise-int` base allo
 
 The nvfp4 profile is a registered Engine identity implemented by the target converter, exact
 binder, and Qwen3.8 execution leaves. The generic artifact registry resolves its v3 identity
-without a runtime profile flag. Common framing is defined in
-[`artifact-container.md`](artifact-container.md), numeric semantics in
-[`tensor-formats.md`](tensor-formats.md), byte packing in
-[`storage-layouts.md`](storage-layouts.md), and model mathematics and state behavior in
+without a runtime profile flag. Common framing, numeric semantics and byte packing are defined in
+[`weights-and-loading.md`](weights-and-loading.md), and model mathematics and state behavior in
 [`qwen3_5-model.md`](qwen3_5-model.md).
 
 The converter modules, recipes and calibration inputs this reference names were originally owned by a
@@ -80,7 +78,7 @@ At startup, `none` and MTP do not materialize DFlash2 weights; DFlash2 does not 
 weights. Vision and DFlash2 may be resident together. The target always materializes `text/output_head`. The full proposal-head route reuses it; the
 optimized route additionally materializes `text/draft_head` and `text/draft_head_token_ids`.
 The Engine accepts startup-fixed `draft_tokens=1..15` (recommended 7), independently of the
-checkpoint’s source block size. See [DFlash2 mathematics and state](dflash.md).
+checkpoint’s source block size. See [DFlash2 mathematics and state](speculative-decoding.md).
 
 The identity is read from the v3 artifact directory. The filename, object count, and any
 representative tensor descriptor do not select the model or weights profile.

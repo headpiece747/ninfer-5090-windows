@@ -1,7 +1,6 @@
 #include "runtime/executor/preparation.h"
 
 #include <algorithm>
-#include <thread>
 
 namespace ninfer::runtime {
 namespace {
@@ -20,44 +19,33 @@ void enter(dist::ExecutionGroup& group, const GroupPreparation& prepared, std::u
         out.u8(static_cast<std::uint8_t>(action));
         out.u64(capacity ? capacity->device_bytes : 0);
         out.u64(capacity ? capacity->control_reservation_bytes : 0);
+        out.u64(capacity ? capacity->planned_slack_bytes : 0);
         messages.push_back(
             {rank.rank, std::make_shared<const wire::Message>(wire::Message{
                             wire::Kind::Enter, group.epoch(), std::move(out).take()})});
     }
-    if (!group.transport().try_send(messages, distributed::Traffic::Continuation))
+    if (!group.try_send(messages, distributed::Traffic::Continuation))
         throw std::runtime_error("preparation control queue is full");
 }
 
-std::vector<wire::Bytes> receive(dist::ExecutionGroup& group, wire::Kind kind,
-                                 std::chrono::milliseconds timeout) {
-    std::vector<wire::Bytes> result(group.topology().ranks.size());
-    std::vector<bool> received(result.size());
-    std::size_t remaining = result.size();
-    const auto deadline   = std::chrono::steady_clock::now() + timeout;
-    while (remaining) {
-        group.check_processes();
-        if (std::chrono::steady_clock::now() >= deadline)
-            throw std::runtime_error("rank model preparation timed out");
-        auto message = group.transport().poll();
-        if (!message) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            continue;
-        }
-        if (message->message.epoch != group.epoch())
-            throw std::runtime_error("stale preparation epoch");
-        if (message->message.kind == wire::Kind::Failed) {
-            wire::Decoder in(message->message.payload);
-            throw std::runtime_error("rank " + std::to_string(message->peer) + ": " + in.string());
-        }
-        if (message->message.kind != kind || received.at(message->peer))
-            throw std::runtime_error("unexpected rank preparation phase");
-        received[message->peer] = true;
-        result[message->peer]   = std::move(message->message.payload);
-        --remaining;
-    }
+std::vector<wire::Payload> receive(dist::ExecutionGroup& group, wire::Kind kind,
+                                   std::chrono::milliseconds timeout) {
+    std::vector<wire::Payload> result(group.topology().ranks.size());
+    for (auto& message : group.receive_all(kind, timeout))
+        result.at(message.peer) = std::move(message.message.payload);
     return result;
 }
 } // namespace
+
+void encode_preparation_request(wire::Encoder& out, const RankPreparationRequest& r) {
+    out.u64(r.plan);
+    out.u64(r.memory_headroom_bytes);
+    out.bytes(r.model_payload);
+}
+
+RankPreparationRequest decode_preparation_request(wire::Decoder& in) {
+    return {in.u64(), in.u64(), in.bytes()};
+}
 
 void encode_preparation_report(wire::Encoder& out, const RankPreparationReport& r) {
     const auto& plan = r.capacity.plan;
@@ -81,6 +69,9 @@ void encode_preparation_report(wire::Encoder& out, const RankPreparationReport& 
     out.u64(plan.metadata.bytes_per_block);
     out.u32(plan.metadata.bytes_per_record.size());
     for (const auto bytes : plan.metadata.bytes_per_record) out.u64(bytes);
+    out.u32(plan.reference.tokens_per_request);
+    out.u32(plan.reference.request_count);
+    out.u64(plan.reference.device_bytes);
     out.u64(r.capacity.available_bytes);
     out.u64(r.capacity.available_host_bytes);
     out.boolean(r.capacity.shared_physical_memory);
@@ -116,6 +107,7 @@ RankPreparationReport decode_preparation_report(wire::Decoder& in) {
     plan.metadata.bytes_per_block = in.u64();
     plan.metadata.bytes_per_record.resize(in.u32());
     for (auto& bytes : plan.metadata.bytes_per_record) bytes = in.u64();
+    plan.reference                    = {in.u32(), in.u32(), in.u64()};
     r.capacity.available_bytes        = in.u64();
     r.capacity.available_host_bytes   = in.u64();
     r.capacity.shared_physical_memory = in.boolean();
@@ -135,28 +127,26 @@ RankPreparationReport decode_preparation_report(wire::Decoder& in) {
     return r;
 }
 
-GroupPreparation prepare_execution_group(dist::ExecutionGroup& group,
-                                         std::span<const wire::Bytes> payloads,
-                                         ContextCapacityPolicy policy,
-                                         std::chrono::milliseconds timeout,
-                                         ControlPreparation control) {
+GroupPreparation
+prepare_execution_group(dist::ExecutionGroup& group, std::span<const wire::Bytes> payloads,
+                        ContextCapacityPolicy policy, std::size_t memory_headroom_bytes,
+                        std::chrono::milliseconds timeout, ControlPreparation control) {
     if (payloads.size() != group.topology().ranks.size())
         throw std::invalid_argument("preparation payload count differs from rank count");
-    // Each rank's StartupMemoryBudget has already reserved its headroom.
-    policy.automatic_headroom_bytes = 0;
     try {
         std::vector<dist::OutgoingMessage> requests;
         for (const auto& rank : group.topology().ranks) {
             wire::Encoder out;
-            out.u64(group.topology().plan);
-            out.bytes(payloads[rank.rank]);
+            encode_preparation_request(
+                out, {group.topology().plan, memory_headroom_bytes, payloads[rank.rank]});
             requests.push_back(
                 {rank.rank, std::make_shared<const wire::Message>(wire::Message{
                                 wire::Kind::Prepare, group.epoch(), std::move(out).take()})});
         }
-        if (!group.transport().try_send(requests))
+        if (!group.try_send(requests))
             throw std::runtime_error("rank preparation payloads exceed control capacity");
         GroupPreparation result;
+        std::string allocation_failure;
         for (std::uint32_t attempt = 0; attempt < 2; ++attempt) {
             const auto enter_phase = [&](PreparationAction action) {
                 enter(group, result, attempt, action);
@@ -174,28 +164,41 @@ GroupPreparation prepare_execution_group(dist::ExecutionGroup& group,
             const auto allocated = [&](bool description) {
                 bool success = true;
                 if (description) result.layouts.clear();
-                for (const auto& bytes : receive(group, wire::Kind::Allocated, timeout)) {
+                const auto replies = receive(group, wire::Kind::Allocated, timeout);
+                for (std::size_t rank = 0; rank < replies.size(); ++rank) {
+                    const auto& bytes = replies[rank];
                     wire::Decoder in(bytes);
                     if (in.u64() != group.topology().plan || in.u32() != attempt)
                         throw std::runtime_error(
                             "rank preparation response belongs to another attempt");
-                    success &= in.boolean();
+                    const bool ready = in.boolean();
+                    success &= ready;
+                    const auto failure = in.string();
+                    if (!ready)
+                        allocation_failure = "rank " + std::to_string(rank) + ": " + failure;
                     if (description) {
                         const auto layout = in.bytes();
-                        result.layouts.emplace_back(layout.begin(), layout.end());
+                        result.layouts.emplace_back(wire::Bytes(layout.begin(), layout.end()));
                     }
                     in.finish();
                 }
                 return success;
             };
             reports();
+            if (attempt == 0) {
+                enter_phase(PreparationAction::PrepareCommunication);
+                reports();
+            }
             if (attempt == 0 &&
                 std::any_of(result.reports.begin(), result.reports.end(),
                             [](const auto& report) { return report.preparation_required; })) {
                 enter_phase(PreparationAction::PrepareProbe);
-                if (!allocated(false))
-                    throw DeviceAllocationError("rank calibration resources do not fit");
+                if (!allocated(false)) throw DeviceAllocationError(allocation_failure.c_str());
                 enter_phase(PreparationAction::Calibrate);
+                reports();
+                enter_phase(PreparationAction::PrepareRebuildProbe);
+                if (!allocated(false)) throw DeviceAllocationError(allocation_failure.c_str());
+                enter_phase(PreparationAction::CalibrateRebuild);
                 reports();
             }
             std::vector<RankCapacityOffer> offers;
@@ -225,9 +228,9 @@ GroupPreparation prepare_execution_group(dist::ExecutionGroup& group,
                     return result;
                 }
             }
+            if (attempt == 1 || policy.mode == ContextCapacityMode::Explicit)
+                throw std::runtime_error(allocation_failure);
             if (control.release) control.release();
-            if (attempt == 1)
-                throw std::runtime_error("rank resources do not fit their Context capacities");
             enter_phase(PreparationAction::Release);
         }
         throw std::logic_error("preparation attempt exhausted");

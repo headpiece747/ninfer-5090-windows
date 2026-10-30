@@ -134,6 +134,13 @@ public:
         Submission(const Submission&)            = delete;
         Submission& operator=(const Submission&) = delete;
 
+        void wait_for_admission(const CancellationView& cancellation) {
+            if (owner_ == nullptr || request_ == nullptr) {
+                throw std::logic_error("concurrent submission is empty");
+            }
+            owner_->wait_for_admission(request_, cancellation);
+        }
+
         GenerationResult wait(OutputSink* sink, const CancellationView& cancellation) {
             if (owner_ == nullptr || request_ == nullptr) {
                 throw std::logic_error("concurrent submission is empty");
@@ -432,6 +439,9 @@ private:
 
     void publish_runtime_stats();
 
+    void wait_for_admission(const std::shared_ptr<Request>& request,
+                            const CancellationView& cancellation);
+
     GenerationResult wait_for_request(std::shared_ptr<Request> request, OutputSink* sink,
                                       const CancellationView& cancellation);
 
@@ -491,19 +501,19 @@ private:
 
     void abandon_request(std::shared_ptr<Request> request) noexcept;
 
-    bool mark_completed(const std::shared_ptr<Request>& request) noexcept;
+    bool prepare_completion(const std::shared_ptr<Request>& request);
 
-    void release_planning_state(const std::shared_ptr<Request>& request) noexcept;
+    void release_request(const std::shared_ptr<Request>& request) noexcept;
+
+    // The worker publishes the matching scheduling snapshot before making the response visible.
+    void publish_completion(const std::shared_ptr<Request>& request, GenerationResult result,
+                            std::exception_ptr error = {});
 
     void complete_error(const std::shared_ptr<Request>& request, std::exception_ptr error);
 
     void complete_success(const std::shared_ptr<Request>& request, FinishReason reason);
 
     void complete_cancelled(const std::shared_ptr<Request>& request);
-
-    void complete_detached_cancelled(const std::shared_ptr<Request>& request);
-
-    void remove_completed_slot(std::uint32_t lane);
 
     [[nodiscard]] std::array<bool, kMaximumConcurrency> snapshot_cancellations() const noexcept;
 

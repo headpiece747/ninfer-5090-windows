@@ -96,36 +96,42 @@ void HttpServer::handle_messages(const httplib::Request& req, httplib::Response&
     auto lifecycle = begin_request(make_request_log_context(
         req_id, "anthropic_messages", request.generation, metadata, prepared));
 
-    if (!request.stream) {
-        GenerationOutcome outcome;
-        try {
-            outcome = service_->run(prepared, nullptr, [&req] { return client_disconnected(req); });
-        } catch (const ApiException& exception) {
-            const ApiError error = normalize_anthropic_error(exception.error());
-            lifecycle->failure(make_generation_request_failure(error));
-            write_anthropic_error(res, error, request_id);
-            return;
-        } catch (const std::exception& exception) {
-            lifecycle->failure(
-                make_internal_request_failure(RequestFailurePhase::Generation, exception.what()));
-            ApiError error;
-            error.status  = 500;
-            error.message = exception.what();
-            write_anthropic_error(res, error, request_id);
-            return;
+    GenerationOutcome aggregate;
+    try {
+        if (request.stream) {
+            service_->wait_for_admission(prepared, [&req] { return client_disconnected(req); });
+        } else {
+            aggregate =
+                service_->run(prepared, nullptr, [&req] { return client_disconnected(req); });
         }
-        lifecycle->done(outcome);
+    } catch (const ApiException& exception) {
+        const ApiError error = normalize_anthropic_error(exception.error());
+        lifecycle->failure(make_generation_request_failure(error));
+        write_anthropic_error(res, error, request_id);
+        return;
+    } catch (const std::exception& exception) {
+        lifecycle->failure(
+            make_internal_request_failure(RequestFailurePhase::Generation, exception.what()));
+        ApiError error;
+        error.status  = 500;
+        error.message = exception.what();
+        write_anthropic_error(res, error, request_id);
+        return;
+    }
+
+    if (!request.stream) {
+        lifecycle->done(aggregate);
         // A cancelled outcome means the client disconnected, and the streaming path records exactly
         // that before it stops. Without this check the aggregate encoder's Cancelled case throws a
         // logic_error, which the catch below classifies as an internal failure -- a 500 and a bumped
         // response_failures metric for an ordinary disconnect.
-        if (outcome.finish_reason == ninfer::FinishReason::Cancelled) {
+        if (aggregate.finish_reason == ninfer::FinishReason::Cancelled) {
             lifecycle->response_failure(
                 make_client_disconnected_failure(RequestFailurePhase::Transport));
             return;
         }
         try {
-            set_owned_json_content(res, make_anthropic_messages_response(identity, outcome),
+            set_owned_json_content(res, make_anthropic_messages_response(identity, aggregate),
                                    prepared.lifetime);
         } catch (const ApiException& exception) {
             const ApiError error = normalize_anthropic_error(exception.error());

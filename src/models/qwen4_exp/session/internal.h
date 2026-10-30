@@ -330,8 +330,10 @@ public:
     const ExecutionShape& shape;
     runtime::Executor<ExecutionTypes>* executor = nullptr;
     context::ContextDirectory directory;
+    mutable context::RecoveryIndex<> recovery_index{directory.metadata_budget()};
     Checkpoints checkpoints;
-    mutable context::RecoveryIndex<> recovery_index;
+    context::MetadataAccount count_storage{directory.metadata_budget()};
+    TokenCountBuilder count_builder;
     std::array<std::unique_ptr<Sequence>, kMaximumConcurrency> sequences;
     std::array<std::uint64_t, kMaximumConcurrency> epochs{};
     std::vector<runtime::KvPoolDescriptor> pools;

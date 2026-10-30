@@ -2,6 +2,9 @@
 
 #include "ops/suite.h"
 #include "ops/op_tester.h"
+#include "ops/float_codec.h"
+#include "ops/fp8_cache_reference.h"
+#include "ninfer/kv_cache_format.h"
 #include "../../../../tools/support/kpool_fixture.h"
 
 #include <cmath>
@@ -13,8 +16,24 @@ namespace ninfer::test {
 namespace kp = ninfer::tool::kpool;
 
 inline constexpr ReductionCriterion kPreparedBf16Criterion{.0041, 1e-4, .012};
+// E4M3's <=1/16 normal rounding budget plus FP32 projection/norm error.
+// Subnormal rounding is bounded relative to its G128 maximum, not each tiny value.
+inline constexpr ReductionCriterion kPreparedFp8LatentCriterion{.064, 1e-4, .08};
 inline constexpr ReductionCriterion kPooledBf16Criterion{.006, 1e-4, .018};
 inline constexpr ReductionCriterion kCoefficientCriterion{1e-4, 1e-6, 3e-4};
+// E4M3 normal rounding contributes at most 1/16 relative error. The remaining
+// budget covers BF16 raw-input production and pooling before the orthogonal map.
+inline constexpr ReductionCriterion kPooledFp8Criterion{.07, 1e-4, .10};
+
+inline std::array<double, 128> index_hadamard_reference(const std::array<double, 128>& values) {
+    std::array<double, 128> result{};
+    for (unsigned i = 0; i < 128; ++i) {
+        for (unsigned j = 0; j < 128; ++j)
+            result[i] += (std::popcount(i & j) & 1) ? -values[j] : values[j];
+        result[i] /= std::sqrt(128.0);
+    }
+    return result;
+}
 
 struct KpoolError {
     std::vector<double> actual, reference;
@@ -32,9 +51,50 @@ struct KpoolError {
 // Full factor/softmax/factor budget, including private A16 operands and final
 // BF16 output. The independent oracle has no private intermediate casts.
 inline constexpr ReductionCriterion kMlaCriterion{8e-3, 1e-4, 1.2e-2};
+// Independent G128 Q8 study before kernel tuning: <=4.5% L2 / 6.0% gross for
+// ordinary/concentrated logits, <=8.3% / 21.3% with 16x sharp queries and unequal
+// Q/K group scales. One policy includes that sensitivity and BF16/F32 arithmetic.
+inline constexpr ReductionCriterion kMlaFp8Criterion{.09, 1e-4, .25};
+
+// Only the selected set is observable. Bound the smallest score correction that
+// makes that set a valid Top512 of the independent mathematical scores. This
+// measures ranking error without reproducing private query quantization/MMA.
+inline constexpr ReductionCriterion kFp8IndexRankingCriterion{.01, 1e-6, .05};
+
+inline int verify_fp8_ranking(const std::vector<double>& scores, const std::set<int>& selected) {
+    std::vector<bool> inside(scores.size(), false);
+    for (int id : selected) inside[id] = true;
+    double lowest = INFINITY, excluded = -INFINITY;
+    for (int g = 0; g < int(scores.size()); ++g)
+        if (inside[g])
+            lowest = std::min(lowest, scores[g]);
+        else
+            excluded = std::max(excluded, scores[g]);
+    if (lowest >= excluded) return 0;
+    // Projection onto min(selected)>=max(excluded) is clipping both sides to a
+    // common threshold. Its convex squared-error derivative is monotone.
+    double lo = lowest, hi = excluded;
+    for (int iteration = 0; iteration < 48; ++iteration) {
+        const double pivot = (lo + hi) * .5;
+        double derivative  = 0;
+        for (int g = 0; g < int(scores.size()); ++g)
+            if ((inside[g] && scores[g] < pivot) || (!inside[g] && scores[g] > pivot))
+                derivative += pivot - scores[g];
+        if (derivative < 0)
+            lo = pivot;
+        else
+            hi = pivot;
+    }
+    auto closest       = scores;
+    const double pivot = (lo + hi) * .5;
+    for (int g = 0; g < int(scores.size()); ++g)
+        closest[g] = inside[g] ? std::max(scores[g], pivot) : std::min(scores[g], pivot);
+    return verify_reduction("FP8 selection correction", closest, scores, kFp8IndexRankingCriterion);
+}
 
 template <class Fixture>
 int verify_selection(Fixture& f, bool exact = false) {
+    const bool fp8 = f.cache.format == KvCacheVectorFormat::Fp8E4m3fnGroup128Ue8m0;
     const auto ids = f.ids.download(), counts = f.counts.download(), ends = f.ends.download();
     for (int b = 0; b < f.B; ++b) {
         for (int t = 0; t < f.T; ++t) {
@@ -60,12 +120,27 @@ int verify_selection(Fixture& f, bool exact = false) {
             std::array<double, 4096> q;
             for (int h = 0; h < 32; ++h)
                 for (int d = 0; d < 128; ++d) q[h * 128 + d] = kp::decode(f.query.at(d, h, t, b));
+            if (fp8)
+                for (int h = 0; h < 32; ++h) {
+                    std::array<double, 128> input;
+                    std::copy_n(q.begin() + h * 128, 128, input.begin());
+                    const auto rotated = index_hadamard_reference(input);
+                    std::copy(rotated.begin(), rotated.end(), q.begin() + h * 128);
+                }
             std::vector<double> scores(C), errors(C);
             parallel_rows(C, std::uint64_t(C) * 4096, [&](int lo, int hi) {
                 for (int g = lo; g < hi; ++g) {
                     std::array<double, 128> k;
                     const auto* raw = f.key(b, g);
-                    for (int d = 0; d < 128; ++d) k[d] = kp::decode(raw[d]);
+                    if (fp8) {
+                        const auto key_row = (raw - f.keys.data()) / 128;
+                        const double scale = fp8_cache_multiplier(f.key_scales[key_row]);
+                        for (int d = 0; d < 128; ++d)
+                            k[d] =
+                                float_codec::decode_e4m3fn(f.key_codes[key_row * 128 + d]) * scale;
+                    } else {
+                        for (int d = 0; d < 128; ++d) k[d] = kp::decode(raw[d]);
+                    }
                     double score = 0, absolute = 0, weighted = 0;
                     for (int h = 0; h < 32; ++h) {
                         double dot = 0, absdot = 0;
@@ -99,6 +174,8 @@ int verify_selection(Fixture& f, bool exact = false) {
                     std::cerr << "exact Top512 mismatch row=" << row << '\n';
                     return 1;
                 }
+            } else if (fp8) {
+                if (const auto failures = verify_fp8_ranking(scores, selected)) return failures;
             } else {
                 double lowest = INFINITY, excluded = -INFINITY;
                 for (int g = 0; g < C; ++g) {
@@ -119,15 +196,14 @@ int verify_selection(Fixture& f, bool exact = false) {
 }
 
 // FP64 formula from represented public inputs; no private A16 intermediate seams.
-inline std::vector<double> mla_reference(const std::uint16_t* query, const std::uint16_t* key_up,
-                                         const std::uint16_t* value_up,
-                                         const std::vector<const std::uint16_t*>& rows,
-                                         float scale) {
-    std::vector<double> c(rows.size() * 512), result(64 * 256);
-    if (rows.empty()) return result;
-    for (std::size_t j = 0; j < rows.size(); ++j)
-        for (int d = 0; d < 512; ++d) c[j * 512 + d] = kp::decode(rows[j][d]);
-    parallel_rows(64, std::uint64_t(rows.size()) * 64 * 1024, [&](int lo, int hi) {
+inline std::vector<double> mla_reference_values(const std::uint16_t* query,
+                                                const std::uint16_t* key_up,
+                                                const std::uint16_t* value_up,
+                                                const std::vector<double>& c, float scale) {
+    const auto count = c.size() / 512;
+    std::vector<double> result(64 * 256);
+    if (!count) return result;
+    parallel_rows(64, std::uint64_t(count) * 64 * 1024, [&](int lo, int hi) {
         for (int h = lo; h < hi; ++h) {
             std::array<double, 512> q{}, u{};
             for (int k = 0; k < 256; ++k) {
@@ -135,9 +211,9 @@ inline std::vector<double> mla_reference(const std::uint16_t* query, const std::
                 for (int d = 0; d < 512; ++d)
                     q[d] += x * kp::decode(key_up[(h * 256 + k) * 512 + d]);
             }
-            std::vector<double> logits(rows.size());
+            std::vector<double> logits(count);
             double maximum = -INFINITY;
-            for (std::size_t j = 0; j < rows.size(); ++j) {
+            for (std::size_t j = 0; j < count; ++j) {
                 double dot = 0;
                 for (int d = 0; d < 512; ++d) dot += q[d] * c[j * 512 + d];
                 logits[j] = scale * dot;
@@ -148,7 +224,7 @@ inline std::vector<double> mla_reference(const std::uint16_t* query, const std::
                 x = std::exp(x - maximum);
                 denominator += x;
             }
-            for (std::size_t j = 0; j < rows.size(); ++j)
+            for (std::size_t j = 0; j < count; ++j)
                 for (int d = 0; d < 512; ++d) u[d] += logits[j] / denominator * c[j * 512 + d];
             for (int v = 0; v < 256; ++v)
                 for (int d = 0; d < 512; ++d)
@@ -156,5 +232,15 @@ inline std::vector<double> mla_reference(const std::uint16_t* query, const std::
         }
     });
     return result;
+}
+
+inline std::vector<double> mla_reference(const std::uint16_t* query, const std::uint16_t* key_up,
+                                         const std::uint16_t* value_up,
+                                         const std::vector<const std::uint16_t*>& rows,
+                                         float scale) {
+    std::vector<double> c(rows.size() * 512);
+    for (std::size_t j = 0; j < rows.size(); ++j)
+        for (int d = 0; d < 512; ++d) c[j * 512 + d] = kp::decode(rows[j][d]);
+    return mla_reference_values(query, key_up, value_up, c, scale);
 }
 } // namespace ninfer::test

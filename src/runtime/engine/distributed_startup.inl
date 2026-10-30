@@ -15,22 +15,30 @@ build_distributed_model(const artifact::Reader& reader, EngineOptions& options,
                         std::chrono::steady_clock::time_point start) {
     using Types       = typename Setup::Types;
     using Distributed = DistributedExecutor<typename Types::ExecutionTypes, typename Setup::Codec>;
+    StartupPhaseScope plan(options.startup_observer, StartupPhase::TargetPlan);
     Setup setup(reader, options);
+    plan.complete();
+    StartupPhaseScope frontend_phase(options.startup_observer, StartupPhase::FrontendInitialize);
     auto frontend = setup.frontend(options);
-    auto group    = std::make_unique<distributed::ExecutionGroup>(
-        *options.deployment, setup.topology(), [](auto rank, std::string_view message) {
+    frontend_phase.complete();
+    auto group = std::make_unique<distributed::ExecutionGroup>(
+        *options.deployment, setup.topology(), options.startup_observer,
+        [](auto rank, std::string_view message) {
             std::cerr << "[rank " << rank << "] " << message << '\n';
         });
     std::optional<typename Types::PreparedSession> session;
-    auto prepared = prepare_execution_group(*group, setup.requests(options),
-                                            options.context_capacity, std::chrono::minutes(30),
-                                            {[&](auto descriptions) {
-                                                 setup.resolve(descriptions, options);
-                                                 session.emplace(setup.session());
-                                             },
-                                             [&] { session.reset(); }});
+    auto prepared =
+        prepare_execution_group(*group, setup.requests(options), options.context_capacity,
+                                options.memory_headroom_bytes, std::chrono::minutes(30),
+                                {[&](auto descriptions) {
+                                     setup.resolve(descriptions, options);
+                                     session.emplace(setup.session());
+                                 },
+                                 [&] { session.reset(); }});
     setup.resolve(prepared.layouts, options);
     auto codec = setup.codec();
+    protocol::validate_control_capacity(codec.control_budget(), setup.capacity(), group->limits(),
+                                        setup.topology().ranks.size());
     activate_execution_group(*group, prepared,
                              std::chrono::milliseconds(options.deployment->connect_timeout_ms));
     auto executor = std::make_unique<Distributed>(std::move(group), setup.capacity(),
@@ -44,7 +52,6 @@ build_distributed_model(const artifact::Reader& reader, EngineOptions& options,
         const auto& budget                     = memory.rank_budgets.at(rank);
         capacity.available_after_weights_bytes = prepared.reports.at(rank).free_after_weights_bytes;
         capacity.available_after_startup_bytes = budget.available_after_startup_bytes;
-        capacity.automatic_headroom_bytes      = budget.headroom_bytes;
     }
     LoadSummary load;
     load.architecture        = models::architecture_name(setup.architecture());

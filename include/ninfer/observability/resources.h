@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ninfer/kv_cache_format.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -11,14 +13,6 @@ namespace ninfer {
 enum class ContextCapacityMode : std::uint8_t {
     Explicit,
     Automatic,
-};
-
-enum class KvCacheStorage : std::uint8_t {
-    BFloat16,
-    Int8Group64,
-    Fp8E4M3Row256,
-    Nvfp4Group16,
-    Fp8KeyNvfp4Value,
 };
 
 // Vision fields describe subsets of the instance's owned allocations.
@@ -55,10 +49,13 @@ struct MoeMemorySummary {
 
 struct GraphMemorySummary {
     std::size_t rebuild_estimate_bytes = 0;
-    // Signed free-memory deltas; calibration holds its backing while releasing graphs.
+    // Signed physical-capacity deltas. Rebuild estimates come from an actual second capture.
+    std::int64_t warmup_increment_bytes      = 0;
     std::int64_t preparation_increment_bytes = 0;
+    std::size_t preparation_peak_bytes       = 0;
     std::int64_t calibration_increment_bytes = 0;
-    std::int64_t calibration_retained_bytes  = 0;
+    std::size_t calibration_peak_bytes       = 0;
+    std::int64_t rebuild_increment_bytes     = 0;
 };
 
 // Owned allocations. Registered ranges, tensor views and layout subregions are not allocations.
@@ -125,9 +122,11 @@ struct RankMemoryBudget {
     std::uint64_t context_control_budget_bytes      = 0;
     std::uint64_t available_after_weights_bytes     = 0;
     std::uint64_t available_after_startup_bytes     = 0;
-    std::uint64_t headroom_bytes                    = 0;
-    std::uint64_t planned_slack_bytes               = 0;
-    std::int64_t retained_bytes                     = 0;
+    // Planning headroom may be consumed during startup; Host reservation must remain available.
+    std::uint64_t headroom_bytes         = 0;
+    std::uint64_t host_reservation_bytes = 0;
+    std::uint64_t planned_slack_bytes    = 0;
+    std::int64_t retained_bytes          = 0;
     std::optional<GraphMemorySummary> graphs;
 };
 

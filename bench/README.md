@@ -307,9 +307,9 @@ cmake --build build/rtx5090-dev --parallel --target ninfer_linear_bench
 ```
 
 Linear tuning measures every valid T through 128 and the two bulk anchors, 512 and 1024.
-[Linear tuning and performance reports](../docs/maintainer/linear-tuning.md) defines workload
-priorities, dispatch tradeoffs, and the final curve and metric tables. Respect each Op's extent
-alignment; these measurement targets do not limit supported T.
+[Op development](../docs/maintainer/op-development.md) defines the tuning and measurement method;
+this section records the Linear workload priorities, dispatch tradeoffs, and the final curve and
+metric tables. Respect each Op's extent alignment; these measurement targets do not limit supported T.
 
 A continuous small-T sweep reuses one packed weight and one maximum-T activation/output
 allocation:
@@ -364,7 +364,7 @@ percentages and the DRAM memory floor. Multiple calls are for timing and cannot 
 `--profile`, which always captures one complete public call.
 
 Every ordinary sample is cold-cache: a 256 MiB L2 eviction read completes before the timed
-interval. [Linear measurement rules](../docs/maintainer/linear-tuning.md#5-logical-metrics) define
+interval. [Op development §7](../docs/maintainer/op-development.md#7-performance-evidence) defines
 byte/FLOP accounting, hardware references, timing conditions and suite expansion. Physical traffic
 and instruction utilization require profiler evidence.
 
@@ -1570,9 +1570,9 @@ are the row profiles the entry admits: `--channels 8192` gives (2048, 2048, 4096
 DGX Spark's BF16 family provides `ninfer_kpool_prepare_bench`, `ninfer_kpool_indexer_bench`,
 `ninfer_kpool_sparse_mla_bench`, `ninfer_kpool_chain_bench` and
 `ninfer_kpool_application_bench`. Build them in `build/dgx-spark-dev` or `build/dgx-spark-ops`.
-The [family reference](../docs/designs/glm5next/kpool-sparse-mla.md) explains native cache layout,
-weight views and ownership; the [delivery checklist](../docs/designs/glm5next/mla-checklist.md)
-separates implementation support from outstanding roofline and model-integration work.
+The [model reference](../docs/maintainer/glm5next-model.md) explains native cache layout,
+weight views and ownership; that reference separates implementation support from outstanding
+roofline and model-integration work.
 
 The first four executables use the shared measurement options (`--execution`, `--cache`,
 `--warmup`, `--repeat`, `--csv-out`). Prepare additionally selects `--projection

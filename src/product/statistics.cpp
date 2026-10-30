@@ -31,9 +31,12 @@ Json budget_json(const RankMemoryBudget& b) {
     if (b.graphs) {
         const auto& g = *b.graphs;
         graphs        = {{"rebuild_estimate_bytes", g.rebuild_estimate_bytes},
+                         {"warmup_increment_bytes", g.warmup_increment_bytes},
                          {"preparation_increment_bytes", g.preparation_increment_bytes},
+                         {"preparation_peak_bytes", g.preparation_peak_bytes},
                          {"calibration_increment_bytes", g.calibration_increment_bytes},
-                         {"calibration_retained_bytes", g.calibration_retained_bytes}};
+                         {"calibration_peak_bytes", g.calibration_peak_bytes},
+                         {"rebuild_increment_bytes", g.rebuild_increment_bytes}};
     }
     return {{"limit_bytes", b.limit_bytes},
             {"runtime_reservation_bytes", b.runtime_reservation_bytes},
@@ -44,6 +47,7 @@ Json budget_json(const RankMemoryBudget& b) {
             {"available_after_weights_bytes", b.available_after_weights_bytes},
             {"available_after_startup_bytes", b.available_after_startup_bytes},
             {"headroom_bytes", b.headroom_bytes},
+            {"host_reservation_bytes", b.host_reservation_bytes},
             {"planned_slack_bytes", b.planned_slack_bytes},
             {"retained_bytes", b.retained_bytes},
             {"graph_calibration", std::move(graphs)}};
@@ -182,6 +186,18 @@ Json resource_json(const RankSnapshot& rank) {
              {"vision", nullptr},
              {"experts", nullptr},
              {"ple", nullptr}};
+    out["communication"] = Json::array();
+    for (const auto& group : rank.communication) {
+        Json memory = nullptr;
+        if (group.startup_memory) {
+            const auto& value = *group.startup_memory;
+            memory            = {{"tracked_device_bytes", value.tracked_device_bytes},
+                                 {"persistent_device_bytes", value.persistent_device_bytes},
+                                 {"suspendable_device_bytes", value.suspendable_device_bytes}};
+        }
+        out["communication"].push_back(
+            {{"group", group.group}, {"size", group.size}, {"startup_memory", std::move(memory)}});
+    }
     if (rank.physical_memory) {
         const auto& p          = *rank.physical_memory;
         out["physical_memory"] = {{"cuda_total_bytes", p.cuda_total_bytes},

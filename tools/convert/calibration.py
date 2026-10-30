@@ -1,7 +1,8 @@
 """Activation-divisor calibration for locally encoded NVFP4 sites.
 
 An NVFP4 site that permits A4 activations needs a positive activation divisor, and it is not derivable
-from the weights: it is a separate model-role value (docs/maintainer/tensor-formats.md, section 3.3).
+from the weights: it is a separate model-role value (docs/maintainer/weights-and-loading.md, numeric
+representation).
 A ModelOpt checkpoint records one per site; a compressed-tensors checkpoint does not, so a site that is
 encoded locally has to be measured.
 

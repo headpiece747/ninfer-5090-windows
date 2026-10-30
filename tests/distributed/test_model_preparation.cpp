@@ -18,9 +18,9 @@ void require(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
 }
 
-std::vector<wire::Bytes> exchange(distributed::ExecutionGroup& group,
-                                  const rt::GroupPreparation& prepared,
-                                  rt::PreparationAction action, wire::Kind reply) {
+std::vector<wire::Payload> exchange(distributed::ExecutionGroup& group,
+                                    const rt::GroupPreparation& prepared,
+                                    rt::PreparationAction action, wire::Kind reply) {
     std::vector<distributed::OutgoingMessage> messages;
     for (const auto& rank : group.topology().ranks) {
         const auto& capacity = prepared.capacities.at(rank.rank);
@@ -30,22 +30,18 @@ std::vector<wire::Bytes> exchange(distributed::ExecutionGroup& group,
         out.u8(static_cast<std::uint8_t>(action));
         out.u64(capacity.device_bytes);
         out.u64(capacity.control_reservation_bytes);
+        out.u64(capacity.planned_slack_bytes);
         messages.push_back(
             {rank.rank, std::make_shared<const wire::Message>(wire::Message{
                             wire::Kind::Enter, group.epoch(), std::move(out).take()})});
     }
-    require(group.transport().try_send(messages, distributed::Traffic::Continuation),
+    require(group.try_send(messages, distributed::Traffic::Continuation),
             "preparation queue is full");
-    std::vector<wire::Bytes> responses(messages.size());
+    std::vector<wire::Payload> responses(messages.size());
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
     for (std::size_t n = 0; n < responses.size();) {
-        group.check_processes();
         require(std::chrono::steady_clock::now() < deadline, "preparation response timed out");
-        if (auto incoming = group.transport().poll()) {
-            if (incoming->message.kind == wire::Kind::Failed) {
-                wire::Decoder in(incoming->message.payload);
-                throw std::runtime_error(in.string());
-            }
+        if (auto incoming = group.poll()) {
             require(incoming->message.epoch == group.epoch() && incoming->message.kind == reply &&
                         responses.at(incoming->peer).empty(),
                     "unexpected preparation response");
@@ -78,8 +74,9 @@ void rebuild(distributed::ExecutionGroup& group, rt::GroupPreparation& prepared)
         wire::Decoder in(bytes);
         require(in.u64() == group.topology().plan && in.u32() == prepared.attempt && in.boolean(),
                 "Program rebuild did not fit");
+        require(in.string().empty(), "successful rebuild returned a failure");
         const auto layout = in.bytes();
-        prepared.layouts.emplace_back(layout.begin(), layout.end());
+        prepared.layouts.emplace_back(wire::Bytes(layout.begin(), layout.end()));
         in.finish();
     }
 }
@@ -133,7 +130,8 @@ void contexts(Executor& executor, const q4::SessionPlan& plan) {
         std::vector<ctx::RecordLease> retained;
         const rt::ExecutionMember member{{generation, 1}, {{0}, generation}};
         q4::ContextWork binding;
-        binding.bindings.push_back({member, {}, {1, 2, 1}});
+        binding.bindings.push_back(
+            {member, {}, models::TokenCounts(models::TokenCounts::Sparse{{1, 2}, {2, 1}})});
         q4::Work work{{}, std::move(binding)};
         std::uint32_t expected_images = 0, expected_pages = 0;
         for (std::size_t i = 0; i < layouts.size(); ++i) {
@@ -241,11 +239,12 @@ int main(int argc, char** argv) {
             payloads.push_back(std::move(out).take());
         }
         auto group = std::make_unique<distributed::ExecutionGroup>(
-            deployment, parallel.topology, [](auto rank, std::string_view text) {
+            deployment, parallel.topology, StartupObserver{}, [](auto rank, std::string_view text) {
                 std::cerr << "[rank " << rank << "] " << text << '\n';
             });
-        auto prepared = rt::prepare_execution_group(*group, payloads, options.context_capacity,
-                                                    std::chrono::minutes(15));
+        auto prepared =
+            rt::prepare_execution_group(*group, payloads, options.context_capacity,
+                                        options.memory_headroom_bytes, std::chrono::minutes(15));
         rebuild(*group, prepared);
         std::vector<q4::RankExecutionDescription> descriptions;
         for (std::size_t i = 0; i < prepared.layouts.size(); ++i) {

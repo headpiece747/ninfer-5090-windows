@@ -17,6 +17,60 @@ artifact::Shape shape(Decoder& in) {
 }
 } // namespace
 
+void encode_token_counts(Encoder& out, const TokenCounts& counts) {
+    const auto& values = counts.storage();
+    out.u8(static_cast<std::uint8_t>(values.index()));
+    if (const auto* sparse = std::get_if<TokenCounts::Sparse>(&values)) {
+        out.u64(sparse->size());
+        for (auto [token, count] : *sparse) {
+            out.i32(token);
+            out.i32(count);
+        }
+    } else if (const auto* dense = std::get_if<TokenCounts::Dense>(&values)) {
+        out.u64(dense->size());
+        for (auto count : *dense) out.i32(count);
+    }
+}
+
+TokenCounts decode_token_counts(Decoder& in) {
+    switch (in.u8()) {
+    case 0:
+        return {};
+    case 1: {
+        TokenCounts::Sparse values(in.count(8));
+        for (auto& value : values) value = {in.i32(), in.i32()};
+        return TokenCounts(std::move(values));
+    }
+    case 2: {
+        TokenCounts::Dense values(in.count(4));
+        for (auto& value : values) value = in.i32();
+        return TokenCounts(std::move(values));
+    }
+    default:
+        throw std::invalid_argument("unknown token counts encoding");
+    }
+}
+
+void encode_expert_partitions(Encoder& out, std::span<const ExpertPartition> partitions) {
+    out.u64(partitions.size());
+    for (const auto& bank : partitions) {
+        out.u32(bank.intermediate.begin);
+        out.u32(bank.intermediate.size);
+        out.u64(bank.ids.size());
+        for (auto id : bank.ids) out.u32(id);
+    }
+}
+
+std::vector<ExpertPartition> decode_expert_partitions(Decoder& in) {
+    std::vector<ExpertPartition> partitions(in.count(16));
+    for (auto& bank : partitions) {
+        bank.intermediate = {in.u32(), in.u32()};
+        bank.ids.resize(in.count(4));
+        for (auto& id : bank.ids) id = in.u32();
+    }
+    return partitions;
+}
+
 void encode_assemblies(Encoder& out, std::span<const ParameterAssembly> assemblies) {
     out.u64(assemblies.size());
     for (const auto& a : assemblies) {
@@ -76,7 +130,6 @@ void encode_rank_options(Encoder& out, const EngineOptions& o) {
     out.boolean(o.context_cache.enabled);
     out.u32(o.context_cache.checkpoint_interval);
     out.u64(o.context_cache.host_capacity_bytes.value_or(0));
-    out.u64(std::max(kDefaultContextHeadroomBytes, o.context_capacity.automatic_headroom_bytes));
 }
 
 EngineOptions decode_rank_options(Decoder& in) {
@@ -96,7 +149,6 @@ EngineOptions decode_rank_options(Decoder& in) {
     o.context_cache.enabled             = in.boolean();
     o.context_cache.checkpoint_interval = in.u32();
     o.context_cache.host_capacity_bytes = in.u64();
-    o.context_capacity                  = ContextCapacityPolicy::automatic(in.u64());
     return o;
 }
 

@@ -59,6 +59,7 @@ Frontend make_frontend(const FrontendResources& source,
     if (options.vision_enabled)
         parsed.processor = ninfer::models::qwen::parse_processor_options(
             source.preprocessor_config_json, source.video_preprocessor_config_json);
+    ninfer::models::qwen::prepare_control_tokens(parsed.text);
     return ninfer::models::qwen::make_frontend(
         parsed, options,
         {.thinking     = {.temperature = 1.0F, .top_k = 20, .top_p = 0.95F},
@@ -425,11 +426,12 @@ bool throws_processor_budget(Callable&& callable) {
 }
 
 template <class Callable>
-bool throws_context_length(Callable&& callable) {
+bool throws_context_length(Callable&& callable, std::string_view message = {}) {
     try {
         callable();
     } catch (const ninfer::RequestError& error) {
-        return error.kind() == ninfer::RequestErrorKind::ContextLengthExceeded;
+        return error.kind() == ninfer::RequestErrorKind::ContextLengthExceeded &&
+               (message.empty() || message == error.what());
     }
     return false;
 }
@@ -746,25 +748,51 @@ int test_context_capacity_guard() {
     const Frontend short_frontend = make_frontend(resources(), short_options);
     failures += check(short_frontend.count_tokens(input) == exact_count,
                       "exact token counting was incorrectly bounded by max_context");
-    failures += check(throws_context_length([&] { (void)short_frontend.prepare(input); }),
-                      "Frontend accepted a text prompt at max_context + 1");
+    const auto bounded_message =
+        "maximum context length is " + std::to_string(short_options.max_context) +
+        " tokens, but the prepared prompt has at least " + std::to_string(exact_count) + " tokens";
+    failures +=
+        check(throws_context_length([&] { (void)short_frontend.prepare(input); }, bounded_message),
+              "Frontend accepted a text prompt at max_context + 1");
+    auto longer = input;
+    longer.messages.front().parts.front().text.append(64, 'x');
+    failures +=
+        check(throws_context_length([&] { (void)short_frontend.prepare(longer); }, bounded_message),
+              "bounded tokenization reported a partial count as the full prompt length");
 
     std::vector<ninfer::TokenId> exact_tokens(exact_count, 0);
     failures += check(exact.prepare_tokens(exact_tokens).summary().prompt_tokens == exact_count,
                       "prepare_tokens rejected an exact-capacity token vector");
     exact_tokens.push_back(0);
     failures +=
-        check(throws_context_length([&] { (void)exact.prepare_tokens(std::move(exact_tokens)); }),
+        check(throws_context_length([&] { (void)exact.prepare_tokens(std::move(exact_tokens)); },
+                                    "maximum context length is " + std::to_string(exact_count) +
+                                        " tokens, but the prepared prompt has " +
+                                        std::to_string(exact_count + 1U) + " tokens"),
               "prepare_tokens accepted a token vector at max_context + 1");
 
     ninfer::models::frontend::FrontendOptions media_options = short_options;
     media_options.vision_enabled                            = true;
     const Frontend media_frontend = make_frontend(resources(), media_options);
-    failures += check(throws_context_length([&] {
-                          (void)media_frontend.prepare(
-                              image_text_input({0}, std::string(64, 'x'), "must-not-decode.bin"));
-                      }),
+    failures += check(throws_context_length(
+                          [&] {
+                              (void)media_frontend.prepare(image_text_input(
+                                  {0}, std::string(64, 'x'), "must-not-decode.bin"));
+                          },
+                          bounded_message),
                       "over-capacity media prompt was not rejected before media decoding");
+
+    const auto media_input = image_text_input(block_ppm(64, 64, 42), "x", "context-limit.ppm");
+    const auto media_count = make_frontend(resources()).count_tokens(media_input);
+    auto expanded_options  = media_options;
+    expanded_options.max_context = media_count - 1U;
+    const auto expanded          = make_frontend(resources(), expanded_options);
+    failures += check(throws_context_length([&] { (void)expanded.prepare(media_input); },
+                                            "maximum context length is " +
+                                                std::to_string(media_count - 1U) +
+                                                " tokens, but the prepared prompt has at least " +
+                                                std::to_string(media_count) + " tokens"),
+                      "expanded media rejection lost its count and limit");
 
     std::atomic<int> control_checks{0};
     ninfer::PreparationControl cancelled_during_tokenization{
@@ -2155,6 +2183,47 @@ int test_constrained_thinking_control(const Frontend& frontend) {
     return failures;
 }
 
+int test_thinking_accounting(const Frontend& frontend) {
+    int failures      = 0;
+    const auto prompt = thinking_prompt(frontend);
+    for (const bool raw : {false, true}) {
+        auto session = frontend.make_output_session(prompt, {}, {.raw = raw}, {});
+        (void)session.preview_model(std::array<ninfer::TokenId, 1>{0}, 20,
+                                    ninfer::FinishReason::OutputLimit);
+        session.discard_preview();
+        failures += check(session.thinking_stats().model_thinking_tokens == 0,
+                          "discard published unbudgeted thinking tokens");
+        (void)session.preview_model(std::array<ninfer::TokenId, 2>{0, 3}, 20,
+                                    ninfer::FinishReason::OutputLimit);
+        (void)session.commit_preview();
+        failures += check(session.thinking_stats().model_thinking_tokens == 2,
+                          "unbudgeted thinking lost a partial closing marker");
+        (void)session.preview_model(std::array<ninfer::TokenId, 2>{4, 0}, 18,
+                                    ninfer::FinishReason::OutputLimit);
+        (void)session.commit_preview();
+        const auto stats = session.thinking_stats();
+        failures +=
+            check(stats.model_thinking_tokens == 3 && !stats.configured_budget && !stats.applied &&
+                      stats.injected_tokens == 0 && session.pending_control_tokens().empty() &&
+                      session.model_token_budget_remaining(16) == 16,
+                  "thinking accounting depends on presentation or counts post-close content");
+    }
+    auto stopped        = frontend.make_output_session(prompt, {}, {}, {});
+    const auto decision = stopped.preview_model(std::array<ninfer::TokenId, 3>{0, 6, 0}, 20,
+                                                ninfer::FinishReason::OutputLimit);
+    (void)stopped.commit_preview();
+    failures +=
+        check(decision.accepted_tokens == 2 && stopped.thinking_stats().model_thinking_tokens == 2,
+              "thinking count includes unaccepted tokens after EOS");
+    auto plain = frontend.make_output_session(frontend.prepare_tokens({0}), {}, {}, {});
+    (void)plain.preview_model(std::array<ninfer::TokenId, 1>{0}, 20,
+                              ninfer::FinishReason::OutputLimit);
+    (void)plain.commit_preview();
+    failures += check(plain.thinking_stats().model_thinking_tokens == 0,
+                      "non-thinking output increased the thinking count");
+    return failures;
+}
+
 int test_thinking_budget_control(const Frontend& frontend) {
     auto prompt = thinking_prompt(frontend);
     ninfer::StopPolicy stop;
@@ -2806,6 +2875,7 @@ int main() {
     failures += test_structured_tool_output();
     failures += test_tools_and_json_output();
     failures += test_reasoning_split(frontend);
+    failures += test_thinking_accounting(frontend);
     failures += test_thinking_budget_control(frontend);
     failures += test_constrained_thinking_control(frontend);
     failures += test_utf8_and_hidden_eos(frontend);

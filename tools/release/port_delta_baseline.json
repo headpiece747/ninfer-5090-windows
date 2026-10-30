@@ -1,6 +1,6 @@
 {
   "against": "upstream/dev",
-  "recorded": "2026-10-26",
+  "recorded": "2026-10-29",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -63,11 +63,11 @@
       "review": "product",
       "reason": "Port change: checked_relative_path rejected only empty, absolute and '..' components, and is_absolute() on Windows needs both a root name and a root directory -- so '\\Windows\\System32\\drivers\\etc\\hosts' and '/etc/passwd' passed a check whose message says 'must be relative', and operator/ then replaced the manifest's directory with them. Measured on this toolchain. has_root_directory() closes both forms; 'C:relative.txt' was measured not to escape, and the manifest is repo-controlled, so this is the check doing what it claims rather than a privilege boundary. Found by the c-review detect pass."
     },
-    "apps/perplexity/main.cpp": {
+    "apps/perplexity/report.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "product",
-      "reason": "Prefill chunk default raised from 1024 to 8192. Measured on this machine, same artifact and case, one flag apart: chunk 1024 prefills a 64,509-token prompt in 9,379.28 ms and chunk 8192 in 6,649.49 ms (-29.1%), and at 8,192-token depth 662.82 ms against 510.50 ms (-23%). The price is workspace: runtime 10.1 GiB at 1,024 against 10.6 GiB at 8,192 at the 262,144-token window, i.e. +0.5 GiB. Above 8,192 is not worth it and was tested: chunk 16384 buys 0.02% for +1.3 GiB, and chunk 32768 cannot start beside that window at all (the engine refuses with 'minimum Engine runtime reservation requires 15,412,082,945 bytes in addition to'). The field's small-chunk default exists to protect inter-token latency against concurrent decode; this product ships --max-concurrency 1 as an invariant, so that rationale is inert here while the cost is not. The two EnginePurpose::CausalScoring overrides that also set 1024 are deliberately untouched -- they are purpose-specific configurations that pin concurrency, drop speculation and disable vision, not stale copies of this default."
+      "review": "windows",
+      "reason": "MSVC has no gmtime_r. timestamp() now guards it: gmtime_s(&tm, &time_t) under _WIN32, gmtime_r elsewhere. The output format and the value written are identical; this is the same guard apps/perplexity/main.cpp carried before upstream moved timestamp() into report.cpp."
     },
     "apps/serve/main.cpp": {
       "status": "M",
@@ -77,7 +77,7 @@
     },
     "bench/README.md": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "windows",
       "review": "product",
       "reason": "a contract correction from the c-review Detect pass: both this file and the header state the selector codebooks as [256,248320], while the Op requires n == 248320 and k == 256 (src/ops/sampling/candidate_path/entry.cpp:23) and the loader declares {vocab_size, selector_rank} (src/models/qwen3_5/load/dflash2.cpp:31-34), and the header's own next sentence says candidate rank is the fastest axis -- so [256,248320] transposes what the kernels index (row = token, fastest axis = rank; src/ops/sampling/candidate_path/nvfp4/path.cu:66,186). The shape is the artifact's, so the prose is what was wrong. A caller following the old text is refused by require_codebook rather than reading out of bounds."
     },
@@ -189,23 +189,17 @@
       "review": "product",
       "reason": "Cited in the diff -- port: this port. Open it before changing this path."
     },
-    "docs/designs/unified-context-pool.md": {
+    "docs/designs/qwen4-27b-rtx5090.md": {
       "status": "M",
       "disposition": "unknown",
-      "review": "windows",
-      "reason": "Port-side link fix: the upstream doc references docs/performance/qwen3.8-27b.md, which the port does not ship; repointed to docs/performance/lanes.md."
+      "review": "product",
+      "reason": "Link repointed from the per-checkpoint page docs/performance/qwen3.8-27b.md -- which this port deleted in 1b53a301 because it ships none of that checkpoint -- to docs/performance/lanes.md, the page that owns the shipped lanes' figures."
     },
     "docs/maintainer/build-system.md": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
       "reason": "Cited in the diff -- port: this port. Open it before changing this path."
-    },
-    "docs/maintainer/linear-tuning.md": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "",
-      "reason": ""
     },
     "docs/maintainer/op-development.md": {
       "status": "M",
@@ -239,9 +233,15 @@
     },
     "docs/serving.md": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "review": "product",
       "reason": "Port documentation restored 2026-10-06 from a silent take by the b9114396 merge: the check_request_logs.py validation paragraph and the tool-call fallback's rejected_* subject fields. Both describe surfaces that exist at HEAD -- tools/release/check_request_logs.py, and rejected_tool_name / rejected_tool_near_match / rejected_tool_name_length in types.h, set at src/models/qwen3_5/frontend/tool_call_parser.cpp:649-659 -- and neither was documented anywhere until this restore."
+    },
+    "docs/startup-configuration.md": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Two links repointed to this port's headings: the README anchor for supported models becomes #capabilities-and-limits because the port's README has no upstream 'get weights' section, and ../bench/README.md#engine-<CJK heading> becomes #product-benchmark because the port keeps bench/README.md in English."
     },
     "docs/weight-conversion.md": {
       "status": "M",
@@ -1095,15 +1095,9 @@
       "review": "windows",
       "reason": "MSVC port: dependent member-template call needs the `template` disambiguator."
     },
-    "src/ops/softmax_attention/qsa/indexer/select.cuh": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "windows",
-      "reason": "Windows/MSVC C++ conformance necessity: adds the C++ template disambiguator on jobs.template build<1, Partition>(a) because jobs has dependent type IndexerJobs<MaxQueries> in indexer_partition_kernel, and nvcc + MSVC otherwise parses '<' as operator< (error: no operator \">\" matches these operands)."
-    },
     "src/ops/softmax_attention/qsa/tail_extract.cu": {
       "status": "M",
-      "disposition": "windows",
+      "disposition": "unknown",
       "review": "windows",
       "reason": "Windows MSVC/NVCC conformance: add explicit static_cast<std::int64_t> in StateColumns uniform initialization to prevent invalid narrowing conversion from unsigned long long (std::size_t) to signed long long (std::int64_t)."
     },
@@ -1190,6 +1184,12 @@
       "disposition": "windows",
       "review": "windows",
       "reason": "Windows necessity: MSVC has no __int128, so core/uint128.h provides the type -- a real 128-bit builtin under GCC and a two-word struct with the needed operators under MSVC. Here it replaces upstream's cast in a comparison whose product overflows 64 bits. Pinned by the port-delta baseline and protected by src/core/uint128.h's own tests. Second (2026-10-12): release_unreferenced returned by throwing when Native refused to release an unreferenced checkpoint, and its callers are noexcept engine paths, so a pinned checkpoint released through one terminated the process -- no report, no stack, and the catch-all cleanup that errors out the other in-flight requests never ran. It now returns instead. Deferring the release the way reclaim does was rejected: prune does not retry release_unreferenced, so a deferred release would never be completed and the checkpoint would leak. Found by the c-review detect pass."
+    },
+    "src/runtime/engine/context_capacity.cpp": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "MSVC has no __int128. The context-capacity estimate multiplies three 64-bit quantities and divides by device_bytes, so it is computed through ninfer::Uint128 (src/core/uint128.h), which is a real 128-bit builtin under GCC/Clang and a constexpr two-word stand-in under MSVC. Pinned by tests/test_uint128.cpp."
     },
     "src/runtime/engine/engine.cpp": {
       "status": "M",
@@ -1425,11 +1425,17 @@
       "review": "windows",
       "reason": "Explicit encoding on subprocess.run (subprocess-encoding gate)."
     },
+    "tests/models/qwen3_5/context_budget.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Port fix for an under-budget after upstream unified KV and State into one pool (bea5a04ec): context_capacity_bytes counted a retained checkpoint's State record only, while a retained checkpoint also owns the KV pages of the history it resumes. The helper now adds pages(reference.tokens_per_request) of classes 1 and 2 per retained state. Measured: the explicit capacity for tests/models/qwen3_5/test_engine_prefix_real.cpp's explicit-anchor scenario rises 1,077,680,128 -> 1,231,634,432 bytes and the scenario passes (it hung for two hours before). The Engine half is upstream's: an explicit capacity that startup accepts but which cannot grant a unit deadlocks in reserve_resident_units instead of being refused; see docs/upstream-reports/ninfer-small-context-reuse-hang.md (written for upstream). Remove this entry when upstream's helper counts the pages."
+    },
     "tests/models/qwen3_5/test_engine_dflash2_real.cpp": {
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Port change: includes ninfer/kv_storage.h and calls ninfer::parse_kv_storage() instead of the deleted test helper."
+      "reason": "Port change: includes ninfer/kv_cache_format.h and calls ninfer::kv_cache_storage_from_option() instead of the deleted test helper. Upstream's 824bd3a41 moved KvCacheStorage and the one name/parse table into kv_cache_format.h, which superseded both port headers (kv_types.h and kv_storage.h, both deleted in this merge)."
     },
     "tests/models/qwen3_5/test_engine_dflash_real.cpp": {
       "status": "M",
@@ -1439,13 +1445,13 @@
     },
     "tests/models/qwen3_5/test_engine_grammar_real.cpp": {
       "status": "M",
-      "disposition": "windows",
+      "disposition": "unknown",
       "review": "windows",
       "reason": "Windows necessity: greedy decoding (temperature=0) for json_thinking ensures deterministic termination within output token limit after control token injection, preventing non-deterministic whitespace loops."
     },
     "tests/models/qwen3_5/test_engine_prefix_real.cpp": {
       "status": "M",
-      "disposition": "unknown",
+      "disposition": "windows",
       "review": "product",
       "reason": "Port edits in an upstream test file: artifact goldens, a guarded main, and the model's default stops where a tool is declared. (1) exercise_artifact_frontend is upstream's and asserts upstream's artifacts (16 thinking / 18 no-thinking); this port's artifacts measure 58/18, because their embedded template emits the reasoning-effort instruction as a synthetic system message -- exactly the 40-token delta -- and upstream's predates it. Upstream's 16 also returned early, hiding every other scenario in this file. The port asserts its own goldens and names the actual count on failure; change these only against a fresh measurement, and prefer the shipping path (`ninfer --messages` reports prompt tokens directly). (2) main() guards the scenario dispatch and reports the failing scenario and its reason, because an uncaught throw reached std::terminate and exited 0xC0000409 with no message -- which reads as a crash in the code under test, and did, for one session. (3) Six scenarios keep the model's default EOS stops where they declare a tool. Upstream 41e50d0d made a tool-declaring request take a constrained contract, and src/models/qwen3_5/frontend/frontend.cpp:915 rejects include_model_defaults=false for it; that commit did not update its own scenarios. Measured 2026-10-07 over all 13 scenarios: those six failed with 'constraints require default EOS, text output, no custom stops, and one output language', while shared-rewrite-materialization also declares tools and passed because it never disabled them. No assertion changed."
     },
@@ -1811,7 +1817,7 @@
     },
     "tests/text/tests.cmake": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "review": "product",
       "reason": "Added registration for ninfer_tokenizer_cache_splice_test, testing prompt tokenization caching and multi-turn cache splicing (ADR-0010)."
     },
@@ -1847,7 +1853,7 @@
     },
     "tools/README.md": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "review": "product",
       "reason": "Cited in the diff -- doc: docs/maintainer/project-map.md. Open it before changing this path."
     },
@@ -1868,12 +1874,6 @@
       "disposition": "unknown",
       "review": "windows",
       "reason": "The Python half of the Win32 file I/O work: pread, pwrite and the binary-mode flag come from tools/artifact/file_io.py, which branches on sys.platform because POSIX page-cache controls have no Windows equivalent. src/artifact/file_io.cpp carries the C++ half."
-    },
-    "tools/bench/run_serve_corpus.py": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "Port change: KV_CACHE_NAMES restated the engine's names in the request log's old long spelling; it carries the canonical short spelling now, which is what tools/release/per_domain_kl.py compares between two top-k records."
     },
     "tools/bench/run_serve_ttft.py": {
       "status": "M",
@@ -2000,12 +2000,6 @@
       "disposition": "unknown",
       "review": "windows",
       "reason": "Subprocess call states encoding='utf-8'. Upstream's call uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII. Windows necessity, found by the subprocess-encoding gate (check_subprocess_encoding.py), which exists because upstream wrote the same defect twice. No assertion changed."
-    },
-    "tools/support/paged_kv_fixture.h": {
-      "status": "M",
-      "disposition": "windows",
-      "review": "windows",
-      "reason": "Windows CUDA necessity: synchronize device after asynchronous D2D cudaMemcpy2D transfer_plane to eliminate host verification race on stream 0 against non-blocking compute streams."
     },
     "tools/support/state_record_fixture.h": {
       "status": "M",

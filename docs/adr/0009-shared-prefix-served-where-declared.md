@@ -24,7 +24,7 @@ file both ADRs name as the case that would have caught each one.
 ## Context
 
 A shared prefix is an immutable reuse source that several private branches may fork
-(`docs/maintainer/resource-scheduling-and-context-cache.md` §4.3, §7.2). The shipped launchers enable
+(`docs/maintainer/context-management.md`). The shipped launchers enable
 it, the request log counts it, and a live 51-request agent log showed every cache hit as
 `private endpoint` with none shared. Two of that log's requests are conversation switches, both reporting `cache 0 (0.0%)`, one of them a 59.6 s
 cold prefill at 171,953 tokens. The question was whether the feature is broken or unused.

@@ -121,9 +121,9 @@ Read the authority relevant to the current decision; this is not a mandatory rea
 |---|---|
 | Product capabilities and exact commands | `README.md`, executable `--help`; `docs/cli.md`, `docs/serving.md`, `docs/perplexity.md` |
 | Execution, model/runtime ownership, scheduling, graphs | `docs/maintainer/engine-architecture.md`; `docs/maintainer/project-map.md` |
-| Context resources, checkpoints, replicas; physical KV | `docs/maintainer/resource-scheduling-and-context-cache.md`; `docs/maintainer/paged-kv-cache.md` — both written in Chinese upstream, so read `docs/maintainer/README.md` first |
+| Context resources, checkpoints, replicas; physical KV | `docs/maintainer/context-management.md` — written in Chinese upstream, so read `docs/maintainer/README.md` first |
 | Artifact, layout, codec, conversion, or model mathematics | model/artifact references linked from `docs/README.md` |
-| A maintainer document written in Chinese upstream | `docs/maintainer/README.md` indexes all seven and says why they are not translated |
+| A maintainer document written in Chinese upstream | `docs/maintainer/README.md` indexes every one of them and says why they are not translated |
 | Op contracts, implementation ownership, numerical/performance qualification | `docs/maintainer/op-development.md` |
 | The shipped lanes: artifact, route, draft number, KV dtype, context | `tools/release/profiles.py` |
 | Test/benchmark commands and published performance | `tests/README.md`, `bench/README.md`, `docs/performance.md` |
