@@ -97,23 +97,39 @@ xgrammar::Grammar choice_grammar(const std::vector<std::string>& choices) {
         builder.Get(builder.AddRuleWithHint("root", builder.AddChoices(alternatives))));
 }
 
+static std::string quoted_byte(unsigned char c) {
+    constexpr char hex[] = "0123456789abcdef";
+    std::string result   = "\"\\x00\"";
+    result[3]            = hex[c >> 4];
+    result[4]            = hex[c & 15];
+    return result;
+}
+
 // Consume through the first complete delimiter, including tokens that cross it.
 xgrammar::Grammar reasoning_prefix(std::string_view delimiter) {
-    auto body = xgrammar::GrammarFSMBuilder::TagDispatch({{}, false, {std::string(delimiter)}});
-    if (!body) throw std::logic_error("invalid reasoning delimiter");
-    const auto ends = body->GetEnds();
-    int tail        = body->AddState();
-    for (int end : ends) body->GetFsm().AddEpsilonEdge(end, tail);
-    for (unsigned char byte : delimiter) {
-        const int next = body->AddState();
-        body->GetFsm().AddEdge(tail, next, byte, byte);
-        tail = next;
+    std::string alphabet(delimiter);
+    std::sort(alphabet.begin(), alphabet.end());
+    alphabet.erase(std::unique(alphabet.begin(), alphabet.end()), alphabet.end());
+    std::string source = "root ::= s0\n";
+    for (std::size_t state = 0; state < delimiter.size(); ++state) {
+        source += "s" + std::to_string(state) + " ::= ";
+        for (unsigned char c : alphabet) {
+            std::string next(delimiter.substr(0, state));
+            next += static_cast<char>(c);
+            std::size_t matched = std::min(next.size(), delimiter.size());
+            while (matched && !next.ends_with(delimiter.substr(0, matched))) { --matched; }
+            source += quoted_byte(c);
+            if (matched != delimiter.size()) { source += " s" + std::to_string(matched); }
+            source += " | ";
+        }
+        source += "[^";
+        for (unsigned char c : alphabet) {
+            const auto escaped = quoted_byte(c);
+            source += escaped.substr(1, escaped.size() - 2);
+        }
+        source += "] s0\n";
     }
-    xgrammar::GrammarBuilder builder;
-    const auto value = xgrammar::AddScalarStringFSM(
-        builder, xgrammar::FSMWithStartEnd(body->GetFsm(), body->GetStart(), {tail}), "reasoning",
-        false);
-    return xgrammar::GrammarNormalizer::Apply(builder.Get(builder.AddRuleWithHint("root", value)));
+    return xgrammar::Grammar::FromEBNF(source);
 }
 
 void validate(const xgrammar::Grammar& grammar, const std::vector<std::string>& vocab,

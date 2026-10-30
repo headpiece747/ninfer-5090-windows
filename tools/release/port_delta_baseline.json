@@ -1,6 +1,6 @@
 {
   "against": "upstream/dev",
-  "recorded": "2026-10-29",
+  "recorded": "2026-10-30",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -1183,7 +1183,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Windows necessity: MSVC has no __int128, so core/uint128.h provides the type -- a real 128-bit builtin under GCC and a two-word struct with the needed operators under MSVC. Here it replaces upstream's cast in a comparison whose product overflows 64 bits. Pinned by the port-delta baseline and protected by src/core/uint128.h's own tests. Second (2026-10-12): release_unreferenced returned by throwing when Native refused to release an unreferenced checkpoint, and its callers are noexcept engine paths, so a pinned checkpoint released through one terminated the process -- no report, no stack, and the catch-all cleanup that errors out the other in-flight requests never ran. It now returns instead. Deferring the release the way reclaim does was rejected: prune does not retry release_unreferenced, so a deferred release would never be completed and the checkpoint would leak. Found by the c-review detect pass."
+      "reason": "Windows necessity: MSVC has no __int128, so core/uint128.h provides the type -- a real 128-bit builtin under GCC and a two-word struct with the needed operators under MSVC. Here it replaces upstream's cast in a comparison whose product overflows 64 bits. Pinned by the port-delta baseline and protected by src/core/uint128.h's own tests. Second (2026-10-12, fixed 2026-10-30): release_unreferenced threw when Native refused to release a pinned unreferenced checkpoint, reaching noexcept engine paths and causing std::terminate. It now tracks unreleased checkpoints in pending_release_ and retries them safely on prune() and release_all() once pins drop, preventing both crashes and checkpoint/page leaks."
     },
     "src/runtime/engine/context_capacity.cpp": {
       "status": "M",
@@ -1268,6 +1268,12 @@
       "disposition": "windows",
       "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
+    },
+    "src/text/grammar.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Fix for thinking-grammar delimiter escape regression introduced upstream in 1407c62f6: upstream replaced the exact byte DFA for reasoning_prefix with TagDispatch, adding epsilon edges from all end states to tail and creating an ambiguous Earley NFA that leaked delimiter tokens into constrained output (tested in ninfer_qwen3_5_grammar_real_test). Restored deterministic byte DFA in reasoning_prefix(). Documented in docs/upstream-reports/ninfer-thinking-grammar-escape.md."
     },
     "src/text/jinja.cpp": {
       "status": "M",

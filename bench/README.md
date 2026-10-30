@@ -364,7 +364,7 @@ percentages and the DRAM memory floor. Multiple calls are for timing and cannot 
 `--profile`, which always captures one complete public call.
 
 Every ordinary sample is cold-cache: a 256 MiB L2 eviction read completes before the timed
-interval. [Op development §7](../docs/maintainer/op-development.md#7-performance-evidence) defines
+interval. [Op development (调优与测量)](../docs/maintainer/op-development.md#调优与测量) defines
 byte/FLOP accounting, hardware references, timing conditions and suite expansion. Physical traffic
 and instruction utilization require profiler evidence.
 

@@ -95,8 +95,6 @@ of these files, read our diff before merging.**
 | `src/models/qwen3_5/load/dflash2.cpp` | bind selector codebooks and QKV format-agnostically (+10/-4) | `45387ec5`, `9898ecb1` | **highest** — upstream may tighten the binding we relaxed |
 | `src/models/qwen3_5/execution/parameters.cpp` | derive draft context row offsets from the draft geometry (+11/-2) | `985907e0` | high — a geometry fix upstream may make differently |
 | `src/ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_plan.cpp` | `Nvfp4Geometry<34816,5120>` for the A16Only gate/up workspace; A16 beyond T=16 (+24/-4) | `9e0ce8d7`, `fb141405` | medium — workspace shape, upstream may retune |
-| `src/runtime/engine/context_cache/resource_manager.h` | reclaim retained continuations at active-capture admission (+116/-2) | `d05ee90a` | medium — upstream issue #251; they may fix it their own way |
-| `src/runtime/engine/context_cache/materialization_budget.h` | scale the search grant off the 5 ms pin (+9/-1) | `2fcffaa9`, `e92cd9d7` | medium — upstream issue #229; same caveat |
 | `src/ops/linear/nvfp4/nvfp4_w4a4_tma.cuh` | pass the W4A4 TMA descriptor by value so it survives graph capture | `1218d574` | medium — see `ninfer-tma-descriptor-graph-capture.md` |
 | `third_party/llama-jinja/jinja/runtime.cpp` | take `get_builtins()` by reference in `try_builtin_func`; the vendored copy took the type's static filter map by value and copied it on every filter application, ~1374 of them for a 229-message prompt | *(this worktree)* | low — an efficiency fix with byte-identical output, measured at 77.5 ms to 71.4 ms on the render bench. Upstream's own copy of the vendored file carries the same line, so it is a candidate to send them rather than a divergence to defend |
 

@@ -190,7 +190,7 @@ understating coupling by roughly the macro volume, not by the raw unresolved cou
 | `src/runtime/engine/context_cache/resource_manager.h` | 531 |
 | `third_party/spdlog/include/spdlog/fmt/bundled/format.h` | 491 |
 | `src/models/qwen3_5/program/planning/pressure_planner.cpp` | 489 |
-| `tests/ops/softmax_attention/causal_cache.cpp` | 477 |
+| `tests/ops/softmax_attention/causal/cache.cpp` | 477 |
 | `src/models/qwen3_5/frontend/tokenizer.cpp` | 453 |
 | `src/serve/openai_chat_request.cpp` | 447 |
 | `tests/test_request_log.cpp` | 426 |

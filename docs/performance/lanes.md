@@ -35,11 +35,11 @@ domain — see the per-domain breakdown in `docs/perplexity-baseline.md`.
 | `start_nvidia_v3_dflash2_vision.bat` | NVIDIA ModelOpt | DFlash2 | nvfp4nvidia | 9 | fp8 | 262,144 | 291.7 | 45.6% |
 | `start_nvidia_v3_mtp4_vision.bat` | NVIDIA ModelOpt | MTP4 | nvfp4nvidia | 4 | k8v4 | 262,144 | 165.3 | 46.7% |
 
-Prefill tok/s and acceptance are from `tools/release/profiles.py` (measured
-2026-10-08, interleaved window, three rounds, default `code` cell). These are
-the published figures; `tools/release/lane_figures.json` records the engine
-sha256 and per-cell measurements against which `check_lane_figures.py`
-validates.
+Decode tok/s and acceptance are from `tools/release/profiles.py` (re-measured
+2026-10-30 via lane fingerprint after the 824bd3a41 FP8 cache encoding change;
+see `tools/release/profiles.py` docstring for protocol note). These are the
+published figures; `tools/release/lane_figures.json` records the engine sha256
+and per-cell measurements against which `check_lane_figures.py` validates.
 
 ## Which artifact is "best"
 

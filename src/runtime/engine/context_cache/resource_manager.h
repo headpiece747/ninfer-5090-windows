@@ -850,6 +850,10 @@ public:
         for (const auto handle : handles) {
             if (session.valid_checkpoint(handle)) { (void)session.release_checkpoint(handle); }
         }
+        for (const auto handle : pending_release_) {
+            if (session.valid_checkpoint(handle)) { (void)session.release_checkpoint(handle); }
+        }
+        pending_release_.clear();
     }
 
 private:
@@ -1035,6 +1039,7 @@ private:
 
     void forget(Handle handle) {
         index_.erase(handle);
+        std::erase(pending_release_, handle);
         for (auto& owner : owners_) {
             std::erase_if(owner.points, [&](const auto& point) { return point.handle == handle; });
         }
@@ -1051,15 +1056,12 @@ private:
         // refuses while pins are held, and pins are taken by every in-flight context transaction --
         // a legal transient state. Throwing here reaches a `noexcept` engine path
         // (`abandon_request`, `release_planning_state`, `fail_all_locked`), so it becomes
-        // `std::terminate`: no report, no stack, and the cleanup that would have errored out every
-        // other in-flight request never runs -- one client's cancellation takes the lane down.
-        //
-        // Not fixed by deferring the way `reclaim` does, which is the obvious move: `prune` does not
-        // retry this, so a deferred release would never be completed and the Native checkpoint would
-        // leak instead. Reporting it and continuing keeps the process alive and the other requests
-        // answerable; the unreleased checkpoint is the cost, and it is recorded in
-        // an interleaved run that would confirm the condition is reachable.
-        if (session.valid_checkpoint(handle) && !session.release_checkpoint(handle)) { return; }
+        // `std::terminate`. Defer unreleased checkpoints to pending_release_ and retry in prune().
+        if (session.valid_checkpoint(handle) && !session.release_checkpoint(handle)) {
+            if (!contains(pending_release_, handle)) {
+                pending_release_.push_back(handle);
+            }
+        }
     }
 
     void replace_points(Session& session, Owner& owner, std::span<const Handle> carried) {
@@ -1079,6 +1081,10 @@ private:
     }
 
     void prune(Session& session) {
+        std::erase_if(pending_release_, [&](Handle handle) {
+            if (!session.valid_checkpoint(handle)) { return true; }
+            return session.release_checkpoint(handle);
+        });
         demand_capacity_ = std::max<std::size_t>(256, session.checkpoint_capacity() * 2);
         std::vector<Handle> stale;
         const auto inspect = [&](Handle handle) {
@@ -1712,5 +1718,6 @@ private:
     std::vector<Demand> demand_;
     std::uint64_t clock_   = 0;
     std::uint64_t ordinal_ = 0;
+    std::vector<Handle> pending_release_;
 };
 } // namespace ninfer::runtime

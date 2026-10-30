@@ -1,12 +1,12 @@
 # Upstream reports
 
-Three issues found while working on this port, each written up with a reproduction and
+Issues found while working on this port, each written up with a reproduction and
 evidence so it can be filed as-is. **None has been posted.** They are drafts, and posting them is
 an outbound action rather than a code change.
 
 **Pulling an upstream release?** Read [`fork-divergence.md`](fork-divergence.md) first. It records
 which of our changes touch files upstream also owns, and which are Windows-permanent and cannot
-conflict. `dev` is a strict superset of `upstream/master` (0 commits behind), so the only risk is
+conflict. `dev` is aligned with `upstream/dev`, so the only risk is
 recognising our own patches when upstream edits the same shared logic.
 
 ## The removed record
@@ -58,9 +58,10 @@ incumbent; on a busy engine the same cap let a reuse target go unconfirmed and a
 to the root incumbent, re-prefilling the whole prompt (upstream issue #229, TTFT 142 s -> 1.2 s
 once the grant scales).
 
-The fix scales the grant up to a 250 ms ceiling (`materialization_budget.h`, `kMaximumGrantNs`),
+The fix scaled the grant up to a 250 ms ceiling (`materialization_budget.h`, `kMaximumGrantNs`),
 with the economic term still governing below the ceiling and the boundary allowance capping both.
-It was committed as `2fcffaa9`, reverted as `7ae7bb40` with no recorded reason, and re-landed here.
+*(Note: With upstream's `bea5a04ec` / PR #366 context-cache unification, `materialization_budget.h`
+was retired and issue #229 closed upstream. See `fork-divergence.md`.)*
 
 ## Not a bug: the fused DFlash2 binding
 
