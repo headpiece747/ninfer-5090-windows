@@ -40,7 +40,9 @@ void RankProgramImpl::request_decision(ComputeOperation& operation) {
             for (int step = 0; step < count; ++step)
                 member.drafts.push_back(
                     drafts[backend == SpeculativeBackend::Mtp
-                               ? step * resources.frame.spec.batch_capacity + row
+                               ? static_cast<std::size_t>(step) *
+                                         resources.frame.spec.batch_capacity +
+                                     row
                                : row * draft_window + step]);
         }
         request.rows.push_back(std::move(member));

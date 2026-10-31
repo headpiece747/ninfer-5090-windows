@@ -139,7 +139,7 @@ BufferLayout plan_buffers(LayoutBuilder& b, const Config& c, const EngineOptions
         for (int step = 0; step < width - 1; ++step) {
             auto& ids = mtp.draft_steps[step].ids;
             ids       = step == 0 ? out.anchors : mtp.drafts;
-            if (step) ids.region.offset += (step - 1) * batch * sizeof(TokenId);
+            if (step) ids.region.offset += std::size_t(step - 1) * batch * sizeof(TokenId);
             ids.shape            = {batch, 1, 1, 1};
             ids.region.bytes     = batch * sizeof(TokenId);
             ids.region.alignment = alignof(TokenId);

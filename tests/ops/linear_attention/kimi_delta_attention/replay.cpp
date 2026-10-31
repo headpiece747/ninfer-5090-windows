@@ -66,8 +66,8 @@ int replay_case(int layers, int heads, int width, int batch, bool alias_records,
     DeviceBuffer record_buffer(cuda.device(), rb.finish(256));
     CUDA_CHECK(cudaMemsetAsync(record_buffer.data(), 0x35, record_buffer.size(), cuda.stream()));
     KdaReplayRecords records(record_buffer.span(), rl);
-    std::vector<std::vector<float>> expected(layers * batch);
-    std::vector<std::vector<std::uint16_t>> expected_conv(layers * batch);
+    std::vector<std::vector<float>> expected(std::size_t(layers) * batch);
+    std::vector<std::vector<std::uint16_t>> expected_conv(std::size_t(layers) * batch);
     int failures = 0;
     for (int l = 0; l < layers; ++l) {
         const std::size_t vectors  = std::size_t(128) * heads * width * batch;
@@ -163,7 +163,8 @@ int replay_case(int layers, int heads, int width, int batch, bool alias_records,
         const auto input_keys = from_device<std::uint16_t>(kbuf, qvectors);
         const auto input_vals = from_device<std::uint16_t>(vbuf, vectors);
         const auto logs       = from_device<std::uint32_t>(rec.log_decay.data, vectors);
-        const auto betas      = from_device<std::uint32_t>(rec.beta.data, heads * width * batch);
+        const auto betas      = from_device<std::uint32_t>(rec.beta.data,
+                                                           std::size_t(heads) * width * batch);
         for (int b = 0; b < batch; ++b)
             for (int t = 0; t < width; ++t) {
                 const auto column = std::size_t(b) * width + t;

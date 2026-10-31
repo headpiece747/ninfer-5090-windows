@@ -127,7 +127,8 @@ int run(Kind kind, int n, int k, Recipe recipe, std::span<const std::size_t> sel
                     from_device<std::uint16_t>(buffers[s].data(), std::size_t(rows) * c.t);
                 std::vector<double> actual(bits.size()), expected(bits.size());
                 for (std::size_t j = 0; j < bits.size(); ++j) {
-                    const int row         = s * rows + j % rows;
+                    // segments * rows == output_rows, so the widened product fits int here.
+                    const int row         = static_cast<int>(std::size_t(s) * rows + j % rows);
                     const int token       = j / rows;
                     const auto projection = [&](int r) {
                         return reference[std::size_t(token) * n + r] +

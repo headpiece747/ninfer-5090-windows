@@ -39,9 +39,13 @@ struct Plan {
 };
 
 Size canvas(int frames, int h, int w, const MediaProcessorConfig& c) {
-    const auto factor = mul(mul(c.patch_size, c.merge_size), c.patch_expand_factor);
-    const auto volume_per_token =
-        mul(c.temporal_patch_size, mul(c.patch_size * c.merge_size, c.patch_size * c.merge_size));
+    // Every geometry product goes through `mul`, the checked widen-then-multiply. `patch_size *
+    // merge_size` written directly would be a 32-bit multiply widened at the call, so the checked
+    // multiplication and the validation in parse_processor_config would live in different
+    // translation units (CodeQL cpp/integer-multiplication-cast-to-long).
+    const auto merged = mul(c.patch_size, c.merge_size);
+    const auto factor = mul(merged, c.patch_expand_factor);
+    const auto volume_per_token = mul(c.temporal_patch_size, mul(merged, merged));
     const auto minimum = mul(c.min_tokens, volume_per_token),
                maximum = mul(c.max_tokens, volume_per_token);
     const auto align   = [&](std::size_t value) {
@@ -85,9 +89,9 @@ void geometry(Plan& plan, int frames, int h, int w, const MediaProcessorConfig& 
     const auto padded =
         (frames + c.temporal_patch_size - 1) / c.temporal_patch_size * c.temporal_patch_size;
     const auto size = canvas(padded, h, w, c);
+    const auto merged = mul(c.patch_size, c.merge_size);
     const auto minimum =
-        mul(c.min_tokens, mul(c.temporal_patch_size,
-                              mul(c.patch_size * c.merge_size, c.patch_size * c.merge_size)));
+        mul(c.min_tokens, mul(c.temporal_patch_size, mul(merged, merged)));
     auto scale = std::min(double(size.height) / h, double(size.width) / w);
     if (mul(padded, mul(h, w)) >= minimum) scale = std::min(1.0, scale);
     plan.content   = {std::max(1, std::min(size.height, int(std::floor(h * scale)))),
@@ -307,8 +311,11 @@ ProcessedMedia Processor::prepare(std::span<const OwnedMedia* const> sources,
             plans[i].item.content_digest = keys[i].digest;
             stats.raw_patches += plans[i].item.patch_count;
             stats.media_bytes += source.bytes.size();
-            stats.vision_tokens =
-                stats.raw_patches / (config_.image.merge_size * config_.image.merge_size);
+            // The divisor is merge_size squared in 64 bits. Validation bounds patch_size *
+            // merge_size, not merge_size alone, so `merge_size * merge_size` in uint32 can wrap
+            // for a config at the accepted ceiling.
+            const auto merge_area = std::size_t{config_.image.merge_size} * config_.image.merge_size;
+            stats.vision_tokens   = stats.raw_patches / merge_area;
             stats.patch_bytes = mul(stats.raw_patches,
                                     mul(config_.image.features_per_patch(), sizeof(std::uint16_t)));
             if (stats.patch_bytes > live_bytes_)

@@ -1,6 +1,6 @@
 {
   "against": "upstream/dev",
-  "recorded": "2026-10-30",
+  "recorded": "2026-10-31",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -591,6 +591,24 @@
       "review": "product",
       "reason": "The frontier ledger, restored 2026-10-06 after item 16 found the b9114396 merge had taken the port's version of it. encode_rendered_chat built a bare byte_boundaries vector and read it back with a running boundary_index, so the push order and the read order were two independent traversals of the same fields agreeing only by convention; the port replaced that with a FrontierEntry ledger (kind + ordinal + offset) written and read by label. Upstream's own b9114396 change added a SIXTH field to both traversals (rewrite_checkpoint->recovery_offset), which is the pattern the ledger exists to make safe -- a change reaching one side and missing the other mislabels every later frontier silently, and the count check saw only the totals differing. The restoration carries RewriteRecovery as its own BoundaryKind. Verified by ninfer_qwen3_5_frontend_test, ninfer_qwen3_5_prefix_real_test and the full suite."
     },
+    "src/models/glm5next/frontend/processor.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long at patch_size*merge_size (canvas/geometry): the product was uint32 and passed to the checked mul(); it now multiplies through mul() itself. Same file: the vision-token divisor merge_size*merge_size was uint32 and is now size_t, which is a correctness fix (the config check bounds patch*merge, not merge alone, so patch=1/merge=70000 wrapped 4.9e9 to 6.05e8; the patch-byte budget rejects that config on the next line, so nothing observed it)."
+    },
+    "src/models/glm5next/program/frame.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change. Draft step (< 15) * batch (<= kMaximumConcurrency 8) * sizeof(TokenId): the leading operand is std::size_t now."
+    },
+    "src/models/glm5next/program/inputs.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change. Draft index step * max_concurrency + physical: the leading operand is std::size_t now."
+    },
     "src/models/qwen3_5/config.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -645,6 +663,18 @@
       "review": "",
       "reason": ""
     },
+    "src/models/qwen3_5/program/decision.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the MTP draft index step * batch_capacity + row multiplied in int and was widened by the vector index; the leading operand is std::size_t now. Bounded by the draft window (<= 15 in the CLI validation) and kMaximumConcurrency (8). The same pattern as glm5next inputs.cpp, fixed in the same sweep although this copy was not in the alert list."
+    },
+    "src/models/qwen3_5/program/graphs.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the step-position and step-rope indices step * stride + row and step * 3 * stride + axis * batch + row multiplied in uint32 and were widened by the pointer index; the step term is std::size_t now. Bounded by the draft window and batch capacity; same sweep as the other draft-index sites."
+    },
     "src/models/qwen3_5/program/inputs.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -668,6 +698,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "A comment recording that the draft attention consumes one fused query+key+value parent while the artifact declares only the three logical parameters: parameters.cpp assembles the parent with ops::prepare_attn_input_proj_weights, and requiring a fused parameter of its own would reject every upstream-generated artifact, since the converter groups the three."
+    },
+    "src/models/qwen4_exp/program/buffers.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change. The same draft-index pattern as glm5next frame.cpp; this copy was not in the CodeQL list and is fixed with its sibling."
     },
     "src/models/qwen4_exp/program/planning.cpp": {
       "status": "M",
@@ -1515,6 +1551,12 @@
       "review": "",
       "reason": ""
     },
+    "tests/ops/indexing/gather_rows.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change."
+    },
     "tests/ops/indexing/position.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -1556,6 +1598,12 @@
       "disposition": "windows",
       "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile under MSVC 14.51 as written. Nothing parses this file; it is test input.",
       "reason": "MSVC rejects the nested ternary in the fill_n argument inside a generic lambda (C2326), so the value is named first. Behaviour is unchanged: the same alternating +-6.0F pattern."
+    },
+    "tests/ops/linear/bias/test.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change."
     },
     "tests/ops/linear/projection/cases_bank.cpp": {
       "status": "M",
@@ -1611,6 +1659,18 @@
       "review": "windows",
       "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
     },
+    "tests/ops/linear_attention/kimi_delta_attention/replay.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change."
+    },
+    "tests/ops/normalization/fused.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change."
+    },
     "tests/ops/ple/test_lookup.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -1646,6 +1706,12 @@
       "disposition": "unknown",
       "review": "windows",
       "reason": "Added #include <array> and explicit std::array<int, 4> type arguments to fix MSVC CTAD inside braced initializer lists."
+    },
+    "tests/ops/sequence/causal_pairs.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change."
     },
     "tests/ops/sequence/masked_block.cpp": {
       "status": "M",
@@ -1693,7 +1759,13 @@
       "status": "M",
       "disposition": "windows",
       "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain. Verified by the three CPU tests where it touches the executor, and by the ASan subset where it touches host lifetime",
-      "reason": "Windows necessity: the same replacement, and half()/unhalf() renamed to half_bits()/half_value() because <cuda_fp16.h> brings a global `half` type and the helper name became ambiguous."
+      "reason": "Windows necessity: the same replacement, and half()/unhalf() renamed to half_bits()/half_value() because <cuda_fp16.h> brings a global `half` type and the helper name became ambiguous. Also, on 2026-10-31, the fixture's int shape products (T*B, table_stride*(B+1)) multiply in std::size_t for CodeQL cpp/integer-multiplication-cast-to-long; the values are unchanged for every case the fixture declares."
+    },
+    "tests/ops/softmax_attention/qsa/tail_fixture.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change."
     },
     "tests/ops/softmax_attention/qsa/test_indexer.cpp": {
       "status": "M",
@@ -2006,6 +2078,12 @@
       "disposition": "unknown",
       "review": "windows",
       "reason": "Subprocess call states encoding='utf-8'. Upstream's call uses text=True with no encoding, so Python takes the locale encoding -- UTF-8 on the maintainer's Linux host, cp1252 on Windows -- and the payload is deliberately non-ASCII. Windows necessity, found by the subprocess-encoding gate (check_subprocess_encoding.py), which exists because upstream wrote the same defect twice. No assertion changed."
+    },
+    "tools/support/kpool_prepare_fixture.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change. Fixture cache index (p % (64/span)) * dim + d; the leading operand is std::size_t now."
     },
     "tools/support/state_record_fixture.h": {
       "status": "M",

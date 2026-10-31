@@ -196,7 +196,8 @@ void RankProgramImpl::request_decision() {
             const auto* drafts =
                 static_cast<const TokenId*>(output(resources.plan.frame.mtp->drafts).data);
             for (std::uint32_t step = 0; step < mtp->draft_extents[i]; ++step)
-                input.drafts.push_back(drafts[step * shape.max_concurrency + physical]);
+                input.drafts.push_back(
+                    drafts[std::size_t(step) * shape.max_concurrency + physical]);
         }
         request.rows.push_back(std::move(input));
     }

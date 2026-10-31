@@ -14,13 +14,15 @@ namespace {
 int run(int width, int batch, int axes, bool mapped) {
     constexpr int d = 4096;
     const int p = width > 1 ? width - 1 : 1, rows = mapped ? 4 : batch;
-    std::vector<std::uint16_t> hidden(d * width * batch), previous(d * batch);
+    std::vector<std::uint16_t> hidden(std::size_t(d) * width * batch),
+        previous(std::size_t(d) * batch);
     for (std::size_t i = 0; i < hidden.size(); ++i) hidden[i] = std::uint16_t(i * 7919 + 0x8000);
     for (std::size_t i = 0; i < previous.size(); ++i)
         previous[i] = std::uint16_t(i * 3511 + 0x8123);
-    std::vector<int> ids(width * batch), positions(ids.size()), prefix(batch), skip(batch);
+    std::vector<int> ids(std::size_t(width) * batch), positions(ids.size()), prefix(batch),
+        skip(batch);
     std::vector<int> selected = mapped ? std::vector<int>{7, 2, -1, 5} : std::vector<int>{};
-    std::vector<int> rope(width * axes * batch), old_rope(axes * batch);
+    std::vector<int> rope(std::size_t(width) * axes * batch), old_rope(std::size_t(axes) * batch);
     std::iota(ids.begin(), ids.end(), 17);
     for (int b = 0; b < batch; ++b) {
         for (int j = 0; j < width; ++j) {
@@ -53,7 +55,7 @@ int run(int width, int batch, int axes, bool mapped) {
         input.rope          = Tensor(dr.span(), DType::I32, {width, axes, batch});
         input.previous_rope = Tensor(dro.span(), DType::I32, {axes, batch});
         out.rope            = Tensor(oc.span(), DType::I32, {p, axes, rows});
-        out.rope.nb[1]      = p * rows * 4;
+        out.rope.nb[1]      = std::int64_t(p) * rows * 4;
         out.rope.nb[2]      = p * 4;
     }
     if (mapped) input.rows = Tensor(dm.span(), DType::I32, {rows});
@@ -82,9 +84,10 @@ int run(int width, int batch, int axes, bool mapped) {
         else
             launch();
         device.synchronize();
-        std::vector<std::uint16_t> expected(d * p * rows);
-        std::vector<int> expected_ids(p * rows), expected_positions(p * rows), lengths(rows);
-        std::vector<int> expected_rope(p * axes * rows);
+        std::vector<std::uint16_t> expected(std::size_t(d) * p * rows);
+        std::vector<int> expected_ids(std::size_t(p) * rows), expected_positions(std::size_t(p) * rows),
+            lengths(rows);
+        std::vector<int> expected_rope(std::size_t(p) * axes * rows);
         for (int r = 0; r < rows; ++r) {
             const int b = mapped ? selected[r] : r;
             if (b < 0) continue;

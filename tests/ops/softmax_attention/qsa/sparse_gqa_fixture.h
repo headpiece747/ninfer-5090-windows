@@ -96,9 +96,10 @@ struct Fixture {
         : T(tokens), B(batch_size), q_heads(query_heads), kv_heads(query_heads / 12),
           history(max_history), table_width((history + 63) / 64), table_stride(table_width),
           pages(std::min(table_width, 521) * B + 2), qhost(std::size_t(T) * B * (256 * q_heads)),
-          ghost(qhost.size()), positions(T * B), valid(B), selectors(B),
-          tables(table_stride * (B + 1)), ids(std::size_t(T) * B * 512), counts(T * B),
-          visible(T * B), keys(pages, DType::BF16, kv_heads), values(pages, DType::FP16, kv_heads),
+          ghost(qhost.size()), positions(std::size_t(T) * B), valid(B), selectors(B),
+          tables(std::size_t(table_stride) * (B + 1)), ids(std::size_t(T) * B * 512),
+          counts(std::size_t(T) * B), visible(std::size_t(T) * B),
+          keys(pages, DType::BF16, kv_heads), values(pages, DType::FP16, kv_heads),
           storage(format), q(qhost.size() * 2), gate(ghost.size() * 2), out(qhost.size() * 2),
           pos(positions.size() * 4), lengths(B * 4), rows(B * 4), table(tables.size() * 8),
           selections(ids.size() * 4), sizes(counts.size() * 4) {

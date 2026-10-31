@@ -153,7 +153,7 @@ FrameLayout plan_frame(LayoutBuilder& b, const execution::ModelProfile& p,
             for (int step = 0; step < width - 1; ++step) {
                 auto& ids = out.mtp->draft_steps[step].ids;
                 ids       = step ? out.mtp->drafts : out.rows.anchors;
-                if (step) ids.region.offset += (step - 1) * batch * sizeof(TokenId);
+                if (step) ids.region.offset += std::size_t(step - 1) * batch * sizeof(TokenId);
                 ids.shape            = {batch, 1, 1, 1};
                 ids.region.bytes     = batch * sizeof(TokenId);
                 ids.region.alignment = alignof(TokenId);

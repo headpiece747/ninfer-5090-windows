@@ -14,10 +14,10 @@ namespace {
 template <class Word>
 int rows(DType type, int d, int t) {
     constexpr int sources = 5, batch = 4;
-    std::vector<Word> words(d * t * sources);
+    std::vector<Word> words(std::size_t(d) * t * sources);
     for (std::size_t i = 0; i < words.size(); ++i) words[i] = Word(i * 7919 + 0x8000);
     auto input = to_device(words), indices = to_device<int>({4, 0, -1, 4});
-    GuardedDeviceBuffer output(d * t * batch * sizeof(Word));
+    GuardedDeviceBuffer output(std::size_t(d) * t * batch * sizeof(Word));
     output.fill(0xcd);
     Tensor source(input.span(), type, {d, t, sources}), map(indices.span(), DType::I32, {batch});
     Tensor out(output.span(), type, {d, t, batch});
@@ -34,11 +34,11 @@ int rows(DType type, int d, int t) {
                                    cudaMemcpyHostToDevice, device.stream()));
         graph.launch(device.stream());
         device.synchronize();
-        std::vector<Word> expected(d * t * batch);
+        std::vector<Word> expected(std::size_t(d) * t * batch);
         for (int b = 0; b < batch; ++b)
             if (selected[b] >= 0)
-                std::copy_n(words.begin() + selected[b] * d * t, d * t,
-                            expected.begin() + b * d * t);
+                std::copy_n(words.begin() + std::ptrdiff_t(selected[b]) * d * t, d * t,
+                            expected.begin() + std::ptrdiff_t(b) * d * t);
         failures += verify_exact("gather rows", from_device<Word>(output.data(), expected.size()),
                                  expected);
     }

@@ -92,7 +92,7 @@ int run(bool paired, int d, int m, bool alias, bool unaligned, bool replay) {
                 for (int i = 0; i < d; ++i) {
                     const double value =
                         paired ? (half ? y : x)[base + i] : bf16_to_f32(represented[base + i]);
-                    reference[std::size_t(column) * (paired ? 2 * d : d) + half * d + i] =
+                    reference[std::size_t(column) * (paired ? 2 * d : d) + std::size_t(half) * d + i] =
                         paired && half == 0 && !enabled[column] ? 0
                                                                 : value * (half ? wy : wx)[i] * inv;
                 }

@@ -150,7 +150,7 @@ struct Fixture {
         const int span = kind ? 4 : 1, dim = kind ? 128 : 512;
         return (tables.at((p * span) / 64, selectors.at(b)) + plane.plane.tensor.region.offset) /
                    2 +
-               (p % (64 / span)) * dim + d;
+               std::size_t(p % (64 / span)) * dim + d;
     }
 
     ops::KpoolMlaPrepareOutputs outputs() const {

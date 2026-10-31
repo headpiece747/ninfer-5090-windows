@@ -121,13 +121,14 @@ public:
             for (std::uint32_t step = 0; step < frame.spec.draft_window; ++step) {
                 for (std::uint32_t row = 0; row < stride; ++row) {
                     const auto p = std::min(maximum, (frontier ? frontier - 1 : 0) + step);
-                    cache[step * stride + row] = p;
-                    valid[step * stride + row] = row < call.batch && (step == 0 || step < extent);
+                    cache[static_cast<std::size_t>(step) * stride + row] = p;
+                    valid[static_cast<std::size_t>(step) * stride + row] =
+                        row < call.batch && (step == 0 || step < extent);
                 }
                 for (std::uint32_t axis = 0; axis < 3; ++axis) {
                     for (std::uint32_t row = 0; row < call.batch; ++row) {
-                        step_rope[step * 3 * stride + axis * call.batch + row] =
-                            cache[step * stride + row];
+                        step_rope[static_cast<std::size_t>(step) * 3 * stride + axis * call.batch +
+                                  row] = cache[static_cast<std::size_t>(step) * stride + row];
                     }
                 }
             }

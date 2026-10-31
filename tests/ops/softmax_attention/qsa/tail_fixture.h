@@ -84,7 +84,7 @@ struct Plane {
 inline StateFieldView state_field(const Tensor& values, MemorySpan storage, const Tensor& offsets,
                                   bool coordinates = false) {
     const int columns       = coordinates ? 1 : 3;
-    const std::size_t bytes = values.ne[0] * columns * dtype_size(values.dtype);
+    const std::size_t bytes = std::size_t(values.ne[0]) * columns * dtype_size(values.dtype);
     const auto offset =
         static_cast<std::byte*>(values.data) - static_cast<std::byte*>(storage.data);
     const int axis = coordinates ? 1 : 2;
