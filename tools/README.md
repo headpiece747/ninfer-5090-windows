@@ -97,12 +97,11 @@ Numeric formats, layouts and framing are defined by the references in the
 
 ## Benchmark orchestration
 
-`tools/bench/run_ninfer_bench_matrix.py` builds and runs the public-Engine benchmark matrix and
-writes ignored local reports below `profiles/bench/`:
+Serving corpus benchmarks and concurrent saturation harnesses live under `tools/bench/`:
 
 ```bash
-python3 tools/bench/run_ninfer_bench_matrix.py --build-dir build/rtx5090-dev --preset core --dry-run
-python3 tools/bench/run_ninfer_bench_matrix.py --build-dir build/rtx5090-dev --preset core
+python3 tools/bench/run_serve_corpus.py --help
+python3 tools/bench/run_serve_concurrency.py --help
 ```
 
 See [`tools/bench/README.md`](bench/README.md) and [`bench/README.md`](../bench/README.md) for the

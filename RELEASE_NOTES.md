@@ -1,4 +1,20 @@
-# NInfer Windows v1.2.2 (RTX 5090)
+# NInfer Windows v1.2.3 (RTX 5090)
+
+## What changed in 1.2.3
+
+A major upstream synchronization and stability release following `v1.2.2`, incorporating 35 upstream commits from `Neroued/ninfer@dev` and resolving critical runtime and grammar constraints on Windows:
+
+- **Upstream Synchronization (35 commits)**: Merged `Neroued/ninfer@dev` (`996d9214..458863be2`):
+  - **Unified Context Cache Pools**: Merged upstream PR #366 (`bea5a04ec`), unifying KV cache pages and State records into a single consolidated pool, eliminating dual allocation contention and superseding legacy separate materialization budgeting.
+  - **Updated FP8 Cache Representation**: Adopted Group-128 UE8M0 cache encoding (`824bd3a41`) across all supported lanes.
+  - **Split Runtime Startup Observability**: Streamlined startup logging across dedicated `capacity`, `context`, and `rank` lines (`e5e18b974`), providing transparent token-capacity estimates.
+  - **Modularized Causal Attention**: Upstream split monolithic softmax attention test runners into modular compilation units under `tests/ops/softmax_attention/causal/` (`f30e661f8`).
+- **Deterministic Reasoning Grammar Delimiter**: Fixed an ambiguous Earley NFA regression introduced upstream in `1407c62f6` where reasoning delimiter edges leaked into user grammar rules. Restored deterministic exact-byte DFA for reasoning prefixes in `src/text/grammar.cpp`, ensuring strict delimiter termination and passing `ninfer_qwen3_5_grammar_real_test` 100%.
+- **Context Cache Checkpoint Queue & Leak Remediation**: Implemented a deferred `pending_release_` queue in `ResourceManager` (`src/runtime/engine/context_cache/resource_manager.h`) to retry checkpoints whose pins were temporarily held during in-flight transactions, permanently resolving Native checkpoint leaks and physical page exhaustion.
+- **End-to-End Hardware Verification**: Verified all 8 shipping profile launchers end-to-end on physical RTX 5090 hardware (`verify_launchers_v3.py`): all 8 servers boot in ~7.5s, commit 323k–440k KV tokens (well above the 262,144 ceiling), and pass both chat text generation and multi-modal image evaluation.
+- **Cleaned Orphaned Source & Documentation Drift**: Removed orphaned 2,765-line file (the uncompiled pre-split causal cache test) per Rule 41, updated divergence documentation, and fixed broken documentation anchors.
+
+---
 
 ## What changed in 1.2.2
 
