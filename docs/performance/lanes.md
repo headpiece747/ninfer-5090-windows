@@ -41,6 +41,23 @@ see `tools/release/profiles.py` docstring for protocol note). These are the
 published figures; `tools/release/lane_figures.json` records the engine sha256
 and per-cell measurements against which `check_lane_figures.py` validates.
 
+**Measurement status (2026-10-31).** These figures describe the v1.2.3 engine
+(`874fce8a`); the current tree builds `00947874b0f2`, so `check_lane_figures.py`
+reports the table as stale until it is re-measured. A pre-registered refresh was
+attempted and **withheld**. The three-round `profile` window was stable (largest
+per-lane spread 10.2% against a 15% criterion), agreed with an independent
+`lane_fingerprint.py` pass on decode within 6.3% (criterion 10%) and ranked all
+eight lanes identically (28/28 pairs), and the greedy digests were identical on
+every lane. It failed the acceptance criterion on one lane: NVIDIA ModelOpt
+DFlash2 read 45.4% across three profile runs against the fingerprint's 46.2%, a
+0.79-point gap over the 0.5-point allowance. The cause is estimator resolution,
+not an engine difference: each side draws its acceptance from a different set of
+6-7 stochastic requests (`spec_rounds` 542 against 563), so a 0.5-point
+comparison is finer than the estimator's own sampling error on this cell. The
+table was left unchanged rather than transcribed from numbers the gate could not
+certify. Re-measuring needs either a fixed request set for the acceptance cell
+or a decision, with evidence, to widen that allowance.
+
 ## Which artifact is "best"
 
 **Accuracy:** QUASAR QAT (`nvfp4qat`) is the recommended line at 4.684860 PPL.
