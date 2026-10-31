@@ -38,7 +38,7 @@ pre-merge-<sha> <merge> -- <path>` answers per path what the merge took.
 | `codegraph-init-replaces-junction.md` | `@colbymchenry/codegraph` 1.5.0 | `init` replaces a junction/symlink with an empty directory, then reports "No files found to index" | reproduction, no fix |
 | `ninfer-reasoning-effort-mismatch.md` | `Neroued/ninfer` | the engine advertises six `reasoning_effort` values; the artifact's chat template accepts four, so `minimal` and `high` return HTTP 400 after passing validation | a two-line change either way |
 | `ninfer-small-context-reuse-hang.md` | `Neroued/ninfer` | `--max-context 512` with prefix reuse resolves a 1.00 GiB pool that startup accepts, then the first request never completes; an explicit capacity too small for a unit deadlocks instead of being refused | reproduction with controls, no Engine fix |
-| `ninfer-thinking-grammar-escape.md` | `Neroued/ninfer` | a GBNF literal with a 2-token thinking budget returns the literal plus one trailing byte, so a constrained response is not exact | deterministic reproduction; cause is a hypothesis |
+| `ninfer-thinking-grammar-escape.md` | `Neroued/ninfer` | a GBNF literal with a 2-token thinking budget returns the literal plus one trailing byte, so a constrained response is not exact | deterministic reproduction; fixed in this port by 4840b66f3, upstream still affected |
 
 ## The formerly failing test, and the fix
 

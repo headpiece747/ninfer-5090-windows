@@ -1,6 +1,11 @@
 # Thinking + a literal grammar lets one byte escape the constraint
 
 **Target:** `Neroued/ninfer`
+**Status:** **fixed in this port** by `4840b66f3`, which restored the pre-`1407c62f6`
+deterministic byte DFA in `src/text/grammar.cpp`'s `reasoning_prefix`. Upstream `458863be2` still
+carries the TagDispatch version and the regression; this report remains a candidate to send them.
+`ninfer_qwen3_5_grammar_real_test` passes on the merged tree (measured 2026-10-31, 22.25 s in the
+suite), and the divergence is recorded in `tools/release/port_delta_baseline.json`.
 **Severity:** medium — a constrained response is no longer exactly the constrained text. The
 constraint holds for every byte except a trailing one, so a downstream consumer that trusts the
 grammar (a JSON parser, a tool-call router) can receive text the grammar does not allow.
@@ -42,19 +47,27 @@ sampling cannot explain the extra byte.
 
 ## What the port does
 
-Nothing is worked around. The assertion is upstream's and the behaviour is wrong, so the port leaves
-the test failing and records the case here rather than baselining it — a baseline entry would make
-the gate green while the defect stayed in the shipped engine.
+The port restored the **deterministic exact byte DFA** that `1407c62f6` replaced with
+`TagDispatch` + `AddScalarStringFSM`. The DFA consumes through the first complete delimiter with a
+single unambiguous path, including a delimiter split across tokens; the generated EBNF is fed to
+`xgrammar::Grammar::FromEBNF` as before. With that, the same assertion passes on the same artifact
+and the same engine options (measured 2026-10-31). The change is a recorded port delta on an
+upstream-owned file, with the reason in `tools/release/port_delta_baseline.json`.
 
-## Candidate cause, not confirmed
+The port does not baseline the test and does not modify the assertion.
 
-The observed shape — every constrained byte correct, then one unconstrained byte before EOS — is
-what an accepted-state or concatenation boundary that completes one byte early produces. Read from
-the tree, not measured: `src/text/grammar.cpp` composes the thinking barrier with the user grammar
-through `xgrammar::Grammar::Concat`, and `1407c62f6` rewrote `reasoning_prefix` from a hand-built DFA
-to a `TagDispatch` + `AddScalarStringFSM`. That is a hypothesis about where to look, not a
-demonstrated cause: the port did not bisect the composition, because the code is in the vendored
-`third_party/xgrammar` and a fix belongs with its owner.
+## Cause, as the fix establishes it
+
+`1407c62f6` built the reasoning barrier as `TagDispatch` and then added an epsilon edge from **every**
+end state to one tail state before appending the delimiter bytes. Where the delimiter repeats or
+shares a prefix with its own suffix, those parallel end states make the Earley item set ambiguous:
+the parser can accept a delimiter byte while another path is still mid-delimiter, so the user
+grammar starts one byte late. The observed shape — every constrained byte correct, then one
+unconstrained byte before EOS — is exactly that one-byte-late boundary. Restoring the DFA removes
+the ambiguity and the byte with it.
+
+That matches the hypothesis this report carried before the fix (a composition boundary completing
+one byte early); it is now established by the repaired behaviour rather than by reading.
 
 ## Controls that passed
 
@@ -63,7 +76,7 @@ demonstrated cause: the port did not bisect the composition, because the code is
 - `thinking.applied` and `injected_tokens > 0` both hold, so the failing half is the content
   boundary, not the thinking injection.
 
-## Configurations tested
+## Configurations tested, before the fix
 
 Measured on 2026-10-30, same artifact:
 
@@ -73,11 +86,11 @@ Measured on 2026-10-30, same artifact:
 | `none eager` — no CUDA graphs | literal case fails |
 | `mtp` | fails earlier, at the choice + thinking case ("choice constrained the thinking channel or lost the content boundary") |
 
-So this is not graph capture and not one backend. It is the thinking channel composed with a
+So this was not graph capture and not one backend. It was the thinking channel composed with a
 constraint.
 
-One difference between this artifact and upstream's is known and unconfirmed as the cause: every
-artifact this port builds embeds a template that emits the `reasoning_effort` instruction as a
-synthetic system message (this is why the same test's thinking-token golden is 58 here against
-upstream's 16; see `ninfer-reasoning-effort-mismatch.md`). Whether that template and the injected
-thinking block compose correctly with a grammar is not separated here.
+The port's reasoning-effort template was ruled out when the same artifact and template passed after
+only the grammar fix: every artifact this port builds embeds a template that emits the
+`reasoning_effort` instruction as a synthetic system message (the same test's thinking-token golden
+is 58 here against upstream's 16; see `ninfer-reasoning-effort-mismatch.md`), and that difference was
+a candidate cause until the repaired `reasoning_prefix` made the case pass unchanged.
