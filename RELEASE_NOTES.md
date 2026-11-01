@@ -1,4 +1,28 @@
-# NInfer Windows v1.2.3 (RTX 5090)
+# NInfer Windows v1.2.4 (RTX 5090)
+
+## What changed in 1.2.4
+
+A correction release. The engine changes only where a code-scanning finding required it; most of the diff is
+documentation that had drifted from the code, and a re-fold of the measured lane figures onto the shipped
+engine's own record.
+
+- **Integer multiplies widened** (`7eb03a266`): six geometry products in the GLM5Next, Qwen3.5 and Qwen4Exp
+  frontends multiplied in 32 bits and were widened afterwards. They now multiply in the destination width. No
+  accepted input overflowed, so this is hardening rather than a behaviour fix.
+- **Documentation corrected across the project.** An audit of all 76 documents found one recurring defect:
+  text describing things the tree had stopped having. Flags the parser rejects (`--max-new`,
+  `--response-store-max-mib`, `--default-thinking-budget`, `--host-context-mib`, `--greedy`), a cancel route
+  that does not exist, a refusal table naming four error codes the server never emits, and a reconciliation
+  table pointing at files that had moved are corrected. The findings and their evidence are in
+  `docs/designs/doc-audit/report.md`.
+- **The lane table now certifies its own engine.** `check_lane_figures.py` compares the table's recorded engine
+  with the tree as well as the fingerprint's, so a green gate can no longer stand over figures measured on a
+  binary the archive does not contain.
+
+**On the lane figures.** The table was re-folded from a 2026-11-01 fingerprint on this engine. Its run level
+was **+7.8 %** against the previous table (range +3.4 % to +10.3 %), and that is the instrument's session
+condition, not an engine speedup: the same binary reads 6-10 % apart between sessions on this card. Treat the
+decode column as that window's reading. Acceptance moved 0.1-1.2 points on five lanes, inside the same spread.
 
 ## What changed in 1.2.3
 
@@ -267,8 +291,8 @@ provenance. The QUASAR line is the only one whose text weights are a quantizatio
 checkpoint imported unchanged; the other three re-encode their FP8 attention from the BF16 base and
 score lower full-corpus perplexity (4.98, 4.92 and 4.90 against QUASAR's 4.99). **The claim that
 "the NVFP4-full line also carrying the fastest DFlash2 lane (340 tok/s against QUASAR's 311)" is
-stale and is withdrawn**: in the table above the NVFP4-full DFlash2 lane reads **314 tok/s** against
-QUASAR's **262**, so the fastest DFlash2 lane in this release is the NVFP4-full one. This sentence
+stale and is withdrawn**: in the v1.2.3 table the NVFP4-full DFlash2 lane read **314 tok/s** against
+QUASAR's **262**, so the fastest DFlash2 lane in that release is the NVFP4-full one. This sentence
 previously read "QUASAR at 382 tok/s" — a depth-7 figure for a lane that moved to depth 9 and, on the merged engine's re-derivation, back to 7
 and to `k8v4` — and before that 331 against 319, the same table at an earlier measurement. The
 340/311 pair is a superseded measurement that no longer reproduces, in the same way as the withdrawn

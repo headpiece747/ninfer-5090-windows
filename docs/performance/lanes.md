@@ -64,8 +64,8 @@ NVIDIA ModelOpt (`nvfp4nvidia`) is within noise at 4.686759. The difference
 is not statistically meaningful on this corpus.
 
 **Decode throughput:** NVFP4-full no-ex DFlash2 (`ninfer` lane) is fastest at
-314 tok/s, against Swift 1.5 DFlash2 at 310, NVIDIA ModelOpt DFlash2 at 292 and
-QUASAR QAT DFlash2 at 262. These are the table's own cells. This page publishes
+336.3 tok/s, against Swift 1.5 DFlash2 at 329.2, NVIDIA ModelOpt DFlash2 at 314.5 and
+QUASAR QAT DFlash2 at 271.2. These are the table's own cells. This page publishes
 decode and accuracy; it does not rank lanes on prefill, which is measured per
 configuration and is not recorded per lane here.
 
