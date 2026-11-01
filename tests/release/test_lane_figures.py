@@ -38,9 +38,15 @@ from profiles import PROFILES  # noqa: E402
 LAUNCHER = "start_nvidia_v3_dflash2_vision.bat"
 
 
-def run_gate(figures: Path, serve: Path, models: Path) -> tuple[int, str]:
+def run_gate(figures: Path, serve: Path, models: Path,
+             table_engine: str | None = None) -> tuple[int, str]:
+    # The table's engine defaults to the fake binary's, so a case that is not about the table keeps passing
+    # it; a case that is about the table overrides it.
+    engine = table_engine if table_engine is not None else (
+        hashlib.sha256(serve.read_bytes()).hexdigest() if serve.is_file() else "")
     completed = subprocess.run([sys.executable, str(GATE), "--figures", str(figures),
-                                "--serve", str(serve), "--models", str(models)],
+                                "--serve", str(serve), "--models", str(models),
+                                "--table-engine", engine],
                                capture_output=True, encoding="utf-8", errors="replace", check=False)
     return completed.returncode, (completed.stdout or "") + (completed.stderr or "")
 
@@ -88,6 +94,14 @@ def test_engine_change_fails(tmp_path: Path) -> None:
     code, output = run_gate(figures, serve, tmp_path)
     assert code == 1, output
     assert "measured with engine" in output
+
+
+def test_table_engine_change_fails(tmp_path: Path) -> None:
+    """A fingerprint from this binary over a table from another is not a pass."""
+    figures, serve = fixture(tmp_path)
+    code, output = run_gate(figures, serve, tmp_path, table_engine="e" * 64)
+    assert code == 1, output
+    assert "published table was measured on engine" in output
 
 
 def test_artifact_size_change_fails(tmp_path: Path) -> None:

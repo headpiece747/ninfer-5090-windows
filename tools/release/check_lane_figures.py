@@ -33,14 +33,25 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools" / "release"))
 
-from profiles import PROFILES  # noqa: E402
+from profiles import MEASURED_ENGINE, PROFILES  # noqa: E402
 
 FIGURES = REPO / "tools" / "release" / "lane_figures.json"
 SERVE = REPO / "build" / "apps" / "ninfer-serve.exe"
 MODELS = Path(r"C:\AI\models")
 TABLE_CELL = "code"
-TOK_TOLERANCE = 0.10      # percent against the table: run-to-run noise reaches 2.3%, a stale figure is 22%
-ACC_TOLERANCE = 0.5       # points, against the table's one-decimal string
+# Percent against the table. The instrument's own spread is larger than 10%: two runs an hour apart differ
+# 5.1-7.3% on every lane x cell (tools/bench/lane_fingerprint.py:26-28), and one lane read 10.3% over six
+# hours. On 2026-11-01 the swift MTP lane read 198.3 against the table's 179.8 (+10.3%), so 10% sat below the
+# spread it was meant to tolerate. A stale figure is 22%.
+TOK_TOLERANCE = 0.12
+# Points, against the table's one-decimal string. Acceptance moves about a point between sessions on the
+# same binary: the table's own engine (874fce8a) read 57.8-57.9% on 2026-10-31 where the table says 56.7%,
+# and neither v3_profile_matrix.py nor qwen3_8.jinja changed between those dates, so this is session
+# variance rather than a workload change. Eight lanes x six invocations on one engine read 0.0-1.2 points
+# from the table. Detection is limited to larger moves: the QUASAR MTP KV-format change moved the compared
+# cell by only 0.5 points, so acceptance alone cannot see that class and the lane's configuration has to be
+# compared separately.
+ACC_TOLERANCE = 2.0
 
 
 def sha256_of(path: Path, chunk: int = 1 << 22) -> str:
@@ -58,6 +69,8 @@ def main() -> int:
                         help="the binary the figures were measured with; a test overrides it")
     parser.add_argument("--models", type=Path, default=MODELS,
                         help="where the artifacts live; a test overrides it")
+    parser.add_argument("--table-engine", default=MEASURED_ENGINE,
+                        help="the engine the published table was measured on; a test overrides it")
     args = parser.parse_args()
 
     if not args.figures.is_file():
@@ -125,6 +138,12 @@ def main() -> int:
             if abs(float(measured_acc) * 100.0 - table_acc) > ACC_TOLERANCE:
                 stale.append(f"{launcher} / {TABLE_CELL}: fingerprint acceptance "
                              f"{float(measured_acc) * 100:.1f}% against the table's {table_acc:.1f}%")
+
+    # The fingerprint's engine certifies the record; the table's certifies the published numbers. Without the
+    # second, a green gate stands over figures measured on a binary the tree no longer builds.
+    if args.table_engine and args.table_engine != current_engine:
+        stale.append(f"the published table was measured on engine {args.table_engine[:12]}, tree has "
+                     f"{current_engine[:12]}")
 
     print(f"    {checked} lane(s) checked against engine {current_engine[:12]}"
           f"{'' if engine_matches else ' (CHANGED)'}, measured {payload.get('measured_utc', 'unknown')}")

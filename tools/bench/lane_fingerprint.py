@@ -18,7 +18,7 @@ Comparison rules, which the first run got wrong in two ways worth keeping:
   * Acceptance is read from **`accept_rate`** explicitly. A substring search for "accept" picks
     `spec_accepted`, which is a token count: the first run reported "acceptance 1328.0 against 71.2".
 
-**A single run of this tool is not comparable with the published table.**
+**A single run of this tool is one session. Folding it is the port's publishing path, under two conditions.**
 
 This tool already records the reason, and does not need it restated: the drift block below
 cites one lane reading 216.6 (the committed table), 230.5 and 239.0 within six hours -- a
@@ -40,13 +40,21 @@ that has not ramped -- and it reaches 2865 MHz only inside that lane. Every late
 from the other seven, and its figure is the least trustworthy in the file.** Compare it against
 its own previous entry, never against the table, and never fold it.
 
-So: **do not fold a single run of this tool into `profiles.py`.** The published figures come from
-an interleaved window -- `profiles.py` names it -- and they sit between the two runs above.
-Folding the cold run would publish a figure ~6% pessimistic; folding the warm run would publish
-one ~6-8% optimistic. Either makes the documentation worse, and both would look like a result.
+So: **fold a run only when both conditions hold.** The published figures come from a fold, and the warnings
+above are why the conditions exist rather than a prohibition:
 
-Use this tool to detect that a figure's CONDITIONS changed, which is what it is for. To produce
-a figure, use the interleaved window in `tools/release/v3_profile_matrix.py`.
+* the run level is recorded beside the figures (`run_level`, written by this tool) and stated wherever the
+  numbers are quoted, because a whole-run shift is the card's condition, not the engine's;
+* the decode column is presented as that window's reading. `tools/release/profiles.py` says so, and records
+  -10.2% for the 2026-10-30 fold and +7.8% for the 2026-11-01 fold.
+
+There is no lane-level interleaved window to use instead: `tools/release/v3_profile_matrix.py --mode profile`
+measures one lane per call, in table order, and `--rounds` belongs to widths mode. The interleaving that
+exists is inside one artifact's widths sweep, not across lanes.
+
+Use this tool for provenance and drift detection. To publish, run `tools/release/fold_lane_figures.py
+--apply`: it rewrites the table from this record and stamps `MEASURED_ENGINE`, so the gate can tell whether
+the published numbers belong to the tree.
 
 Usage:
     python tools/bench/lane_fingerprint.py                      # all eight lanes, three cells

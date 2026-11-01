@@ -177,12 +177,12 @@ behaves differently without any action on your part.
   so, so the reusable frontier pinned and every later request re-prefilled its whole tail. Measured on
   one conversation at one Device checkpoint slot: the frontier froze at 52,723 tokens with time to
   first token rising from 2.6 s at 65k context to 15.1 s at 117k. The launchers now pass
-  `--context-cache-policy rolling`, which lets the portfolio fold decide whether a capture is worth more
+  `--context-cache-policy rolling` (retired with the cache rewrite), which let the portfolio fold decide whether a capture is worth more
   than the resident it would displace; the frontier then tracks the conversation (104,283 of 117,180
   tokens cached, 4.1 s).
 - **Five conversations did not all stay cached**, because the host State pool could not hold the
   prefixes plus the private continuations they leave behind, and the shortfall was silent: five prompts
-  sent and then resent gave 3/5 hits at a 59.1% token-level rate. `--host-state-slots` is now 16, which
+  sent and then resent gave 3/5 hits at a 59.1% token-level rate. `--host-state-slots` was set to 16 (since retired with the cache rewrite), which
   covers every configuration the other two bounds permit (7 shared prefixes plus 8 private
   continuations). The same test gives 5/5 at 98.9%.
 - **`--device-state-slots 8` is no longer needed** as a workaround for the first defect. The launchers
@@ -216,14 +216,14 @@ that earlier builds shipped.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **262 tok/s** | 45.5% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **188 tok/s** | 57.1% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (9) | yes | 262,144 | **314 tok/s** | 47.3% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 163 tok/s | 45.6% |
-| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **310 tok/s** | 56.7% |
-| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (5) | yes | 262,144 | 180 tok/s | 51.7% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (9) | yes | 262,144 | **292 tok/s** | 45.6% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 165 tok/s | 46.7% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **271 tok/s** | 46.4% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **205 tok/s** | 56.5% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (9) | yes | 262,144 | **336 tok/s** | 48.0% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 174 tok/s | 45.7% |
+| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **329 tok/s** | 57.9% |
+| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (5) | yes | 262,144 | 198 tok/s | 51.8% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (9) | yes | 262,144 | **314 tok/s** | 46.1% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 181 tok/s | 46.8% |
 
 Every number was measured on an RTX 5090 with the exact arguments the launcher passes; every context
 ceiling is the highest value the engine accepts for that configuration -- the next step up is refused,
@@ -267,8 +267,8 @@ provenance. The QUASAR line is the only one whose text weights are a quantizatio
 checkpoint imported unchanged; the other three re-encode their FP8 attention from the BF16 base and
 score lower full-corpus perplexity (4.98, 4.92 and 4.90 against QUASAR's 4.99). **The claim that
 "the NVFP4-full line also carrying the fastest DFlash2 lane (340 tok/s against QUASAR's 311)" is
-stale and is withdrawn**: in the table above the NVFP4-full DFlash2 lane reads **380 tok/s** against
-QUASAR's **368**, so the fastest DFlash2 lane in this release is the NVFP4-full one. This sentence
+stale and is withdrawn**: in the table above the NVFP4-full DFlash2 lane reads **314 tok/s** against
+QUASAR's **262**, so the fastest DFlash2 lane in this release is the NVFP4-full one. This sentence
 previously read "QUASAR at 382 tok/s" — a depth-7 figure for a lane that moved to depth 9 and, on the merged engine's re-derivation, back to 7
 and to `k8v4` — and before that 331 against 319, the same table at an earlier measurement. The
 340/311 pair is a superseded measurement that no longer reproduces, in the same way as the withdrawn
@@ -331,12 +331,14 @@ with it).
   value in parameter space, as upstream does, which is also what makes it replay-safe.
 - **Artifact reads blocked writers.** `FILE_SHARE_READ` alone meant Windows refused any
   write to a file the engine had open, where POSIX permits it. Reads now share
-  read/write/delete.
+  read/write/delete on the buffered path; the direct (unbuffered) path used for weights still opens
+  with `FILE_SHARE_READ`, so a writer can still be refused there.
 - **Python tooling could corrupt artifacts on Windows.** `os.open` without `O_BINARY` opens
   in text mode, which translates CRLF and stops at `0x1A` inside payload bytes, and
   `os.pread`/`os.pwrite` do not exist there. Both are now portable.
-- **Context-cache bounds.** The launchers set `--max-shared-prefixes 7
-  --max-private-continuations 8 --max-long-anchors-per-continuation 4`. With the engine
+- **Context-cache bounds.** The launchers then set `--max-shared-prefixes 7
+  --max-private-continuations 8 --max-long-anchors-per-continuation 4` (all three retired with the
+  cache rewrite; the surviving knob is `--host-cache-capacity`). With the engine
   defaults, five distinct prompts resent gave 1/5 round-2 hits at a 19.8% token-level hit
   rate, with four of five re-prefilling in full on every call and no signal; the bounds
   give 5/5 at 99.1% and cost nothing measurable.

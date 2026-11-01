@@ -59,14 +59,27 @@ def main() -> int:
         text = text[:match.start(3)] + new_tok + text[match.end(3):match.start(5)] + new_acc + \
             text[match.end(5):]
 
+    # The table's figures now come from this record, so the table's engine is this record's engine. Without
+    # the rewrite, a fold leaves `check_lane_figures.py` certifying the record against a table that still
+    # claims the engine it replaced.
+    engine = str((record.get("engine") or {}).get("sha256") or "")
+    engine_match = re.search(r'MEASURED_ENGINE = "([0-9a-f]*)"', text)
+    engine_prev = engine_match.group(1) if engine_match is not None else ""
+    engine_changed = bool(engine) and engine_match is not None and engine_prev != engine
+    if engine_changed and engine_match is not None:
+        text = text[:engine_match.start(1)] + engine + text[engine_match.end(1):]
+
     print(f"\nfigures to fold: {len(changed)}")
     for name, old_tok, new_tok, old_acc, new_acc in changed:
         print(f"  {name}: tok {old_tok} -> {new_tok}   acc {old_acc} -> {new_acc}")
 
-    if args.apply and changed:
+    if engine_changed:
+        print(f"  MEASURED_ENGINE: {engine_prev[:12]} -> {engine[:12]}")
+
+    if args.apply and (changed or engine_changed):
         PROFILES.write_text(text, encoding="utf-8", newline="\n")
         print(f"\nwrote {PROFILES} ({len(changed)} lane(s) updated)")
-    elif changed:
+    elif changed or engine_changed:
         print("\ndry run: nothing written (pass --apply)")
     return 0
 

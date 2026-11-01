@@ -92,7 +92,7 @@ same engine natively on Windows 11 x64 with MSVC and CUDA, with no WSL2 or Docke
 - Visual Studio with the **Desktop development with C++** workload — the build enters the
   MSVC x64 environment, and the VS installer ships the CMake and Ninja it uses;
 - the FFmpeg shared development tree staged in `ffmpeg/` at the repository root
-  (`include/` and `lib/`, from an `ffmpeg-master-latest-win64-gpl-shared` build).
+  (`include/` and `lib/`, from an `ffmpeg-master-latest-win64-lgpl-shared` build).
 
 ### Build
 
@@ -132,8 +132,9 @@ Two build notes specific to Windows:
 
 ### Profiles and launchers
 
-Eight launchers ship for the RTX 5090 -- the four measured-optimal artifacts, each in both
-its DFlash2 and MTP routes (eight profiles total). Every number below was measured on this machine
+Eight launchers ship for the RTX 5090 over the five artifact images above: three lines carry both
+routes, and the unsloth line splits its two lanes across the full and no-exception images. Every number
+below was measured on this machine
 with the exact argument set the launcher uses, in one interleaved pass -- absolute decode varies by
 up to ~9% between sessions on a card whose clocks are not pinned, so compare lanes to each other
 and expect your own absolute figures to differ. All four lines are vision-only here because Vision
@@ -144,32 +145,32 @@ ships, and every profile reaches the full native context. **Three lanes ship `--
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **262 tok/s** | 45.5% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 188 tok/s | 57.1% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (9) | yes | 262,144 | **314 tok/s** | 47.3% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 163 tok/s | 45.6% |
-| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **310 tok/s** | 56.7% |
-| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 180 tok/s | 51.7% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **292 tok/s** | 45.6% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 165 tok/s | 46.7% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **271 tok/s** | 46.4% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 205 tok/s | 56.5% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **336 tok/s** | 48.0% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 174 tok/s | 45.7% |
+| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **329 tok/s** | 57.9% |
+| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 198 tok/s | 51.8% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **314 tok/s** | 46.1% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 181 tok/s | 46.8% |
 
 Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
-runtime reservation plus its 1 GiB automatic headroom does not fit in what remains after
+runtime reservation plus its 512 MiB automatic headroom does not fit in what remains after
 weights, and it reports the byte counts when it refuses. That ceiling is a property of the artifact's weight size:
-QUASAR carries 16.1 GiB and NVFP4-full 17.0 GiB of device weights, both of which leave room
-for the full KV pool. Our earlier NVFP4 image carried 19.7 GiB and could not, which is why it
+QUASAR's MTP lane carries 16.3 GiB of device weights and NVFP4-full's 17.1 GiB, both of which leave
+room for the full KV pool. Our earlier NVFP4 image carried 19.7 GiB and could not, which is why it
 was replaced.
 
 The optimized proposal head (`--proposal-head optimized`, formerly `--lm-head-draft`) is set per profile because its value is not uniform; the measured gains behind
 each choice are recorded in [ADR-0005](docs/adr/0005-per-profile-flags-are-measured.md):
 
 - QUASAR: on for both routes;
-- NVFP4 MTP: on at depth 5;
+- NVFP4 MTP: on at depth 4;
 - NVFP4-full DFlash2: **on**, but marginally, and it costs headroom, so it is the first thing to
   turn off if a profile ever refuses to start.
 
 MTP depth is chosen per artifact from measurement rather than convention: depth 4 is fastest on
-QUASAR, depth 5 on NVFP4. Acceptance rate does not predict throughput, because tokens committed
+QUASAR and both NVFP4 lines, depth 5 on Swift 1.5. Acceptance rate does not predict throughput, because tokens committed
 per round matters more than the proportion accepted, so depth is selected on measured decode
 rate.
 
@@ -218,37 +219,36 @@ ignored.
 | Route | Status |
 |---|---|
 | `GET /health` | readiness |
-| `POST /cancel` | cancel an in-flight response |
+| `POST /v1/responses/{id}/cancel` | 404 `response_not_found` for an unknown id; otherwise 400 `background_not_supported`, because nothing is cancellable |
 | `GET /v1/models`, `GET /v1/models/{id}` | listing and metadata |
 | `POST /v1/chat/completions` | OpenAI chat, streaming and non-streaming |
-| `POST /v1/responses`, `/compact`, `/input_tokens` | OpenAI Responses API |
+| `POST /v1/responses`, `/input_tokens` | OpenAI Responses API |
+| `POST /v1/responses/compact` | always 400 `compaction_not_supported` |
 | `POST /v1/messages`, `/v1/messages/count_tokens` | Anthropic Messages |
 | `POST /v1/completions` | not implemented (404) |
 | `POST /v1/embeddings` | not implemented (404) |
 
-Refused request fields, each with its own error code:
+Common refusals, each with its own error code; `docs/serving.md` is the exhaustive list of what is
+accepted and refused. In particular `response_format`, `structured_outputs` (grammar, regex or choice),
+`tool_choice` including `required` and named selection, `parallel_tool_calls`, and `strict: true` schemas
+are all supported.
 
-| Field or feature | Error code | Workaround |
-|---|---|---|
-| `response_format` other than text | `response_format_not_supported` | ask for JSON in the prompt |
-| `grammar`, `guided_*`, `structured_outputs` | `constrained_decoding_not_supported` | prompt-level formatting |
-| `logprobs`, `top_logprobs` | `logprobs_not_supported` | none |
-| `logit_bias` | `logit_bias_not_supported` | none |
-| `n > 1` | `n_not_supported` | send the request again |
-| `tool_choice` other than `auto` or `none` | `tool_choice_not_supported` | let the model choose |
-| `parallel_tool_calls: false` | `parallel_tool_calls_not_supported` | allow parallel calls |
-| legacy `functions` / `function_call` | `legacy_tools_not_supported` | use `tools` |
-| `strict` tool schemas | `strict_tools_not_supported` | drop `strict` |
-| Anthropic server tools | `server_tools_not_supported` | run tools in the client |
-| Anthropic `document` blocks (PDF) | `documents_not_supported` | extract text first |
-| `store`, `background`, `service_tier` | `*_not_supported` | omit them |
-| audio or file inputs | `audio_inputs_not_supported`, `file_inputs_not_supported` | text and images only |
+| Field or feature | Error code |
+|---|---|
+| `logprobs`, `top_logprobs` | `logprobs_not_supported` |
+| nonzero `logit_bias` | `logit_bias_not_supported` |
+| audio or file inputs | `audio_inputs_not_supported`, `file_inputs_not_supported` |
+| image `detail: low`/`high` | `image_detail_not_supported` |
+| `background` responses, and the cancel route | `background_not_supported` |
+| `container`, `include`, cache prewarm, assistant prefill, partial tool results | `container_not_supported`, `include_not_supported`, `cache_prewarm_not_supported`, `assistant_prefill_not_supported`, `partial_tool_result_not_supported` |
+| legacy `functions` / `function_call` | `legacy_tools_not_supported` |
+| Anthropic `document` blocks (PDF), file blocks, message `name` | `documents_not_supported`, `files_not_supported`, `message_name_not_supported` |
 | `repetition_penalty` other than 1.0 | `repetition_penalty_not_supported` | leave it neutral |
 
 Two things the server does offer, with defaults worth knowing:
 
 - Responses state is process-local, bounded to 1024 records and 256 MiB
-  (`--response-store-max-records`, `--response-store-max-mib`).
+  (`--response-store-max-records`, `--response-store-max-size`).
 - `--cors` is off by default and no launcher passes it. With no `--api-key` set, turning CORS on
   lets any page in a browser on this machine drive the model.
 
@@ -298,7 +298,7 @@ The product boundary remains intentionally small:
 
 `--max-context` is each sequence's logical limit. `--context-capacity` (formerly `--kv-capacity`) sizes the shared Main Text KV pool
 used by active requests and retained prefixes; `auto` resolves the largest legal capacity at
-startup from the memory remaining after weights. Both explicit and automatic modes use 1 GiB of
+startup from the memory remaining after weights. Both explicit and automatic modes use 512 MiB of
 startup planning headroom. Explicit capacities remain fixed for the process lifetime.
 
 ## Documentation
@@ -327,12 +327,16 @@ This port's own modifications, and the third-party software it carries, are attr
 changes this fork owns, and the bundled libraries. Apache-2.0 section 4 asks that the notice travel
 with the distribution, so the release archive ships it beside this file.
 
-Both shipped artifacts are published under the `cometkim` Hugging Face account. Both derive from
+All five artifacts are built by this port from pinned source checkpoints; no prebuilt `.ninfer` file is
+downloaded. They derive from
 [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) and carry the DFlash2 companion from
 [z-lab/Qwen3.8-27B-DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2). The QUASAR QAT image
 additionally uses
 [QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4](https://huggingface.co/QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4)
-for its quantisation-aware-trained weights; the NVFP4-full image additionally uses the fixed mixed
-FP8/NVFP4 weights from [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4).
+for its quantisation-aware-trained weights; the NVFP4-full image uses the fixed mixed FP8/NVFP4 weights
+from [unsloth/Qwen3.8-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4); the NVIDIA line uses
+[nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4); and the Swift 1.5 line uses
+[ukisai/Swift-1.5-Qwen3.8-27b-NVFP4](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27b-NVFP4).
+`download_model.py` pins and records the revision of each.
 These source repositories are distributed under Apache-2.0. Vendored dependencies retain their own
 license files under `third_party/`.
