@@ -36,7 +36,7 @@ therefore two prompts differing in their tail, and every conclusion drawn from t
 wrong input. Fixed, the pair separates cleanly.
 
 The permanent instrumentation is three counters in `RuntimeStats`, logged in the
-`context_cache.selections` group (schema 23). The runtime layer cannot log, so the decisions are
+`context_cache.selections` group (schema 31). The runtime layer cannot log, so the decisions are
 counted where they are made:
 
 | counter | meaning |
@@ -115,6 +115,11 @@ Accepted: keep both behaviours.
 - The three counters are permanent. `shared_stable_prefix_selections` alone cannot distinguish "the
   runtime never offered a shared prefix" from "it offered one and the planner chose otherwise", and
   that distinction is what this record cost the most to establish.
+
+  **Correction (2026-10-31):** the three counters were retired with the cache rewrite (`b9114396`);
+  `tools/release/retired_names_baseline.json` records them as retired, and `src/serve/request_log.cpp`
+  now emits `selections.{root, checkpoint, reused_prompt_tokens}`. The distinction above is still worth
+  making; it is no longer made by these three names.
 
 ## Consequences
 

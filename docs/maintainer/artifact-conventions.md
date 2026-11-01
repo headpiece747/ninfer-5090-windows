@@ -201,20 +201,21 @@ The flags were the same, so the difference is the artifact.
 
 ## 4. The lane shape
 
-Each artifact ships **two lanes over one artifact**, selected at runtime by `--spec` — not two
-artifacts. The artifact carries text, vision, MTP and the DFlash2 companion; the launcher picks one
-draft.
+Five images carry the eight lanes. Most artifacts ship **two lanes over one artifact**, selected at
+runtime by `--spec` — not two artifacts; the unsloth line is the exception, its MTP lane running the
+BF16-exception image and its DFlash2 lane the no-exception image. Each artifact carries text, vision,
+MTP and the DFlash2 companion; the launcher picks one draft.
 
 | per profile | value |
 |---|---|
-| lanes | `dflash2` (draft 7) and `mtp` (draft 4 or 5) |
+| lanes | `dflash2` (draft 7 or 9) and `mtp` (draft 4 or 5) |
 | vision | on |
 | `--proposal-head` | `optimized` |
 | `--max-context` | 262,144 |
 | model id | `qwen3.8-27b-<artifact>-v3-<spec>-vision` |
 | port | one per profile, from `profiles.py` |
 
-Shared by every lane, in `INVARIANT_FLAGS`: `--context-capacity auto`, `--kv-dtype fp8`,
+Shared by every lane, in `INVARIANT_FLAGS`: `--context-capacity auto`,
 `--prefill-chunk 8192`, `--max-concurrency 1`, `--host-cache-capacity 8192MiB`, `--preserve-thinking`,
 `--thinking-budget 4096`, `--pending-timeout 600s`, and the explicit `--chat-template`.
 Upstream b9114396 replaced the five context-cache bounds this list used to name
@@ -222,8 +223,9 @@ Upstream b9114396 replaced the five context-cache bounds this list used to name
 `--max-long-anchors-per-continuation`) and `--context-cache-policy` with that one quota; the new
 cache has no policy field.
 
-`--kv-dtype` is currently a shared invariant, so no lane can differ on it without a new per-profile
-field. ADR-0005 permits that: route, depth and per-profile flags are measurements, never convention.
+`--kv-dtype` was a shared invariant until 2026-10-09 and is a per-profile field now: three lanes ship
+`k8v4` and five `fp8`. ADR-0005 permits that: route, depth and per-profile flags are measurements,
+never convention.
 
 ## 5. Measure the flags; do not inherit them
 

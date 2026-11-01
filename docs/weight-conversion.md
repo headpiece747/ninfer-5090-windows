@@ -263,7 +263,7 @@ The converter currently writes these formats:
 | `bf16`, `fp32`, `int32` | `cast_direct` | Direct words through the source reader |
 | `q4_g64_fp16`, `q5_g64_fp16`, `q6_g64_fp16`, `q8_g32_fp16` | `grouped_absmax` | Supply a custom method/source if needed |
 | `fp8_e4m3fn_row_bf16` | `fp8_row_maxabs` | `import_encoded` |
-| `fp8_e4m3fn_block128x128_bf16` | None | `import_encoded` |
+| `fp8_e4m3fn_block128x128_bf16` | `fp8_block_maxabs` | `import_encoded` |
 | `nvfp4` | `stored_scale_mse` | `import_encoded` |
 | `nf4_g16_e4m3fn` | `stored_scale_mse` | Supply encoded words through `TensorOutput` |
 
@@ -464,7 +464,8 @@ Use this as an override. `request.values` traverses the prepared logical inputs 
 including explicit groups. `output.write_codes` performs the registered packing and validates
 codes/scales; the method should not duplicate that byte-layout logic. Direct output uses
 `output.write_values`. Keep source blocks and temporary device tensors bounded to the method's
-working set. `--rows-per-chunk` defaults to 512; custom methods own how they use it.
+working set. `--rows-per-chunk` has no default: batches are sized in bytes unless the caller overrides
+them, and custom methods own how they use the value.
 For an encoded bank, `output.write_codes(..., matrix=e)` writes rows within matrix e. NVFP4
 checks divisor consistency within that matrix; block-FP8 writes complete 128-row scale blocks.
 

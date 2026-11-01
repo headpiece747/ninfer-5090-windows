@@ -183,7 +183,7 @@ The evidence that layer 3 is a defect rather than a trade-off:
 - **The capacity is already provisioned.** The shipped launchers pass `--host-state-slots 16`, sized to
   hold every configuration the other bounds permit, so the State to preserve is budgeted for.
   **Correction (2026-10-06): that flag is gone.** Upstream `b9114396` collapsed the separate host
-  budgets into one quota, and the launchers now pass `--host-context-mib 8192`; the argument is
+  budgets into one quota, and the launchers now pass `--host-cache-capacity 8192MiB`; the argument is
   unchanged and its capacity is now measured rather than sized by construction — 52 interleaved
   conversations reuse and 56 do not, which is that quota in state images (~55 x 147 MiB), against a
   port workload of about eight.

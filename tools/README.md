@@ -17,9 +17,10 @@ The stored-scale CUDA quantization extension uses PyTorch's visible-device archi
 
 ## Release tools
 
-`release/` holds the gates and the packaging pipeline. The twelve that run on every commit are wired
-into `.githooks/pre-commit`, and [the row for that hook in `AGENTS.md`](../AGENTS.md) is the
-authority for what they cover:
+`release/` holds the gates and the packaging pipeline. They are wired into `.githooks/pre-commit`,
+which is the authority for what runs on a commit; the table below lists them. Two are conditional:
+`check_port_delta.py` runs when `upstream/dev` is a local ref, and `check_lane_figures.py` skips a
+checkout with no serving binary.
 
 | Tool | Runs |
 |---|---|
@@ -32,7 +33,12 @@ authority for what they cover:
 | `check_production_stream_defaults.py` | every commit |
 | `check_dead_types.py` | every commit; a declared first-party type nothing names again |
 | `check_duplication.py` | every commit; copy-paste added past the recorded baseline |
-| `check_port_delta.py --check` | every commit; divergence inside an upstream-owned file past `port_delta_baseline.json` |
+| `check_port_delta.py --check` | when `upstream/dev` is a local ref; divergence inside an upstream-owned file past `port_delta_baseline.json` |
+| `check_retired_names.py` | every commit; a name a tool still treats as current after the tree stopped defining it |
+| `check_activity_predicate.py` | every commit |
+| `check_local_paths.py` | every commit |
+| `check_subprocess_encoding.py` | every commit |
+| `check_lane_figures.py` | every commit; skips a checkout with no serving binary |
 The rest run when their stage calls for them:
 
 | Tool | Runs |

@@ -19,8 +19,8 @@ and `download_model.py` fetches those sources. This tree carries the artifact co
 toolchain that produces it.
 
 The registered line also defines a `groupwise-int` peer and a plain `nvfp4` profile, documented
-here because the engine implements them. This port ships, pins and measures only the two v3 fork
-artifacts of Section 14.
+here because the engine implements them. This port ships, pins and measures five v3 images across
+eight lanes (Sections 17-21); Section 14 records the fork provenance those images descend from.
 
 ## 0. Superseded artifacts kept on disk, and which recorded rows depend on them
 
@@ -76,7 +76,7 @@ a third compatible inventory.
 
 At startup, `none` and MTP do not materialize DFlash2 weights; DFlash2 does not materialize MTP
 weights. Vision and DFlash2 may be resident together. The target always materializes `text/output_head`. The full proposal-head route reuses it; the
-optimized route additionally materializes `text/draft_head` and `text/draft_head_token_ids`.
+optimized route additionally materializes `proposal/head` and `proposal/token_ids`.
 The Engine accepts startup-fixed `draft_tokens=1..15` (recommended 7), independently of the
 checkpoint’s source block size. See [DFlash2 mathematics and state](speculative-decoding.md).
 
@@ -219,7 +219,8 @@ become one artifact object; the source scale is not an independently named artif
 
 Each `nvfp4` parent contains its packed E2M1 code plane, swizzled E4M3FN K16 scale plane, and one
 trailing fp32 weight divisor `d_w`. Every nvfp4 parent has one separate rank-zero fp32 input divisor
-`d_x`, inserted immediately after the parent. The two objects are bound as one calibrated execution
+`d_x`, written in the auxiliary block that precedes the weights rather than beside its parent. The two
+objects are bound as one calibrated execution
 site; neither divisor may be inferred, defaulted to `1`, or folded into rewritten scale words.
 
 For every layer `0..55`, source gate and up projections must have bit-identical `d_w` words and
@@ -235,19 +236,18 @@ its own pair. This yields exactly 112 input-divisor objects.
 - `mtp/` contains MTP-private tensors.
 - `vision/` contains the Vision tower and merger.
 - `dflash2/` contains DFlash2-private tensors.
-- `text/` and `vision/` contain the six raw frontend resources.
+- `resource/text/` and `resource/vision/` contain the six raw frontend resources.
 
-Objects are written in this order:
+Bindings are resolved by name; the file's objects are written in three blocks:
 
 1. the six frontend resources in Section 4.2;
-2. `text/token_embedding`;
-3. Text layers `0..63`, using the applicable object order in Sections 5.2 through 5.4;
-4. `text/final_norm` and `text/output_head`;
-5. `text/draft_head` and `text/draft_head_token_ids`;
-6. the twelve MTP tensors in Section 6;
-7. the Vision stem, blocks `0..26`, and merger in Section 7;
-8. `dflash2/feature_projection`, `dflash2/context_norm`, DFlash2 layers `0..4`,
-   `dflash2/final_norm`, and the three selector objects in Section 7.4.
+2. every auxiliary (the input divisors), as `auxiliary/NNNNNN`;
+3. every weight, as `weight/NNNNNN`: first the fused parents in `packing_groups` order (Text layers,
+   Vision `qkv`, DFlash2), then the unfused parameters in model order (`text/token_embedding`,
+   `text/output_head`, `text/final_norm`, per-layer norms and vectors), with `proposal/head` last.
+
+The names throughout this document are binding names. A reader resolves them through
+`directory.bindings`; the object ids in the file are positional.
 
 Readers bind by name. Object names contain no format spelling. Logical row views and aliases are
 not artifact objects or directory records.
@@ -258,12 +258,12 @@ The artifact preserves exactly these official-source files as `raw_bytes_v1` res
 
 | Order | Object name | Source filename | Meaning |
 |---:|---|---|---|
-| 0 | `text/tokenizer.json` | `tokenizer.json` | base BPE vocabulary, merges, token bytes, and its added-token subset |
-| 1 | `text/tokenizer_config.json` | `tokenizer_config.json` | complete added-token decoder, prefix, and special-token policy |
-| 2 | `text/chat_template.jinja` | `chat_template.jinja` | registered Qwen template |
-| 3 | `text/generation_config.json` | `generation_config.json` | default stop ids |
-| 4 | `vision/preprocessor_config.json` | `preprocessor_config.json` | image preprocessing limits and constants |
-| 5 | `vision/video_preprocessor_config.json` | `video_preprocessor_config.json` | video sampling and preprocessing |
+| 0 | `resource/text/tokenizer.json` | `tokenizer.json` | base BPE vocabulary, merges, token bytes, and its added-token subset |
+| 1 | `resource/text/tokenizer_config.json` | `tokenizer_config.json` | complete added-token decoder, prefix, and special-token policy |
+| 2 | `resource/text/chat_template.jinja` | `chat_template.jinja` | registered Qwen template |
+| 3 | `resource/text/generation_config.json` | `generation_config.json` | default stop ids |
+| 4 | `resource/vision/preprocessor_config.json` | `preprocessor_config.json` | image preprocessing limits and constants |
+| 5 | `resource/vision/video_preprocessor_config.json` | `video_preprocessor_config.json` | video sampling and preprocessing |
 
 ## 5. Text and optimized proposal inventory
 
@@ -334,10 +334,10 @@ For layers `56..63`, append these two objects in order:
 
 | Order | Object name | Shape | Format |
 |---:|---|---|---|
-| 0 | `text/draft_head` | `[131072,5120]` | `q4_g64_fp16` |
-| 1 | `text/draft_head_token_ids` | `[131072]` | `int32` |
+| 0 | `proposal/head` | `[131072,5120]` | `q4_g64_fp16` |
+| 1 | `proposal/token_ids` | `[131072]` | `int32` |
 
-Row `i` of `text/draft_head` represents full-head row `text/draft_head_token_ids[i]`. The ids are
+Row `i` of `proposal/head` represents full-head row `proposal/token_ids[i]`. The ids are
 unique and lie in `0..248076`.
 
 ## 6. MTP inventory
@@ -349,14 +349,14 @@ The MTP module contains exactly twelve physical objects:
 | 0 | `mtp/input_projection` | `[5120,10240]` | `q8_g32_fp16` |
 | 1 | `mtp/embedding_norm` | `[5120]` | `bf16` |
 | 2 | `mtp/hidden_norm` | `[5120]` | `bf16` |
-| 3 | `mtp/layer/input_norm` | `[5120]` | `bf16` |
-| 4 | `mtp/layer/attention/query_key_gate_value` | `[14336,5120]` | `q8_g32_fp16` |
-| 5 | `mtp/layer/attention/query_norm` | `[256]` | `bf16` |
-| 6 | `mtp/layer/attention/key_norm` | `[256]` | `bf16` |
-| 7 | `mtp/layer/attention/output` | `[5120,6144]` | `q8_g32_fp16` |
-| 8 | `mtp/layer/post_attention_norm` | `[5120]` | `bf16` |
-| 9 | `mtp/layer/mlp/gate_up` | `[34816,5120]` | `q8_g32_fp16` |
-| 10 | `mtp/layer/mlp/down` | `[5120,17408]` | `q8_g32_fp16` |
+| 3 | `mtp/layers/0/input_norm` | `[5120]` | `bf16` |
+| 4 | `mtp/layers/0/attention/query_key_gate_value` | `[14336,5120]` | `q8_g32_fp16` |
+| 5 | `mtp/layers/0/attention/query_norm` | `[256]` | `bf16` |
+| 6 | `mtp/layers/0/attention/key_norm` | `[256]` | `bf16` |
+| 7 | `mtp/layers/0/attention/output` | `[5120,6144]` | `q8_g32_fp16` |
+| 8 | `mtp/layers/0/post_attention_norm` | `[5120]` | `bf16` |
+| 9 | `mtp/layers/0/mlp/gate_up` | `[34816,5120]` | `q8_g32_fp16` |
+| 10 | `mtp/layers/0/mlp/down` | `[5120,17408]` | `q8_g32_fp16` |
 | 11 | `mtp/final_norm` | `[5120]` | `bf16` |
 
 MTP token embedding, full output head, and optimized proposal head are aliases in Section 8.2.
@@ -463,11 +463,11 @@ artifact objects.
 | same | GDN B projection | `[48,96)` | `[48,5120]` |
 | `text/layers/{l}/mlp/gate_up` | MLP gate | `[0,17408)` | `[17408,5120]` |
 | same | MLP up | `[17408,34816)` | `[17408,5120]` |
-| `mtp/layer/attention/query_key_gate_value` | query | `[0,6144)` | `[6144,5120]` |
+| `mtp/layers/0/attention/query_key_gate_value` | query | `[0,6144)` | `[6144,5120]` |
 | same | key | `[6144,7168)` | `[1024,5120]` |
 | same | output gate | `[7168,13312)` | `[6144,5120]` |
 | same | value | `[13312,14336)` | `[1024,5120]` |
-| `mtp/layer/mlp/gate_up` | MTP MLP gate | `[0,17408)` | `[17408,5120]` |
+| `mtp/layers/0/mlp/gate_up` | MTP MLP gate | `[0,17408)` | `[17408,5120]` |
 | same | MTP MLP up | `[17408,34816)` | `[17408,5120]` |
 | `dflash2/layers/{l}/attention/query_key_value` | DFlash2 query | `[0,4096)` | `[4096,5120]` |
 | same | DFlash2 key | `[4096,5120)` | `[1024,5120]` |
@@ -490,15 +490,17 @@ that exact order; the converter preserves the source column order.
 |---|---|
 | MTP token embedding | `text/token_embedding` |
 | MTP full output head | `text/output_head` |
-| MTP optimized proposal head | `text/draft_head` plus `text/draft_head_token_ids` |
+| MTP optimized proposal head | `proposal/head` plus `proposal/token_ids` |
 | DFlash2 token embedding | `text/token_embedding` |
 | DFlash2 mask embedding | row 248070 of `text/token_embedding` |
 | DFlash2 full proposal head | `text/output_head` |
-| DFlash2 optimized proposal head | `text/draft_head` plus `text/draft_head_token_ids` |
+| DFlash2 optimized proposal head | `proposal/head` plus `proposal/token_ids` |
+| DFlash2 context key | shares the key row view `[4096,5120)` of `dflash2/layers/{l}/attention/query_key_value` |
+| DFlash2 context value | shares the value row view `[5120,6144)` of `dflash2/layers/{l}/attention/query_key_value` |
 | GDN channel-major convolution | transpose view of the stored `[4,10240]` convolution |
 
 Full-head DFlash2 top-k selection covers only tokenizer-addressable rows `0..248076`. The
-optimized head first maps shortlist rows through `text/draft_head_token_ids`; the resulting global
+optimized head first maps shortlist rows through `proposal/token_ids`; the resulting global
 token ids index both selector codebooks. Padded rows `248077..248319` are never candidates.
 
 ### 8.3 Binding and execution-consumer boundary
@@ -571,9 +573,10 @@ FP8 tensors using `row_scale_v1`.
 
 The official base source is `Qwen/Qwen3.8-27B` revision
 `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`. The quantized Text source is
-`unsloth/Qwen3.8-27B-nvfp4` revision
-`60e813d4dbbdc5d64cf3f5a8caf2897bedf03679`. The DFlash2 source is
-`z-lab/Qwen3.8-27B-DFlash2` revision
+`unsloth/Qwen3.8-27B-NVFP4` revision
+`f0b7c9e722f5565102fff8481c99e4d86ae099c7`, the revision `download_model.py` fetches and the one the
+rebuilt images consumed; the `60e813d4…` revision recorded in Section 14.2 and the `7d6f8d4d…` revision
+named there are both superseded. The DFlash2 source is `z-lab/Qwen3.8-27B-DFlash2` revision
 `50307d4c4cde6860d4eee73e2547cd786fe8e8a4`.
 
 DFlash2 `config.json`, README, and source revision are converter inputs or provenance, not artifact
@@ -603,7 +606,7 @@ KV-cache, and recurrent-state codecs remain outside this artifact contract.
   resulting fp32 words.
 - Native nvfp4 input-divisor fp32 words are preserved exactly while changing source shape `[1]` to
   artifact shape `[]`.
-- `text/draft_head_token_ids` is stored as `int32`.
+- `proposal/token_ids` is stored as `int32`.
 
 DFlash2 dynamic-conv weights, selector weights, and norms preserve source bf16 words directly.
 
@@ -766,7 +769,7 @@ Interpret the file as a little-endian I64 array with row width 248320 and use ro
 3. take the first `131072 - len(forced)` non-forced ids;
 4. append the ascending forced ids and stable-sort the result by descending count;
 5. require exactly 131072 unique ids in `0..248076`;
-6. store those ids as `int32` in `text/draft_head_token_ids`;
+6. store those ids as `int32` in `proposal/token_ids`;
 7. gather the same ordered bf16 rows from the official `lm_head.weight` and quantize them to Q4.
 
 ## 12. MTP, Vision, and conformance
@@ -781,14 +784,14 @@ Section 11.2.
 | `mtp/input_projection` | `mtp.fc.weight [5120,10240]` | quantize W8 |
 | `mtp/embedding_norm` | `mtp.pre_fc_norm_embedding.weight [5120]` | preserve bf16 |
 | `mtp/hidden_norm` | `mtp.pre_fc_norm_hidden.weight [5120]` | preserve bf16 |
-| `mtp/layer/input_norm` | `M + input_layernorm.weight [5120]` | preserve bf16 |
-| `mtp/layer/attention/query_key_gate_value` | `M + self_attn.{q,k,v}_proj.weight` | form `[query,key,output_gate,value]`, quantize W8 |
-| `mtp/layer/attention/query_norm` | `M + self_attn.q_norm.weight [256]` | preserve bf16 |
-| `mtp/layer/attention/key_norm` | `M + self_attn.k_norm.weight [256]` | preserve bf16 |
-| `mtp/layer/attention/output` | `M + self_attn.o_proj.weight [5120,6144]` | quantize W8 |
-| `mtp/layer/post_attention_norm` | `M + post_attention_layernorm.weight [5120]` | preserve bf16 |
-| `mtp/layer/mlp/gate_up` | `M + mlp.gate_proj.weight`, `up_proj.weight`, each `[17408,5120]` | concatenate `[gate,up]`, quantize W8 |
-| `mtp/layer/mlp/down` | `M + mlp.down_proj.weight [5120,17408]` | quantize W8 |
+| `mtp/layers/0/input_norm` | `M + input_layernorm.weight [5120]` | preserve bf16 |
+| `mtp/layers/0/attention/query_key_gate_value` | `M + self_attn.{q,k,v}_proj.weight` | form `[query,key,output_gate,value]`, quantize W8 |
+| `mtp/layers/0/attention/query_norm` | `M + self_attn.q_norm.weight [256]` | preserve bf16 |
+| `mtp/layers/0/attention/key_norm` | `M + self_attn.k_norm.weight [256]` | preserve bf16 |
+| `mtp/layers/0/attention/output` | `M + self_attn.o_proj.weight [5120,6144]` | quantize W8 |
+| `mtp/layers/0/post_attention_norm` | `M + post_attention_layernorm.weight [5120]` | preserve bf16 |
+| `mtp/layers/0/mlp/gate_up` | `M + mlp.gate_proj.weight`, `up_proj.weight`, each `[17408,5120]` | concatenate `[gate,up]`, quantize W8 |
+| `mtp/layers/0/mlp/down` | `M + mlp.down_proj.weight [5120,17408]` | quantize W8 |
 | `mtp/final_norm` | `mtp.norm.weight [5120]` | preserve bf16 |
 
 ### 12.2 Vision source mapping
@@ -832,8 +835,9 @@ For source prefix `model.visual.merger.`:
 ### 12.3 DFlash2 source mapping
 
 Each converter reads only DFlash2 `config.json` and the single-file `model.safetensors` from the
-fixed source in Section 10.1. The safetensors file must contain exactly the 81 declared bf16 source
-tensors: no missing, extra, differently shaped, or differently typed tensor is accepted.
+fixed source in Section 10.1. Each of the 81 declared source tensors must be present with its declared shape and `bfloat16` dtype.
+The reader resolves the names it is asked for and does not enumerate the file, so a missing or mistyped
+tensor fails while an extra tensor is ignored rather than rejected.
 
 | Artifact object | DFlash2 source | Transform |
 |---|---|---|
@@ -893,13 +897,17 @@ nvfp4 field, or add unused source calibration fields as artifact objects.
 The canonical nvfp4 conversion entry point is:
 
 ```bash
-python3 -m tools.convert.qwen3_8_27b.convert_nvfp4 \
-  --model /path/to/Qwen3.8-27B/base-hf-bf16 \
-  --quantized-model /path/to/Qwen3.8-27B/vllm-nvfp4-fp8 \
-  --dflash2-model /path/to/Qwen3.8-27B-DFlash2 \
+python3 -m tools.convert --model /path/to/Qwen3.8-27B/base-hf-bf16 \
+  --recipe <official-name-or-file:function> \
+  --source quantized=/path/to/Qwen3.8-27B/vllm-nvfp4-fp8 \
+  --source dflash2=/path/to/Qwen3.8-27B-DFlash2 \
+  --components text,vision,mtp,dflash2 --proposal \
   --out out/qwen3_8_27b_nvfp4.ninfer \
   --device cuda
 ```
+
+`--recipe` takes an official name or `file:function`; `--source NAME=PATH` names each checkpoint and
+may repeat. The conversion report records the sources the recipe consumed.
 
 ## 13. `groupwise-int` peer artifact
 
@@ -915,7 +923,7 @@ recipe_id  = qwen3_8_27b-v2
 
 The current artifact contains the same 66-object DFlash2 suffix, 1118 base tensors, and six
 resources. Its base inventory, logical row views, aliases, and writer order are defined by
-`tools/convert/qwen3_8_27b/inventory.py`; DFlash2 follows Sections 2 through 12. Its complete format
+`tools/convert/official_recipes.py`; DFlash2 follows Sections 2 through 12. Its complete format
 counts are:
 
 | Format | Tensors |
@@ -943,9 +951,10 @@ binds through the `Qwen38GroupwiseInt` profile, and its registered nvfp4 peer bi
 Its canonical conversion entry point remains:
 
 ```bash
-python3 -m tools.convert.qwen3_8_27b.convert \
-  --model /path/to/Qwen3.8-27B \
-  --dflash2-model /path/to/Qwen3.8-27B-DFlash2 \
+python3 -m tools.convert --model /path/to/Qwen3.8-27B \
+  --recipe <official-name-or-file:function> \
+  --source dflash2=/path/to/Qwen3.8-27B-DFlash2 \
+  --components text,vision,mtp,dflash2 --proposal \
   --out out/qwen3_8_27b.ninfer \
   --device cuda
 ```
@@ -1033,7 +1042,7 @@ profiles.
 ### 14.3 Local encoder profile and site divisors
 
 Locally quantized parents use the documented encoder profile `nvfp4_MAXABS_DIVISOR_RNE_V1`
-(`tools/convert/qwen3_8_27b/nvfp4_encode.py`): with `amax = max|W|` over the complete parent and
+(`tools/convert/quantization/nvfp4.py`): with `amax = max|W|` over the complete parent and
 `2688 = 6 x 448`,
 
 ```text

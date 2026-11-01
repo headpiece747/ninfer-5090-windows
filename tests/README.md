@@ -134,12 +134,12 @@ failures are expected by construction. Set `NINFER_TEST_ARTIFACT` before running
 three required real-model tests skip, and the gate then fails on missing coverage rather than on a
 regression.
 
-`tools/release/test_v3.cmd` runs one further gate at its tail, after `ctest`:
+`tools/scripts/test_v3.cmd` runs one further gate at its tail, after `ctest`:
 `tools/release/check_test_mutation.py`. It asks whether the suite *can* go red — every mutation
 declared in `tests/ops/mutations.json` must turn its Op test red, and the clean run must be green, since
-a suite that is red to begin with satisfies every mutation assertion trivially. It builds the tests it
-perturbs first and refuses if the tree is stale, because a gate that certifies a binary it did not
-compile is worse than no gate. It prints `MUTATION_EXIT`. The manifest is the declaration; see
+a suite that is red to begin with satisfies every mutation assertion trivially. It dry-runs the build
+(`cmake --build … -- -n`) and refuses if the tree is stale, because a gate that certifies a binary it
+did not compile is worse than no gate. It prints `MUTATION_EXIT`. The manifest is the declaration; see
 [op-development.md §6.4](../docs/maintainer/op-development.md#64-perturbation-coverage) for when an Op
 owes perturbation coverage and how the seam is scoped.
 

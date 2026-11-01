@@ -39,7 +39,7 @@ See [`configs/capability-suite.yaml`](configs/capability-suite.yaml) for the sui
 GPQA-Diamond and BFCL-v4 for reasoning, science and tool-calling; **`coding`** (humaneval,
 live_code_bench, longbench_v2) with its bounded **`coding_sample`** sibling, added 2026-10-09
 because the product's workload is coding and the upstream suite had no code dataset; and `smoke` /
-`coding_smoke` for fast validation. Two datasets are deliberately absent, with the reasons in the file:
+`coding_smoke` for fast validation. Three datasets are deliberately absent, with the reasons in the file:
 SWE-bench and Terminal-Bench (Docker harnesses, and Docker is not installed here) and MBPP (refuses to
 run without a sandbox). [`configs/mock-suite.yaml`](configs/mock-suite.yaml)
 for a network-free example.
@@ -171,10 +171,11 @@ separate so each is independently resumable. The harness that used to start the 
 no longer carried (see the note under Environment), so start it with the flags the next paragraph
 describes.
 
-The script starts a fresh local server for each step. The NVFP4 text server uses a 252,928-token context
-(the largest that fits the RTX 5090 after weights; 262,144 is rejected at startup) and omits
-`--vision`, so Vision's fixed GPU allocations do not reduce the KV pool needed by long reasoning.
-The multimodal server is restarted with `--vision` and an 81,920-token context. Across the cached
+The two suites need differently configured servers, and the harness that started them per step is gone,
+so start one manually for each suite: `ninfer-serve <artifact> --max-context 252928` for `text_full`
+(the largest context that fits the RTX 5090 after weights; 262,144 is rejected at startup), omitting
+`--vision` so Vision's fixed GPU allocations do not reduce the KV pool needed by long reasoning; and
+`ninfer-serve <artifact> --vision --max-context 81920` for `multimodal_full`. Across the cached
 ERQA and RealWorldQA data, the largest fully rendered prompt is ERQA_75 at 12,394 tokens; combined
 with the 65,536-token output bound, it leaves 3,990 tokens of context slack. Sampling is specified
 only by each EvalScope request. The target and ordinary jobs use concurrency two; GPQA-Diamond runs
@@ -182,8 +183,8 @@ at concurrency one so its 245,760-token output budget can accommodate the observ
 uses 122,880 output tokens per request, while IFBench and both multimodal datasets use 65,536.
 
 The completed NVFP4 run used `eval/runs/20260818T132336Z-c16a8902` and
-`eval/runs/20260818T223812Z-da6cdbce`. Published scores and correct/total counts are maintained in
-the [NVFP4 model card](../model-cards/Qwen3.8-27B-nvfp4-NInfer/README.md#evaluation).
+`eval/runs/20260818T223812Z-da6cdbce`; neither directory is carried in this tree, and the scores and
+correct/total counts are not published here.
 
 The Qwen3.8-27B groupwise-int profile ran the same protocol, with the full 262,144-token context
 because its 16.96 GiB artifact leaves more GPU memory, and both steps at concurrency four (run
@@ -220,9 +221,11 @@ lower on each suite, and all four of its misses are wrong boxed values, not trun
 Sampling is deterministic per prompt at a fixed seed, so the difference is a property of these 60
 prompts rather than run-to-run noise — but it is also not significant: the standard error of a
 two-proportion difference at p ~ 0.95 over 60 samples is about four percentage points. This records a
-direction, not a resolved cost, and it agrees with the decomposition in
-[`docs/perplexity-baseline.md`](../docs/perplexity-baseline.md), where re-encoding the text stack costs
-0.05% on the subset and 0.50% on the full corpus.
+direction, not a resolved cost, and its direction agrees with the accuracy side of the decomposition in
+[`docs/perplexity-baseline.md`](../docs/perplexity-baseline.md), where re-encoding the text stack moves
+the subset by 0.05% and the full corpus by 0.50%. The magnitude agrees there; the paired-PPL direction
+on that page does not (it favours the re-encoded build by 0.52%), so this records the accuracy
+direction only.
 
 **A score below the documented budget measures the budget.** An earlier pass at 65,536 output tokens
 scored 28 / 30 and 27 / 30 and truncated generations at `output_limit`: 4 of 60 for the FP8-importing

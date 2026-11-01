@@ -53,7 +53,7 @@ that all three computations differ by that order. fp8 KV roughly triples the gap
 first divergence from token 58 to token 1, so KV quantisation is an amplifier, not the cause.
 
 The masked-draft accept that produced those sequences was read to confirm it is lossless
-(`src/ops/kernel/speculative_round.cuh`): the accept index is the first column whose target argmax
+(`include/ninfer/ops/speculative_accept.h`): the accept index is the first column whose target argmax
 differs from the draft, and the committed token at that column is the target's own argmax there.
 There is no cross-column leakage, which is why both routes agree on the first generated token.
 

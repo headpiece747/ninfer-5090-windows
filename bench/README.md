@@ -31,7 +31,7 @@ the same fixture, seed, cache policy, and timing mode.
 
 `CMakeLists.txt` includes explicit registrations from `ops/`, `inference/`, `context_cost/`
 and `models/`. All executables remain under `<build-dir>/bench/`; the Op registration helper
-lives in `cmake/NinferBenchmarks.cmake`.
+lives in `bench/cmake/NinferBenchmarks.cmake`.
 
 `ninfer_cpu_execution_bench` measures synchronous collective dispatch and eight team barriers.
 For example: `./build/rtx5090-dev/bench/ninfer_cpu_execution_bench --workers 8 --samples 500 --idle-us 1000`.
@@ -121,24 +121,20 @@ instructions are in [Tools](../tools/README.md#memory-bandwidth-probe).
 
 ## Product benchmark
 
-The benchmark slices exact token counts from `bench/fixtures/bench_corpus.ids`, calls
-`Engine::prepare_tokens()`, then calls `Engine::generate()` once for each repetition. It does not
-have a private prefill/decode loop and does not call model implementation interfaces.
+The benchmark builds one request set from `--prompt` (repeatable) or `--messages`, prepares each with
+`Engine::prepare()`, submits them together and waits for all of them. It has no private prefill/decode
+loop and does not call model implementation interfaces. `bench/fixtures/bench_corpus.ids` is not an
+input; only the context-cost benchmark reads it.
 
-The matrix contains three independently measured test kinds:
+There is no `pp{P}`/`tg{G}` matrix: that driver and its test kinds are retired. A run measures
+`--repetitions` full generations of the same request set after `--warmup` unmeasured ones. Before each
+decode run, the first `C-1` inputs complete ordinary one-token requests so the measured batch starts at
+the same size.
 
-- `pp{P}` prepares `P` tokens and requests one output token. This is the smallest request that runs
-  the model; `prefill t/s` is `P / GenerationTimings.prefill_seconds`.
-- `tg{G}` prepares a one-token seed outside the reported phase and requests `G+1` output tokens.
-  The begin-round token belongs to prefill, leaving exactly `G` tokens in the reported decode
-  phase.
-- `pp{P}+tg{G}` uses the same `G+1` convention after a `P`-token prefill and reports both phase
-  rates from the same generation call.
-
-Unconstrained requests use raw output and disable model-default stops, keeping the requested
-token count exact. All requests disable prefix reuse. When CUDA Graph is enabled and the matrix
-contains decode work, a public generation batch with the selected grammar/concurrency settings
-primes the decode graphs before warmups and measured repetitions.
+Prefix reuse defaults **on** for decode runs, using the shared Context capacity; a prefill-only run
+(`--max-tokens 1`) defaults it off, and explicit configuration wins. When CUDA Graph is enabled, a
+public generation batch with the selected settings primes the decode graphs before warmups and measured
+repetitions.
 
 ## CLI
 
@@ -150,7 +146,7 @@ ninfer_bench <artifact.ninfer>
           [--repetitions <n>] [--warmup <n>]
           [--max-context <tokens>] [--prefill-chunk <tokens>]
           [--kv-dtype <bf16|int8|fp8|nvfp4|k8v4>]
-          [--spec <mtp|dflash|dflash2> --draft-tokens <n>] [--proposal-head <full|optimized>]
+          [--spec <none|mtp|dflash|dflash2> --draft-tokens <n>] [--proposal-head <full|optimized>]
           [--device <id>] [--no-cuda-graph] [--profile-measured]
           [--output <table|json|csv>] [--output-file <path>]
 ```
@@ -161,15 +157,15 @@ Example:
 ./build/rtx5090-dev/bench/ninfer_bench \
   out/qwen3_6_27b.ninfer \
   --prompt "Write a quicksort in C++" \
-  --concurrency 1 --max-tokens 128 -r 3 --warmup 1
+  --concurrency 1 --max-tokens 128 --repetitions 3 --warmup 1
 ```
 
 Select a backend with `--spec mtp|dflash|dflash2 --draft-tokens K` (MTP K=1..5, DFlash/DFlash2
 K=1..15); `--proposal-head optimized` selects the optimized proposal head. CUDA Graph decode is
 enabled by default.
 
-`--profile-measured` is a benchmark-only profiler boundary. It requires exactly one selected test
-and `-r 1`, synchronizes after warmup, and brackets only the measured repetition with
+`--profile-measured` is a benchmark-only profiler boundary. It requires `--repetitions 1`,
+synchronizes after warmup, and brackets only the measured repetition with
 `cudaProfilerStart/Stop`. Use it with an Nsight Systems `cudaProfilerApi` capture range so artifact
 load, graph construction, and warmup do not enter topology counts.
 
@@ -178,20 +174,19 @@ For a DFlash2 companion artifact:
 ```bash
 ./build/rtx5090-dev/bench/ninfer_bench out/qwen3_8_27b_nvfp4.ninfer \
   --spec dflash2 --draft-tokens 7 --proposal-head optimized \
-  --max-context 4096 --kv-dtype bf16 --warmup 1 -r 3
+  --max-context 4096 --kv-dtype bf16 --warmup 1 --repetitions 3
 ```
 
-`--concurrency` submits that many prepared requests per repetition. `--grammar-file`,
-`--json-schema-file`, `--json-object`, `--regex` and repeated `--choice` select mutually exclusive output constraints and enable
-normal text output and default EOS; a constrained request may finish before the output limit.
-`--mixed-constraints` applies the selected constraint to alternate requests and requires concurrency
-of at least two. Warmups use the same mixture and compile constraints before measured repetitions.
-`batch out t/s` measures all actual output tokens over the repetition's submit-to-completion wall
-time. Per-request phase rates remain separate from this aggregate throughput.
+`--concurrency` submits that many prepared requests per repetition. The output-constraint flags
+(`--grammar-file`, `--json-schema-file`, `--json-object`, `--regex`, repeated `--choice`) are
+CLI-scoped: `ninfer_bench` rejects them as unknown arguments, and there is no `--mixed-constraints`.
+Batch throughput is `output_tokens_per_wall_second` in each summary, computed as `output_tokens /
+wall_seconds`. Per-request phase rates remain separate from that aggregate.
 
-The benchmark disables context retention because every repetition is an independent root request.
-Reports record `speculative_backend`, `draft_tokens`, and the proposal head independently;
-JSON and CSV identify DFlash2 explicitly. KV/State capacity uses the native shared Context policy.
+Prefix reuse follows the rule above: on for decode runs, off for a prefill-only run.
+Reports record `speculative_backend`, `draft_tokens`, and the proposal head independently in the JSON
+`configuration` object; the CSV has no backend column. KV/State capacity uses the native shared Context
+policy.
 
 ## Context-cost calibration
 
@@ -308,8 +303,8 @@ cmake --build build/rtx5090-dev --parallel --target ninfer_linear_bench
 
 Linear tuning measures every valid T through 128 and the two bulk anchors, 512 and 1024.
 [Op development](../docs/maintainer/op-development.md) defines the tuning and measurement method;
-this section records the Linear workload priorities, dispatch tradeoffs, and the final curve and
-metric tables. Respect each Op's extent alignment; these measurement targets do not limit supported T.
+this section records the Linear workload priorities and dispatch tradeoffs. Respect each Op's extent
+alignment; these measurement targets do not limit supported T.
 
 A continuous small-T sweep reuses one packed weight and one maximum-T activation/output
 allocation:
@@ -1658,37 +1653,26 @@ under the task's `.agent-tmp/` directory.
 
 ## Reports
 
-Table, JSON, and CSV reports identify the architecture, model instance, artifact, Engine configuration,
-load summary, memory capacity, KV payload, workspace peak, phase throughput, and speculative
-statistics. JSON schema version 24 records the public value objects directly:
+Table, JSON, and CSV reports identify the artifact, the resolved Engine configuration, the startup
+resources and every repetition. The JSON carries no schema-version field; its shape is the one
+`bench/inference/report.cpp` writes:
 
-- `config`: constraint type, source/file, literal choices and mixed-request selection, alongside execution settings;
-- `load`: architecture, public name, actual formats, prefill signature, load/upload time,
-  file/H2D/staging bytes and Device/Host object counts;
-- `memory`: weights/sequence/unified-workspace arenas, the optional non-additive Vision layout,
-  planned context, KV storage, CUDA Graph rebuild estimate and preparation increment, KV payload, Device budget and optional MoE
-  Host/cache/bridge resources; MoE `uploaded_bytes` here is the startup snapshot;
-- `repetition_wall_seconds`: each concurrent repetition's submit-to-completion interval;
-- each request sample's `timings`: prepare, Vision, prefill, decode, and total seconds;
-- each request sample's `constraint`: committed completion/branch, compilation cache access, CPU
-preparation/mask/matcher seconds, evaluated positions and mask upload bytes; `null` without a constraint;
-- `constraint_draft_wait_exposed_seconds`: the sample's exposure to draft-ready wait; shared batch
-exposure must not be summed across requests, and CPU constraint work must not be added to wall time;
-- each request sample's `speculative`: window, rounds, drafted/accepted tokens, fallbacks, and per-position
-acceptance.
+- `artifact_type`, `argv`, `config_path`, `environment`;
+- `startup`: the Engine's startup resource report;
+- `benchmark`: `concurrency`, `warmup`, `repetitions`, `profile_measured`;
+- `summary`: the aggregate over all repetitions;
+- `inputs`: one entry per input, with `row`, `kind`, `source` and `seed`;
+- `repetitions`: one entry per repetition, carrying the summary fields plus `repetition` and a
+  `requests` array; each sample has `row`, `prompt_tokens`, `computed_prefill_tokens`,
+  `output_tokens`, `finish_reason`, `prepare_seconds`, `first_token_seconds`, `prompt_wall_seconds`,
+  `generation_wall_seconds`, `total_seconds`, `content` and `reasoning`;
+- `configuration`: the resolved public configuration values.
 
-Each test reports `workspace_peak_bytes` from the planned phase markers, including CUDA Graph
-replay, and `workspace_allocator_peak_bytes` from host-side arena allocation activity. These are
-intentionally separate: replay reuses captured addresses without advancing the host allocator.
-`expert_upload_bytes` counts expert payload submitted during measured repetitions, excluding
-startup and warmup. It includes all requests in those repetitions.
+The CSV emits one row per phase, with the header
+`repetition,phase,batch,target,units,mean_ms,max_ms,result_mean_ms,resolution_mean_ms,retirement_mean_ms,prefill_tokens,prefill_tok_s`.
 
-`reps` contains request samples in repetition-major order, with explicit `repetition` and `row`.
-`output_tok_s` divides each repetition's actual outputs by its wall time.
-`decode_output_tok_s` counts actual outputs after the first token, allowing early grammar EOS.
-`decode_engine_tok_s` uses the Session's speculative round statistics, so it also describes work
-performed by a final partially committed speculative round. Reports also contain the command and machine information needed to
-interpret a local measurement.
+Batch throughput is not a named field: divide a repetition's `output_tokens` by its `wall_seconds`.
+Reports also contain the command and machine information needed to interpret a local measurement.
 
 Raw reports and profiler captures remain local under `profiles/bench`, `profiles/ncu`, and
 `profiles/nsys`.

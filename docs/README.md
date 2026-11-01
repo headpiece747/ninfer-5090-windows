@@ -1,6 +1,6 @@
 # NInfer documentation
 
-Start with the [project README](../README.md) to build NInfer, download a published artifact, and
+Start with the [project README](../README.md) to build NInfer, build a shipped artifact from its source checkpoints, and
 run the CLI or HTTP server.
 
 ## User guides
@@ -43,7 +43,7 @@ repository. This port ships none of them and keeps no copy of their pages:
 
 The storage contract the shipped artifacts implement is the
 [Qwen3.8-27B artifact reference](maintainer/qwen3.8-27b-artifact.md): identity, object inventory,
-formats, layouts, aliases and source transforms, with a section per line in Sections 14 to 19.
+formats, layouts, aliases and source transforms, with a section per line in Sections 14 to 21.
 
 ## Repository-local guides
 
@@ -67,7 +67,8 @@ API documentation.
 **Twelve of them are written in Chinese by upstream.**
 [Maintainer documents: English index](maintainer/README.md) summarises in English what each one
 decides and links to the original, which is the source of truth. The originals are not translated or
-modified: a translation is a permanent divergence, and every future upstream merge would then conflict
+modified, with one exception: `op-development.md` §6.4 is an English section this port maintains. A
+translation is a permanent divergence, and every future upstream merge would then conflict
 in every translated file.
 
 [`adr/`](adr/) holds the decisions behind the shipped profiles and artifact rules, each with the
@@ -104,7 +105,7 @@ these references.
 
 ## Dated records
 
-Three directories hold the working record behind the decisions above. They are not user guides and not
+Two directories hold the working record behind the decisions above. They are not user guides and not
 contracts; they are what a later reader needs in order to check a claim instead of taking it on trust.
 
 | Directory | What it holds |

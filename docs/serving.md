@@ -929,10 +929,9 @@ sequences. Pretty values use readable units and rounded rates; use the independe
 complete fields and full precision. Operational records never contain prompts, generated text,
 request bodies, credentials, or arbitrary client error messages.
 If a tool marker is returned to text because its structure or tool identity cannot be represented,
-Serve emits one warning with the failure classification and the subject it rejected: the emitted name
-when it is already a valid tool identifier, or the length of what was read when it is not, plus the
-declared tool that differs only by case when there is one. Only an identifier is quoted, so generated
-markup still does not reach this record; the same three fields travel in the request JSONL.
+Serve emits one warning carrying the failure classification and no subject: neither the emitted name
+nor the declared near-match is written, so generated markup does not reach this record. The request
+JSONL carries the same classification in `tool_call_parse`.
 
 ## Live metrics
 
@@ -959,10 +958,10 @@ curl http://127.0.0.1:8080/metrics
 | `ninfer_context_{state,history}_objects`, `ninfer_context_kv_page_groups{pool_id}` | Logical object counts, without independent capacity quotas |
 | `ninfer_context_metadata_{budget,allocated,reserved}_bytes` | Coordinator Context metadata budget and usage |
 | `ninfer_context_transfer_bytes_total{resource,pool_id,direction}` | Completed State or KV payload transfers; `pool_id` is present for KV |
-| `ninfer_host_work_seconds_total{phase}`, `ninfer_device_wait_seconds_total` | Instrumented worker wall time; device wait is not CUDA kernel time |
+| `ninfer_host_work_seconds_total{phase}`, `ninfer_scheduler_yield_seconds_total` | Instrumented worker wall time; scheduler yield is reported separately and is not CUDA kernel time |
 | `ninfer_constraint_requests_total{outcome}`, `ninfer_constraint_cache_total{result}` | Settled constrained requests by completion state and compilation-cache access |
 | `ninfer_constraint_{prepare,mask,matcher}_seconds_total`, `ninfer_constraint_mask_{positions,upload_bytes}_total` | Constraint work aggregated at request settlement, including truncated/cancelled results |
-| `ninfer_constraint_draft_wait_seconds_total` | Live draft-ready wait counted once per batch; a subset of device wait |
+| `ninfer_executor_flush_seconds_total` | Draft-ready wait counted once per batch |
 | `ninfer_requests_total{outcome}`, `ninfer_response_failures_total` | Generation attempts entering preparation and subsequent response failures; protocol/model validation failures and token-count requests are excluded |
 | `ninfer_rank_gpu_interval_seconds_total`, `ninfer_rank_gpu_interval_samples_total` | Per-rank CUDA stream totals and sample counts; require GPU timing |
 | `ninfer_memory_allocation_bytes{rank,node,resource,location}` | Explicit per-rank allocations, separate from physical-memory snapshots |
@@ -1028,13 +1027,10 @@ Free-generation format errors after a recognized header use `request_error` with
 instead of text fallback; constrained decoder disagreements are internal errors. These counters
 contain no tool arguments or generated text.
 
-A fallback also records what it rejected, because a reason with no subject cannot tell a model that
-misspelled a declared tool from one that invented a tool, and those need opposite responses.
-`rejected_tool_name` is the name the model emitted, present only when it is already a valid tool name;
-`rejected_tool_near_match` is the declared tool that differs from it only by case, set for an
-`undeclared_tool` fallback when there is one; and `rejected_tool_name_length` is the length of whatever
-was read as a name, non-zero when that was not an identifier. These counters contain no tool arguments,
-and no generated text beyond a name that is already a valid identifier.
+A fallback records the classification but not the tool it rejected: `ToolCallParseDiagnostics` carries
+`marker_seen`, `structured_call_count`, `schema_mismatch_arguments` and `fallback_reason`, and no
+subject. Telling a misspelled declared tool from an invented one therefore needs a new field at the
+parser, not a rename in this document. These counters contain no tool arguments and no generated text.
 
 `request_done.constraint` carries the same constraint observation as the HTTP terminal result,
 or `null` for unconstrained requests. Preparation failures and execution errors use the existing
@@ -1089,17 +1085,16 @@ zero duration. Stream intervals may overlap Host work and each other; do not sum
 `timings_seconds.ttft` is the server's first-token boundary, including service preparation. Client
 network TTFT and `first_output_timing` have their own boundaries.
 
-`request_done.engine_timing` separates FIFO `queue_wait_seconds`, blocking
-`device_wait_exposed_seconds`, and five mutually exclusive Host-active exposure phases under
-`host_exposed_seconds`: `engine_boundary`, `program_submit`, `program_post`,
-`engine_commit_output`, and `engine_maintenance`. `total` is exactly their sum and excludes Device
-wait. The nested `decode` object reports the request's decode-class Host exposure, Device wait, and
-round count; `units` reports its prefill/control unit counts. In a compact batch every participating
+`request_done.engine_timing` separates FIFO `queue_wait_seconds`, scheduler yield
+(`scheduler_yield_exposed_seconds`), and six mutually exclusive Host-active exposure phases under
+`host_exposed_seconds`: `engine_boundary`, `session_call`, `executor_poll`, `executor_flush`,
+`engine_commit_output`, and `engine_maintenance`. `total` is exactly their sum. The nested `decode`
+object reports the request's decode-class Host exposure, scheduler yield, and round count; `units` reports its prefill/control unit counts. In a compact batch every participating
 request is delayed by the full round, so these values explain request latency but **must not be
 summed across concurrent requests**.
-`constraint_draft_wait_exposed_seconds` is the request's exposure to the batch's draft-ready wait,
-already included in `device_wait_exposed_seconds`. The `throughput.host_work.constraint_draft_wait_seconds`
-interval and Prometheus counter count each batch once.
+`executor_flush_exposed_seconds` is the request's exposure to the batch's draft-ready wait, one of the
+six Host phases above. The `throughput.host_work.executor_flush_seconds` interval and the
+`ninfer_executor_flush_seconds_total` counter count each batch once.
 
 `request_done.first_output_timing` freezes observations immediately before Engine publishes its
 first nonempty text or tool-argument delta; call metadata does not count. It is `null` when no such
@@ -1154,9 +1149,9 @@ end-of-interval gauges. The separate `scheduling` object reports preemptions, re
 tokens. Occupancy includes Host reservations while transfers are in flight.
 
 The JSONL `throughput.host_work` object is the aggregation authority: the Engine worker counts each
-wall-time segment once, independent of batch size. `elapsed_seconds` contains the same five
-mutually exclusive Host phases and their `total`; `device_wait_seconds` is separate.
-`work_class_seconds` splits Host and Device-wait time into decode, prefill, and control classes.
+wall-time segment once, independent of batch size. `elapsed_seconds` contains the same six
+mutually exclusive Host phases and their `total`; `scheduler_yield_seconds` is separate.
+`work_class_seconds` splits Host and scheduler-yield time into decode, prefill, and control classes.
 `detail_subset_seconds` and `detail_invocations` expose stats-publication work; these detail values
 are already contained in a top-level Host phase and must not be added to `total`.
 Per-round, per-row-round, and per-invocation normalized values are
@@ -1217,7 +1212,8 @@ Compatible prefixes are reused for both text and multimodal histories unless the
 `--no-prefix-reuse`. A multimodal hit additionally requires matching model-specific token/position
 metadata and media identity, including the prepared media digest, layout and consumer spans. Media
 wholly inside a matched prefix skips Vision execution, while new suffix media is encoded normally. The pretty completion record
-shows `cache N (P%, path)` using readable path labels; JSONL retains the exact
+shows `cache N (P%)` for root reuse and `cache N (P%, path)` for checkpoint reuse, with readable path
+labels; JSONL retains the exact
 `prefix_cache_hit_tokens` and `prefix_reuse_path` fields (`root` or `checkpoint`). Reuse requires
 matching KV, recurrent state, hidden state, selected-backend state and exact prefix identity.
 

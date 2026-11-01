@@ -22,9 +22,9 @@ problem, because the descriptor bytes are part of the kernel node itself.
 
 ## Reproduction
 
-`tests/ops/linear/test_nvfp4_a4.cpp` captures the launch into a CUDA graph and replays it.
-At the first shape whose token count selects the TMA route (`tokens >= 1024`, per
-`src/ops/linear/nvfp4/shapes/n14336_k5120.cu`), it fails:
+The A4 TMA case (now `tests/ops/linear/projection/cases_nvfp4.cpp:67`) captures the launch into a CUDA
+graph and replays it. At the first shape whose token count selects the TMA route (`tokens >= 1024`, per
+`src/ops/linear/projection/nvfp4/shapes/n14336_k5120.cu:39`), it fails:
 
 ```
 NVFP4_A4 [14336,5120] T=1024: unexpected exception: synchronize linear:
@@ -33,6 +33,10 @@ an illegal instruction was encountered
 
 `T=1023` passes; `T=1024` fails. Those two take different routes, which is why the boundary
 is so sharp.
+
+The identifiers in the trace below predate the A4 rename: the kernel is `nvfp4_a4_tma_kernel` in
+`src/ops/linear/kernels/nvfp4/nvfp4_a4_tma.cuh:149`, taking a `__grid_constant__ Nvfp4A4TmaDescriptors`
+by value; `nvfp4_w4a4_tma.cuh` and `Nvfp4W4a4TmaDescriptors` are the old spellings of the same.
 
 ## Evidence
 
@@ -71,9 +75,7 @@ does not fix this on its own: the memcpy node's **source** is still the caller's
 
 ## Related: the formerly failing planner test
 
-Unrelated to the above, `tests/test_resource_manager.cpp`'s
-`test_candidate_search_prefers_deep_reuse_without_eviction` used to fail and is now green. It was
-not timing-dependent: the optional materialization search's initial grant was pinned flat at 5 ms,
-which the incumbent's `/20` term never bound, and it now scales up to a 250 ms ceiling
-(`src/runtime/engine/context_cache/materialization_budget.h`, `kMaximumGrantNs`) so the search
-reaches the preserving reuse closure.
+Unrelated to the above, a materialization-search test used to fail and is now gone: the case, its
+header (`materialization_budget.h`) and `kMaximumGrantNs` were all deleted with upstream's context-cache
+rewrite. The 5 ms grant it exercised no longer exists, so the fix was not re-applied and nothing here
+can be re-run.

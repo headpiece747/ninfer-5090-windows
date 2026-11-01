@@ -9,7 +9,7 @@
 > is no longer an artifact we do not control on that lane, and `download_model.py` no longer fetches
 > any prebuilt artifact.
 >
-> **What still stands:** four vision-only profiles at the native context, two spec routes. That is
+> **What still stands:** eight vision-only profiles at the native context, two spec routes. That is
 > unchanged, and the measurement in Context below is unaffected — it compared artifacts, not sources.
 >
 > The text below is left as written because an ADR records what was decided and why at the time. Read

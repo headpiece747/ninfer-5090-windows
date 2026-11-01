@@ -12,6 +12,7 @@
   已补齐 `indexer/select.cuh` 的依赖成员模板调用消歧义关键字 `template`；其余三处
   `jobs.build` 的对象类型不依赖模板参数，无需修改。RTX 5090 dev 完整构建通过（CUDA 13.4）；
   当前环境未安装 CUDA 13.2，未在该版本复测。
+  （2026-10-31 复核：本机仅安装 CUDA 13.3，四个构建目录均配置为 v13.3；13.4 的记录无法在当前的树和机器上复核。）
 
 - [x] **2. 流式请求准入超时的 HTTP 状态** — [#420](https://github.com/Neroued/ninfer/issues/420)、[#137](https://github.com/Neroued/ninfer/issues/137)
 

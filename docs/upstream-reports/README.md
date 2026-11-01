@@ -34,7 +34,7 @@ pre-merge-<sha> <merge> -- <path>` answers per path what the merge took.
 
 | Report | Target | What it is | Strength |
 | --- | --- | --- | --- |
-| `ninfer-tma-descriptor-graph-capture.md` | `Neroued/ninfer`, aimed at the open Windows/TMA PRs `#233` and `#82` | the device-buffer TMA descriptor path is not safe under CUDA Graph capture | strongest: a `compute-sanitizer` trace, a named mechanism, and a fix |
+| `ninfer-tma-descriptor-graph-capture.md` | `Neroued/ninfer`, aimed at the open Windows/TMA PR `#233` (`#82` is closed and was not merged) | the device-buffer TMA descriptor path is not safe under CUDA Graph capture | strongest: a `compute-sanitizer` trace, a named mechanism, and a fix |
 | `codegraph-init-replaces-junction.md` | `@colbymchenry/codegraph` 1.5.0 | `init` replaces a junction/symlink with an empty directory, then reports "No files found to index" | reproduction, no fix |
 | `ninfer-reasoning-effort-mismatch.md` | `Neroued/ninfer` | the engine advertises six `reasoning_effort` values; the artifact's chat template accepts four, so `minimal` and `high` return HTTP 400 after passing validation | a two-line change either way |
 | `ninfer-small-context-reuse-hang.md` | `Neroued/ninfer` | `--max-context 512` with prefix reuse resolves a 1.00 GiB pool that startup accepts, then the first request never completes; an explicit capacity too small for a unit deadlocks instead of being refused | reproduction with controls, no Engine fix |
@@ -59,7 +59,8 @@ to the root incumbent, re-prefilling the whole prompt (upstream issue #229, TTFT
 once the grant scales).
 
 The fix scaled the grant up to a 250 ms ceiling (`materialization_budget.h`, `kMaximumGrantNs`),
-with the economic term still governing below the ceiling and the boundary allowance capping both.
+with the economic term governing below the ceiling. **It was not re-applied:** the header and the
+symbol went with the context-cache unification, and the port has carried no equivalent since.
 *(Note: With upstream's `bea5a04ec` / PR #366 context-cache unification, `materialization_budget.h`
 was retired and issue #229 closed upstream. See `fork-divergence.md`.)*
 

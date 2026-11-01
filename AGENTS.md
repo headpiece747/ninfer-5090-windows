@@ -140,9 +140,10 @@ There are **four** build trees, all gitignored: `build/` for the apps and bench,
 the suite the release gate runs, `build-asan/` for the host-only sanitizer tests, and `build-bench/`
 for the standalone bench binaries.
 
-The shipped surface is governed by `tools/release/profiles.py`. There are eight lanes: four
-artifacts × {MTP, DFlash2}, each with its own measured draft number, KV dtype and
-`--proposal-head` setting (formerly `--lm-head-draft`), all at 262,144 context with vision. The generated launchers at the repository root render
+The shipped surface is governed by `tools/release/profiles.py`. There are eight lanes over five artifact
+images: four weight lines, with the NVFP4 line split into a full image for MTP and a no-exceptions image
+for DFlash2. Each lane has its own measured draft number, KV dtype and `--proposal-head` setting
+(formerly `--lm-head-draft`), all at 262,144 context with vision. The generated launchers at the repository root render
 from that module, so profile values come from there and nowhere else.
 
 Select model artifacts by explicit path — never glob order, modification time, or unqualified
@@ -182,7 +183,7 @@ configs, logs.
 
 Skills are **project-local and untracked**: `.opencode/` is in `.gitignore`, and upstream has no
 `.opencode` at all. Nothing in this repository reads them, and no gate checks them. On a machine
-that has them, `.opencode/skills/` holds 35 C++/CUDA and language-agnostic skills — `cpp-cuda-review`
+that has them, `.opencode/skills/` holds 41 C++/CUDA and language-agnostic skills — `cpp-cuda-review`
 is this repo's review skill, with `cuda-debugging`, `ncu-report`, `sanitizers`, `address-sanitizer`,
 `c-review`, `fp-check` and `how` beside it. A clone of this repository has none of them and needs
 none: they shape an agent's method, not the engine. Restore them with

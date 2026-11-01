@@ -31,7 +31,7 @@ OUT_MD = Path("docs/maintainer/project-map.md")
 OUT_DOT = Path("docs/maintainer/project-map.dot")
 # Directories that are not product structure and would only add noise to a module graph.
 SKIP_DIRS = {"third_party", "build", "build-test", "out", "ffmpeg", ".codegraph", ".git",
-             "node_modules", "docs", "tools", "tests", "bench", "profiles"}
+             "node_modules", "docs", "tools", "tests", "bench", "profiles", "eval", "scratch"}
 
 
 def module_of(path: str) -> str:
@@ -137,7 +137,7 @@ def main() -> int:
         A("")
         A("A module is a file's directory. `src/ops/linear/fp8` and `src/ops/attn` are distinct")
         A("modules; `src/ops/linear/fp8/shapes` is not, because the deepest component is capped at")
-        A("four path segments. Third-party, build output, docs, tools, tests and bench are excluded")
+        A("four path segments. Third-party, build output, docs, tools, tests, bench, eval and scratch are excluded")
         A("as not being product structure -- so this map describes what ships, not what verifies it.\n")
         A("## Modules by size\n")
         A("| module | files | fan-in | fan-out |")

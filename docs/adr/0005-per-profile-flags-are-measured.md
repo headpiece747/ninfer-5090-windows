@@ -4,7 +4,7 @@
 
 ## Context
 
-`--lm-head-draft` is not uniformly good, and depth optima differ by artifact:
+`--lm-head-draft` (now `--proposal-head`) is not uniformly good, and depth optima differ by artifact:
 
 - QUASAR: the flag is worth +9% (DFlash2) and +18% (MTP d4).
 - NVFP4-full MTP: worth +34% at d5.
@@ -98,7 +98,7 @@ least three of them. The earlier uniform d5 was wrong on QUASAR.
 ## Amendment 2026-10-10: the proposal head is now measured on all eight profiles
 
 The decision above lists QUASAR, the NVFP4-full image and the retired image. Swift and NVIDIA were added
-afterwards and had no record anywhere in the tree, while all eight profiles passed `--lm-head-draft` --
+afterwards and had no record anywhere in the tree, while all eight profiles passed `--proposal-head` --
 the convention this ADR exists to forbid. The measurement: real text, greedy, two
 rounds per arm, the lane's own flags composed through `profiles.launcher_args`, the flag removed rather
 than substituted. Seven lanes confirm the shipped setting on this ADR's own criterion; on five of them the

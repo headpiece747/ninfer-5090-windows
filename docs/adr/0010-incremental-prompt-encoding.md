@@ -59,7 +59,7 @@ check. The boundary set and the literal spans are part of the comparison rather 
 because both are part of what the entry answers.
 
 Measured on the request that showed the problem (229 messages, 92,373 tokens): `tokenize`
-28.5 ms → 192 µs, `prepared` 32.6 ms → 4.21 ms, wall 23.98 s → 0.018 s. `test_repeated_encoding_matches_full`
+28.5 ms → 192 µs, `prepared` 32.6 ms → 4.21 ms, wall 23.98 s → 0.018 s. `test_exact_repeat_caching`
 checks the repeat against a cold tokenizer as the oracle, checks it agrees with the encode it came
 from, and checks that a boundary set the cache never answered is not served as a repeat.
 
@@ -99,7 +99,7 @@ that are not ordered and disjoint, and a span crossing the seam would have to be
   78 ms, that path renders in **3.79 ms**.
 - **Concurrency:** `prepare` runs on `httplib::ThreadPool` workers, so the cache is a small ring
   guarded by a mutex, and a miss on contention is a full encode rather than a correctness question.
-- **Evidence: a byte-identity test, and a live measurement.** `test_incremental_encoding_matches_full`
+- **Evidence: a byte-identity test, and a live measurement.** `test_incremental_turn_splicing`
   encodes a prompt, then the same prompt extended, and asserts the spliced ids *and boundary results*
   equal a fresh `Tokenizer`'s full encode of the extension — a tokenizer that never saw the shorter
   prompt, so the oracle is independent of the cache. It also asserts the splice counter moved and the
@@ -115,7 +115,14 @@ that are not ordered and disjoint, and a span crossing the seam would have to be
   shipped server and the split is now `prepared 4.02 ms, render 3.69 ms, tokenize 94 us` on a warm
   229-message request — so neither of the two terms this record was written about is the largest one
   any more, and the largest term (a variable engine queue wait, outside preparation) is not this
-  record's to fix. The readings and the correction:
+  record's to fix.
+
+  **Correction (2026-10-31):** the `render 3.69 ms` split is native-render-era. ADR-0012 withdrew that
+  renderer, and ADR-0011/0012 measure the Jinja render of the same 229-message request at 48.3 ms, so on
+  the current path render is again the largest preparation term and the 3.69 ms split describes a path
+  this tree no longer has.
+
+  The readings and the correction:
   an earlier version of that section called the wait constant, and a later verification run that
   produced a lower TTFT disproved it.
 

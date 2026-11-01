@@ -15,11 +15,11 @@ via `options.reasoningEffort`. **The artifact's chat template implements only fo
 | `low` | accepted |
 | `medium` | accepted |
 | `xhigh` | accepted |
-| `minimal` | **HTTP 400** — template raises "Unexpected reasoning effort" |
-| `high` | **HTTP 400** — same |
+| `minimal` | accepted — the template maps it to `low` |
+| `high` | accepted — the template maps it to `xhigh` |
 
-The engine's own validation message advertises all six, so `minimal` and `high` look legal
-until the template rejects them at request time.
+The engine's own validation message advertises all six, and the template this port ships maps
+`minimal` and `high` rather than rejecting them.
 
 ## Measured
 
@@ -48,7 +48,7 @@ model.** Two defects made the earlier figures unreadable, both now fixed in
   unseeded and one seeded — and `evaluate` at identical settings swung 37 points across eight runs.
 - **The default 2,048-token output cap.** Reasoning is billed against the same cap as the answer, so
   every hard task truncated and scored as a model failure. The earlier `trunc` column is that
-  artefact: it is zero here because the cap is now 32,768.
+  artefact: it is zero here because this run passes `--output-tokens 32768` (the tool's default is 2048).
 
 Re-measured with both fixed, seed 20261013, two DFlash2 lanes × four efforts × ten tasks:
 
@@ -151,8 +151,11 @@ suggest:
 
 ```jinja
 {%- set resolved_reasoning_effort = reasoning_effort|default('xhigh') %}
-{%- if resolved_reasoning_effort not in ('xhigh', 'medium', 'low') %}
-    {{- raise_exception('Unexpected reasoning effort ...') }}
+{%- if resolved_reasoning_effort in ('high', 'max', 'ultracode', 'extreme') %}
+    {%- set resolved_reasoning_effort = 'xhigh' %}
+{%- elif resolved_reasoning_effort == 'minimal' %}
+    {%- set resolved_reasoning_effort = 'low' %}
+{%- endif %}
 ```
 
 - **`xhigh` is the artifact's default**, not an extra tier.
@@ -162,7 +165,7 @@ suggest:
 - **`none` bypasses this block** by setting `enable_thinking: false`, which is why it is
   accepted despite not being in the list.
 - **No budget comes from the template.** The thinking cap is purely the server's
-  `--default-thinking-budget`.
+  `--thinking-budget`.
 
 That last point matters: every earlier effort comparison ran three *instruction* variants
 under one 4096-token cap. Measured reasoning peaked at ~4.4k tokens, right at the cap, so
@@ -176,7 +179,7 @@ the budget was binding. Varying it:
 | `none`, any budget | 3/4 | 1.1 s | 0 |
 
 **Un-clipping `xhigh` produced 5.5x the reasoning and 5x the time for an identical score.**
-So `--default-thinking-budget 4096` is not a defect to correct; it is the setting that keeps
+So `--thinking-budget 4096` is not a defect to correct; it is the setting that keeps
 `xhigh` affordable. Raise it only if you have evidence a specific task needs more.
 
 Worth knowing which task fails, because the two settings fail differently:
@@ -195,7 +198,7 @@ Server (launcher):
 --proposal-head optimized
 --vision
 --max-context 262144
---kv-dtype fp8
+--kv-dtype k8v4
 ```
 
 opencode:
@@ -207,9 +210,9 @@ opencode:
 }
 ```
 
-That key must be the launcher's `--model-id` exactly. The engine enforces it on every request and
+That key must be the launcher's `--model-id` exactly. The OpenAI routes enforce it on every request and
 this tree has no alias matching, so a short key such as `quasar-dflash2` (the label the tables above
-use) is rejected with a 400. Only the display `name` is free text.
+use) is rejected with a 404 `model_not_found`. Only the display `name` is free text.
 
 Two rules that matter more than the numbers:
 
@@ -318,7 +321,7 @@ project-level `opencode.json` to a `--standalone` run. Measured against the same
 | arm | peak reached | outcome |
 | --- | --- | --- |
 | compaction on | 214,962 / 212,105 / 215,966 across three runs | compacted each time, rebuilt to ~47.7k |
-| **`auto: false`** | **255,267** — past the 221,376 trigger | never compacted; died with `prepared prompt exceeds Engine max_context 262144` |
+| **`auto: false`** | **255,267** — past the 221,376 trigger | never compacted; died with `maximum context length is 262144 tokens, but the prepared prompt has <n> tokens` |
 
 `auto: false` gates both the automatic and the overflow path in v2 — they share one flag in the
 source — while leaving manual compaction available.
@@ -452,7 +455,7 @@ Switch with the `variant_cycle` keybind. `output: 32768` rather than a tight cap
 purpose: reasoning bills against it, so a small cap silently truncates whenever thinking is
 on.
 
-Do not add variants named `minimal` or `high` — the chat template rejects those values.
+`minimal` and `high` are accepted aliases (mapped to `low` and `xhigh`); prefer the rendered names in new configurations.
 
 ## Which model when
 
@@ -522,7 +525,7 @@ What *is* measured now, as of 2026-10-06, with `tools/release/repro_251.py` (whi
 and takes `--interleave`):
 
 - **Sequential**, each conversation asked twice back to back at the shipped
-  `--host-context-mib 8192 --device-state-slots 1`: 60 distinct conversations, all ~96%.
+  `--host-cache-capacity 8192MiB`: 60 distinct conversations, all ~96%.
 - **Interleaved** round-robin, which is this page's shape: 8, 16, 32, 48 and 52 conversations all
   reuse at ~95.7%; **56 and 60 reuse nothing at all**. The bound is the host quota in state images
   (~55 x 147 MiB = 8 GiB), so the quota holds roughly 52-55 live conversations.
@@ -531,7 +534,7 @@ and takes `--interleave`):
 
 So the concurrency answer this page gives rests on a measured number: a main session plus subagents
 (8 here, and the quota reaches 52) sits far inside the host quota, and the cliff only appears when
-live conversations exceed it. At `--host-context-mib 300` the same sequential run stops reusing from
+live conversations exceed it. At `--host-cache-capacity 300MiB` the same sequential run stops reusing from
 the third conversation, and the cause there is the replacement cache's value gate (a reused endpoint
 is not displaced for a cold admission), not a missing eviction path.
 
@@ -566,7 +569,7 @@ temperature 1.0:
 | --- | --- |
 | sampled, no seed | **4** |
 | sampled, seed fixed | **1** |
-| `--greedy` | **1** |
+| `--temperature 0` | **1** |
 
 So there is no CUDA float drift or batch-dependent nondeterminism to contend with; a seed pins the
 trajectory exactly. `bench_opencode_settings.py` now sends one on every request and records it, and

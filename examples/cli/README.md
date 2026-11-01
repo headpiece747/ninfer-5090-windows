@@ -108,7 +108,7 @@ part of the comparison manifest.
 ## Long decode
 
 The three frozen AIME 2026 cases deliberately get generous budgets. They are meant to run until the
-model's stop token, not to discover the smallest `max-new` value that happens to fit one output.
+model's stop token, not to discover the smallest `max-tokens` value that happens to fit one output.
 
 ```bash
 for CASE in 01 15 30; do

@@ -66,3 +66,10 @@ against an FP64 oracle at a much tighter tolerance, so the same approximation is
 correctness defect here. The second instinct - always replaying, since it is exact - is measurably
 slower than not using CP at all. Recording both measurements is what stops the next attempt from
 re-deriving them.
+
+## Correction (2026-10-31)
+
+Neither `cp_enabled` nor the regression case named above exists in this port's tree: a search over
+`src/` and `tests/` finds `cp_enabled` only in this record, and `tests/ops/test_gated_delta_net.cpp` is
+now `tests/ops/linear_attention/gated_delta_net/`. The measurements and the numerical argument stand as
+the reason not to re-implement context parallelism; the gate and its guard are not present here.

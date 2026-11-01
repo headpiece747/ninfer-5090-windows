@@ -195,6 +195,12 @@
       "review": "product",
       "reason": "Link repointed from the per-checkpoint page docs/performance/qwen3.8-27b.md -- which this port deleted in 1b53a301 because it ships none of that checkpoint -- to docs/performance/lanes.md, the page that owns the shipped lanes' figures."
     },
+    "docs/issue-checklist.md": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Documentation correction: item 1 claimed a build passed under CUDA 13.4. A dated note records that only 13.3 is installed, that all four build trees target it, and that the 13.4 record cannot be checked on this tree or machine. Check against the installed toolkit and build/CMakeCache.txt."
+    },
     "docs/maintainer/build-system.md": {
       "status": "M",
       "disposition": "windows",
@@ -273,6 +279,12 @@
       "review": "a document correction, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain -- specifically check_doc_links and check_doc_citations, which fail on a link or a citation that does not resolve",
       "reason": "Port deletion: the harness is POSIX-only -- it calls `eval/.venv/bin/python`, and this port's `eval/.venv` is a Windows environment with `Scripts\\` and no `bin\\` -- and it needs the `groupwise-int` peer artifact of the artifact reference's section 13, which exists nowhere on this machine. Its campaign is recorded: the protocol in `eval/configs/qwen3_8_27b_groupwise_reasoning.yaml` and the published table in `eval/README.md`."
     },
+    "examples/cli/README.md": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Documentation correction: the prose named max-new, which v3 does not parse. It now names max-tokens; see docs/v2-v3-flag-diff.md for the rename and src/product/config/schema.cpp for the flag."
+    },
     "examples/cli/messages/long_niah_128k.json": {
       "status": "M",
       "disposition": "windows",
@@ -296,6 +308,12 @@
       "disposition": "unknown",
       "review": "",
       "reason": ""
+    },
+    "examples/configs/README.md": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "product",
+      "reason": "Documentation correction: the get-weights anchor resolved to nothing and the sentence told a reader to download a prebuilt artifact this port does not ship. It now points at the launcher table and the build-from-sources step, matching README.md and download_model.py."
     },
     "include/ninfer/ops/candidate_selector.h": {
       "status": "M",

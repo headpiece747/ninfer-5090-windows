@@ -71,8 +71,8 @@ options**: reading a per-cell delta as the comparison flipped a lane's depth twi
 the rule's own form was applied, and it is the error the code-weighted bound below is written to prevent
 recurring. The domains are the matrix's `code`, `prose`, `chinese`,
 `dialogue` and `repetition` prompts (`v3_profile_matrix.py`). A candidate that wins three domains and
-loses one badly is rejected for it: see the quasar MTP4 row in `profiles.py`, where depth 5 was faster
-on prose and dialogue and lost code and chinese by 37 and 15 tok/s. Introduced 2026-09-30 (`4456fac6`)
+loses one badly is rejected for it: see the quasar MTP4 row in `profiles.py`, where depth 5 won
+prose and dialogue and lost code and chinese; the figures are recorded in that row, not restated here. Introduced 2026-09-30 (`4456fac6`)
 when two depths were found to have been chosen from stale figures. Two caveats the rule is read under:
 it is only as good as the domains it is run on, which is why a prompt can now come from a file
 (`v3_profile_matrix.py --domain-from-file`), and a margin smaller than the measurement's own spread is

@@ -35,9 +35,10 @@ exact change that caused the clobber.
 18,638,510,576, sha256 `8b86901a…`), so both artifacts download and run directly and the Context
 above describes neither repository any more. What that changes:
 
-- `download_model.py` targets the `.v3.ninfer` path directly again, and the clobber in
-  Consequences cannot recur while the source is v3: a re-download overwrites a v3 file with the
-  same v3 file. The `...qat.v2.ninfer` staging name went with the v2 source.
+- **Correction (2026-10-31):** `download_model.py` no longer fetches a prebuilt artifact at all. It
+  fetches the pinned source checkpoints and this port builds each image, so the clobber this amendment
+  was about cannot occur; see `docs/adr/0004-vision-only-and-third-party-artifact.md`. The
+  `...qat.v2.ninfer` staging name went with the v2 source.
 - The upgrader still ships, for a copy fetched before the republish.
 - **Re-derive a pin from the repository's blob metadata**
   (`https://huggingface.co/api/models/<repo>?blobs=true`), never from a local copy. A local copy is

@@ -4,7 +4,7 @@
 > compares are the ones that shipped before upstream replaced the context cache, so the
 > context-cache bounds it lists under "Only in v3" (`--max-shared-prefixes`,
 > `--max-private-continuations`, `--max-long-anchors-per-continuation`) no longer exist: they were
-> collapsed into one shared `--host-context-mib` quota. The Conclusion's finding that host KV size
+> collapsed into one shared `--host-cache-capacity` quota. The Conclusion's finding that host KV size
 > and state slots "turned out to be inert once the cache bounds are set" is therefore **inverted**
 > under the replacement — that quota is what bounds retention now, measured at ~52 interleaved
 > conversations for the shipped 8 GiB against a port workload of about eight.
@@ -22,7 +22,7 @@ dropped and whether any of it was worth keeping.
 | --- | --- |
 | `--build build\|build_vision`, `--config Release` | build-script flags, not serve flags. N/A. |
 | `--dest`, `--prompt`, `--messages` | from `download_model.py` and `test_prompt.bat`. N/A. |
-| `--cors` | **removed on purpose.** It let any browser page drive the model and read completions, and opencode talks to the endpoint as a native HTTP client. Not a loss. |
+| `--cors` | v3 keeps `--cors`/`--no-cors` (off by default) and no launcher passes it. It let any browser page drive the model and read completions, and opencode talks to the endpoint as a native HTTP client, so leaving it off is the default rather than a removal. |
 | `--max-new 128\|256` | a server-side default output cap. opencode always sends its own `max_tokens`, so it only affects clients that do not — and a default of 128 would silently truncate those. v3 omitting it is safer. |
 
 ## Only in v3
@@ -43,9 +43,10 @@ gave 1/5 round-2 hits at a 19.8% token-level rate; with them, 5/5 at 99.1%.
 | `--host-state-slots` | **16** | 8 | measured: no effect on cache hits (below) |
 | `--port`, `--model-id` | one port, v2 naming | four ports, `-v3` suffixed | four profiles run side by side |
 
-Identical in both: `--host`, `--kv-dtype fp8`, `--max-concurrency 1`,
-`--device-state-slots 1`, `--spec`, `--vision`, `--lm-head-draft`, `--preserve-thinking`,
-`--default-thinking-budget`, `--pending-timeout-ms`.
+Identical in both, under their current names: `--host`, `--kv-dtype fp8`, `--max-concurrency 1`,
+`--spec`, `--vision`, `--proposal-head` (formerly `--lm-head-draft`), `--preserve-thinking`,
+`--thinking-budget` (formerly `--default-thinking-budget`), `--pending-timeout` (formerly
+`--pending-timeout-ms`). `--device-state-slots` no longer exists.
 
 ## The one candidate worth testing, and its result
 

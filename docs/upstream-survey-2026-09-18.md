@@ -128,4 +128,9 @@ Our side (`dev`):
 
 `docs/cli.md` exists on master (`ls-tree upstream/master docs/cli.md`) and is unchanged.
 
+**Correction (2026-10-31):** three flag names above have since been renamed in this port:
+`--lm-head-draft` → `--proposal-head`, `--default-thinking-budget` → `--thinking-budget`, and
+`--pending-timeout-ms` → `--pending-timeout`. The list records upstream's `serve_options.cpp` as of
+2026-09-18; the current parser is `src/product/config/schema.cpp`.
+
 Open-PR caveat (future risk, not merged): PRs 173, 152, 61 (and draft 59) modify `src/serve/serve_options.cpp`/`.h`. They are CONFLICTING against current master, so their `serve_options` diffs are entangled with base drift and no flag change reaches us unless they are merged/rebased.

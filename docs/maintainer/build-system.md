@@ -12,7 +12,7 @@ CUDA 13.3. Product commands and prerequisites are in the
 
 | Target | System | CUDA architecture |
 |---|---|---|
-| `rtx5090` (default) | Linux x86-64 | `120a` |
+| `rtx5090` (default) | Linux x86-64; Windows x86-64 (this port) | `120a` |
 | `dgx_spark` | Linux AArch64 | `121a` |
 
 [`cmake/NinferPlatform.cmake`](../../cmake/NinferPlatform.cmake) resolves the target and validates
@@ -153,20 +153,20 @@ ownership and dependency contracts are defined by [Engine architecture](engine-a
 
 ### Shared-library boundary
 
-Products, tests and benchmarks link the same internal shared libraries:
+Products, tests and benchmarks link the same internal libraries:
 
-| Target | Contents |
-|---|---|
-| `ninfer_cpu` | Portable CPU topology and task pool |
-| `ninfer_core` | Storage, transfers, CUDA execution and resource primitives |
-| `ninfer_ops` | GPU Ops and their host dispatch |
-| `ninfer_cpu_executor` | RTX 5090 collective CPU executor |
-| `ninfer_moe_cpu` | RTX 5090 CPU MoE dispatch and ISA implementations |
+| Target | Kind | Contents |
+|---|---|---|
+| `ninfer_cpu` | static | Portable CPU topology and task pool |
+| `ninfer_core` | static | Storage, transfers, CUDA execution and resource primitives |
+| `ninfer_ops` | shared | GPU Ops and their host dispatch |
+| `ninfer_cpu_executor` | static | RTX 5090 collective CPU executor |
+| `ninfer_moe_cpu` | shared | RTX 5090 CPU MoE dispatch and ISA implementations |
 
-Shared libraries are written to `<build-dir>/lib/`. Apps, tests and benchmarks retain their own
-output directories. Build RPATH uses `$ORIGIN` for in-tree dependencies: moving a build's binaries
-requires preserving their relative layout with `lib/`. External dependencies retain their discovered
-search paths. Running from the build tree needs no `LD_LIBRARY_PATH` setup.
+On Linux the shared libraries are written to `<build-dir>/lib/` and RPATH uses `$ORIGIN` for in-tree
+dependencies. On Windows they are staged beside the executables instead (`ninfer_ops.dll` and the MoE
+DLL), because a Windows executable loads from its own directory before `PATH`; there is no RPATH and
+`LD_LIBRARY_PATH` does not exist.
 
 Artifact, model, runtime and test-support targets remain static libraries. The non-RDC CUDA archive
 and CPU ISA object libraries are position-independent inputs to their owning shared libraries;

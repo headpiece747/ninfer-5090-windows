@@ -6,16 +6,18 @@ eval/corpora/perplexity-1m/manifest.json --kv-dtype <dtype>`. That is upstream's
 4096/2048 context and stride). Every row carries the date it was taken; all of them are this machine,
 which is a different box and clock from any published figure. Removing `--quick` gives the full corpus.
 
-**Rows taken before 2026-10-04 are not comparable with later ones, for two separate reasons.** Upstream
-rewrote the tokenizer in `b9114396`/`a8e212ac` (merged 2026-10-04), and the rewrite *fixed* an
-over-segmentation: the old tokenizer produced 319 more tokens on this corpus (12 / 186 / 121 / 0 across
-the four domains), while the current one matches the reference tokenizer exactly -- `tokenizers` on the
-artifact's own `tokenizer.json` yields 262,022 / 261,408 / 261,223 / 259,904 scored tokens per domain,
-which is what the engine scores today (verified 2026-10-07). Separately, the *logits* moved:
-`ninfer_code` scores the **same 259,904 tokens in both engines** and still reads lower by 3,390 nats on
-the retired image (133,296 -> 129,906) and 3,675 nats on `nvfp4full` (137,248 -> 133,574). That domain is
-the control: a token stream that did not change cannot move under the tokenizer, so an engine-side
-numerics change is present too, and it is **unattributed**. Both effects point the same way, and neither
+**Rows taken before 2026-09-29 are not comparable with later ones, for two separate reasons.** The
+stored reports through 2026-09-29 score 1,044,876 tokens; the first at the fixed count is 2026-10-02,
+at 1,044,557. The extra 319 tokens are real in those reports and **unattributed**: a tokenizer probe
+returns the same ids and the same hash at every port revision from 2026-08-27 and at upstream's
+`a8e212ac`, so the earlier claim that `b9114396`/`a8e212ac` rewrote the tokenizer is false as written.
+`tokenizers` on the artifact's own `tokenizer.json` yields 262,022 / 261,408 / 261,223 / 259,904 scored
+tokens per domain, which is what the engine scores today (verified 2026-10-07). Separately, the *logits*
+moved, but by far less than the raw totals suggest: the 3,390 nats between the 133,296 report and
+129,906 are confounded with that tokenization, and within the window where the tokenizer is proven
+identical the code domain still moves deterministically by ~150 nats (~0.1%) -- 129,952, 130,094,
+129,944, 129,906. So an engine-side numerics change is present, and the 3,390-nat figure cannot be
+attributed to it. Both effects point the same way, and neither
 is the artifacts: their weights are unchanged -- every object of the five images rebuilt on 2026-10-07 is
 byte-identical to its predecessor, and only the embedded chat template differs, with the 16-byte artifact
 id random per build (`tools/artifact/writer.py:141`). The serving lanes moved in
@@ -105,7 +107,7 @@ attention regression without a same-day control on the same artifact.
 **The `nvfp4full` lane is built from a community quantization and is measurably worse than the
 official one.** Its recipe is `qwen3_8_27b_nvfp4_unsloth` over `Qwen3.8-27B-NVFP4-unsloth`, while
 `nvfp4nvidia` is `qwen3_8_27b_nvfp4_nvidia` over NVIDIA's. On the same protocol the official source
-scores **4.915181 against 5.002854** on 2026-09-28, a 1.75 % gap, and **4.911188 against 4.998419**
+scores **4.915181 against 5.002854** on 2026-09-28, a 1.78 % gap, and **4.911188 against 4.998419**
 on 2026-09-29, a 1.78 % gap. The name appears to describe a format property
 rather than a source -- an earlier row reads "Swift, re-encoded with NVFP4-full's bf16 exceptions" --
 which would make the community checkpoint a deliberate choice as the one permitting complete NVFP4
@@ -143,8 +145,8 @@ a post-merge heading. One recipe built and measured, in that order.
 **The merge is perplexity-neutral.** All four move within +/-0.1 %, which is inside this measurement's
 own spread: the `--quick` corpus is recorded elsewhere in this file as spanning 1.05 % between two
 runs of the same build. The sign differs per artifact, so this is noise around an unmoved centre, not
-a shared drift. The ranking is unchanged. The one derived figure that moves is the official-source
-gap quoted above, from 1.75 % to **1.78 %** (4.911188 against 4.998419).
+a shared drift. The ranking is unchanged. The official-source gap quoted above is 1.78 % on both
+dates (4.911188 against 4.998419).
 
 **The per-domain spread is far wider than the overall gap, and that is the argument for a per-domain
 instrument.** The evaluator already prints a per-domain breakdown, and it disagrees with the
@@ -270,7 +272,7 @@ open.
 
 ## A `--quick` comparison is decided by four streams
 
-`--quick` scores one stream per domain, 261,223 tokens; `full` scores four per domain, 1,044,876.
+`--quick` scores one stream per domain, 261,223 tokens; `full` scores four per domain, 1,044,557.
 Comparing the rebuilt NVIDIA artifact against the official stock, `--quick` reads **−1.78%** and the
 full corpus reads **−0.00%**, and the domain breakdown says why:
 
@@ -402,7 +404,7 @@ artifact has a full-corpus before-and-after.
 
 **`--quick` is not a subset of the full corpus.** The manifest's two modes name different text:
 `quick` is stream 00 of each domain (four documents, 261,223 tokens), `full` is all sixteen
-(1,044,876). Their magnitudes differ by more than an order of magnitude for the same change (0.44%
+(1,044,557). Their magnitudes differ by more than an order of magnitude for the same change (0.44%
 against 0.03% on the official artifact), so a `--quick` delta is not an effect size for the full
 corpus.
 

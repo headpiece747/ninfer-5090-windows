@@ -71,7 +71,7 @@ arise for them.
 
 | File | Patch | Commit |
 | --- | --- | --- |
-| `src/artifact/file_io.cpp` | bound a Win32 direct read to one `ReadFile` (+100 lines of Windows path) | `da40626b`, `1d4c108c` |
+| `src/core/io/file.cpp` | bound the Win32 direct read to one `CreateFileW` plus a CRT handle (+100 lines of Windows path) | `da40626b`, `1d4c108c` |
 | `src/serve/http_transport.cpp` | `winsock2.h`/`mstcpip.h` include order and the `_WIN32` keepalive branch | `369e5be1`, `556b6e02` |
 | `CMakeLists.txt`, `src/CMakeLists.txt` | `WIN32_LEAN_AND_MEAN`, FFmpeg target decoupling, libcurl conditionality | `8d9a26f9`, `590ccfc8`, `b77d64bf` |
 | `tests/*` | MSVC portability: `<array>` for CTAD, `constexpr` on `std::sqrt`, fixture share mode | `24e8850d`, `7effcafb`, `d8117ed4`, `1d4c108c` |
@@ -94,8 +94,8 @@ of these files, read our diff before merging.**
 | --- | --- | --- | --- |
 | `src/models/qwen3_5/load/dflash2.cpp` | bind selector codebooks and QKV format-agnostically (+10/-4) | `45387ec5`, `9898ecb1` | **highest** — upstream may tighten the binding we relaxed |
 | `src/models/qwen3_5/execution/parameters.cpp` | derive draft context row offsets from the draft geometry (+11/-2) | `985907e0` | high — a geometry fix upstream may make differently |
-| `src/ops/linear_swiglu/nvfp4/nvfp4_linear_swiglu_plan.cpp` | `Nvfp4Geometry<34816,5120>` for the A16Only gate/up workspace; A16 beyond T=16 (+24/-4) | `9e0ce8d7`, `fb141405` | medium — workspace shape, upstream may retune |
-| `src/ops/linear/nvfp4/nvfp4_w4a4_tma.cuh` | pass the W4A4 TMA descriptor by value so it survives graph capture | `1218d574` | medium — see `ninfer-tma-descriptor-graph-capture.md` |
+| `src/ops/linear/swiglu/nvfp4/shapes/n34816_k5120/` | `Nvfp4Geometry<34816,5120>` for the A16Only gate/up workspace; A16 beyond T=16 (+24/-4) | `9e0ce8d7`, `fb141405` | medium — workspace shape, upstream may retune |
+| `src/ops/linear/kernels/nvfp4/nvfp4_a4_tma.cuh` | pass the W4A4 TMA descriptor by value so it survives graph capture | `1218d574` | medium — see `ninfer-tma-descriptor-graph-capture.md` |
 | `third_party/llama-jinja/jinja/runtime.cpp` | take `get_builtins()` by reference in `try_builtin_func`; the vendored copy took the type's static filter map by value and copied it on every filter application, ~1374 of them for a 229-message prompt | *(this worktree)* | low — an efficiency fix with byte-identical output, measured at 77.5 ms to 71.4 ms on the render bench. Upstream's own copy of the vendored file carries the same line, so it is a candidate to send them rather than a divergence to defend |
 
 ### Already reconciled
@@ -109,7 +109,7 @@ landed it before upstream did, on contract and oracle grounds rather than scores
 it in `c4ae8a9c` and measured the same conclusion (4.617111902 with the approximation against
 4.615642116 with silu on the full ninfer-ppl-1m-v1 corpus). `src/ops/common/math.cuh` is therefore
 identical between `dev` and upstream, and the only remaining difference in
-`nvfp4_linear_swiglu_w4a4_tma.cuh` is the port's own descriptor-by-value fix (`1218d574`) plus the
+`src/ops/linear/swiglu/nvfp4/tma_launch.h` is the port's own descriptor-by-value fix (`1218d574`) plus the
 comment recording why the accurate activation is kept.
 
 ## Two upstream issues we had fixed, now closed upstream

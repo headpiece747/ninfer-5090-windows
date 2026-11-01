@@ -2,8 +2,9 @@
 
 These TOML files are starting points for the product CLI and HTTP server. All enable Vision,
 FP8 KV, CUDA Graph decode, MTP3 and the optimized proposal head. The artifact must contain those
-components. Model sampling defaults are retained. Download the corresponding artifacts from the
-[weight table](../../README.md#get-weights); Flash Next and GLM require every storage part.
+components. Model sampling defaults are retained. Build the corresponding artifacts with
+`download_model.bat` (see the [launcher table](../../README.md#profiles-and-launchers)); Flash Next
+and GLM require every storage part.
 
 | Configuration | Hardware | Per-request context limit | Active requests |
 |---|---|---:|---:|

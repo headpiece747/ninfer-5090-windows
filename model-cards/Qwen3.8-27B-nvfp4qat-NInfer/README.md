@@ -170,19 +170,20 @@ You can get full capability by using `cometkim/dev` branch that integrated all f
 Any engine carrying the two patches above runs this artifact; the reference engine is the [cometkim/ninfer](https://github.com/cometkim/ninfer) fork (integration branch `cometkim/dev`). Windows (MSVC + CUDA 13.1+) or 64-bit Linux, NVIDIA GeForce RTX 5090 (`sm_120a`).
 
 ```bash
-hf download cometkim/Qwen3.8-27B-nvfp4qat-NInfer qwen3_8_27b_nvfp4qat.ninfer \
-  --local-dir models
+# build the artifact from the pinned source checkpoints; no prebuilt .ninfer is downloaded
+python download_model.py
+python build_model.py --line nvfp4qat
 
 # greedy text generation with MTP speculative decoding
 ./build-ninja/apps/ninfer.exe models/qwen3_8_27b_nvfp4qat.ninfer \
   --prompt "Explain prefill and decode in three sentences." \
-  --max-context 16384 --max-new 256 \
+  --max-context 16384 --max-tokens 256 \
   --spec mtp --draft-tokens 3
 
 # the DFlash2 drafter (single parallel draft pass; the recommended lane)
 ./build-ninja/apps/ninfer.exe models/qwen3_8_27b_nvfp4qat.ninfer \
   --prompt "Explain prefill and decode in three sentences." \
-  --max-context 16384 --max-new 256 \
+  --max-context 16384 --max-tokens 256 \
   --spec dflash2 --draft-tokens 7
 
 # OpenAI/Anthropic-compatible serving, full 262,144-token context on INT8 KV
@@ -197,7 +198,7 @@ hf download cometkim/Qwen3.8-27B-nvfp4qat-NInfer qwen3_8_27b_nvfp4qat.ninfer \
 
 ### Device weights
 
-The artifact is 17.35 GiB on disk.
+The artifact is 17.36 GiB on disk.
 
 Device weights depend on the startup option, which is optional and fixed for the process lifetime.
 
