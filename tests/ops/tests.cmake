@@ -42,5 +42,11 @@ ninfer_add_op_test(ninfer_dflash2_nvfp4_routes_test
 ninfer_add_op_test(ninfer_speculative_round_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_speculative_round.cpp"
   LIBRARIES ninfer_ops ninfer_core)
+
+# The port's topk_logprobs coverage and perturbation seam. Restored after being
+# dropped during upstream's suite reorganisation into ops subdirectories.
+ninfer_add_op_test(ninfer_topk_logprobs_test
+  SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_topk_logprobs.cpp"
+  LIBRARIES ninfer_ops)
 include("${CMAKE_CURRENT_LIST_DIR}/moe/tests.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/ple/tests.cmake")
