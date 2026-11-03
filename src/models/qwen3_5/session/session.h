@@ -12,6 +12,7 @@
 #include "runtime/contract/placement.h"
 
 #include <array>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -54,7 +55,7 @@ struct PrefixShortlistKey {
     std::array<std::uint64_t, 2> digests{};
     std::uint32_t frontier                                                  = 0;
     std::uint32_t identity_tag                                              = 0;
-    friend bool operator==(PrefixShortlistKey, PrefixShortlistKey) noexcept = default;
+    friend auto operator<=>(PrefixShortlistKey, PrefixShortlistKey) noexcept = default;
 };
 
 class RequestBasePlan {
@@ -86,6 +87,7 @@ struct CheckpointMetadata {
     runtime::CheckpointRole role     = runtime::CheckpointRole::Continuation;
     bool leased                      = false;
     runtime::CheckpointOrigin origin = runtime::CheckpointOrigin::Semantic;
+    SharedCandidateEvidence evidence = SharedCandidateEvidence::None;
 };
 
 struct CheckpointSummary {
@@ -273,6 +275,7 @@ struct CapturePreparation {
     std::vector<CheckpointHandle> retired_points;
     context::HostWriteRequirements host;
     runtime::CheckpointOrigin origin = runtime::CheckpointOrigin::Semantic;
+    SharedCandidateEvidence evidence = SharedCandidateEvidence::None;
 };
 enum class ContextOperationKind : std::uint8_t { Bind, Capture, Demote, Pause, Maintenance };
 
@@ -325,6 +328,9 @@ public:
                                                const ContextAssessment&) const;
     [[nodiscard]] std::uint64_t useful_release_bytes(const ContextReleaseSet&,
                                                      const ContextAssessment&) const;
+    [[nodiscard]] std::vector<std::uint64_t> release_limits(const ContextAssessment&) const;
+    [[nodiscard]] runtime::ContextReleaseMeasure release_measure(const ContextReleaseSet&,
+                                                                 const ContextAssessment&) const;
     [[nodiscard]] runtime::ContextStart start_maintenance(const ContextAssessment&);
     [[nodiscard]] std::span<const runtime::KvPoolDescriptor> kv_pools() const noexcept;
     Session(PreparedSession&&, runtime::Executor<ExecutionTypes>&);
@@ -339,6 +345,7 @@ public:
                    std::span<const CheckpointHandle> private_points = {},
                    std::span<const CheckpointHandle> retired_points = {},
                    runtime::PlacementId target = {}, const ResumeState* resume = nullptr) const;
+    [[nodiscard]] std::vector<PlacementDescriptor> placement_descriptions() const;
     [[nodiscard]] std::span<const runtime::PlacementId> placements(const RequestBasePlan&) const;
     [[nodiscard]] runtime::PlacementId placement(SequenceHandle) const;
     [[nodiscard]] std::uint64_t load_tokens(SequenceHandle) const;
@@ -358,7 +365,7 @@ public:
     // Borrows this Session's index; checkpoint publication or retirement invalidates the view.
     [[nodiscard]] context::RecoveryEvaluation<>
     evaluate_recovery(std::span<const CheckpointHandle> advertised) const;
-    [[nodiscard]] std::size_t checkpoint_capacity() const noexcept;
+    [[nodiscard]] std::size_t checkpoint_extent() const noexcept;
     [[nodiscard]] std::vector<runtime::ContextTransferRequirement>
         checkpoint_restore_requirements(CheckpointHandle) const;
     [[nodiscard]] bool valid_checkpoint(CheckpointHandle checkpoint) const noexcept;

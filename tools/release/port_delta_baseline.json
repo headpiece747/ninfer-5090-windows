@@ -1,6 +1,6 @@
 {
   "against": "upstream/dev",
-  "recorded": "2026-10-31",
+  "recorded": "2026-11-02",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -1298,6 +1298,12 @@
       "disposition": "windows",
       "review": "windows",
       "reason": "Cited in the diff -- port: the port . Open it before changing this path."
+    },
+    "src/serve/observations.cpp": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Windows MSVC has no <unistd.h> or ::getpid(); guarded with <process.h> and _getpid() under _WIN32."
     },
     "src/serve/openai_chat_request.cpp": {
       "status": "M",

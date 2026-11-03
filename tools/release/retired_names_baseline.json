@@ -19,6 +19,15 @@
     "tools/bench/make_divisor_variants.py": {
       "nvfp4_act_headroom": "the variant tag this tool writes into artifact filenames"
     },
+    "tools/bench/plot_serve_results.py": {
+      "decode_step_ms": "the tool's own result keys and CSV column names",
+      "decode_tok_s_mean": "the tool's own result keys and CSV column names",
+      "decode_tok_s_stddev": "the tool's own result keys and CSV column names",
+      "prefill_chunk_ms": "the tool's own result keys and CSV column names",
+      "prompt_tokens_mean": "the tool's own result keys and CSV column names",
+      "repeated_suffix_characters": "the tool's own result keys and CSV column names",
+      "repetitive_suffix_requests": "the tool's own result keys and CSV column names"
+    },
     "tools/bench/repo_fix_eval.py": {
       "bf16_a16_test": "the tool's own step labels and the upstream helper it names",
       "linear_bf16_a16": "the tool's own step labels and the upstream helper it names",
@@ -46,9 +55,15 @@
     },
     "tools/bench/run_serve_concurrency.py": {
       "concurrent_http_send": "the tool's own result keys",
+      "decode_step_ms": "the tool's own result keys",
+      "http_elapsed_seconds": "the tool's own result keys",
       "ninfer_serve_concurrency_bench_point": "the tool's own result keys",
       "ninfer_serve_concurrency_bench_summary": "the tool's own result keys",
-      "ordered_http_send": "the tool's own result keys"
+      "ordered_http_send": "the tool's own result keys",
+      "prefill_chunk_ms": "the tool's own result keys",
+      "repeated_suffix_characters": "the tool's own result keys",
+      "repetitive_suffix_requests": "the tool's own result keys",
+      "serial_http_send": "the tool's own result keys"
     },
     "tools/bench/run_serve_corpus.py": {
       "completed_before_block": "the tool's own result keys and CSV column names",
@@ -60,17 +75,24 @@
       "decode_host_us_per_round_stddev": "the tool's own result keys and CSV column names",
       "decode_scheduler_yield_us_per_round_mean": "the tool's own result keys and CSV column names",
       "decode_scheduler_yield_us_per_round_stddev": "the tool's own result keys and CSV column names",
+      "decode_step_ms": "the tool's own result keys and CSV column names",
+      "decode_step_ms_mean": "the tool's own result keys and CSV column names",
+      "decode_step_ms_stddev": "the tool's own result keys and CSV column names",
       "decode_tok_s_mean": "the tool's own result keys and CSV column names",
       "decode_tok_s_stddev": "the tool's own result keys and CSV column names",
       "engine_host_exposed_ms_mean": "the tool's own result keys and CSV column names",
       "engine_host_exposed_ms_stddev": "the tool's own result keys and CSV column names",
       "ninfer_serve_corpus_result": "the tool's own result keys and CSV column names",
+      "prefill_chunk_ms": "the tool's own result keys and CSV column names",
+      "prefill_chunk_ms_mean": "the tool's own result keys and CSV column names",
+      "prefill_chunk_ms_stddev": "the tool's own result keys and CSV column names",
       "prefill_tok_s_mean": "the tool's own result keys and CSV column names",
       "prefill_tok_s_stddev": "the tool's own result keys and CSV column names",
       "prompt_tokens_mean": "the tool's own result keys and CSV column names",
       "prompt_tokens_stddev": "the tool's own result keys and CSV column names",
       "queue_wait_ms_mean": "the tool's own result keys and CSV column names",
       "queue_wait_ms_stddev": "the tool's own result keys and CSV column names",
+      "repeated_suffix_characters": "the tool's own result keys and CSV column names",
       "server_ttft_ms_mean": "the tool's own result keys and CSV column names",
       "server_ttft_ms_stddev": "the tool's own result keys and CSV column names",
       "speculative_acceptance_mean": "the tool's own result keys and CSV column names",

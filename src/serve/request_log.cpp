@@ -20,12 +20,8 @@
 #include <system_error>
 #include <utility>
 
-#ifdef _WIN32
-#include <process.h>
-#define ninfer_getpid _getpid
-#else
+#ifndef _WIN32
 #include <unistd.h>
-#define ninfer_getpid ::getpid
 #endif
 
 namespace ninfer::serve {
@@ -42,13 +38,6 @@ std::uint64_t unix_time_ms() {
     const auto now = std::chrono::system_clock::now().time_since_epoch();
     return static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
-}
-
-std::string new_server_instance_id() {
-    const auto now    = std::chrono::system_clock::now().time_since_epoch();
-    const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
-    return "serve-" + std::to_string(static_cast<long long>(ninfer_getpid())) + '-' +
-           std::to_string(micros);
 }
 
 std::filesystem::path normalized_absolute_path(const std::string& value) {
@@ -222,6 +211,7 @@ Json request_json(const RequestLogContext& context) {
     Json thinking_budget = nullptr;
     if (context.thinking_budget) { thinking_budget = *context.thinking_budget; }
     return Json{{"request_id", context.id},
+                {"engine_request_id", context.engine_request_id},
                 {"http_request_id", context.http_request_id},
                 {"response_id", context.response_id},
                 {"protocol", context.protocol},
@@ -301,6 +291,7 @@ Json speculative_json(const RequestStats& metrics) {
                 {"accepted_tokens", metrics.speculative.accepted_tokens},
                 {"committed_draft_tokens", metrics.speculative.committed_draft_tokens},
                 {"fallback_steps", metrics.speculative.fallback_steps},
+                {"attempted_per_position", metrics.speculative.attempted_per_position},
                 {"accepted_per_position", metrics.speculative.accepted_per_position}};
 }
 
@@ -858,16 +849,15 @@ ServerLogEnvironment query_server_log_environment(int device) {
     return environment;
 }
 
-JsonlRequestLog::JsonlRequestLog(const std::string& path,
+JsonlRequestLog::JsonlRequestLog(std::string server_instance_id, const std::string& path,
                                  const std::string& protected_artifact_path,
                                  std::shared_ptr<spdlog::logger> logger)
-    : path_(path), logger_(std::move(logger)) {
+    : path_(path), server_instance_id_(std::move(server_instance_id)), logger_(std::move(logger)) {
     if (path_.empty()) { return; }
     if (!protected_artifact_path.empty() &&
         normalized_absolute_path(path_) == normalized_absolute_path(protected_artifact_path)) {
         throw std::invalid_argument("request JSONL log must not overwrite the model artifact");
     }
-    server_instance_id_ = new_server_instance_id();
     output_.open(path_, std::ios::out | std::ios::app);
     if (!output_) {
         throw std::runtime_error("failed to open request JSONL log for append: " + path_);
