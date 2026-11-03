@@ -1327,7 +1327,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
+      "reason": "Windows MSVC has no <unistd.h>; removed dead upstream <unistd.h> include (left behind upstream when getpid was moved to observations.cpp in 5b834fc3)."
     },
     "src/text/grammar.cpp": {
       "status": "M",
@@ -1824,8 +1824,8 @@
     "tests/runtime/test_resource_manager.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "MSVC port: upstream's unsigned __int128 becomes ninfer::Uint128 from core/uint128.h (no __int128 on MSVC)."
     },
     "tests/symbol_interpose.h": {
       "status": "M",

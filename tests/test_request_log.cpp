@@ -15,13 +15,19 @@
 
 #ifdef _WIN32
 #include <process.h>
-#define ninfer_getpid _getpid
 #else
 #include <unistd.h>
-#define ninfer_getpid ::getpid
 #endif
 
 namespace {
+
+int current_process_id() {
+#ifdef _WIN32
+    return _getpid();
+#else
+    return ::getpid();
+#endif
+}
 
 using namespace ninfer::serve;
 using ninfer::product::ServeOptions;
@@ -962,7 +968,7 @@ int main() {
 
     const std::filesystem::path log_path =
         std::filesystem::temp_directory_path() /
-        ("ninfer-request-log-test-" + std::to_string(static_cast<long long>(ninfer_getpid())) +
+        ("ninfer-request-log-test-" + std::to_string(current_process_id()) +
          ".jsonl");
     std::filesystem::remove(log_path);
     {

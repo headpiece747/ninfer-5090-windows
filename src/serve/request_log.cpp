@@ -20,10 +20,6 @@
 #include <system_error>
 #include <utility>
 
-#ifndef _WIN32
-#include <unistd.h>
-#endif
-
 namespace ninfer::serve {
 namespace {
 

@@ -7,14 +7,20 @@
 
 #ifdef _WIN32
 #include <process.h>
-#define ninfer_getpid _getpid
 #else
 #include <unistd.h>
-#define ninfer_getpid ::getpid
 #endif
 
 namespace ninfer::serve {
 namespace {
+int current_process_id() {
+#ifdef _WIN32
+    return _getpid();
+#else
+    return ::getpid();
+#endif
+}
+
 std::uint64_t steady_ns() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
                std::chrono::steady_clock::now().time_since_epoch())
@@ -97,7 +103,7 @@ ServiceObservations::ServiceObservations() {
     const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
-    instance_id_ = "serve-" + std::to_string(static_cast<long long>(ninfer_getpid())) + '-' +
+    instance_id_ = "serve-" + std::to_string(current_process_id()) + '-' +
                    std::to_string(micros);
 }
 
