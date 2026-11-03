@@ -77,6 +77,14 @@ ninfer_add_test(ninfer_gdn_replay_records_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_gdn_replay_records.cpp"
   LIBRARIES ninfer_core)
 
+# The 128-bit integer the cost-model arithmetic is written against. Its two branches are selected by
+# the compiler rather than by this project -- the builtin on GCC and Clang, the fallback struct on
+# MSVC -- so the same assertions are the only thing that can show the fallback agrees with the
+# builtin, and the divisor case is the bug the header records as fixed.
+ninfer_add_test(ninfer_uint128_test
+  SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_uint128.cpp"
+  LIBRARIES ninfer_core)
+
 set_tests_properties(
   ninfer_device_test
   ninfer_decode_graph_test
