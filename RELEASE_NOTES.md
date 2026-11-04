@@ -1,4 +1,25 @@
-# NInfer Windows v1.2.4 (RTX 5090)
+# NInfer Windows v1.2.5 (RTX 5090)
+
+## What changed in 1.2.5
+
+A major feature, stability, and upstream synchronization release following `v1.2.4`, incorporating 11 upstream commits from `Neroued/ninfer@dev` (`5b834fc35`..`a754fcf3b`) alongside native Windows port hardening:
+
+- **Interactive Web Monitoring Dashboard & Telemetry**:
+  - Upstream introduced a comprehensive real-time web monitoring dashboard (`dashboard/`) featuring responsive charts, persistent telemetry history, TTFT distribution histograms, Paper theme styling, and Docker deployment configurations.
+  - Exposes internal engine observability endpoints (`/v1/internal/monitor/...`) providing granular visibility into request queue states, resident KV cache pools, and GPU memory allocations.
+- **Runtime Starvation Prevention Under Context Pressure** (`a754fcf3b`):
+  - Resolved request queue starvation when context memory approaches saturation. Implemented priority-aware queue scheduling and starvation prevention verified end-to-end by `tests/models/qwen3_5/test_engine_fairness_real.cpp`.
+- **Context Cache Retention & Eviction Refinements** (`76b5370bd`):
+  - Refined context page retention heuristics and reclaim candidate selection, improving cross-request prefix reuse hit rates under constrained memory budgets.
+- **Distributed Serving Campaign Support** (`acb05ebfb`):
+  - Added support for distributed performance profiling and multi-node benchmarking campaigns.
+- **Native Windows Port Hardening**:
+  - **MSVC 128-bit Arithmetic (`ninfer::Uint128`)**: Implemented complete 128-bit integer arithmetic (shifts, carries, borrows, and full 128-bit division) in `core/uint128.h` for MSVC, eliminating standard library type limitations and ensuring exact cost-model evaluations in `resource_manager.h`.
+  - **Cross-Platform Process ID Cleanup**: Unified platform process ID retrieval via `current_process_id()` in `src/serve/observations.cpp` and `tests/test_request_log.cpp`, removing orphaned POSIX `<unistd.h>` headers.
+  - **Test Suite Restorations**: Restored CMake registrations for `ninfer_topk_logprobs_test` (verifying Op mutation perturbation seams) and `ninfer_uint128_test`, bringing total verified test coverage to 198 tests.
+  - **Certified Engine Identity**: Shipped binaries in the release archive and all 8 launcher profiles are certified byte-for-byte against engine `f3bc4e01ca39`.
+
+---
 
 ## What changed in 1.2.4
 

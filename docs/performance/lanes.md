@@ -26,21 +26,21 @@ domain — see the per-domain breakdown in `docs/perplexity-baseline.md`.
 
 | Launcher | Model line | Lane | Artifact | Draft | KV dtype | Context | Decode tok/s | Draft acceptance |
 |---|---|---|---|---|---|---|---|---|
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 | nvfp4qat | 7 | k8v4 | 262,144 | 271.2 | 46.4% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP4 | nvfp4qat | 4 | fp8 | 262,144 | 205.0 | 56.5% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 | nvfp4full_noex | 9 | fp8 | 262,144 | 336.3 | 48.0% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP4 | nvfp4full | 4 | fp8 | 262,144 | 174.2 | 45.7% |
-| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 | nvfp4swift15 | 7 | fp8 | 262,144 | 329.2 | 57.9% |
-| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP4 | nvfp4swift15 | 5 | k8v4 | 262,144 | 198.3 | 51.8% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA ModelOpt | DFlash2 | nvfp4nvidia | 9 | fp8 | 262,144 | 314.5 | 46.1% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA ModelOpt | MTP4 | nvfp4nvidia | 4 | k8v4 | 262,144 | 181.0 | 46.8% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 | nvfp4qat | 7 | k8v4 | 262,144 | 302.3 | 46.6% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP4 | nvfp4qat | 4 | fp8 | 262,144 | 224.2 | 57.3% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 | nvfp4full_noex | 9 | fp8 | 262,144 | 365.3 | 47.3% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP4 | nvfp4full | 4 | fp8 | 262,144 | 167.1 | 47.3% |
+| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 | nvfp4swift15 | 7 | fp8 | 262,144 | 355.2 | 57.8% |
+| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP4 | nvfp4swift15 | 5 | k8v4 | 262,144 | 213.6 | 51.7% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA ModelOpt | DFlash2 | nvfp4nvidia | 9 | fp8 | 262,144 | 336.1 | 45.4% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA ModelOpt | MTP4 | nvfp4nvidia | 4 | k8v4 | 262,144 | 196.7 | 46.7% |
 
-Decode tok/s and acceptance are from `tools/release/profiles.py`, folded on 2026-11-01 from
+Decode tok/s and acceptance are from `tools/release/profiles.py`, folded on 2026-11-03 from
 `tools/release/lane_figures.json`; that module's docstring carries the protocol note and the run level. These
 are the published figures, and `MEASURED_ENGINE` records the engine they came from, so
 `check_lane_figures.py` fails if the table and the tree disagree on it.
 
-**Measurement status (2026-11-01).** These figures describe the current engine (`00947874b0f2`). The fold's run
+**Measurement status (2026-11-03).** These figures describe the current engine (`f3bc4e01ca39`). The fold's run
 level was +7.8% against the previous table (range +3.4% to +10.3%), so the decode column is this window's
 reading rather than the engine's steady speed; re-measure before quoting it as current. A pre-registered
 refresh was attempted and **withheld**. The three-round `profile` window was stable (largest
@@ -64,8 +64,8 @@ NVIDIA ModelOpt (`nvfp4nvidia`) is within noise at 4.686759. The difference
 is not statistically meaningful on this corpus.
 
 **Decode throughput:** NVFP4-full no-ex DFlash2 (`ninfer` lane) is fastest at
-336.3 tok/s, against Swift 1.5 DFlash2 at 329.2, NVIDIA ModelOpt DFlash2 at 314.5 and
-QUASAR QAT DFlash2 at 271.2. These are the table's own cells. This page publishes
+365.3 tok/s, against Swift 1.5 DFlash2 at 355.2, NVIDIA ModelOpt DFlash2 at 336.1 and
+QUASAR QAT DFlash2 at 302.3. These are the table's own cells. This page publishes
 decode and accuracy; it does not rank lanes on prefill, which is measured per
 configuration and is not recorded per lane here.
 

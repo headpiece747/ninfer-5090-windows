@@ -71,8 +71,8 @@ condition. A three-round interleaved window was attempted the same day and aband
 read 98.2, 97.4 and 174.3 tok/s with acceptance steady at 0.464-0.465, so the card was the variable
 and that window could not replace anything. Treat the decode column as this window's reading and
 re-measure before quoting it as the engine's current speed.
-Re-folded 2026-11-01 on engine `00947874` after the rebuild: run-level median +7.8% against the previous
-table (range +3.4% to +10.3%), and acceptance moved with it. `MEASURED_ENGINE` records the engine these
+Re-folded 2026-11-03 on engine `f3bc4e01ca39` after the rebuild and upstream merge: lane fingerprint
+figures folded onto this engine's record. `MEASURED_ENGINE` records the engine these
 values came from, so `check_lane_figures.py` fails when the table and the tree disagree on that as well as
 on the fingerprint's own identity. Treat the decode column as this window's reading, as above.
 After the 2026-10-30 fold every value below is backed by `tools/release/lane_figures.json` (the
