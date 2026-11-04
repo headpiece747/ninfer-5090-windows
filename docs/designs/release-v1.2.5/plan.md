@@ -65,3 +65,11 @@ identical to `MEASURED_ENGINE`, so the published figures and the shipped binary 
 2. `package_release.py` — runs doc links, cache capacity and the recorded test baseline; refuses a Debug
    build; writes the archive, `SHA256SUMS` and prints the digest.
 3. `check_release_archive.py` — extracts the archive and runs live inference acceptance test against port 8086.
+
+## Packaging and Acceptance Verification
+
+- **Archive:** `ninfer-windows-v1.2.5-rtx5090.zip` (324.7 MB)
+- **SHA-256:** `34e3d63e62a7152fa67ecbf94f49429aa16af6c1336b62e252bc6ca789ab8873`
+- **SHA256SUMS:** covers all 85 staged files in `stage-v1.2.5/SHA256SUMS`
+- **Engine Hash:** `f3bc4e01ca39229359f7447b43332b5561c2f2b654eb3b6c9340641ce31d39ad` (byte-for-byte identical to `MEASURED_ENGINE`)
+- **Live Acceptance:** Verified by `check_release_archive.py` (served QUASAR DFlash2 on port 8086, HTTP 200, 16 completion tokens).
