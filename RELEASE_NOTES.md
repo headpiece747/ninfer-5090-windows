@@ -2,11 +2,11 @@
 
 ## What changed in 1.2.5
 
-A major feature, stability, and upstream synchronization release following `v1.2.4`, incorporating 11 upstream commits from `Neroued/ninfer@dev` (`5b834fc35`..`a754fcf3b`) alongside native Windows port hardening:
+A major feature, stability, and upstream synchronization release following `v1.2.4`, incorporating upstream commits from `Neroued/ninfer@dev` (`5b834fc35`..`1fdb37160`) alongside native Windows port hardening:
 
 - **Interactive Web Monitoring Dashboard & Telemetry**:
-  - Upstream introduced a comprehensive real-time web monitoring dashboard (`dashboard/`) featuring responsive charts, persistent telemetry history, TTFT distribution histograms, Paper theme styling, and Docker deployment configurations.
-  - Exposes internal engine observability endpoints (`/v1/internal/monitor/...`) providing granular visibility into request queue states, resident KV cache pools, and GPU memory allocations.
+  - Upstream introduced a real-time web monitoring dashboard (`dashboard/`) featuring responsive charts, persistent telemetry history, TTFT distribution histograms, and Paper theme styling (built separately via Node/Vite in `dashboard/`).
+  - Exposes engine observability endpoints (`/monitor/info`, `/monitor/snapshot`, and SSE `/monitor/events`) providing granular visibility into request queue states, resident KV cache pools, and GPU memory allocations.
 - **Runtime Starvation Prevention Under Context Pressure** (`a754fcf3b`):
   - Resolved request queue starvation when context memory approaches saturation. Implemented priority-aware queue scheduling and starvation prevention verified end-to-end by `tests/models/qwen3_5/test_engine_fairness_real.cpp`.
 - **Context Cache Retention & Eviction Refinements** (`76b5370bd`):
@@ -16,8 +16,8 @@ A major feature, stability, and upstream synchronization release following `v1.2
 - **Native Windows Port Hardening**:
   - **MSVC 128-bit Arithmetic (`ninfer::Uint128`)**: Implemented complete 128-bit integer arithmetic (shifts, carries, borrows, and full 128-bit division) in `core/uint128.h` for MSVC, eliminating standard library type limitations and ensuring exact cost-model evaluations in `resource_manager.h`.
   - **Cross-Platform Process ID Cleanup**: Unified platform process ID retrieval via `current_process_id()` in `src/serve/observations.cpp` and `tests/test_request_log.cpp`, removing orphaned POSIX `<unistd.h>` headers.
-  - **Test Suite Restorations**: Restored CMake registrations for `ninfer_topk_logprobs_test` (verifying Op mutation perturbation seams) and `ninfer_uint128_test`, bringing total verified test coverage to 198 tests.
-  - **Certified Engine Identity**: Shipped binaries in the release archive and all 8 launcher profiles are certified byte-for-byte against engine `f3bc4e01ca39`.
+  - **Test Suite Coverage**: 200 registered CTest targets (`196/200` passing against the QUASAR artifact alongside 4 documented baseline known failures and 4 artifact-optional skips) plus OP permutation mutation checks.
+  - **Certified Engine Identity**: The 8 launcher profiles in `tools/release/profiles.py` are measured against engine `258983dc9d89` (with `--memory-headroom 1024MiB` in all 8 launchers to avoid WDDM shared-memory eviction under `--context-capacity auto`).
 
 ---
 
@@ -168,9 +168,7 @@ are new.
   `initial_binding` with 56.3 ms total. Decode and acceptance are unmoved (fingerprint `code` cell
   320.1 tok/s / 45.9%). `ninfer-cli` runs the same loop once per invocation, where it is invisible
   beside model load, and `ninfer-perplexity` does not run it at all.
-- **The three apps set the console code page**, so their output renders as UTF-8 in any console rather
-  than through the machine's OEM code page. Verified in both directions with a probe that reads the
-  console's output code page: 437 before, 65001 after.
+- **`ninfer-serve` sets the console output code page** (`ConsoleOutputCodePage`, restored on exit), and all three apps embed `cmake/windows-utf8.manifest` (`activeCodePage=UTF-8`) so UTF-8 output renders cleanly without relying on OEM code pages.
 - **The A16 SwiGLU decomposition above T=16 is gone, and the fused route covers every extent.** Every
   A16 call with T>16 used to project gate/up into a BF16 buffer and apply the nonlinearity to that,
   which measured 8.1e-3 against the profile's own 6.3e-3 tail bound — about 29% over, and identically
@@ -263,7 +261,7 @@ that earlier builds shipped.
 | --- | --- | --- | --- | --- | --- | --- |
 | `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **312 tok/s** | 52.8% |
 | `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **219 tok/s** | 59.2% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full | DFlash2 (9) | yes | 262,144 | **301 tok/s** | 41.6% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **301 tok/s** | 41.6% |
 | `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 192 tok/s | 55.3% |
 | `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **308 tok/s** | 53.6% |
 | `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (5) | yes | 262,144 | 207 tok/s | 54.6% |

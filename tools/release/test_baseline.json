@@ -8,7 +8,7 @@
     },
     "ninfer_qwen3_5_moe_real_test": {
       "case": "moe real route",
-      "reason": "Needs a 35B-A3B MoE checkpoint (tests/README.md names qwen3_6_35b_a3b.ninfer). This product ships three artifacts and all are 27B dense, so it cannot pass here by construction, and the fail-fast happens before any model load. Baselined because a rule that demands an artifact outside the product would block every release forever."
+      "reason": "Needs a 35B-A3B MoE checkpoint (tests/README.md names qwen3_6_35b_a3b.ninfer). This product ships five artifacts and all are 27B dense, so it cannot pass here by construction, and the fail-fast happens before any model load. Baselined because a rule that demands an artifact outside the product would block every release forever."
     },
     "ninfer_qwen3_5_moe_offload_real_test": {
       "case": "moe offload real route",
@@ -28,7 +28,7 @@
   ],
   "optional_tests": {
     "ninfer_qwen3_5_loading_real_test": "operator tool, not a gate test: it takes --artifact as a command-line argument and returns 77 (SKIP_RETURN_CODE) when ctest supplies none, so no environment variable can make it run",
-    "ninfer_qwen3_5_moe_real_test": "needs a 35B-A3B MoE checkpoint (tests/README.md names qwen3_6_35b_a3b.ninfer); this product ships three artifacts and all are 27B dense, so it is unattainable here by construction",
+    "ninfer_qwen3_5_moe_real_test": "needs a 35B-A3B MoE checkpoint (tests/README.md names qwen3_6_35b_a3b.ninfer); this product ships five artifacts and all are 27B dense, so it is unattainable here by construction",
     "ninfer_qwen3_5_moe_offload_real_test": "needs a 35B-A3B MoE checkpoint; this product's artifacts are 27B dense, so it is unattainable here by construction",
     "ninfer_qwen4_exp_loading_real_test": "operator tool, not a gate test, for two independent reasons. It takes its artifact as argv[1] and returns 77 when ctest supplies none (tests/models/qwen4_exp/test_loading_real.cpp:157), and its registration passes no COMMAND arguments, so no environment variable can make it run -- the same structural reason as ninfer_qwen3_5_loading_real_test above. And even given an artifact it needs a Qwen3.8-Flash-Next (Qwen4Exp) image: it asserts a PLE table of exactly 320,001,536 rows, 96 registered host objects, at least 67,947,921,408 registered host bytes and a device capacity between 63 and 76 GiB. This product ships five images and all five are Qwen3.8-27B (Qwen3_5/Qwen3_5Moe), so those extents are unattainable here by construction.",
     "ninfer_qwen4_exp_reclaim_real_test": "needs a Qwen3.8-Flash-Next (Qwen4Exp) checkpoint; this product ships Qwen3.8-27B images, so it is unattainable here by construction",

@@ -153,9 +153,7 @@ ships, and every profile reaches the full native context. **Three lanes ship `--
 | `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **346 tok/s** | 51.0% |
 | `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 200 tok/s | 55.6% |
 
-Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
-runtime reservation plus its 512 MiB automatic headroom does not fit in what remains after
-weights, and it reports the byte counts when it refuses. That ceiling is a property of the artifact's weight size:
+Context ceilings are measured, not assumed. The engine defaults to 512 MiB of automatic planning headroom (`kDefaultMemoryHeadroomBytes`), while all eight shipped Windows launchers pass `--memory-headroom 1024MiB` so automatic KV allocation leaves enough free device memory to avoid Windows WDDM Shared System Memory eviction; the engine refuses a profile whose minimum runtime reservation plus headroom does not fit after weights. That ceiling is a property of the artifact's weight size:
 QUASAR's MTP lane carries 16.3 GiB of device weights and NVFP4-full's 17.1 GiB, both of which leave
 room for the full KV pool. Our earlier NVFP4 image carried 19.7 GiB and could not, which is why it
 was replaced.
@@ -297,8 +295,8 @@ The product boundary remains intentionally small:
 
 `--max-context` is each sequence's logical limit. `--context-capacity` (formerly `--kv-capacity`) sizes the shared Main Text KV pool
 used by active requests and retained prefixes; `auto` resolves the largest legal capacity at
-startup from the memory remaining after weights. Both explicit and automatic modes use 512 MiB of
-startup planning headroom. Explicit capacities remain fixed for the process lifetime.
+startup from the memory remaining after weights. Both explicit and automatic modes default to 512 MiB of
+startup planning headroom in the engine (`--memory-headroom 1024MiB` in all shipped Windows launchers). Explicit capacities remain fixed for the process lifetime.
 
 ## Documentation
 
