@@ -59,8 +59,8 @@ if errorlevel 1 (
 )
 
 echo.
-echo [4/4] Compiling NInfer with Vision Support (-DNINFER_BUILD_MEDIA_ACQUIRE=ON)...
-cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DNINFER_ENABLE_AVX2=ON -DCMAKE_BUILD_TYPE=Release -DNINFER_BUILD_MEDIA_ACQUIRE=ON
+echo [4/4] Compiling NInfer with Vision Support...
+cmake -B build -S . -G Ninja -DCMAKE_CUDA_ARCHITECTURES="120a" -DCMAKE_BUILD_TYPE=Release
 echo CONFIGURE_EXIT=%ERRORLEVEL%
 if errorlevel 1 exit /b 1
 

@@ -783,17 +783,23 @@
       "review": "product",
       "reason": "The DFlash2 NVFP4 linear route: the drafter's own shapes (feature, qkv, attention output, conv projection, selector) registered alongside the dense ones, with their launch entry points. A port addition -- upstream's NVFP4 dispatcher carries the dense shapes only."
     },
-    "src/ops/gated_residual/mix/dgx_spark/launch.cu": {
+    "src/ops/gated_residual/mix/bf16/dgx_spark/launch.cu": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "MSVC 19.44 C2326 compatibility: static constexpr kernel local variable in lambda launch (carried across upstream move from gated_residual/mix/dgx_spark/launch.cu)."
     },
-    "src/ops/gated_residual/mix/rtx5090/launch.cu": {
+    "src/ops/gated_residual/mix/bf16/rtx5090/launch.cu": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "MSVC 19.44 C2326 compatibility: static constexpr kernel local variable in lambda launch (carried across upstream move from gated_residual/mix/rtx5090/launch.cu)."
+    },
+    "src/ops/gated_residual/mix/fp8/rtx5090/launch.cu": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Port feature: follows the port's rename of Fp8A8TmaSplitKSchedule to Fp8A8SplitKSchedule (fp8_schedule.cuh); upstream's new RTX 5090 FP8 mix caller migrated to Fp8A8SplitKSchedule."
     },
     "src/ops/kv_cache/context_materialize/bf16.cu": {
       "status": "M",
@@ -901,7 +907,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "MSVC cudafe1 compatibility & port epilogue: lowers Nvfp4A4TmaDescriptors and Nvfp4A4TmaDescriptorSet to alignas(64) for C2719, uses static constexpr kernel local for C2326, and calls epilogue.apply_scaled."
     },
     "src/ops/linear/kernels/nvfp4/nvfp4_launch.h": {
       "status": "M",
@@ -932,6 +938,18 @@
       "disposition": "windows",
       "review": "windows",
       "reason": "Part of the FP8 ungating work (measured: docs/maintainer/fp8-ungated-bands.md): split-K geometry and the identity row policy threaded through the MMA launch, so the ungated token bands have a schedule that can carry partials. Same family as the nine UNGATED files."
+    },
+    "src/ops/linear/projection/fp8/rtx5090/shapes/n14976_k5120.cu": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Port feature: follows the port's rename of Fp8A8TmaSplitKSchedule to Fp8A8SplitKSchedule (fp8_schedule.cuh); upstream's new RTX 5090 FP8 shape caller migrated to Fp8A8SplitKSchedule."
+    },
+    "src/ops/linear/projection/fp8/rtx5090/shapes/n5120_k5120.cu": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Port feature: follows the port's rename of Fp8A8TmaSplitKSchedule to Fp8A8SplitKSchedule (fp8_schedule.cuh); upstream's new RTX 5090 FP8 shape caller migrated to Fp8A8SplitKSchedule."
     },
     "src/ops/linear/projection/fp8/shapes/n14336_k5120.cu": {
       "status": "M",
@@ -992,6 +1010,18 @@
       "disposition": "unknown",
       "review": "cpp-cuda-review + check_fp8_band_ladders (10 files, 0 divergences, self-test catches 3). The band ladders name their bounds once so the ladder and the capacity function cannot disagree; M32N32Deep carries its measured figure and configuration.",
       "reason": "declares that geometry beside upstream's."
+    },
+    "src/ops/linear/split/fp8/rtx5090/shapes/n14976_k5120.cu": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Port feature: follows the port's rename of Fp8A8TmaSplitKSchedule to Fp8A8SplitKSchedule (fp8_schedule.cuh); upstream's new RTX 5090 FP8 split caller migrated to Fp8A8SplitKSchedule."
+    },
+    "src/ops/linear/split/fp8/rtx5090/shapes/n2176_k5120.cu": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Port feature: follows the port's rename of Fp8A8TmaSplitKSchedule to Fp8A8SplitKSchedule (fp8_schedule.cuh); upstream's new RTX 5090 FP8 split caller migrated to Fp8A8SplitKSchedule."
     },
     "src/ops/linear/split/fp8/shapes/n14336_k5120/a8.cu": {
       "status": "M",
