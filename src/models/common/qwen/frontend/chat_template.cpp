@@ -197,24 +197,14 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
         }
         if (!message.tool_calls.empty()) {
             value["tool_calls"] = Json::array();
-            for (const auto& call : message.tool_calls) {
-                // Parsed tolerantly, and a failure is a request error rather than an exception thrown
-                // from inside nlohmann. The Chat surface deliberately does not validate this string at
-                // the request boundary (tests/test_openai_schema.cpp pins that, in its own words), so
-                // this is where it has to be caught: otherwise the serving layer sees a parse_error,
-                // which is not a RequestError, and answers a malformed client field with a 500 and an
-                // internal-failure log line instead of a rejected request.
-                const Json arguments = call.arguments_json.empty()
-                                           ? Json::object()
-                                           : Json::parse(call.arguments_json, nullptr, false);
-                if (arguments.is_discarded()) {
-                    throw RequestError(RequestErrorKind::InvalidToolConstraint,
-                                       "assistant tool_calls arguments must be JSON: " + call.name);
-                }
+            for (std::size_t j = 0; j < message.tool_calls.size(); ++j) {
+                const auto& call = message.tool_calls[j];
+                auto arguments = models::frontend::parse_tool_history_arguments(call.arguments_json,
+                                                                                call.name, i, j);
                 value["tool_calls"].push_back(
                     {{"id", call.id},
                      {"type", "function"},
-                     {"function", {{"name", call.name}, {"arguments", arguments}}}});
+                     {"function", {{"name", call.name}, {"arguments", std::move(arguments)}}}});
             }
         }
         if (!message.tool_call_id.empty()) value["tool_call_id"] = message.tool_call_id;
@@ -265,10 +255,9 @@ RenderedChat CompiledChatTemplate::render(const std::vector<ChatMessage>& messag
     RenderedChat result;
     if (context.contains("enable_thinking"))
         result.enable_thinking = context["enable_thinking"].get<bool>();
-    result.continuation_content         = std::move(continuation_content);
-    result.starts_in_reasoning          = layout.starts_in_reasoning;
-    result.media_placeholders           = layout.media_placeholders;
-    result.rewrite_execution_boundaries = layout.execution_boundaries;
+    result.continuation_content = std::move(continuation_content);
+    result.starts_in_reasoning  = layout.starts_in_reasoning;
+    result.media_placeholders   = layout.media_placeholders;
     result.message_boundaries.resize(messages.size() + 1);
     result.cache_boundaries.resize(options.cache_markers.size());
 

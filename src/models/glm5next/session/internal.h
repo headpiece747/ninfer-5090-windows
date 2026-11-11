@@ -79,6 +79,7 @@ struct Sequence {
     std::size_t next_capture         = 0;
     std::vector<CapturePoint> captures;
     std::uint32_t last_saved = 0, last_intermediate_attempt = 0;
+    std::optional<std::uint32_t> retry_frontier;
     std::unique_ptr<CaptureReservation> capture;
     bool capture_pending = false;
     SpeculativeStats speculative;
@@ -175,7 +176,7 @@ struct ContextOperation {
 };
 
 struct ComputeTransaction {
-    enum class Kind { Prefill, Replay, Ordinary, Mtp, Control, Score };
+    enum class Kind { Prefill, Replay, Ordinary, Speculative, Control, Score };
 
     Kind kind;
     context::ContextTransaction context;
@@ -183,7 +184,6 @@ struct ComputeTransaction {
     std::vector<SequenceHandle> members;
     std::vector<WorkRow> rows;
     std::vector<std::uint32_t> draft_extents;
-    std::vector<std::optional<std::uint32_t>> splits;
     std::optional<ComputeResult> result;
     ExecutionSample observed_result;
     std::vector<runtime::CommitDecision> decisions;

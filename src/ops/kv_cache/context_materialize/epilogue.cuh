@@ -28,30 +28,34 @@ struct DeviceLayerView {
     __nv_bfloat16* cache_k;
     __half* cache_v;
     std::int32_t padded_capacity;
+    const std::int64_t* offsets;
     // The port's NVFP4 key/value parents are slices of a packed draft payload whose stored divisor
-    // the captured E4M3 scales do not include, so the decode has to fold `1 / weight_scale_divisor`
-    // back in. Both are 1.0 for every registered non-NVFP4 format.
+    // the captured E4M3 scales do not include, so the decode has to fold `1 / weight_scale` back
+    // in. Both are 1.0 for every registered non-NVFP4 format.
     float key_inverse_divisor   = 1.0F;
     float value_inverse_divisor = 1.0F;
-    std::int64_t key_slot_stride;
-    std::int64_t value_slot_stride;
 };
 
 struct DeviceLayers {
     DeviceLayerView layer[kContextKVMaterializeLayers];
+    float epsilon;
+    RopeD128Frequencies frequencies;
 };
 
 // Builds the device-side views from the Op's host layer array. Both the registered projections here
 // and the port's NVFP4 materialize route stage the same caches, so the builder is shared rather
 // than duplicated; the divisors stay 1.0 for every non-NVFP4 format.
 inline DeviceLayers make_device_layers(
-    const std::array<ContextKVMaterializeLayerView, kContextKVMaterializeLayers>& layers) {
+    const std::array<ContextKVMaterializeLayerView, kContextKVMaterializeLayers>& layers,
+    const ContextKVMaterializeProfile& profile) {
     DeviceLayers result{};
+    result.epsilon     = profile.epsilon;
+    result.frequencies = rope_d128_frequencies(profile.theta);
+    const auto inverse_divisor = [](const Weight& weight) {
+        return weight.qtype == QType::NVFP4 ? 1.0F / weight.weight_scale : 1.0F;
+    };
     for (int index = 0; index < kLayers; ++index) {
-        const ContextKVMaterializeLayerView& source = layers[static_cast<std::size_t>(index)];
-        const auto inverse_divisor                  = [](const Weight& weight) {
-            return weight.qtype == QType::NVFP4 ? 1.0F / weight.weight_scale_divisor : 1.0F;
-        };
+        const auto& source  = layers[index];
         result.layer[index] = {
             static_cast<const std::uint8_t*>(source.key_weight.qdata),
             static_cast<const std::uint8_t*>(source.key_weight.scales),
@@ -60,11 +64,10 @@ inline DeviceLayers make_device_layers(
             static_cast<const __nv_bfloat16*>(source.key_norm_weight.data),
             common::operand::state_field_base<__nv_bfloat16>(source.cache.k),
             common::operand::state_field_base<__half>(source.cache.v),
-            static_cast<std::int32_t>(source.cache.padded_capacity),
+            std::int32_t(source.cache.padded_capacity),
+            static_cast<const std::int64_t*>(source.cache.k.records.byte_offsets.data),
             inverse_divisor(source.key_weight),
             inverse_divisor(source.value_weight),
-            source.cache.k.field.byte_strides[3] / 2,
-            source.cache.v.field.byte_strides[3] / 2,
         };
     }
     return result;
@@ -72,19 +75,20 @@ inline DeviceLayers make_device_layers(
 
 __device__ __forceinline__ void store_key_head(const float* input, DeviceLayerView layer,
                                                const int* positions, const std::int64_t* offsets,
-                                               int column, int width, int head) {
+                                               int column, int width, int head, float epsilon,
+                                               const RopeD128Frequencies& frequencies) {
     const int lane = threadIdx.x & 31;
     const int j    = lane * 2;
     float x0 = input[j], x1 = input[j + 1], y0 = input[j + 64], y1 = input[j + 65];
     float sum           = common::warp_reduce_sum(x0 * x0 + x1 * x1 + y0 * y0 + y1 * y1);
-    const float inverse = rsqrtf(__shfl_sync(0xffffffffU, sum, 0) / 128.0f + 1.e-6f);
+    const float inverse = rsqrtf(__shfl_sync(0xffffffffU, sum, 0) / 128.0f + epsilon);
     x0 *= inverse * __bfloat162float(layer.key_norm[j]);
     x1 *= inverse * __bfloat162float(layer.key_norm[j + 1]);
     y0 *= inverse * __bfloat162float(layer.key_norm[j + 64]);
     y1 *= inverse * __bfloat162float(layer.key_norm[j + 65]);
     float sin0, cos0, sin1, cos1;
-    rope_d128_theta1e7_sincos(positions, column, j, &sin0, &cos0);
-    rope_d128_theta1e7_sincos(positions, column, j + 1, &sin1, &cos1);
+    rope_d128_sincos(frequencies, positions[column], j, &sin0, &cos0);
+    rope_d128_sincos(frequencies, positions[column], j + 1, &sin1, &cos1);
     const auto dst = offsets[column / width] / sizeof(__nv_bfloat16) +
                      kv::cyclic_offset<128, 2048>(positions[column], head, layer.padded_capacity);
     auto* out      = reinterpret_cast<__nv_bfloat162*>(layer.cache_k + dst);
@@ -142,27 +146,9 @@ struct ContextPrefixColumns {
     }
 };
 
-// Internal linkage: this header is included by more than one translation unit (the registered
-// projections in dispatch.cu and the port's NVFP4 materialize route), and a __global__ with external
-// linkage in a header is a duplicate device symbol at nvlink time.
-static __global__ __launch_bounds__(256) void context_kv_key_post_kernel(
-    const float* __restrict__ key_scratch, const std::int32_t* __restrict__ positions,
-    const std::int32_t* __restrict__ counts, const std::int64_t* __restrict__ state_offsets,
-    DeviceLayers layers, std::int32_t batch_size, std::int32_t width, std::int32_t min_count,
-    std::int32_t max_count) {
-    const int packed_column   = static_cast<int>(blockIdx.x);
-    const int physical_column = context_column(packed_column, width, max_count);
-    const int layer_index     = static_cast<int>(blockIdx.y);
-    const int batch           = physical_column / width;
-    const int local           = physical_column % width;
-    const int count           = counts[batch];
-    if (count < min_count || count > max_count || local >= count) return;
-    const auto layer   = layers.layer[layer_index];
-    const int head     = threadIdx.x >> 5;
-    const float* input = key_scratch +
-                         kRows * (packed_column + max_count * batch_size * layer_index) +
-                         head * kHeadDim;
-    store_key_head(input, layer, positions, state_offsets, physical_column, width, head);
-}
+void launch_key_post(const float* key_scratch, const std::int32_t* positions,
+                     const std::int32_t* counts, const DeviceLayers& layers,
+                     std::int32_t batch_size, std::int32_t width, std::int32_t min_count,
+                     std::int32_t max_count, cudaStream_t stream);
 
 } // namespace ninfer::ops::detail::context_kv

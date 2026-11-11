@@ -17,12 +17,17 @@ target_sources(ninfer_ops PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/q8/shapes/n34816_k5120.cu"
 )
 
+include("${CMAKE_CURRENT_LIST_DIR}/nvfp4_mul/sources.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/mxfp8/sources.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/fp8_block/sources.cmake")
+
 target_sources(ninfer_ops_non_rdc PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/nvfp4/shapes/n34816_k5120/a4_tma.cu"
 )
 
 if(NINFER_TARGET STREQUAL "dgx_spark")
   target_sources(ninfer_ops_non_rdc PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/bf16/dgx_spark/shapes/n12288_k4096.cu"
     "${CMAKE_CURRENT_LIST_DIR}/bf16/dgx_spark/shapes/n8192_k1024_bias.cu"
     "${CMAKE_CURRENT_LIST_DIR}/bf16/dgx_spark/shapes/n20480_k4096.cu")
   target_sources(ninfer_ops_non_rdc PRIVATE "${CMAKE_CURRENT_LIST_DIR}/q8/dgx_spark/shapes/n2048_k4096.cu")

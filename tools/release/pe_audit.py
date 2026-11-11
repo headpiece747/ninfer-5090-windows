@@ -30,6 +30,7 @@ SYSTEM_DLLS = {
     "msvcp140.dll",
     "msvcp140_atomic_wait.dll",
     "ncrypt.dll",
+    "normaliz.dll",
     "ntdll.dll",
     "odbc32.dll",
     "odbccp32.dll",

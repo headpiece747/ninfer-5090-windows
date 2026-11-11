@@ -26,6 +26,7 @@ constexpr std::array kRuntimeCounters{
     std::pair{"active_captures_aborted", &RuntimeStats::active_captures_aborted},
     std::pair{"preemptions", &RuntimeStats::preemptions},
     std::pair{"snapshot_restores", &RuntimeStats::snapshot_restores},
+    std::pair{"direct_restores", &RuntimeStats::direct_restores},
     std::pair{"replay_restores", &RuntimeStats::replay_restores},
     std::pair{"replayed_tokens", &RuntimeStats::replayed_tokens},
     std::pair{"root_selections", &RuntimeStats::root_selections},
@@ -75,8 +76,6 @@ constexpr std::array kPrefixKinds{std::pair{"input_replay", &PrefixCacheStatisti
                                   std::pair{"shared_prefix", &PrefixCacheStatistics::shared_prefix},
                                   std::pair{"continuation", &PrefixCacheStatistics::continuation}};
 constexpr std::array kKinds{"prefill", "decode", "replay", "control", "score", "context"};
-constexpr std::array kPhases{"waiting", "materializing", "prefill", "decode",   "control",
-                             "replay",  "pausing",       "paused",  "finishing"};
 constexpr std::array kStages{"submitted", "decision", "result_ready", "retiring", "discarding"};
 
 template <class T, class Fields>
@@ -141,15 +140,6 @@ Json execution(const ExecutionCounters& value) {
             {"retirement", duration(value.exposure.retirement)},
             {"total", duration(value.exposure.total)},
             {"latency_bins", value.latency.bins}};
-}
-
-Json communication(const CommunicationWork& value) {
-    constexpr std::array names{"all_reduce",     "broadcast", "all_gather",
-                               "reduce_scatter", "send",      "receive"};
-    Json out;
-    for (std::size_t i = 0; i < names.size(); ++i)
-        out[names[i]] = {{"calls", value.calls[i]}, {"payload_bytes", value.payload_bytes[i]}};
-    return out;
 }
 
 template <class T>
@@ -225,8 +215,14 @@ EngineSnapshot observation_delta(EngineSnapshot current, const EngineSnapshot& b
             const auto old = std::find_if(prior->communication.begin(), prior->communication.end(),
                                           [&](const auto& g) { return g.group == group.group; });
             if (old == prior->communication.end()) continue;
-            subtract_communication(group.eager, old->eager);
-            subtract_communication(group.graph, old->graph);
+            for (auto& backend : group.backends) {
+                const auto previous =
+                    std::find_if(old->backends.begin(), old->backends.end(),
+                                 [&](const auto& b) { return b.backend == backend.backend; });
+                if (previous == old->backends.end()) continue;
+                subtract_communication(backend.eager, previous->eager);
+                subtract_communication(backend.graph, previous->graph);
+            }
         }
         if (rank.memory.experts && prior->memory.experts) {
             rank.memory.experts->uploaded_bytes -= prior->memory.experts->uploaded_bytes;
@@ -289,6 +285,7 @@ Json observation_json(const EngineSnapshot& snapshot, std::uint64_t now) {
         {"sampled_ns", snapshot.stamp.sampled_ns},
         {"sample_age_ns", now >= snapshot.stamp.sampled_ns ? now - snapshot.stamp.sampled_ns : 0},
         {"status", statuses[static_cast<std::size_t>(snapshot.status)]},
+        {"progress_owner", optional(snapshot.progress_owner)},
         {"runtime", std::move(runtime)},
         {"context", context_usage_json(r)},
         {"execution_latency_bounds_ns", kExecutionLatencyBoundsNs}};
@@ -354,12 +351,8 @@ Json observation_json(const EngineSnapshot& snapshot, std::uint64_t now) {
         value["compute_paths"]       = {{"eager", rank.compute_paths[0]},
                                         {"graph", rank.compute_paths[1]},
                                         {"mixed", rank.compute_paths[2]}};
-        value["communication_eager"] = communication(rank.communication_eager);
-        value["communication_graph"] = communication(rank.communication_graph);
-        for (std::size_t i = 0; i < rank.communication.size(); ++i) {
-            value["communication"][i]["eager"] = communication(rank.communication[i].eager);
-            value["communication"][i]["graph"] = communication(rank.communication[i].graph);
-        }
+        value["communication_eager"] = communication_json(rank.communication_eager);
+        value["communication_graph"] = communication_json(rank.communication_graph);
         out["ranks"].push_back(std::move(value));
     }
     const auto& media = snapshot.media;
@@ -385,23 +378,32 @@ Json observation_json(const EngineSnapshot& snapshot, std::uint64_t now) {
     if (snapshot.requests) {
         out["requests"] = Json::array();
         for (const auto& q : *snapshot.requests)
-            out["requests"].push_back({{"id", q.id},
-                                       {"phase", kPhases[static_cast<std::size_t>(q.phase)]},
-                                       {"placement", optional(q.placement)},
-                                       {"submitted_ns", q.submitted_ns},
-                                       {"admitted_ns", optional(q.admitted_ns)},
-                                       {"first_token_ns", optional(q.first_token_ns)},
-                                       {"prompt_tokens", q.prompt_tokens},
-                                       {"reused_prompt_tokens", q.reused_prompt_tokens},
-                                       {"processed_prompt_tokens", q.processed_prompt_tokens},
-                                       {"generated_tokens", q.generated_tokens},
-                                       {"injected_control_tokens", q.injected_control_tokens},
-                                       {"logical_context_tokens", q.logical_context_tokens},
-                                       {"output_token_limit", optional(q.output_token_limit)},
-                                       {"preemptions", q.preemptions},
-                                       {"resident", q.resident},
-                                       {"execution_in_flight", q.execution_in_flight},
-                                       {"capture_pending", q.capture_pending}});
+            out["requests"].push_back(
+                {{"id", q.id},
+                 {"phase", request_phase_name(q.phase)},
+                 {"placement", optional(q.placement)},
+                 {"submitted_ns", q.submitted_ns},
+                 {"admitted_ns", optional(q.admitted_ns)},
+                 {"first_token_ns", optional(q.first_token_ns)},
+                 {"prompt_tokens", q.prompt_tokens},
+                 {"reused_prompt_tokens", q.reused_prompt_tokens},
+                 {"processed_prompt_tokens", q.processed_prompt_tokens},
+                 {"generated_tokens", q.generated_tokens},
+                 {"injected_control_tokens", q.injected_control_tokens},
+                 {"logical_context_tokens", q.logical_context_tokens},
+                 {"output_token_limit", optional(q.output_token_limit)},
+                 {"preemptions", q.preemptions},
+                 {"replayed_tokens", q.replayed_tokens},
+                 {"recovery_pending", q.recovery_pending},
+                 {"last_progress_ns", optional(q.last_progress_ns)},
+                 {"recovery", q.recovery ? Json{{"route", recovery_route_name(q.recovery->route)},
+                                                {"begin_frontier", q.recovery->begin_frontier},
+                                                {"frontier", q.recovery->frontier},
+                                                {"target_frontier", q.recovery->target_frontier}}
+                                         : Json(nullptr)},
+                 {"resident", q.resident},
+                 {"execution_in_flight", q.execution_in_flight},
+                 {"capture_pending", q.capture_pending}});
     }
     return out;
 }

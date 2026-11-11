@@ -3,6 +3,8 @@
 #include "models/glm5next/definition.h"
 #include "models/glm5next/parallel/plan.h"
 #include "ninfer/ops/kpool_mla.h"
+#include "ninfer/ops/context_kv_materialize.h"
+#include "ninfer/ops/attention_geometry.h"
 #include "ninfer/ops/mhc.h"
 #include "ninfer/ops/moe.h"
 
@@ -17,7 +19,8 @@ struct KdaProfile {
 
 struct MlaProfile {
     std::array<ops::KpoolMlaPrepareProfile, 3> prepare;
-    ops::LinearProfile query_index, query, output;
+    ops::ProjectionProfile query_index;
+    ops::LinearProfile query, output;
     std::array<std::int32_t, 2> query_rows;
     ops::KpoolIndexerProfile indexer;
     ops::KpoolSparseMlaProfile attention;
@@ -30,9 +33,18 @@ struct DenseProfile {
 struct MoeProfile {
     ops::SigmoidMoeProfile math;
     ExpertBankId bank;
-    ops::ExpertActivationDivisors activation_divisors;
     ops::ExpertSubsetKind subset = ops::ExpertSubsetKind::All;
 };
+
+// Preserve native contiguous parents while mapping MLA's semantic projection roles.
+struct MlaProjectionInputs {
+    std::vector<ops::WeightInput> weights;
+    ops::KpoolMlaProjectionLayout rows;
+};
+
+[[nodiscard]] MlaProjectionInputs mla_projection_inputs(std::span<const BoundWeight>,
+                                                        const MlaWeights&,
+                                                        ops::KpoolMlaPrepareProjection);
 
 struct BlockProfile {
     std::variant<KdaProfile, MlaProfile> mixer;
@@ -44,12 +56,24 @@ struct TextProfile {
     ops::MhcPreParameters mhc_parameters;
     ops::LinearProfile head;
     std::vector<BlockProfile> layers;
+    std::vector<int> feature_slots;
 };
 
 struct MtpProfile {
     ops::LinearProfile stem, head;
     MlaProfile attention;
     MoeProfile moe;
+};
+
+struct DraftBlockProfile {
+    ops::LinearProfile kvq, gate_up, down;
+};
+
+struct DraftProfile {
+    ops::LinearProfile feature_projection, head, selector;
+    ops::AttentionHeadGeometry attention;
+    ops::ContextKVMaterializeProfile context;
+    std::vector<DraftBlockProfile> layers;
 };
 
 struct VisionBlockProfile {
@@ -75,6 +99,7 @@ struct ModelProfile {
     std::uint32_t control_token_limit = 0;
     TextProfile text;
     std::optional<MtpProfile> mtp;
+    std::optional<DraftProfile> draft;
     std::optional<VisionProfile> vision;
 };
 

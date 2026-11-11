@@ -1,6 +1,6 @@
 {
-  "recorded": "2026-11-03",
-  "suite_size": 198,
+  "recorded": "2026-11-10",
+  "suite_size": 200,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -23,7 +23,8 @@
     "ninfer_qwen3_5_vision_workspace_test",
     "ninfer_qwen3_5_score_real_test",
     "ninfer_qwen3_5_dflash2_real_test",
-    "ninfer_qwen3_5_dflash_prefill_real_test"
+    "ninfer_qwen3_5_dflash_prefill_real_test",
+    "ninfer_serve_shutdown_real_test"
   ],
   "optional_tests": {
     "ninfer_qwen3_5_loading_real_test": "operator tool, not a gate test: it takes --artifact as a command-line argument and returns 77 (SKIP_RETURN_CODE) when ctest supplies none, so no environment variable can make it run",
@@ -129,6 +130,11 @@
       "date": "2026-11-03",
       "count": 1,
       "note": "ninfer_uint128_test restored: registered in tests/cmake/CoreTests.cmake after being dropped during upstream merge; verifies 128-bit integer math, shifts, carries, borrows, and division in core/uint128.h for MSVC"
+    },
+    {
+      "date": "2026-11-10",
+      "count": 2,
+      "note": "upstream/dev merge through 13ebb92f6 adds ninfer_serve_shutdown_real_test (tests/cmake/ProductTests.cmake; joined required_tests) and ninfer_native_weight_codec_test (tests/ops/quant/tests.cmake). Also folded the NVFP4 candidate_selector tests (nvfp4/k1..15 + mixed-codebook guard) from the removed orphan tests/ops/test_candidate_selector.cpp into tests/ops/sampling/candidate_selector.cpp inside ninfer_sampling_test. ctest -N confirms 200 tests registered."
     }
   ]
 }

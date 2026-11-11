@@ -17,6 +17,8 @@ class WorkerLoop {
 public:
     WorkerLoop(distributed::WorkerConnection& connection, Program& program, Codec codec)
         : connection_(connection), program_(program), codec_(std::move(codec)),
+          budget_(protocol::with_communication_capacity(codec_.control_budget(),
+                                                        connection.communication().statistics())),
           compute_(program.capacity().compute_frames), context_(program.capacity().context_frames) {
         if constexpr (requires { codec_.bind_input_storage(program_.input_storage()); })
             codec_.bind_input_storage(program_.input_storage());
@@ -25,6 +27,7 @@ public:
         observation_.rank     = identity.rank;
         observation_.node     = identity.node;
         observation_.hardware = connection_.device().properties().name;
+        connection_.communication().set_active(false);
     }
 
     // False means orderly shutdown with every frame retired.
@@ -105,6 +108,10 @@ private:
         if (!commands_.empty()) apply();
         progress_measurement();
         sample_resources();
+        if (communication_active_ && !active()) {
+            connection_.communication().set_active(false);
+            communication_active_ = false;
+        }
         return true;
     }
 
@@ -131,7 +138,7 @@ private:
         distributed::wire::Encoder report;
         protocol::encode_measurement_report(report, boundary.id, error, observation_);
         auto payload = std::move(report).take();
-        if (payload.size() > protocol::measurement_report_capacity(codec_.control_budget().report))
+        if (payload.size() > protocol::measurement_report_capacity(budget_.report))
             throw std::logic_error("rank measurement report exceeds its prepared capacity");
         connection_.send(distributed::wire::Kind::MeasurementComplete, std::move(payload));
         measurement_boundary_.reset();
@@ -218,6 +225,10 @@ private:
             in.finish();
             program_.validate_work(work, envelope.ticket.frame.kind);
             flight = {envelope, Phase::Running, 0, {envelope.command.value}};
+            if (!communication_active_) {
+                connection_.communication().set_active(true);
+                communication_active_ = true;
+            }
             observe_host_call(host_.submit_ns, [&] {
                 program_.start(
                     ExecutionRequest<Types>{envelope.ticket, envelope.command, std::move(work)});
@@ -309,7 +320,7 @@ private:
             event);
         if (publish) {
             auto payload = protocol::encode_event<Types>(event, codec_);
-            if (payload.size() > codec_.control_budget().event)
+            if (payload.size() > budget_.event)
                 throw std::logic_error("execution event exceeds its prepared capacity");
             connection_.send(distributed::wire::Kind::Event, std::move(payload));
         }
@@ -319,6 +330,8 @@ private:
     distributed::WorkerConnection& connection_;
     Program& program_;
     Codec codec_;
+    protocol::ControlBudget budget_;
+    bool communication_active_ = false;
     RankSnapshot observation_;
     RankHostStatistics host_;
     std::vector<Flight> compute_, context_;

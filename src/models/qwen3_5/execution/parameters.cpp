@@ -75,9 +75,9 @@ public:
                     dimension(std::get<MoeConfig>(profile_.config.text.ffn).num_experts_per_tok),
                     gate_up.policy(), down.policy()),
                 ops::swiglu_profile(out.shared)};
-            out.bank                = w.bank;
-            out.activation_divisors = {gate_up.activation_divisor(source.gate_up.layout.format),
-                                       down.activation_divisor(source.down.layout.format)};
+            out.bank                   = w.bank;
+            out.activation_calibration = {gate_up.calibration(source.gate_up.layout.format),
+                                          down.calibration(source.down.layout.format)};
             if (source.gate_up.parent->device.type() == DeviceType::CUDA) {
                 out.resident = device_expert_bank(source.gate_up, source.down);
             }
@@ -129,9 +129,10 @@ public:
 
     ops::MoeExecutionHints prefetch(const ops::ProjectionWeights& projection,
                                     WeightId query) const {
-        const auto* single = std::get_if<LinearParameters>(&projection);
-        const auto& weight =
-            single ? single->weight : std::get<ops::PairedProjectionWeights>(projection).first;
+        const auto* single   = std::get_if<LinearParameters>(&projection);
+        const auto& weight   = single
+                                   ? single->weight
+                                   : std::get<ops::PairedProjectionWeights>(projection).first.weight;
         const auto& geometry = model_.weight(query).view.parts.front().parent->geometry;
         const auto row_bytes = geometry.layout == QuantLayout::Contiguous
                                    ? std::uint64_t(weight.k) * dtype_size(DType::BF16)
@@ -172,11 +173,11 @@ public:
         return qwen::prepare_vision(model_.weight_data(), weights);
     }
 
-    DynamicConvParameters convolution(const DynamicConvWeights& w) const {
+    DynamicConvParameters convolution(const dflash::DynamicConvWeights& w) const {
         return {tensor(w.base_kernel), linear(w.kernel_projection)};
     }
 
-    DraftParameters draft(const DraftWeights& w) const {
+    DraftParameters draft(const dflash::Weights& w) const {
         DraftParameters out;
         out.feature_projection = linear(w.feature_projection);
         out.context_norm       = tensor(w.context_norm);
@@ -223,7 +224,7 @@ public:
                 const auto& bound = model_.weight(id);
                 return with_context(bound.name, [&] {
                     return ops::prepare_linear_weight(
-                        {bound.view, ops::LinearPolicy::A16Only, 1.0F});
+                        {bound.view, ops::LinearPolicy::A16Only, {}});
                 });
             };
             out.selector = SelectorParameters{linear(w.selector->hidden_projection),

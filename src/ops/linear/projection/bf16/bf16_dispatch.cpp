@@ -13,6 +13,11 @@ struct ShapeEntry {
 
 constexpr std::array kShapes{
 #if NINFER_TARGET_SPARK
+    ShapeEntry{2048, 20480, select_bf16_n2048_k20480},
+    ShapeEntry{3072, 4096, select_bf16_n3072_k4096},
+    ShapeEntry{12288, 4096, select_bf16_n12288_k4096},
+    ShapeEntry{4096, 2048, select_bf16_n4096_k2048},
+    ShapeEntry{4096, 6144, select_bf16_n4096_k6144},
     ShapeEntry{8192, 1024, select_bf16_n8192_k1024},
     ShapeEntry{1024, 4096, select_bf16_n1024_k4096},
     ShapeEntry{4096, 4096, select_bf16_n4096_k4096},
@@ -33,6 +38,9 @@ constexpr std::array kShapes{
     ShapeEntry{2048, 4096, select_bf16_n2048_k4096},
     ShapeEntry{4096, 128, select_bf16_n4096_k128},
     ShapeEntry{288, 4096, select_bf16_n288_k4096},
+    ShapeEntry{128, 4096, select_bf16_n128_k4096},
+    ShapeEntry{256, 4096, select_bf16_n256_k4096},
+    ShapeEntry{4096, 1536, select_bf16_n4096_k1536},
     ShapeEntry{2560, 3072, select_bf16_n2560_k3072},
     ShapeEntry{124160, 2560, select_bf16_n124160_k2560},
 #endif

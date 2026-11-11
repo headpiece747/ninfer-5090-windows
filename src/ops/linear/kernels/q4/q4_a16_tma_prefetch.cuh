@@ -85,7 +85,8 @@ __device__ __forceinline__ uint4 q4_tma_decode_eight(unsigned packed, std::uint1
     return decoded.raw;
 }
 
-struct alignas(128) Q4A16TmaDescriptors {
+// `alignas(64)`: MSVC's cudafe1 host stub rejects by-value parameters aligned past 64 with C2719.
+struct alignas(64) Q4A16TmaDescriptors {
     CUtensorMap x, codes;
 };
 

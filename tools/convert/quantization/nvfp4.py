@@ -98,7 +98,7 @@ def nvfp4_maxabs(request: PrepareRequest) -> PreparedMethod:
                 raise ValueError("NVFP4 source contains NaN or infinity")
             maximum = max(maximum, values.abs().max().item())
         raw = struct.pack("<f", FULL_RANGE / maximum if maximum else 1.)
-        AuxiliaryValue.activation_divisor(raw)  # same positive finite FP32 contract
+        AuxiliaryValue.activation_scale(raw)  # same positive finite FP32 contract
         divisor = struct.unpack("<f", raw)[0]
         for begin in range(0, n, chunk):
             end = min(n, begin + chunk)

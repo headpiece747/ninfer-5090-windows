@@ -3,6 +3,9 @@
 
 #include <time.h>
 #include <emmintrin.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -109,7 +112,7 @@ struct Bank {
                 }
                 divisors.resize(E);
                 for (auto& d : divisors) { d = 511.75F + random_word(seed) % 1024; }
-                std::memcpy(data + g.divisor_offset, divisors.data(),
+                std::memcpy(data + g.matrix_scale_offset, divisors.data(),
                             divisors.size() * sizeof(float));
             } else {
                 auto* scales = reinterpret_cast<std::uint16_t*>(data + g.scale_offset);
@@ -117,9 +120,9 @@ struct Bank {
                     scales[s] = 0x1400 + (random_word(seed) & 2047);
                 }
             }
-            parent.device          = Device::cpu();
-            parent.data            = data;
-            parent.weight_divisors = divisors;
+            parent.device        = Device::cpu();
+            parent.data          = data;
+            parent.matrix_scales = divisors;
             return bind_weight_bank(
                 parent, describe_weight_bank(g, {0, unsigned(E), unsigned(rows), unsigned(rows)}));
         };
@@ -314,11 +317,23 @@ double sequential_read_gbps(const std::vector<std::unique_ptr<Bank>>& banks,
 }
 
 double cpu_us() {
+#ifdef _WIN32
+    FILETIME creation{}, exit_time{}, kernel{}, user{};
+    if (!GetProcessTimes(GetCurrentProcess(), &creation, &exit_time, &kernel, &user)) {
+        throw std::runtime_error("process CPU clock failed");
+    }
+    const auto ticks = [](const FILETIME& t) {
+        return (static_cast<std::uint64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime;
+    };
+    // FILETIME counts 100-nanosecond intervals.
+    return static_cast<double>(ticks(kernel) + ticks(user)) * 0.1;
+#else
     timespec usage{};
     if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &usage)) {
         throw std::runtime_error("process CPU clock failed");
     }
     return usage.tv_sec * 1e6 + usage.tv_nsec / 1000.0;
+#endif
 }
 
 struct Options {
@@ -605,7 +620,14 @@ int main(int argc, char** argv) {
                   << " expert_bytes=" << expert_bytes << " bank_bytes=" << E * expert_bytes
                   << " keep_active=" << options.keep_active
                   << " plane_layout=native_parent_banks cpu_clock=process_cputime compiler="
-                  << __VERSION__ << '\n';
+#ifdef __VERSION__
+                  << __VERSION__
+#elif defined(_MSC_FULL_VER)
+                  << "MSVC " << _MSC_FULL_VER
+#else
+                  << "unknown"
+#endif
+                  << '\n';
         std::cout << "# caller_cpu_ids=";
         for (auto cpu : current_thread_affinity(topology)) { std::cout << cpu << ' '; }
         std::cout << "\nformat,T,cpu_experts_per_token,assignments,unique_experts,workers,cache,"

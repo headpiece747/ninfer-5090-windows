@@ -15,6 +15,9 @@ struct PendingWeight {
     std::vector<std::string> source_objects;
 };
 
+void require_shared_binding(const artifact::ParameterReference&,
+                            const artifact::ParameterReference&);
+
 class Bindings {
 public:
     explicit Bindings(artifact::Binder& binder) : binder(binder) {}
@@ -23,7 +26,7 @@ public:
                                      std::vector<std::string> inputs   = {},
                                      std::optional<QType> exact_format = {});
     [[nodiscard]] WeightId direct(std::string name, artifact::Shape shape,
-                                  QType format = QType::BF16);
+                                  std::optional<QType> format = QType::BF16);
 
     [[nodiscard]] const PendingWeight& at(WeightId id) const { return weights.at(id.index); }
 

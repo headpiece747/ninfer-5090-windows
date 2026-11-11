@@ -6,4 +6,4 @@ add_executable(ninfer_bench
 ninfer_internal_includes(ninfer_bench)
 target_include_directories(ninfer_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(ninfer_bench PRIVATE ninfer_engine ninfer_product_config
-  ninfer_product_prompt_input ninfer::json CUDA::cudart)
+  ninfer_product_logging ninfer_product_prompt_input ninfer::json CUDA::cudart)

@@ -155,15 +155,9 @@ const char* scheduling_transition_name(ninfer::GenerationSchedulingTransition tr
 }
 
 Json recovery_route_json(ninfer::GenerationRecoveryRoute route) {
-    switch (route) {
-    case ninfer::GenerationRecoveryRoute::None:
-        return nullptr;
-    case ninfer::GenerationRecoveryRoute::Snapshot:
-        return "snapshot";
-    case ninfer::GenerationRecoveryRoute::Replay:
-        return "replay";
-    }
-    throw std::logic_error("invalid recovery route");
+    return route == ninfer::GenerationRecoveryRoute::None
+               ? Json(nullptr)
+               : Json(ninfer::recovery_route_name(route));
 }
 
 Json sampler_json(const ninfer::ResolvedSamplingParameters& sampling) {
@@ -294,6 +288,7 @@ Json speculative_json(const RequestStats& metrics) {
 Json scheduling_json(const ninfer::GenerationSchedulingStats& stats) {
     return Json{{"preemptions", stats.preemptions},
                 {"snapshot_restores", stats.snapshot_restores},
+                {"direct_restores", stats.direct_restores},
                 {"replay_restores", stats.replay_restores},
                 {"replayed_tokens", stats.replayed_tokens},
                 {"paused_ns", stats.paused_ns},
@@ -588,6 +583,7 @@ format_request_scheduling_json(const std::string& server_instance_id,
     record["engine_request_id"] = observation.engine_request_id;
     record["transition"]        = scheduling_transition_name(observation.transition);
     record["route"]             = recovery_route_json(observation.route);
+    record["phase"]             = ninfer::request_phase_name(observation.phase);
     record["steady_ns"]         = observation.steady_ns;
     record["elapsed_ns"]        = observation.elapsed_ns;
     record["preemption_index"]  = observation.preemption_index;
@@ -645,7 +641,10 @@ std::string format_request_done_json(const std::string& server_instance_id, std:
          {"tool_call_parse", tool_call_parse_json(outcome.tool_call_parse)}};
     record["timings_seconds"] =
         Json{{"prepare", outcome.service_prepare_seconds + outcome.stats.timings.prepare_seconds},
-             {"ttft", outcome.stats.timings.first_token_seconds + outcome.service_prepare_seconds},
+             {"ttft", outcome.stats.timings.first_token_seconds
+                          ? Json(*outcome.stats.timings.first_token_seconds +
+                                 outcome.service_prepare_seconds)
+                          : Json(nullptr)},
              {"vision_stream", outcome.stats.timings.vision_seconds},
              {"prefill", outcome.stats.timings.prefill_seconds},
              {"decode", outcome.stats.timings.decode_seconds},
@@ -724,9 +723,11 @@ std::string format_throughput_json(const std::string& server_instance_id, std::u
     record["interval_seconds"] = report.interval_seconds;
     record["final_interval"]   = report.final_interval;
     record["tokens"]           = Json{{"computed_prefill", report.computed_prefill_tokens},
-                                      {"committed_decode", report.committed_decode_tokens}};
-    record["throughput_tokens_per_second"] =
-        Json{{"prefill", prefill_rate}, {"decode", decode_rate}};
+                                      {"committed_decode", report.committed_decode_tokens},
+                                      {"replayed", report.replayed_tokens()}};
+    record["throughput_tokens_per_second"] = Json{{"prefill", prefill_rate},
+                                                  {"decode", decode_rate},
+                                                  {"replay", report.replay_tokens_per_second()}};
     record["scheduler"]  = Json{{"running", current.running_requests},
                                 {"prefilling", current.prefilling_requests},
                                 {"decode_ready", current.decode_ready_requests},
@@ -736,12 +737,13 @@ std::string format_throughput_json(const std::string& server_instance_id, std::u
                                 {"materializing", current.materializing_requests},
                                 {"capture_pending", current.capture_pending_requests},
                                 {"terminal_pending", current.terminal_pending_requests}};
-    record["scheduling"] = Json{
-        {"preemptions", monotonic_delta(previous.preemptions, current.preemptions)},
-        {"snapshot_restores",
-         monotonic_delta(previous.snapshot_restores, current.snapshot_restores)},
-        {"replay_restores", monotonic_delta(previous.replay_restores, current.replay_restores)},
-        {"replayed_tokens", monotonic_delta(previous.replayed_tokens, current.replayed_tokens)}};
+    record["scheduling"]                   = Json{
+                          {"preemptions", monotonic_delta(previous.preemptions, current.preemptions)},
+                          {"snapshot_restores",
+                           monotonic_delta(previous.snapshot_restores, current.snapshot_restores)},
+                          {"direct_restores", monotonic_delta(previous.direct_restores, current.direct_restores)},
+                          {"replay_restores", monotonic_delta(previous.replay_restores, current.replay_restores)},
+                          {"replayed_tokens", monotonic_delta(previous.replayed_tokens, current.replayed_tokens)}};
     record["decode_batch"] = Json{{"rounds", report.decode_rounds},
                                   {"row_rounds", report.decode_row_rounds},
                                   {"average_size", std::move(average_batch)}};

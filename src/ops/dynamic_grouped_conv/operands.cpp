@@ -19,19 +19,20 @@ void require_tensor(const Tensor& tensor, DType dtype, std::int32_t d0, std::int
     }
 }
 
-void validate_prepare_weight(const Weight& weight) {
+void validate_prepare_weight(const Weight& weight, PrepareGeometry geometry) {
+    const auto kHidden = geometry.hidden, kCoefficientRows = geometry.coefficient_rows();
     if (weight.qtype == QType::NVFP4) {
         // The port's NVFP4 draft modules store this projection as weight-only NVFP4 [1280,5120].
         // The full payload contract belongs to the Linear route that materializes it; checked here
         // only for the geometry this Op indexes.
-        if (weight.n != kCoefficientRows || weight.k != kHidden) {
+        if (kHidden != 5120 || weight.n != kCoefficientRows || weight.k != kHidden) {
             throw std::invalid_argument(
                 "dynamic grouped conv prepare: invalid kernel_projection_weight");
         }
         (void)common::validate_nvfp4_weight(weight, "dynamic grouped conv prepare");
         return;
     }
-    constexpr std::uint64_t kPayloadBytes =
+    const std::uint64_t kPayloadBytes =
         static_cast<std::uint64_t>(kCoefficientRows) * kHidden * sizeof(std::uint16_t);
     if (weight.qtype != QType::BF16 || weight.layout != QuantLayout::Contiguous ||
         weight.payload_bytes < kPayloadBytes || weight.high_plane_bytes != 0 || weight.ndim != 2 ||
@@ -114,11 +115,11 @@ void require_prepare_nonoverlap(const Tensor& residual, const Tensor& norm_weigh
     // NVFP4 parent is 4-bit codes plus an E4M3 scale per 16 values in one payload, which is less
     // than half the BF16 extent -- so the BF16 figure would reach past the weight and report an
     // overlap that is not there.
-    constexpr std::size_t kElements =
-        static_cast<std::size_t>(kCoefficientRows) * static_cast<std::size_t>(kHidden);
+    const std::size_t elements =
+        static_cast<std::size_t>(kernel_projection_weight.n) * kernel_projection_weight.k;
     const std::size_t weight_bytes = kernel_projection_weight.qtype == QType::NVFP4
-                                         ? kElements / 2 + kElements / 16
-                                         : kElements * sizeof(std::uint16_t);
+                                         ? elements / 2 + elements / 16
+                                         : elements * sizeof(std::uint16_t);
     const std::array<common::operand::Range, 7> ranges{{
         common::operand::range(residual.data, residual.bytes(), "dynamic grouped conv"),
         common::operand::range(norm_weight.data, norm_weight.bytes(), "dynamic grouped conv"),
@@ -146,12 +147,20 @@ void validate_input_rows(int input_rows) {
         throw std::invalid_argument("linear dynamic grouped conv add: C must be 4096 or 17408");
 }
 
-void validate_prepare(const Tensor& residual, const Tensor& norm_weight, float eps,
-                      const Tensor& base_kernel, const Weight& kernel_projection_weight,
-                      const Tensor& prepared, const Tensor& finish_delta,
-                      const MemoryArena& workspace, CudaExecutionView execution) {
+PrepareGeometry prepare_geometry(int hidden) {
+    if (hidden != 4096 && hidden != 5120)
+        throw std::invalid_argument("dynamic grouped conv prepare: unsupported hidden size");
+    return {hidden};
+}
+
+PrepareGeometry validate_prepare(const Tensor& residual, const Tensor& norm_weight, float eps,
+                                 const Tensor& base_kernel, const Weight& kernel_projection_weight,
+                                 const Tensor& prepared, const Tensor& finish_delta,
+                                 const MemoryArena& workspace, CudaExecutionView execution) {
     const std::int32_t batch_size = residual.ne[2];
     const std::int32_t width      = residual.ne[1];
+    const auto geometry           = prepare_geometry(residual.ne[0]);
+    const int kHidden = geometry.hidden, kGroups = geometry.groups();
     if (!(eps > 0.0F) || !std::isfinite(eps)) {
         throw std::invalid_argument(
             "dynamic grouped conv prepare: eps must be positive and finite");
@@ -170,9 +179,10 @@ void validate_prepare(const Tensor& residual, const Tensor& norm_weight, float e
     common::operand::device(kernel_projection_weight.device, execution.device(), kPrepareOp,
                             "weight");
     common::operand::device(workspace.device(), execution.device(), kPrepareOp, "workspace");
-    validate_prepare_weight(kernel_projection_weight);
+    validate_prepare_weight(kernel_projection_weight, geometry);
     require_prepare_nonoverlap(residual, norm_weight, base_kernel, kernel_projection_weight,
                                prepared, finish_delta, workspace);
+    return geometry;
 }
 
 void validate_add(const Tensor& x, const Weight& projection_weight, const Tensor& base_kernel,

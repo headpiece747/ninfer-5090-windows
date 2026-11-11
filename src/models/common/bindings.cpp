@@ -2,9 +2,22 @@
 
 #include "artifact/views.h"
 
+#include <algorithm>
+#include <bit>
 #include <cmath>
 
 namespace ninfer::models {
+
+void require_shared_binding(const artifact::ParameterReference& parameter,
+                            const artifact::ParameterReference& source) {
+    const auto& parts  = parameter.binding.parts;
+    const auto& target = source.binding.parts;
+    if (!std::equal(parts.begin(), parts.end(), target.begin(), target.end(),
+                    [](const auto& a, const auto& b) {
+                        return a.object == b.object && a.begin == b.begin && a.end == b.end;
+                    }))
+        throw artifact::ArtifactError(parameter.name + ": must share storage with " + source.name);
+}
 
 WeightUseId Bindings::use(WeightId id, std::string_view input) const {
     const auto& parameter = at(id);
@@ -41,15 +54,35 @@ WeightId Bindings::parameter(std::string name, artifact::Shape shape,
             break;
         }
         for (const auto& [role, binding] : use.auxiliaries) {
-            if (role != "activation_input_divisor") {
+            if (role != "activation_input_divisor" && role != "activation_input_multiplier") {
                 throw artifact::ArtifactError(name + "@" + input + ": unknown auxiliary " + role);
             }
-            const auto value = binder.values(binding, QType::FP32).scalar_f32();
-            if (!std::isfinite(value) || value <= 0) {
+            if (result.calibration)
                 throw artifact::ArtifactError(name + "@" + input +
-                                              ": activation divisor must be positive finite FP32");
+                                              ": activation calibration is specified twice");
+            const auto words    = binder.values(binding, QType::FP32);
+            const auto matrices = pending.reference.shape.size() == 3
+                                      ? pending.reference.shape.front()
+                                      : std::uint64_t{1};
+            if (words.elements != 1 && words.elements != matrices)
+                throw artifact::ArtifactError(
+                    name + "@" + input +
+                    ": activation calibration must broadcast or cover every matrix");
+            auto calibration       = std::make_shared<ActivationCalibrationData>();
+            calibration->operation = role == "activation_input_multiplier"
+                                         ? ops::ActivationScaleOperation::Multiply
+                                         : ops::ActivationScaleOperation::Divide;
+            calibration->values.reserve(words.elements);
+            for (std::size_t i = 0; i < words.elements; ++i) {
+                const auto value = std::bit_cast<float>(
+                    artifact::read_u32_le(words.data.data() + i * sizeof(float)));
+                if (!std::isfinite(value) || value <= 0)
+                    throw artifact::ArtifactError(
+                        name + "@" + input + ": activation scale must be positive finite FP32");
+                calibration->values.push_back(value);
             }
-            result.activation_input_divisor = value;
+            result.calibration        = std::move(calibration);
+            result.calibration_source = std::make_shared<const artifact::Binding>(binding);
         }
         pending.uses.push_back(std::move(result));
     }
@@ -63,7 +96,15 @@ WeightId Bindings::parameter(std::string name, artifact::Shape shape,
     return id;
 }
 
-WeightId Bindings::direct(std::string name, artifact::Shape shape, QType format) {
+WeightId Bindings::direct(std::string name, artifact::Shape shape, std::optional<QType> format) {
+    if (!format) {
+        const auto reference = binder.parameter(name, shape);
+        for (const auto& part : reference.binding.parts) {
+            const auto actual = binder.reader().geometry(part.object).format;
+            if (actual != QType::BF16 && actual != QType::FP32)
+                throw artifact::ArtifactError(name + ": direct parameter requires BF16 or FP32");
+        }
+    }
     return parameter(std::move(name), std::move(shape), {}, format);
 }
 

@@ -227,10 +227,10 @@ void launch_candidate_path_nvfp4(SelectorRoute route, const Tensor& candidate_id
                           static_cast<const std::int32_t*>(anchors.data),
                           static_cast<const std::uint8_t*>(predecessor_codebook.qdata),
                           static_cast<const std::uint8_t*>(predecessor_codebook.scales),
-                          1.0F / predecessor_codebook.weight_scale_divisor,
+                          1.0F / predecessor_codebook.weight_scale,
                           static_cast<const std::uint8_t*>(successor_codebook.qdata),
                           static_cast<const std::uint8_t*>(successor_codebook.scales),
-                          1.0F / successor_codebook.weight_scale_divisor,
+                          1.0F / successor_codebook.weight_scale,
                           static_cast<const std::int32_t*>(base_positions.data),
                           configs,
                           static_cast<std::int32_t*>(drafts.data),
@@ -259,7 +259,10 @@ void execute_candidate_path_nvfp4(const Tensor& candidate_ids, const Tensor& una
                                             cudaStream_t stream) {
     // The route and its edges buffer are the caller's: execute_candidate_path allocates once
     // so the capacity query covers the whole call.
-    const auto route = select_candidate_path(candidate_ids.ne[1], candidate_ids.ne[2]);
+    const auto route =
+        select_candidate_path(CandidateSelectorInput::Candidates, candidate_ids.ne[1],
+                              candidate_ids.ne[2])
+            .route;
     launch_candidate_path_nvfp4(route, candidate_ids, unary_scores, projected_hidden,
                                 anchors, predecessor_codebook, successor_codebook,
                                 base_positions, configs, drafts, proposal_q, workspace,

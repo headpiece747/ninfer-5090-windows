@@ -523,9 +523,6 @@ RenderedChat expand_placeholders(RenderedChat rendered,
         rendered.rewrite_checkpoint->recovery_offset =
             map_boundary(rendered.rewrite_checkpoint->recovery_offset, "input recovery");
     }
-    for (std::size_t& boundary : rendered.rewrite_execution_boundaries) {
-        boundary = map_boundary(boundary, "rewrite execution boundary");
-    }
     for (std::optional<std::size_t>& boundary : rendered.message_boundaries) {
         if (boundary) { *boundary = map_boundary(*boundary, "message boundary"); }
     }
@@ -681,16 +678,9 @@ EncodedChat encode_rendered_chat(const text::Tokenizer& tokenizer, const Rendere
         throw std::logic_error("rendered chat contains unexpanded media placeholders");
     }
     EncodedChat encoded;
-    // Each byte offset the tokenizer needs, carrying what it is for. The push order and the read
-    // order used to be two independent traversals of the same fields, agreeing only by convention:
-    // a change that reached one side and missed the other silently mislabelled every later frontier,
-    // and the count check at the end saw only the cases where the totals differed. Upstream's
-    // recovery offset is the second field added to both traversals since this was written, which is
-    // the pattern the ledger exists to make safe rather than the reason to drop it.
     enum class BoundaryKind : std::uint8_t {
         RewriteCheckpoint,
         RewriteRecovery,
-        RewriteExecution,
         Message,
         Cache,
         MediaBegin,
@@ -709,10 +699,6 @@ EncodedChat encode_rendered_chat(const text::Tokenizer& tokenizer, const Rendere
     if (rendered.rewrite_checkpoint) {
         add_boundary(BoundaryKind::RewriteCheckpoint, 0, rendered.rewrite_checkpoint->offset);
         add_boundary(BoundaryKind::RewriteRecovery, 0, rendered.rewrite_checkpoint->recovery_offset);
-    }
-    for (std::size_t index = 0; index < rendered.rewrite_execution_boundaries.size(); ++index) {
-        add_boundary(BoundaryKind::RewriteExecution, index,
-                     rendered.rewrite_execution_boundaries[index]);
     }
     for (std::size_t index = 0; index < rendered.message_boundaries.size(); ++index) {
         if (rendered.message_boundaries[index]) {
@@ -777,19 +763,6 @@ EncodedChat encode_rendered_chat(const text::Tokenizer& tokenizer, const Rendere
                                              *recovery.exact_frontier <= frontier
                                          ? to_frontier(*recovery.exact_frontier, "input recovery")
                                          : frontier};
-        }
-    }
-    encoded.rewrite_execution_frontiers.reserve(rendered.rewrite_execution_boundaries.size());
-    for (std::size_t index = 0; index < rendered.rewrite_execution_boundaries.size(); ++index) {
-        const text::TokenBoundaryResult& result = resolved(BoundaryKind::RewriteExecution, index);
-        const std::optional<std::uint32_t> frontier =
-            result.exact_frontier ? std::optional<std::uint32_t>(to_frontier(
-                                        *result.exact_frontier, "rewrite execution boundary"))
-                                  : std::nullopt;
-        if (frontier && *frontier != 0 &&
-            (encoded.rewrite_execution_frontiers.empty() ||
-             encoded.rewrite_execution_frontiers.back() != *frontier)) {
-            encoded.rewrite_execution_frontiers.push_back(*frontier);
         }
     }
     encoded.message_boundaries.resize(rendered.message_boundaries.size());
@@ -1074,7 +1047,6 @@ ProcessedInput Processor::process(std::vector<ChatMessage> messages,
     output.continuation_content        = rendered.continuation_content;
     output.input_ids                   = std::move(encoded.input_ids);
     output.rewrite_checkpoint          = encoded.rewrite_checkpoint;
-    output.rewrite_execution_frontiers = std::move(encoded.rewrite_execution_frontiers);
     output.message_boundaries          = std::move(encoded.message_boundaries);
     output.cache_boundaries            = std::move(encoded.cache_boundaries);
     stats.prompt_tokens                = output.input_ids.size();

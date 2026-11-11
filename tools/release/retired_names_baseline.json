@@ -7,7 +7,8 @@
       "ninfer_admission_policy_test": "named as history or as another project's symbol: the retired vocabulary is called retired in the same sentence, the deleted tests and the upstream issue's identifiers are cited from the tracker, and the artifact name is the superseded build this file records as withdrawn",
       "ninfer_materialization_budget_test": "named as history or as another project's symbol: the retired vocabulary is called retired in the same sentence, the deleted tests and the upstream issue's identifiers are cited from the tracker, and the artifact name is the superseded build this file records as withdrawn",
       "private_response_replay": "named as history or as another project's symbol: the retired vocabulary is called retired in the same sentence, the deleted tests and the upstream issue's identifiers are cited from the tracker, and the artifact name is the superseded build this file records as withdrawn",
-      "shared_stable_prefix": "named as history or as another project's symbol: the retired vocabulary is called retired in the same sentence, the deleted tests and the upstream issue's identifiers are cited from the tracker, and the artifact name is the superseded build this file records as withdrawn"
+      "shared_stable_prefix": "named as history or as another project's symbol: the retired vocabulary is called retired in the same sentence, the deleted tests and the upstream issue's identifiers are cited from the tracker, and the artifact name is the superseded build this file records as withdrawn",
+      "value_slot_stride": "named as history in Rule 60 prose; the retired context_kv field was superseded by upstream byte-offset records in epilogue.cuh"
     },
     "tools/bench/check_shared_prefix_reuse.py": {
       "shared_reuse_candidates": "a measurement recorded under the selection counters that existed then, and marked as such in the comment",
@@ -17,6 +18,7 @@
       "run_level_pct": "the tool's own record key: the per-lane run level it writes into lane_figures.json, recorded because a drift check against the table cannot see that a whole run moved together"
     },
     "tools/bench/make_divisor_variants.py": {
+      "input_scale_divisor": "the historical v2 artifact / calibration JSON field this tool writes and mutates when generating diagnostic divisor variants",
       "nvfp4_act_headroom": "the variant tag this tool writes into artifact filenames"
     },
     "tools/bench/plot_serve_results.py": {
@@ -205,11 +207,20 @@
       "build_qwen3_5": "a function this tool defines and calls itself (its --build dispatch); retired_names.py asks whether a tool names a symbol of THIS tree, and a tool-local helper is not one",
       "build_qwen4_exp": "a function this tool defines and calls itself (its --build dispatch); retired_names.py asks whether a tool names a symbol of THIS tree, and a tool-local helper is not one"
     },
+    "tools/artifact/layouts.py": {
+      "weight_divisor_offset": "upstream's RowPagedGeometry field storing the trailing NF4 weight divisor word offset; codecs/nf4.py reads this field"
+    },
     "tools/convert/calibration.py": {
       "gate_up_projection": "an artifact name in prose",
       "hf_device_map": "an artifact name in prose",
+      "input_scale_divisor": "the JSON schema key written by the calibrator for Qwen3.8 calibration tables (distinct from the C++ Weight::input_scale field)",
       "qwen3_8_27b_nvfp4full": "an artifact name in prose",
       "qwen3_8_27b_nvfp4full_noex": "an artifact name in prose"
+    },
+    "tools/convert/dflash.py": {
+      "final_logit_softcapping": "a Hugging Face config key of the source checkpoint",
+      "input_embedding_scale": "a Hugging Face config key of the source checkpoint",
+      "sample_from_anchor": "a Hugging Face config key of the source checkpoint"
     },
     "tools/convert/official_recipes.py": {
       "in_proj_a": "a source-checkpoint module name",
@@ -217,7 +228,9 @@
       "qwen3_8_27b_nvfp4nvidia": "a source-checkpoint module name",
       "all_query_heads_then_all_gate_heads": "a provenance or metadata string the converter writes into the recipe and the artifact (a recipe revision name, a stored-scale algorithm id, an expert divisor key); the name's authority is the artifact convention, not a C++ symbol",
       "expert_activation_divisors": "a provenance or metadata string the converter writes into the recipe and the artifact (a recipe revision name, a stored-scale algorithm id, an expert divisor key); the name's authority is the artifact convention, not a C++ symbol",
+      "expert_activation_multipliers": "a provenance or metadata string the converter writes into native glm5next recipes and artifacts (auxiliary tensor name)",
       "g16_fp64_exhaustive_e4m3fn_v1": "a provenance or metadata string the converter writes into the recipe and the artifact (a recipe revision name, a stored-scale algorithm id, an expert divisor key); the name's authority is the artifact convention, not a C++ symbol",
+      "input_scale_divisor": "the JSON key read out of recorded calibration files in load_calibration; distinct from the C++ Weight::input_scale field",
       "preserve_codes_scales": "a provenance or metadata string the converter writes into the recipe and the artifact (a recipe revision name, a stored-scale algorithm id, an expert divisor key); the name's authority is the artifact convention, not a C++ symbol",
       "qwen4_exp_v1": "a provenance or metadata string the converter writes into the recipe and the artifact (a recipe revision name, a stored-scale algorithm id, an expert divisor key); the name's authority is the artifact convention, not a C++ symbol",
       "preserve_e4m3fn_codes_bf16_block128x128_scales": "a provenance or metadata string the converter writes into the recipe and the artifact (a recipe revision name, a stored-scale algorithm id, an expert divisor key); the name's authority is the artifact convention, not a C++ symbol",
@@ -227,12 +240,10 @@
     },
     "tools/convert/qwen3_5.py": {
       "deepstack_visual_indexes": "a Hugging Face config key of the source checkpoint",
-      "final_logit_softcapping": "a Hugging Face config key of the source checkpoint",
       "full_attention_interval": "a Hugging Face config key of the source checkpoint",
       "gelu_pytorch_tanh": "a Hugging Face config key of the source checkpoint",
       "in_proj_a": "a Hugging Face config key of the source checkpoint",
       "in_proj_b": "a Hugging Face config key of the source checkpoint",
-      "input_embedding_scale": "a Hugging Face config key of the source checkpoint",
       "mamba_ssm_dtype": "a Hugging Face config key of the source checkpoint",
       "mtp_use_dedicated_embeddings": "a Hugging Face config key of the source checkpoint",
       "num_target_layers": "a Hugging Face config key of the source checkpoint",
@@ -240,7 +251,6 @@
       "post_attention_layernorm": "a Hugging Face config key of the source checkpoint",
       "pre_fc_norm_embedding": "a Hugging Face config key of the source checkpoint",
       "pre_fc_norm_hidden": "a Hugging Face config key of the source checkpoint",
-      "sample_from_anchor": "a Hugging Face config key of the source checkpoint",
       "shared_expert_gate": "a Hugging Face config key of the source checkpoint"
     },
     "tools/convert/verify_artifact.py": {

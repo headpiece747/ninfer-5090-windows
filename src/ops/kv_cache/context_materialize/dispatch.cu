@@ -6,8 +6,7 @@ namespace ninfer::ops::detail::context_kv {
 namespace {
 
 template <int Rows, int Columns, int BlockK, int ColumnWarps>
-void launch_mma(const Tensor& x, const Tensor& positions, const Tensor& counts,
-                const Tensor& offsets, DeviceLayers layers,
+void launch_mma(const Tensor& x, const Tensor& positions, const Tensor& counts, DeviceLayers layers,
                 ContextKVMaterializeExecutionEnvelope envelope, const Tensor& scratch,
                 cudaStream_t stream) {
     constexpr int bytes   = sizeof(MaterializeStorage<Rows, Columns, BlockK>);
@@ -17,47 +16,39 @@ void launch_mma(const Tensor& x, const Tensor& positions, const Tensor& counts,
         <<<dim3(1024 / Rows, (envelope.max_count * x.ne[2] + Columns - 1) / Columns, 10),
            Rows / 16 * ColumnWarps * 32, bytes, stream>>>(
             static_cast<const __nv_bfloat16*>(x.data), static_cast<const int*>(positions.data),
-            static_cast<const int*>(counts.data), static_cast<const std::int64_t*>(offsets.data),
-            layers, static_cast<float*>(scratch.data), x.ne[1], x.ne[2], envelope.min_count,
-            envelope.max_count);
+            static_cast<const int*>(counts.data), layers, static_cast<float*>(scratch.data),
+            x.ne[1], x.ne[2], envelope.min_count, envelope.max_count);
     CUDA_CHECK(cudaGetLastError());
 }
 
 template <int Columns, int KWarps = 8>
 void launch_grouped(const Tensor& x, const Tensor& positions, const Tensor& counts,
-                    const Tensor& offsets, DeviceLayers layers,
-                    ContextKVMaterializeExecutionEnvelope envelope, const Tensor& scratch,
-                    cudaStream_t stream) {
+                    DeviceLayers layers, ContextKVMaterializeExecutionEnvelope envelope,
+                    const Tensor& scratch, cudaStream_t stream) {
     constexpr auto kernel = context_kv_grouped_kernel<Columns, KWarps>;
     const int shared =
         common::prepare_shared<GroupedSchedule<Columns, KWarps>::kSharedBytes, kernel>();
     kernel<<<dim3(64, (envelope.max_count * x.ne[2] + Columns - 1) / Columns, 10), KWarps * 32,
              shared, stream>>>(
         static_cast<const __nv_bfloat16*>(x.data), static_cast<const int*>(positions.data),
-        static_cast<const int*>(counts.data), static_cast<const std::int64_t*>(offsets.data),
-        layers, static_cast<float*>(scratch.data), x.ne[1], x.ne[2], envelope.min_count,
-        envelope.max_count);
+        static_cast<const int*>(counts.data), layers, static_cast<float*>(scratch.data), x.ne[1],
+        x.ne[2], envelope.min_count, envelope.max_count);
     CUDA_CHECK(cudaGetLastError());
 }
-
-// make_device_layers lives in epilogue.cuh; the port's NVFP4 route shares it.
 
 template <auto Projection, bool KeyPost>
 void launch_materialize(
     const Tensor& context, const Tensor& positions, const Tensor& counts,
     const std::array<ContextKVMaterializeLayerView, kContextKVMaterializeLayers>& layers,
-    ContextKVMaterializeExecutionEnvelope envelope, const Tensor& key_scratch,
-    cudaStream_t stream) {
-    const auto device_layers = make_device_layers(layers);
-    const auto& offsets      = layers.front().cache.k.records.byte_offsets;
-    Projection(context, positions, counts, offsets, device_layers, envelope, key_scratch, stream);
+    const ContextKVMaterializeProfile& profile, ContextKVMaterializeExecutionEnvelope envelope,
+    const Tensor& key_scratch, cudaStream_t stream) {
+    const auto device_layers = make_device_layers(layers, profile);
+    Projection(context, positions, counts, device_layers, envelope, key_scratch, stream);
     if constexpr (KeyPost) {
-        context_kv_key_post_kernel<<<dim3(envelope.max_count * context.ne[2], kLayers), 256, 0,
-                                     stream>>>(
-            static_cast<const float*>(key_scratch.data), static_cast<const int*>(positions.data),
-            static_cast<const int*>(counts.data), static_cast<const std::int64_t*>(offsets.data),
-            device_layers, context.ne[2], context.ne[1], envelope.min_count, envelope.max_count);
-        CUDA_CHECK(cudaGetLastError());
+        launch_key_post(static_cast<const float*>(key_scratch.data),
+                        static_cast<const std::int32_t*>(positions.data),
+                        static_cast<const std::int32_t*>(counts.data), device_layers, context.ne[2],
+                        context.ne[1], envelope.min_count, envelope.max_count, stream);
     }
 }
 
@@ -67,11 +58,24 @@ constexpr ContextKVMaterializeImplementation implementation() {
 }
 
 } // namespace
+
+void launch_key_post(const float* key_scratch, const std::int32_t* positions,
+                     const std::int32_t* counts, const DeviceLayers& layers,
+                     std::int32_t batch_size, std::int32_t width, std::int32_t min_count,
+                     std::int32_t max_count, cudaStream_t stream) {
+    context_kv_key_post_kernel<<<dim3(max_count * batch_size, kLayers), 256, 0, stream>>>(
+        key_scratch, positions, counts, layers, batch_size, width, min_count, max_count);
+    CUDA_CHECK(cudaGetLastError());
+}
+
 } // namespace ninfer::ops::detail::context_kv
 
 namespace ninfer::ops::detail {
 
-ContextKVMaterializeImplementation select_context_kv_materialize(std::int32_t columns) {
+ContextKVMaterializeImplementation
+select_context_kv_materialize(const ContextKVMaterializeProfile& profile, std::int32_t columns) {
+    if (profile.weight_type == QType::NVFP4) return select_context_kv_materialize_nvfp4(columns);
+    if (profile.weight_type == QType::BF16) return select_bf16_context_kv_materialize(columns);
     using namespace context_kv;
     if (columns <= 16) return implementation<launch_grouped<16>, true>();
     if (columns <= 24) return implementation<launch_grouped<24>, true>();

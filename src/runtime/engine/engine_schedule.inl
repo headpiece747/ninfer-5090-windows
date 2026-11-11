@@ -17,9 +17,10 @@ void EngineCore<Instance>::reserve_active_capture(const std::shared_ptr<Request>
         request->capture_pending = false;
         return;
     }
-    bool started = instance_.session->start_capture(*request->sequence);
-    if (!started) {
-        instance_.session->skip_capture(*request->sequence);
+    if (!prepare_semantic_capture(request)) return;
+    const auto started = instance_.session->start_capture(*request->sequence);
+    if (started == ContextStart::Deferred) return;
+    if (started == ContextStart::Stale) {
         request->capture_pending = false;
         return;
     }
@@ -30,9 +31,6 @@ template <class Instance>
 bool EngineCore<Instance>::prepare_semantic_capture(const std::shared_ptr<Request>& request) {
     auto& decision = capture_decisions_[request->lane->value];
     if (decision && decision->sequence != *request->sequence) { decision.reset(); }
-    if (instance_.session->capture_is_input(*request->sequence) && !decision) {
-        (void)resources_.recycle_input(*instance_.session, request->continuation_owner);
-    }
     while (const auto capture = instance_.session->prepare_capture(*request->sequence)) {
         if (scheduler_.progress_owner()) {
             instance_.session->skip_capture(*request->sequence);
@@ -47,6 +45,18 @@ bool EngineCore<Instance>::prepare_semantic_capture(const std::shared_ptr<Reques
             decision.reset();
             continue;
         }
+        if (const auto source = resources_.capture_source(
+                *instance_.session, *request->base_plan, capture->frontier,
+                instance_.session->placement(*request->sequence))) {
+            const auto shared = instance_.session->share_capture(*request->sequence, *source);
+            if (!shared.empty()) {
+                for (const auto checkpoint : shared)
+                    resources_.publish(*instance_.session, request->continuation_owner, checkpoint);
+                decision.reset();
+                request_admission_check();
+                continue;
+            }
+        }
         if (capture->reserved) {
             decision.reset();
             return true;
@@ -54,7 +64,8 @@ bool EngineCore<Instance>::prepare_semantic_capture(const std::shared_ptr<Reques
         if (instance_.session->has_context_operation()) { return false; }
         const auto admission = resources_.capture_admission(
             *instance_.session, request->continuation_owner, *request->base_plan, capture->frontier,
-            instance_.session->capture_is_input(*request->sequence));
+            instance_.session->capture_is_input(*request->sequence)
+                ? CheckpointRole::InputReplay : CheckpointRole::SharedPrefix);
         if (!decision || decision->frontier != capture->frontier) {
             decision.emplace(
                 CaptureDecision{*request->sequence, capture->frontier,
@@ -68,7 +79,8 @@ bool EngineCore<Instance>::prepare_semantic_capture(const std::shared_ptr<Reques
                     resources_.host_victims(*instance_.session, capture->host, std::nullopt, {}, {},
                                             admission, &decision->reclaim)) {
                 const auto loss  = resources_.release_cost(*instance_.session, *victims);
-                const auto retry = instance_.session->prepare_capture(*request->sequence, *victims);
+                const auto retry = instance_.session->prepare_capture(
+                    *request->sequence, *victims, CaptureStorage::Host);
                 if (retry && !retry->retired_points.empty()) {
                     if (retry->retired_points != *victims)
                         throw std::logic_error("capture consumed only part of its victim quote");
@@ -81,13 +93,35 @@ bool EngineCore<Instance>::prepare_semantic_capture(const std::shared_ptr<Reques
                     return true;
                 }
             }
+            const auto preserved = resources_.preserve_capture(
+                *instance_.session, capture->assessment, decision->reclaim);
+            if (preserved == ReclaimProgress::Transferring || preserved == ReclaimProgress::Deferred)
+                return false;
+            if (preserved == ReclaimProgress::Changed || preserved == ReclaimProgress::Retry)
+                continue;
         }
-        const auto progress =
-            resources_.reclaim(*instance_.session, capture->assessment, {}, decision->reclaim);
-        if (progress == ReclaimProgress::Transferring || progress == ReclaimProgress::Deferred)
-            return false;
-        if (progress == ReclaimProgress::Retry) continue;
-        if (progress == ReclaimProgress::Changed) { continue; }
+        if (capture->assessment.requires_maintenance()) {
+            const auto started = instance_.session->start_maintenance(capture->assessment);
+            if (started == ContextStart::Started || started == ContextStart::Deferred) return false;
+        }
+        if (capture->assessment.waiting()) return false;
+        if (const auto victims = resources_.capture_victims(
+                *instance_.session, capture->assessment, decision->reclaim)) {
+            const auto loss = resources_.release_cost(*instance_.session, *victims);
+            const auto retry = instance_.session->prepare_capture(
+                *request->sequence, *victims, CaptureStorage::Device);
+            if (retry && !retry->retired_points.empty()) {
+                if (retry->retired_points != *victims)
+                    throw std::logic_error("capture consumed only part of its victim quote");
+                resources_.adopt_release(*instance_.session, retry->retired_points,
+                                         decision->reclaim, loss);
+                request_admission_check();
+            }
+            if (retry && retry->reserved) {
+                decision.reset();
+                return true;
+            }
+        }
         instance_.session->skip_capture(*request->sequence);
         decision.reset();
     }
@@ -171,13 +205,18 @@ void EngineCore<Instance>::resolve_context_progress(
         request->placement = instance_.session->placement(*request->sequence);
         request->placement_tokens =
             std::max(request->placement_tokens, instance_.session->load_tokens(*request->sequence));
-        request->model_state = progress.replaying ? EngineRequestState::Replay
-                               : control.resumed  ? request->resume_phase
-                                                  : EngineRequestState::Prefill;
+        request->model_state = progress.recovery.route == GenerationRecoveryRoute::Replay
+                                   ? EngineRequestState::Replay
+                               : control.resumed ? request->resume_phase
+                                                 : EngineRequestState::Prefill;
         if (control.resumed) {
-            if (!progress.replaying) {
+            request->recovery = progress.recovery;
+            if (progress.recovery.route == GenerationRecoveryRoute::Snapshot) {
                 ++cumulative_stats_.snapshot_restores;
                 ++request->snapshot_restores;
+            } else if (progress.recovery.route == GenerationRecoveryRoute::Direct) {
+                ++cumulative_stats_.direct_restores;
+                ++request->direct_restores;
             }
             request->suspended.reset();
             request->recovery_pending = instance_.session->recovery_pending(*request->sequence);
@@ -217,9 +256,6 @@ void EngineCore<Instance>::resolve_context_progress(
             request->placement_tokens = 0;
             request->suspended        = std::move(progress.paused);
             request->model_state      = EngineRequestState::Paused;
-            request->recovery_route   = request->suspended->has_snapshot()
-                                            ? GenerationRecoveryRoute::Snapshot
-                                            : GenerationRecoveryRoute::Replay;
             observe_scheduling(request, GenerationSchedulingTransition::Paused);
             paused_.push_back(request);
             std::sort(paused_.begin(), paused_.end(),
@@ -297,7 +333,7 @@ ReclaimProgress EngineCore<Instance>::reclaim(const ContextAssessment& assessmen
                 !instance_.session->revoke_snapshot(*(*owner)->suspended)) {
                 continue;
             }
-            (*owner)->recovery_route = GenerationRecoveryRoute::Replay;
+            (*owner)->recovery.reset();
             observe_scheduling(*owner, GenerationSchedulingTransition::SnapshotRevoked);
             changed = true;
         }
@@ -388,7 +424,7 @@ bool EngineCore<Instance>::pause_resident(std::uint32_t lane, PauseGoal goal,
                 !instance_.session->revoke_snapshot(*(*owner)->suspended)) {
                 throw std::logic_error("pause victim changed after preflight");
             }
-            (*owner)->recovery_route = GenerationRecoveryRoute::Replay;
+            (*owner)->recovery.reset();
             observe_scheduling(*owner, GenerationSchedulingTransition::SnapshotRevoked);
         }
         selected = option.action;
@@ -404,7 +440,7 @@ bool EngineCore<Instance>::pause_resident(std::uint32_t lane, PauseGoal goal,
     request->paused_at   = pause_started;
     ++request->preemption_count;
     ++cumulative_stats_.preemptions;
-    request->recovery_route = GenerationRecoveryRoute::None;
+    request->recovery.reset();
     observe_scheduling(request, GenerationSchedulingTransition::PauseStarted, pause_started);
     context_owner_ = request;
     capture_decisions_[lane].reset();
@@ -784,8 +820,9 @@ void EngineCore<Instance>::observe_scheduling(const std::shared_ptr<Request>& re
     if (!request->observation.scheduling) { return; }
     if (now == Clock::time_point{}) { now = Clock::now(); }
     const GenerationSchedulingObservation observation{
-        .transition              = transition,
-        .route                   = request->recovery_route,
+        .transition = transition,
+        .route      = request->recovery ? request->recovery->route : GenerationRecoveryRoute::None,
+        .phase      = observe_request(*request).phase,
         .engine_request_id       = request->id,
         .steady_ns               = elapsed_ns(Clock::time_point{}, now),
         .elapsed_ns              = elapsed_ns(request->submitted, now),
@@ -850,6 +887,49 @@ std::optional<std::uint32_t> EngineCore<Instance>::next_prefill(
 }
 
 template <class Instance>
+typename EngineCore<Instance>::ResidentReservation
+EngineCore<Instance>::reserve_resident_unit(std::uint32_t lane) {
+    const auto request = slots_[lane];
+    if (!request || !request->sequence || request->capture_pending ||
+        request->cancelled.load(std::memory_order_acquire) ||
+        instance_.session->context_blocks(*request->sequence) ||
+        instance_.session->execution_pending(*request->sequence) ||
+        !(request->is_control_ready() || request->is_decode_ready() ||
+          request->is_prefilling() || request->is_replaying()))
+        return ResidentReservation::Unavailable;
+
+    const auto unit = execution_unit(*request);
+    std::optional<typename ResourceManagement::ReclaimCursor> cursor;
+    for (;;) {
+        const auto result = instance_.session->reserve_units({&unit, 1});
+        if (result) {
+            reserved_units_[lane] = UnitPermit{unit, *request->residency};
+            return ResidentReservation::Ready;
+        }
+        if (result.status == UnitReservationStatus::ExecutionUnavailable ||
+            instance_.session->has_context_operation())
+            return ResidentReservation::Unavailable;
+        // Only the turn owner may change capacity ownership under pressure.
+        if (scheduler_.progress_owner() && scheduler_.progress_owner() != request->id) {
+            scheduler_.require_progress(request->id);
+            return ResidentReservation::Unavailable;
+        }
+        if (!cursor) cursor.emplace(resources_.begin_reclaim(*instance_.session));
+        const auto reclaimed = reclaim(result.assessment, false, {}, &*cursor);
+        if (reclaimed == ReclaimProgress::Transferring || reclaimed == ReclaimProgress::Deferred)
+            return ResidentReservation::Pending;
+        if (reclaimed == ReclaimProgress::Changed || reclaimed == ReclaimProgress::Retry) continue;
+        if (request->recovery_pending)
+            throw std::logic_error("protected recovery exceeded its Native reservation");
+        scheduler_.require_progress(request->id);
+        if (pause_resident(lane, PauseGoal::RelocateOnly, &result.assessment) ||
+            pause_reclaim_victim(result.assessment))
+            return ResidentReservation::Pending;
+        throw std::logic_error("progress owner cannot obtain its legal unit");
+    }
+}
+
+template <class Instance>
 void EngineCore<Instance>::reserve_resident_units(ReservationScope scope) {
     reserved_units_.fill(std::nullopt);
     const auto owner = scheduler_.progress_owner();
@@ -883,6 +963,7 @@ void EngineCore<Instance>::reserve_resident_units(ReservationScope scope) {
         if (priority == a || priority == b) return priority == a;
         return slots_[a]->id < slots_[b]->id;
     });
+    const auto primary_count = candidates.size();
     if (prefill) {
         auto remaining = slots_;
         remaining[*prefill].reset();
@@ -891,57 +972,29 @@ void EngineCore<Instance>::reserve_resident_units(ReservationScope scope) {
             remaining[*fallback].reset();
         }
     }
-    std::optional<std::uint32_t> granted_prefill;
-    for (const auto lane : candidates) {
-        const auto request = slots_[lane];
-        if (granted_prefill && request && (request->is_prefilling() || request->is_replaying()))
-            continue;
-        if (!request || !request->sequence || request->capture_pending ||
-            request->cancelled.load(std::memory_order_acquire) ||
-            instance_.session->context_blocks(*request->sequence) ||
-            instance_.session->execution_pending(*request->sequence) ||
-            !(request->is_control_ready() || request->is_decode_ready() ||
-              request->is_prefilling() || request->is_replaying())) {
-            if (priority == lane) return;
-            continue;
-        }
-        const auto unit = execution_unit(*request);
-        std::optional<typename ResourceManagement::ReclaimCursor> cursor;
-        for (;;) {
-            const auto result = instance_.session->reserve_units({&unit, 1});
-            if (result) {
-                reserved_units_[lane] = UnitPermit{unit, *request->residency};
-                if (request->is_prefilling() || request->is_replaying()) granted_prefill = lane;
-                break;
-            }
-            if (result.status == UnitReservationStatus::ExecutionUnavailable ||
-                instance_.session->has_context_operation()) {
-                if (priority == lane) return;
-                break;
-            }
-            // Only the turn owner may change capacity ownership under pressure.
-            if (scheduler_.progress_owner() && scheduler_.progress_owner() != request->id) {
-                scheduler_.require_progress(request->id);
-                break;
-            }
-            if (!cursor) cursor.emplace(resources_.begin_reclaim(*instance_.session));
-            const auto reclaimed = reclaim(result.assessment, false, {}, &*cursor);
-            if (reclaimed == ReclaimProgress::Transferring ||
-                reclaimed == ReclaimProgress::Deferred)
-                return;
-            if (reclaimed == ReclaimProgress::Changed || reclaimed == ReclaimProgress::Retry)
-                continue;
-            if (request->recovery_pending)
-                throw std::logic_error("protected recovery exceeded its Native reservation");
-            scheduler_.require_progress(request->id);
-            if (pause_resident(lane, PauseGoal::RelocateOnly, &result.assessment) ||
-                pause_reclaim_victim(result.assessment))
-                return;
-            throw std::logic_error("progress owner cannot obtain its legal unit");
-        }
+    // Necessary Control/Decode capacity precedes optional capture reservations.
+    for (std::size_t i = 0; i < primary_count; ++i) {
+        const auto lane   = candidates[i];
+        const auto result = reserve_resident_unit(lane);
+        if (result == ResidentReservation::Pending ||
+            (priority == lane && result != ResidentReservation::Ready))
+            return;
     }
-    if (granted_prefill && !prepare_semantic_capture(slots_[*granted_prefill]))
-        reserved_units_[*granted_prefill].reset();
+    const auto prepare_prefill = [&](std::uint32_t lane) {
+        if (!reserved_units_[lane]) return false;
+        if (prepare_semantic_capture(slots_[lane])) return true;
+        reserved_units_[lane].reset();
+        return false;
+    };
+    if (prefill && prepare_prefill(*prefill)) return;
+    if (priority_prefill) return;
+    // A reserved unit is not a selected Prefill until its capture preparation is ready.
+    for (std::size_t i = primary_count; i < candidates.size(); ++i) {
+        const auto lane   = candidates[i];
+        const auto result = reserve_resident_unit(lane);
+        if (result == ResidentReservation::Pending) return;
+        if (result == ResidentReservation::Ready && prepare_prefill(lane)) return;
+    }
 }
 
 template <class Instance>

@@ -216,6 +216,7 @@ struct ReplayProgress {
     bool capture_ready             = false;
     std::uint32_t processed_tokens = 0;
     bool complete                  = false;
+    std::uint32_t frontier         = 0;
 };
 
 struct CapturePreparation {
@@ -235,7 +236,7 @@ struct ContextProgress {
     std::optional<SequenceHandle> sequence;
     std::optional<runtime::ResidencyId> residency;
     std::optional<ResumeState> paused;
-    bool replaying = false;
+    RecoveryProgress recovery;
     std::vector<CheckpointHandle> private_points, retired_checkpoints, captured_checkpoints;
     std::vector<runtime::ContextTransferObservation> transfers;
     runtime::ContextOperationCounts operations;
@@ -361,12 +362,16 @@ public:
                                                    const SourceCandidate&, ResumeState* = nullptr,
                                                    ExecutionUnitKind    = ExecutionUnitKind::Decode,
                                                    std::uint32_t tokens = 1);
-    [[nodiscard]] bool start_capture(SequenceHandle);
+    [[nodiscard]] runtime::ContextStart start_capture(SequenceHandle);
+    [[nodiscard]] bool retry_capture(SequenceHandle);
+    [[nodiscard]] std::vector<CheckpointHandle> share_capture(SequenceHandle, CheckpointHandle);
     [[nodiscard]] bool capture_is_input(SequenceHandle) const;
     [[nodiscard]] bool capture_is_shared(SequenceHandle) const;
-    [[nodiscard]] std::vector<std::uint32_t> capture_frontiers(SequenceHandle) const;
+    [[nodiscard]] std::vector<std::uint32_t> capture_frontiers(SequenceHandle, std::uint32_t begin,
+                                                               std::uint32_t end) const;
     [[nodiscard]] std::optional<CapturePreparation>
-    prepare_capture(SequenceHandle, std::span<const CheckpointHandle> host_victims = {});
+    prepare_capture(SequenceHandle, std::span<const CheckpointHandle> victims = {},
+                    runtime::CaptureStorage storage = runtime::CaptureStorage::Automatic);
     void skip_capture(SequenceHandle,
                       runtime::CaptureSkip reason = runtime::CaptureSkip::Unavailable);
     [[nodiscard]] ContextReclaimPlan plan_reclaim(std::span<const CheckpointHandle>,
@@ -391,8 +396,7 @@ public:
     start_decode(std::span<const SequenceHandle>, std::span<const runtime::RoundBudget>,
                  std::span<const bool> constrained = {});
     [[nodiscard]] std::optional<runtime::ExecutionTicket>
-    start_control(std::span<const SequenceHandle>, std::span<const TokenId>, std::uint32_t stride,
-                  std::span<const std::optional<std::uint32_t>> splits);
+    start_control(std::span<const SequenceHandle>, std::span<const TokenId>, std::uint32_t stride);
     [[nodiscard]] std::optional<runtime::ExecutionTicket> start_score(PreparedPrompt&&,
                                                                       std::uint32_t first_target);
     [[nodiscard]] std::optional<SessionEvent> poll();

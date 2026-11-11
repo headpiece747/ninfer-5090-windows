@@ -3,7 +3,7 @@
 // The frontend renders a chat template more than once per request. `CompiledChatTemplate::render`
 // runs the output render, and then, to prove which byte offsets are safe prefix-cache boundaries,
 // it runs `prefix(...)` probes that each re-render a variant of the whole conversation
-// (src/models/qwen3_5/frontend/chat_template.cpp:252, :294, :394). Every one of those renders walks
+// (src/models/common/qwen/frontend/chat_template.cpp). Every one of those renders walks
 // the message list twice through the Jinja interpreter, because the template scans it in reverse to
 // find `last_query_index` and then forward to emit the turns.
 //
@@ -25,7 +25,7 @@
 // `--from` replays a recorded chat-completions body, which is how a reading can be taken of the
 // same conversation a server rendered rather than of a conversation that merely looks like it.
 
-#include "models/qwen3_5/frontend/chat_template.h"
+#include "models/common/qwen/frontend/chat_template.h"
 
 #include <algorithm>
 #include <atomic>
@@ -46,7 +46,7 @@
 
 namespace {
 
-namespace fi = ninfer::models::qwen3_5::frontend;
+namespace fi = ninfer::models::qwen::frontend;
 using Clock  = std::chrono::steady_clock;
 
 struct Options {

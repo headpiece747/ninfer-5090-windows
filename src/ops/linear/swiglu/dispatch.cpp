@@ -1,9 +1,24 @@
 #include "core/platform.h"
 #include "ops/linear/swiglu/dispatch.h"
+#include "ops/linear/swiglu/fp8_block/dispatch.h"
+#include "ops/linear/swiglu/mxfp8/dispatch.h"
+#include "ops/linear/swiglu/nvfp4_mul/dispatch.h"
 #include <stdexcept>
 
 namespace ninfer::ops::detail {
 void validate_swiglu_geometry(QType type, int rows, int k, bool clamped) {
+    if (type == QType::MXFP8) {
+        (void)select_mxfp8_swiglu_route(rows, k, 1, LinearPolicy::A16Only);
+        return;
+    }
+    if (type == QType::FP8_E4M3FN_BLOCK128X128_FP32) {
+        (void)select_fp8_block_swiglu_launch(rows, k, 1, LinearPolicy::A16Only);
+        return;
+    }
+    if (type == QType::NVFP4_MUL) {
+        (void)select_nvfp4_mul_swiglu_launch(rows, k, LinearPolicy::A16Only);
+        return;
+    }
     if (clamped) {
 #if NINFER_TARGET_SPARK
         if (type == QType::BF16 && rows == 20480 && k == 4096) return;
@@ -15,6 +30,7 @@ void validate_swiglu_geometry(QType type, int rows, int k, bool clamped) {
     }
 #if NINFER_TARGET_SPARK
     if (type == QType::BF16 && rows == 20480 && k == 4096) return;
+    if (type == QType::BF16 && rows == 12288 && k == 4096) return;
     if (type == QType::NVFP4 && rows == 12288 && k == 4096) return;
     if ((type == QType::BF16 || type == QType::Q8_G32_FP16) && rows == 2048 && k == 4096) return;
 #endif
@@ -37,6 +53,8 @@ LinearSwiGluLaunch select_q8_linear_swiglu(int rows, int k, int tokens) {
 void bf16_linear_swiglu_dispatch(const Tensor& x, const Weight& weight, Tensor& out, float limit,
                                  bool clamped, cudaStream_t stream) {
 #if NINFER_TARGET_SPARK
+    if (!clamped && weight.n == 12288 && weight.k == 4096)
+        return launch_bf16_swiglu_n12288_k4096(x, weight, out, stream);
     if (weight.n == 2048 && weight.k == 4096)
         return launch_bf16_swiglu_n2048_k4096(x, weight, out, limit, clamped, stream);
     if (weight.n == 20480 && weight.k == 4096)

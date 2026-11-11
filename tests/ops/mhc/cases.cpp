@@ -66,10 +66,11 @@ int verify(const Fixture& f, const std::string& label) {
             continue;
         }
         const auto check_pre = [&](const PreReference& expected, const char* suffix,
-                                   const ReductionCriterion& coefficient_criterion) {
+                                   const ReductionCriterion& coefficient_criterion,
+                                   const ReductionCriterion& block_criterion) {
             int errors = verify_reduction(label + suffix + " block",
                                           std::span(actual.data() + std::size_t(m) * D, D),
-                                          expected.u, kBf16);
+                                          expected.u, block_criterion);
             errors += verify_reduction(label + suffix + " q", std::span(q.data() + m * S, S),
                                        expected.q, coefficient_criterion);
             errors +=
@@ -78,19 +79,21 @@ int verify(const Fixture& f, const std::string& label) {
             return errors;
         };
         failed += check_pre(pre_reference(f, x), " formula",
-                            f.form == Form::PostPre ? kFusedCoefficients : kCoefficients);
+                            f.form == Form::PostPre ? kFusedCoefficients : kCoefficients,
+                            f.form == Form::PostPre ? kFusedBlock : kBf16);
         if (f.form == Form::PostPre)
             failed +=
                 check_pre(pre_reference(f, std::span(residual.data() + std::size_t(m) * K, K)),
-                          " published BF16 seam", kCoefficients);
+                          " published BF16 seam", kCoefficients, kBf16);
     }
     return failed;
 }
 
 namespace {
 int run(Form form, int m, Pattern pattern, bool alias, bool captured, CudaExecutionView e,
-        std::size_t tensor_guard_bytes = 256) {
-    Fixture f(form, m, alias, tensor_guard_bytes);
+        std::size_t tensor_guard_bytes = 256, DType base = DType::BF16, DType scale = DType::BF16,
+        DType gamma = DType::BF16) {
+    Fixture f(form, m, alias, tensor_guard_bytes, base, scale, gamma);
     f.set(pattern);
     f.upload(e.stream());
     DecodeGraphDefinition definition;
@@ -119,7 +122,10 @@ int run(Form form, int m, Pattern pattern, bool alias, bool captured, CudaExecut
 }
 } // namespace
 
+void add_tap_cases(OpSuite& suite);
+
 void add_cases(OpSuite& suite) {
+    add_tap_cases(suite);
     for (auto form : {Form::Pre, Form::Post, Form::ExpandPre, Form::PostPre, Form::PostMeanNorm}) {
         auto add = [&](int m, Pattern pattern, bool alias = false, bool graph = false) {
             const auto id = std::string(name(form)) + "/m" + std::to_string(m) + "/pattern" +
@@ -146,8 +152,11 @@ void add_cases(OpSuite& suite) {
             for (int m : {511, 512}) add(m, Pattern::General);
             for (auto p : {Pattern::Small, Pattern::Saturated, Pattern::Unbalanced}) add(513, p);
         }
-        if (form == Form::Post)
+        if (form == Form::Post) {
+            add(48, Pattern::General);
+            add(48, Pattern::General, true, true);
             for (int m : {1023, 1024, 1025}) add(m, Pattern::General);
+        }
         for (auto p : {Pattern::Zero, Pattern::Saturated, Pattern::Unbalanced, Pattern::Midpoint,
                        Pattern::Small})
             if (has_pre(form) || (p != Pattern::Saturated && p != Pattern::Unbalanced)) add(3, p);
@@ -162,10 +171,40 @@ void add_cases(OpSuite& suite) {
             add(1, Pattern::Midpoint, true);
             add(17, Pattern::General, true, true);
             add(form == Form::Post ? 1025 : 129, Pattern::General, true, true);
-            if (form == Form::PostPre) add(513, Pattern::General, true, true);
+            if (form == Form::PostPre) {
+                add(512, Pattern::General);
+                add(512, Pattern::General, true, true);
+                add(513, Pattern::General, true, true);
+            }
         }
         suite.add(std::string(name(form)) + "/contract",
                   [=] { return validate(form, cuda_environment().context.execution_view()); });
+    }
+    for (auto form : {Form::Pre, Form::ExpandPre, Form::PostPre, Form::PostMeanNorm}) {
+        const std::vector<int> columns = form == Form::PostMeanNorm
+                                             ? std::vector<int>{1, 7, 16, 17, 513}
+                                             : std::vector<int>{1, 7, 17, 129, 609};
+        for (auto gamma : {DType::BF16, DType::FP32})
+            for (const int m : columns) {
+                const auto id = std::string(name(form)) + "/fp32-parameters/" +
+                                (gamma == DType::FP32 ? "fp32-gamma" : "bf16-gamma") + "/m" +
+                                std::to_string(m);
+                suite.add(id, [=] {
+                    return run(form, m, Pattern::General, form == Form::PostPre, m == 7,
+                               cuda_environment().context.execution_view(), 272, DType::FP32,
+                               DType::FP32, gamma);
+                });
+            }
+    }
+    for (auto base : {DType::BF16, DType::FP32}) {
+        const auto scale = base == DType::BF16 ? DType::FP32 : DType::BF16;
+        suite.add(std::string("pre/mixed-parameters/") +
+                      (base == DType::BF16 ? "bf16-base" : "fp32-base"),
+                  [=] {
+                      return run(Form::Pre, 7, Pattern::General, false, false,
+                                 cuda_environment().context.execution_view(), 256, base, scale,
+                                 DType::FP32);
+                  });
     }
 }
 } // namespace ninfer::test::mhc

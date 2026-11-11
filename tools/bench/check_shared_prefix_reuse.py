@@ -115,12 +115,11 @@ def diverged(count: int, tag: str) -> list[dict[str, str]]:
     A private response replay is keyed on the whole prompt, so rewording the tail defeats it and the
     shared prefix is the only remaining route.
 
-    The tail must stay a USER turn. `ResidentPrefixIdentity::matches` (prefix_identity.cpp:218)
-    compares `rewrite_execution_frontiers`, and those are derived from ASSISTANT blocks in the
-    rendered text (the port's native renderer, since withdrawn with ADR-0012, keyed this on `if (role == "assistant")`). A different number of
-    assistant turns inside the counted prefix makes the two identities disagree and the shared
-    prefix is refused -- which is correct behaviour, and the reason this harness cannot simply
-    change the tail's content.
+    The tail must stay a USER turn. Changing or removing earlier turns changes the assistant
+    boundaries recorded by `FrontierEntry` and compared by `ResidentPrefixIdentity::matches`
+    (`prefix_identity.cpp:256`, token types and positions), so an unequal number of assistant
+    turns inside the counted prefix causes the two identities to disagree and refuses the shared
+    prefix -- which is correct behaviour, and the reason this harness keeps prior turns identical.
     """
     turns = conversation(count)[:-1]
     return turns + [{"role": "user", "content": f"{tag} Reply with one short sentence."}]

@@ -128,8 +128,7 @@ input; only the context-cost benchmark reads it.
 
 There is no `pp{P}`/`tg{G}` matrix: that driver and its test kinds are retired. A run measures
 `--repetitions` full generations of the same request set after `--warmup` unmeasured ones. Before each
-decode run, the first `C-1` inputs complete ordinary one-token requests so the measured batch starts at
-the same size.
+decode run, all `C` inputs complete ordinary one-token requests so existing prefix cache warmup is in place before the measured batch begins.
 
 Prefix reuse defaults **on** for decode runs, using the shared Context capacity; a prefill-only run
 (`--max-tokens 1`) defaults it off, and explicit configuration wins. When CUDA Graph is enabled, a

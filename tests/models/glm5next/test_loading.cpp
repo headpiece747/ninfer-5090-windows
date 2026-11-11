@@ -121,7 +121,7 @@ void selection_and_planning(const std::filesystem::path& directory) {
                             .parent->geometry.format == QType::Q4_G64_FP16,
                 "Main/full-vocabulary proposal formats differ");
         const auto& k = std::get<glm::KdaWeights>(w.text.layers[0].mixer);
-        const auto& d = std::get<glm::DenseWeights>(w.text.layers[0].ffn);
+        const auto& d = std::get<models::DenseWeights>(w.text.layers[0].ffn);
         const auto& m = std::get<glm::MoeWeights>(w.text.layers[1].ffn);
         require(full->input(k.query).weight.parts.front().parent->geometry.format ==
                         QType::Q8_G32_FP16 &&
@@ -131,7 +131,7 @@ void selection_and_planning(const std::filesystem::path& directory) {
                         QType::Q8_G32_FP16,
                 "official recipe formats differ");
         require(full->uses(m.gate).front().policy == ops::LinearPolicy::AllowA4 &&
-                    full->uses(m.gate).front().activation_input_divisor == 0.5F &&
+                    full->uses(m.gate).front().calibration_view().scalar_divisor() == 0.5F &&
                     full->uses(w.mtp->moe.gate).front().policy == ops::LinearPolicy::AllowA8,
                 "expert use policy or activation divisor lost");
         source_words(reader, *full, directory);
@@ -241,7 +241,76 @@ void matrix_words(const BoundWeight& weight, const Encoded& expected, std::uint6
                   scale_offset(e, erow + row, column_start / group + i),
                   a.format == QType::NVFP4 ? 1 : 2);
     }
-    if (a.format == QType::NVFP4) equal(a.divisor_offset, e.divisor_offset, 4);
+    if (a.format == QType::NVFP4) equal(a.matrix_scale_offset, e.matrix_scale_offset, 4);
+}
+
+void draft_loading(const std::filesystem::path& directory, DeviceContext* device = nullptr) {
+    artifact::Reader reader(directory / "model.ninfer");
+    for (const auto head : {ProposalHead::Full, ProposalHead::Optimized}) {
+        const auto definition = glm::read_definition(
+            reader,
+            {.vision = true, .speculative = SpeculativeBackend::DFlash2, .proposal_head = head});
+        const auto& config = definition->config();
+        const auto& w      = definition->weights();
+        const auto& d      = w.draft.value();
+        require(!config.mtp && !w.mtp && config.draft && w.vision &&
+                    definition->expert_banks().size() == 1 &&
+                    config.draft->training_block_size == 8 && config.draft->rope_theta == 10000.F,
+                "DFlash2 selection retained MTP or lost its configuration");
+        for (const auto& parameter : definition->parameters())
+            require(!parameter.name.starts_with("mtp/"), "DFlash2 loading selected MTP weights");
+        for (const auto& rank : glm::plan_parallel(*definition, deployment(1)).ranks) {
+            auto load = glm::resolve_rank_load(reader, definition, rank, Device::cuda(0));
+            std::unique_ptr<glm::ModelShard> model;
+            if (device) model = glm::materialize_model(std::move(load), *device);
+            const auto data   = device ? model->weight_data() : load.weight_data();
+            const auto region = [&](WeightId id) {
+                return contiguous_weight_region(data[id.index].view);
+            };
+            const auto shared = [&](WeightId a, WeightId b) {
+                const auto x = region(a), y = region(b);
+                require(x.parent == y.parent && x.begin == y.begin && x.end == y.end,
+                        "DFlash2 shared weight was duplicated or sliced differently");
+            };
+            require(rank.draft && rank.draft->query_heads.size == 2 &&
+                        rank.draft->key_value_heads.size == 1 &&
+                        rank.draft->intermediate.size == 128 &&
+                        data[d.feature_projection.index].view.shape == artifact::Shape{64, 256},
+                    "DFlash2 TP partition differs");
+            shared(d.token_embedding, w.text.embedding);
+            if (head == ProposalHead::Full)
+                shared(d.output_head, w.text.head);
+            else
+                require(region(d.output_head).parent->geometry.format == QType::Q4_G64_FP16 &&
+                            region(d.output_head).parent != region(w.text.head).parent,
+                        "DFlash2 optimized head selection differs");
+            require(data[d.output_head.index].view.shape == artifact::Shape{8, 128},
+                    "DFlash2 head did not follow the vocabulary partition");
+            for (const auto& layer : d.layers) {
+                const auto& a = layer.attention;
+                contiguous(data, {a.key, a.value, a.query});
+                contiguous(data, {layer.mlp.gate, layer.mlp.up});
+                shared(a.key, a.context_key);
+                shared(a.value, a.context_value);
+                require(data[a.key.index].view.shape == artifact::Shape{32, 128} &&
+                            data[a.query.index].view.shape == artifact::Shape{64, 128} &&
+                            data[a.output.index].view.shape == artifact::Shape{128, 64} &&
+                            data[layer.mlp.down.index].view.shape == artifact::Shape{128, 128},
+                        "DFlash2 local projection geometry differs");
+            }
+            if (!device) continue;
+            for (std::size_t i = 0; i < definition->parameters().size(); ++i) {
+                const auto& parameter = definition->parameter({i});
+                if (!parameter.name.starts_with("dflash2/") && parameter.name != "proposal/head")
+                    continue;
+                const auto& local  = data[i].view.shape;
+                const auto& global = parameter.shape;
+                const auto row    = local.front() != global.front() ? rank.rank * local.front() : 0;
+                const auto column = local.back() != global.back() ? rank.rank * local.back() : 0;
+                matrix_words(data[i], source(reader, *definition, {i}), row, column);
+            }
+        }
+    }
 }
 
 void materialization(const std::filesystem::path& directory, DeviceContext& device,
@@ -302,12 +371,15 @@ void materialization(const std::filesystem::path& directory, DeviceContext& devi
         std::get<glm::execution::MlaParameters>(parameters.text.layers[1].mixer);
     const auto& mla_config  = model->definition().config().text.mla;
     const auto history_rows = mla_config.latent_dim + 2 * mla_config.index_dim;
-    require(prepared_mla.prepare[0].a_projection.qdata ==
-                    prepared_mla.prepare[1].a_projection.qdata &&
-                prepared_mla.prepare[0].a_projection.qdata ==
-                    prepared_mla.prepare[2].a_projection.qdata &&
-                prepared_mla.prepare[2].a_projection.n == history_rows &&
-                prepared_mla.prepare[1].a_projection.n == history_rows + mla_config.query_lowrank,
+    const auto& full =
+        std::get<ops::SingleProjectionWeight>(prepared_mla.prepare[0].weights).weight;
+    const auto& query_history =
+        std::get<ops::SingleProjectionWeight>(prepared_mla.prepare[1].weights).weight;
+    const auto& history =
+        std::get<ops::SingleProjectionWeight>(prepared_mla.prepare[2].weights).weight;
+    require(full.qdata == query_history.qdata && full.qdata == history.qdata &&
+                history.n == history_rows &&
+                query_history.n == history_rows + mla_config.query_lowrank,
             "MLA preparation did not bind continuous history/query prefixes");
     require(parameters.text.embedding.qdata == parameters.mtp->embedding.qdata &&
                 (!optimized ? parameters.text.head.weight.qdata == parameters.mtp->head.weight.qdata
@@ -320,7 +392,7 @@ void materialization(const std::filesystem::path& directory, DeviceContext& devi
                         .weights.routed.bank.count == 2,
             "prepared bias parent or global expert domain differs");
     const auto& k   = std::get<glm::KdaWeights>(w.text.layers[0].mixer);
-    const auto& d   = std::get<glm::DenseWeights>(w.text.layers[0].ffn);
+    const auto& d   = std::get<models::DenseWeights>(w.text.layers[0].ffn);
     const auto& m   = std::get<glm::MoeWeights>(w.text.layers[1].ffn);
     const auto part = size == 1 ? 0U : rank * 64U;
     for (const auto id : {k.query, k.key, k.value, k.forget_b, k.gate_b, m.shared.gate, m.shared.up,
@@ -360,7 +432,7 @@ void materialization(const std::filesystem::path& directory, DeviceContext& devi
     for (const auto& e : expert_words) {
         const auto& bank = model->experts({e.bank}).view();
         require(bank.count == 2, "local EP bank lost the global routing domain");
-        const auto& matrix = e.down ? bank.down : bank.gate_up;
+        const auto& matrix      = e.down ? bank.down : bank.gate_up;
         const auto& description = model->expert_data()[e.bank];
         const auto& g           = e.down ? description.down : description.gate_up;
         const auto rows = g.shape[g.shape.size() - 2], columns = g.shape.back();
@@ -411,7 +483,7 @@ void materialization(const std::filesystem::path& directory, DeviceContext& devi
         }
         if (e.bank == 0) {
             float divisor = 0;
-            CUDA_CHECK(cudaMemcpy(&divisor, matrix.divisors + e.expert, sizeof(float),
+            CUDA_CHECK(cudaMemcpy(&divisor, matrix.matrix_scales + e.expert, sizeof(float),
                                   cudaMemcpyDeviceToHost));
             require(divisor == e.divisor, "resident expert divisor lost global-ID addressing");
         }
@@ -429,6 +501,7 @@ int main(int argc, char** argv) {
         const std::filesystem::path directory(argv[1]);
         if (std::string_view(argv[2]) == "--host") {
             selection_and_planning(directory);
+            draft_loading(directory);
         } else {
             require(std::string_view(argv[2]) == "--gpu", "unknown loading test mode");
             int count = 0;
@@ -440,6 +513,7 @@ int main(int argc, char** argv) {
             materialization(directory, device, 2, 1, false);
             materialization(directory, device, 2, 0, true, 1);
             materialization(directory, device, 2, 1, true, 1);
+            draft_loading(directory, &device);
         }
         std::cout << "PASS GLM conversion, binding and rank loading\n";
         return 0;

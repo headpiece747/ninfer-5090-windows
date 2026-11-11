@@ -83,7 +83,7 @@ WARMUP_FIXTURE = "text_smoke_zh"
 RUN_ARTIFACT_TYPE = "ninfer_serve_corpus_result"
 RUN_SCHEMA_VERSION = 9
 SERVER_LOG_ARTIFACT_TYPE = "ninfer_serve_request_log"
-SERVER_LOG_SCHEMA_VERSION = 31
+SERVER_LOG_SCHEMA_VERSION = 32
 STARTUP_TIMEOUT_SECONDS = 1800.0
 REQUEST_TIMEOUT_SECONDS = 24.0 * 60.0 * 60.0
 LOG_EVENT_TIMEOUT_SECONDS = 10.0
@@ -717,7 +717,9 @@ def build_result_record(
         prompt_tokens = int(result["prompt_tokens"])
         completion_tokens = int(result["completion_tokens"])
         prepare_seconds = float(timings["prepare"])
-        ttft_seconds = float(timings["ttft"])
+        ttft_seconds = (
+            float(timings["ttft"]) if timings["ttft"] is not None else None
+        )
         vision_seconds = float(timings["vision_stream"])
         vision_samples = server_event["execution"]["max_rank_gpu_intervals"][
             "vision_stream"
@@ -804,7 +806,7 @@ def build_result_record(
         "decode_seconds": decode_seconds,
         "total_seconds": total_seconds,
         "prefill_tok_s": safe_ratio(float(prompt_tokens), prefill_seconds),
-        "server_ttft_ms": 1000.0 * ttft_seconds,
+        "server_ttft_ms": 1000.0 * ttft_seconds if ttft_seconds is not None else None,
         "decode_tok_s": safe_ratio(float(decode_tokens), decode_seconds),
         "speculative_rounds": speculative_rounds,
         "drafted_tokens": drafted_tokens,

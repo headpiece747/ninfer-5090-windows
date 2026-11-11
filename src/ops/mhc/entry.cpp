@@ -32,9 +32,19 @@ struct Validation {
         inputs[input_count++] = tensor(t, type, dims, name);
     }
 
+    void parameter(const Tensor& t, std::initializer_list<int> dims, const char* name) {
+        if (t.dtype != DType::BF16 && t.dtype != DType::FP32)
+            throw std::invalid_argument(std::string(kOp) + ": " + name +
+                                        " requires BF16 or FP32 storage");
+        input(t, t.dtype, dims, name);
+    }
+
     void output(const Tensor& t, DType type, std::initializer_list<int> dims, const char* name,
                 bool residual_alias = false) {
-        auto range = tensor(t, type, dims, name);
+        output_range(tensor(t, type, dims, name), residual_alias);
+    }
+
+    void output_range(operand::Range range, bool residual_alias = false) {
         for (int i = residual_alias ? 1 : 0; i < input_count; ++i)
             operand::disjoint(range, inputs[i], kOp);
         for (int i = 0; i < output_count; ++i) operand::disjoint(range, outputs[i], kOp);
@@ -61,9 +71,9 @@ struct Validation {
                     operand::aligned(f.qdata, 16),
                 "projection requires compact BF16 [24,16384]");
         inputs[input_count++] = operand::range(f.qdata, std::size_t(kRows) * kWidth * 2, kOp);
-        input(w.base, DType::BF16, {kRows}, "base");
-        input(w.scale, DType::BF16, {3}, "scale");
-        input(w.gamma, DType::BF16, {kHidden}, "gamma");
+        parameter(w.base, {kRows}, "base");
+        parameter(w.scale, {3}, "scale");
+        parameter(w.gamma, {kHidden}, "gamma");
     }
 };
 
@@ -78,14 +88,14 @@ void parameters(const MhcPreParameters& p) {
 void execute(Form form, const Tensor& x, const Tensor* block, const MhcCoefficients* c,
              const MhcPreWeights* weights, const MhcPreParameters* p, Tensor* updated,
              const MhcPreOutputs* outputs, MemoryArena* arena, CudaExecutionView execution,
-             const Tensor* final_gamma = nullptr, float final_epsilon = 0,
-             Tensor* hidden = nullptr) {
+             const Tensor* final_gamma = nullptr, float final_epsilon = 0, Tensor* hidden = nullptr,
+             const Tensor* mean_tap = nullptr) {
     const bool expand    = form == Form::ExpandPre;
     const auto& geometry = expand ? *updated : x;
     validate_geometry({geometry.ne[0], geometry.ne[1]});
     const int m = geometry.ne[2];
     require(m > 0, "columns must be positive");
-    const auto plan = select(form, m, execution.multiprocessor_count());
+    const auto plan = select(form, m, execution.multiprocessor_count(), mean_tap && mean_tap->data);
     Validation v{execution.device()};
     if (expand)
         v.input(x, DType::BF16, {kHidden, m}, "embedding");
@@ -109,6 +119,9 @@ void execute(Form form, const Tensor& x, const Tensor* block, const MhcCoefficie
         o.base       = weights->base.data;
         o.scale      = weights->scale.data;
         o.gamma      = weights->gamma.data;
+        o.base_type  = weights->base.dtype;
+        o.scale_type = weights->scale.dtype;
+        o.gamma_type = weights->gamma.dtype;
         o.parameters = *p;
     }
     if (updated) {
@@ -129,11 +142,24 @@ void execute(Form form, const Tensor& x, const Tensor* block, const MhcCoefficie
     if (final_gamma) {
         require(final_epsilon > 0 && std::isfinite(final_epsilon),
                 "final epsilon must be positive and finite");
-        v.input(*final_gamma, DType::BF16, {kHidden}, "final gamma");
+        v.parameter(*final_gamma, {kHidden}, "final gamma");
         v.output(*hidden, DType::BF16, {kHidden, m}, "hidden");
         o.gamma                     = final_gamma->data;
+        o.gamma_type                = final_gamma->dtype;
         o.output                    = hidden->data;
         o.parameters.branch_epsilon = final_epsilon;
+    }
+    if (mean_tap && mean_tap->data) {
+        const auto& tap = *mean_tap;
+        require(form == Form::PostPre && std::int64_t(tap.ne[1]) * tap.ne[2] == m && tap.nb[0] == 2,
+                "mean tap requires feature-contiguous [4096,C,B], C*B=M");
+        operand::strided_tensor(tap, DType::BF16, {kHidden, tap.ne[1], tap.ne[2]}, 16, kOp,
+                                "mean tap", execution.device());
+        v.output_range(operand::strided_range(tap, kOp));
+        o.mean_tap          = tap.data;
+        o.tap_columns       = tap.ne[1];
+        o.tap_column_stride = tap.nb[1] / 2;
+        o.tap_batch_gap     = tap.nb[2] / 2 - std::int64_t(tap.ne[1]) * o.tap_column_stride;
     }
     if (arena) {
         operand::device(arena->device(), execution.device(), kOp, "workspace");
@@ -167,10 +193,12 @@ std::size_t capacity(Form form, const MhcGeometry& g, int sm, int first, int las
     require(sm > 0 && first > 0 && last >= first, "invalid SM count or column interval");
     std::size_t maximum = 0;
     for (std::int64_t cursor = first; cursor <= last;) {
-        const auto plan = select(form, static_cast<int>(cursor), sm);
-        const int end   = std::min(last, plan.interval_end);
+        const auto plan   = select(form, static_cast<int>(cursor), sm, false);
+        const auto tapped = select(form, static_cast<int>(cursor), sm, form == Form::PostPre);
+        const int end     = std::min({last, plan.interval_end, tapped.interval_end});
         // Within a selected region the partial reservation grows monotonically with M.
         maximum = std::max(maximum, scratch_bytes(plan, end));
+        maximum = std::max(maximum, scratch_bytes(tapped, end));
         cursor  = std::int64_t(end) + 1;
     }
     return maximum;
@@ -198,8 +226,10 @@ void mhc_expand_pre(const Tensor& x, const MhcPreWeights& w, const MhcPreParamet
 
 void mhc_post_pre(const Tensor& x, const Tensor& y, const MhcCoefficients& c,
                   const MhcPreWeights& w, const MhcPreParameters& p, Tensor& residual,
-                  MhcPreOutputs out, MemoryArena& workspace, CudaExecutionView e) {
-    mhc::execute(mhc::Form::PostPre, x, &y, &c, &w, &p, &residual, &out, &workspace, e);
+                  MhcPreOutputs out, MemoryArena& workspace, CudaExecutionView e,
+                  const Tensor& mean_tap) {
+    mhc::execute(mhc::Form::PostPre, x, &y, &c, &w, &p, &residual, &out, &workspace, e, nullptr, 0,
+                 nullptr, &mean_tap);
 }
 
 void mhc_post_mean_norm(const Tensor& x, const Tensor& y, const MhcCoefficients& c,

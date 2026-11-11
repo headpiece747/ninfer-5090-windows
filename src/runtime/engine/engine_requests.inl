@@ -132,6 +132,7 @@ EngineCore<Instance>::record_committed_output(const std::shared_ptr<Request>& re
     if (accepted_tokens == 0) { return std::nullopt; }
     cumulative_stats_.generated_tokens += accepted_tokens;
     const Clock::time_point now = Clock::now();
+    request->last_progress      = now;
     if (!request->first_token) {
         request->first_token = now;
         if (request->observation.first_token) {
@@ -395,6 +396,7 @@ void EngineCore<Instance>::complete_success(const std::shared_ptr<Request>& requ
     result.stats.scheduling.preemptions       = request->preemption_count;
     result.stats.scheduling.replay_restores   = request->replay_restores;
     result.stats.scheduling.snapshot_restores = request->snapshot_restores;
+    result.stats.scheduling.direct_restores   = request->direct_restores;
     result.stats.scheduling.replayed_tokens   = request->replayed_tokens;
     if (request->paused_at) {
         request->paused_ns += elapsed_ns(*request->paused_at, Clock::now());
@@ -413,9 +415,9 @@ void EngineCore<Instance>::complete_success(const std::shared_ptr<Request>& requ
     result.reasoning_tokens                      = request->output.reasoning_tokens();
     result.finish_reason                         = reason;
     result.matched_stop_string                   = request->output.matched_stop_string();
-    if (request->begin) {
-        result.stats.reused_prompt_tokens = request->begin->reused_prompt_tokens;
-        result.stats.prefix_reuse_path    = request->begin->prefix_reuse_path;
+    if (request->admitted_begin) {
+        result.stats.reused_prompt_tokens = request->admitted_begin->reused_prompt_tokens;
+        result.stats.prefix_reuse_path    = request->admitted_begin->prefix_reuse_path;
     }
     result.stats.executions             = request->executions;
     result.stats.decode_by_batch        = std::move(request->decode_by_batch);

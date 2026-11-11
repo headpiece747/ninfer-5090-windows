@@ -1,6 +1,6 @@
 {
   "against": "upstream/dev",
-  "recorded": "2026-11-02",
+  "recorded": "2026-11-11",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -73,7 +73,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "product",
-      "reason": "Engine-failure reporting: the engine latches failure permanently (fail_all_locked sets failed_ once and nothing clears it), so without this check the process stays alive forever after an engine-wide failure, indistinguishable from a healthy one at the process level. Exit code 3 is kept distinct from 1 (configuration, bind or warmup error) so a supervisor can tell them apart."
+      "reason": "Engine-failure reporting: the engine latches failure permanently (fail_all_locked sets failed_ once and nothing clears it), so without this check the process stays alive forever after an engine-wide failure, indistinguishable from a healthy one at the process level. Exit code 3 is kept distinct from 1 (configuration, bind or warmup error) so a supervisor can tell them apart. Also handles Windows SIGBREAK under _WIN32 and guards exit code 3 with !g_stop_requested so clean HttpServer::stop() shutdown (which marks EngineCore::stopping_) still exits 0."
     },
     "bench/README.md": {
       "status": "M",
@@ -153,6 +153,12 @@
       "review": "windows",
       "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
     },
+    "bench/inference/benchmarks.cmake": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Links ninfer_product_logging on ninfer_bench for MSVC/Ninja builds when NINFER_BUILD_BENCHMARKS=ON."
+    },
     "bench/models/qwen3_5/benchmarks.cmake": {
       "status": "M",
       "disposition": "product",
@@ -164,6 +170,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "The bench builds the selector's codebooks as Weight, matching the Op's signature after the codebooks became real weights. Same change as src/ops/wrapper/candidate_selector.cpp."
+    },
+    "bench/ops/moe/cpu.cpp": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Adds Win32 GetProcessTimes implementation for cpu_us() and _MSC_FULL_VER compiler reporting under MSVC/Windows (no clock_gettime/CLOCK_PROCESS_CPUTIME_ID or __VERSION__)."
     },
     "bench/ops/nvfp4_linear_swiglu_bench.cu": {
       "status": "M",
@@ -549,12 +561,6 @@
       "review": "product",
       "reason": "Documents the plane order as a contract: kv_cache_append and causal_softmax_attention walk these planes positionally, and which planes exist is a property of the resolved storage layout rather than of the Op."
     },
-    "src/core/weight_view.cpp": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "native_weight allows a 128-row-aligned sub-range of an NVFP4 BlockScaleK16M128x4 parent to be used as a complete matrix, rebasing the codes plane by whole code rows and the scale plane by whole 512-byte scale tiles. The port's shipped NVFP4 artifacts need it: the DFlash2 context K/V rows share the fused query/key/value parent at exact 128-row boundaries. The RowScale complete-parent validation this file used to carry is upstream's now, so it is no longer part of this divergence."
-    },
     "src/distributed/deployment.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -578,6 +584,12 @@
       "disposition": "windows",
       "review": "",
       "reason": ""
+    },
+    "src/models/common/dflash/weights.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Binds dflash2 candidate_selector predecessor/successor codebooks via b.parameter without fixing BF16 so both upstream BF16 codebooks and the port's NVFP4 codebooks load and dispatch by weight qtype."
     },
     "src/models/common/frontend/prompt.h": {
       "status": "M",
@@ -663,12 +675,6 @@
       "review": "product",
       "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
     },
-    "src/models/qwen3_5/load/dflash2.cpp": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "Part of making the DFlash2 selector's codebooks real weights: they are declared as parameters with the drafter's vocab x selector_rank shape, bound as LinearParameters, and passed to candidate_selector_path as Weight rather than as a raw pointer. That is what lets the codebooks be NVFP4 as well as BF16, which is the route upstream's Q8-only drafter projection cannot serve."
-    },
     "src/models/qwen3_5/measurement.h": {
       "status": "M",
       "disposition": "windows",
@@ -710,12 +716,6 @@
       "disposition": "refactor",
       "review": "product",
       "reason": "The per-layer KV plane geometry is built once by storage_planes(layer_storage, kv_heads) and repeated per layer, instead of the four push_back calls being written out per layer. A deduplication of the same class as ops/common/validation.h and the route catalog, and the same gate protects it."
-    },
-    "src/models/qwen3_5/weights.h": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "A comment recording that the draft attention consumes one fused query+key+value parent while the artifact declares only the three logical parameters: parameters.cpp assembles the parent with ops::prepare_attn_input_proj_weights, and requiring a fused parameter of its own would reject every upstream-generated artifact, since the converter groups the three."
     },
     "src/models/qwen4_exp/program/buffers.cpp": {
       "status": "M",
@@ -795,15 +795,21 @@
       "review": "",
       "reason": ""
     },
+    "src/ops/kv_cache/context_materialize/bf16.cu": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Lowers by-value __grid_constant__ parameter Descriptors alignment from alignas(128) to alignas(64) because MSVC cudafe1 host stub rejects alignas(>64) parameters with C2719."
+    },
     "src/ops/kv_cache/context_materialize/context_kv_materialize.cpp": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "review": "product",
       "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
     },
     "src/ops/kv_cache/context_materialize/dispatch.cu": {
       "status": "M",
-      "disposition": "refactor",
+      "disposition": "unknown",
       "review": "cpp-cuda-review + the FP64 oracle. Verified: the NVFP4 divisors are written where the device views are built and read where the group scales decode; kLayers is derived from kContextKVMaterializeLayers so the loop bound cannot disagree with the array it writes; the key-post kernel has internal linkage. This is where the >256-column regression was found: the staging swizzle substituted by this merge was not the one the kernel was written against. The oracle now passes at every width including 257/512 with the port's own tile.",
       "reason": "the port's NVFP4 implementation family is selected from the layer weights' format rather than from the column count, because the two families are exclusive per call; the dense selector keeps upstream's signature. Also carries the two inverse-divisor fields into the device views. Checked by tests/ops/test_context_kv_materialize.cpp and the dflash2 route test."
     },
@@ -815,7 +821,7 @@
     },
     "src/ops/kv_cache/context_materialize/epilogue.cuh": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "review": "cpp-cuda-review + the FP64 oracle. Verified: the NVFP4 divisors are written where the device views are built and read where the group scales decode; kLayers is derived from kContextKVMaterializeLayers so the loop bound cannot disagree with the array it writes; the key-post kernel has internal linkage. This is where the >256-column regression was found: the staging swizzle substituted by this merge was not the one the kernel was written against. The oracle now passes at every width including 257/512 with the port's own tile.",
       "reason": "two additions the port's NVFP4 route needs: DeviceLayerView's inverse-divisor fields (an NVFP4 parent's stored divisor is not in its captured scales) and make_device_layers, which both families now share instead of each building the views. The key-post kernel also gains internal linkage, because a __global__ with external linkage in a header is a duplicate device symbol once a second TU includes it -- nvlink reported it by name."
     },
@@ -908,6 +914,18 @@
       "disposition": "unknown",
       "review": "",
       "reason": ""
+    },
+    "src/ops/linear/kernels/q4/q4_a16_tma_prefetch.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Lowers Q4A16TmaDescriptors alignment from alignas(128) to alignas(64) for MSVC cudafe1 C2719 compatibility."
+    },
+    "src/ops/linear/kernels/q8/q8_a16_tma.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Lowers Q8A16TmaDescriptors alignment from alignas(128) to alignas(64) for MSVC cudafe1 C2719 compatibility."
     },
     "src/ops/linear/projection/fp8/fp8_launch.cuh": {
       "status": "M",
@@ -1040,6 +1058,12 @@
       "disposition": "windows",
       "review": "",
       "reason": ""
+    },
+    "src/ops/moe/kernels/cuda/block_scaled/clamped/nvfp4/grouped_tma.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Lowers grouped_tma::Maps alignment from alignas(128) to alignas(64) for MSVC cudafe1 C2719 compatibility."
     },
     "src/ops/moe/routed_swiglu/cpu/nvfp4/shapes/h2560_i640_e512_k10/dispatch.cpp": {
       "status": "M",
@@ -1325,7 +1349,7 @@
     },
     "src/serve/request_log.cpp": {
       "status": "M",
-      "disposition": "windows",
+      "disposition": "unknown",
       "review": "windows",
       "reason": "Windows MSVC has no <unistd.h>; removed dead upstream <unistd.h> include (left behind upstream when getpid was moved to observations.cpp in 5b834fc3)."
     },
@@ -1701,6 +1725,12 @@
       "review": "",
       "reason": ""
     },
+    "tests/ops/quant/tests.cmake": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Passes MSVC /fp:strict instead of GCC/Clang -fno-fast-math,-ffp-contract=off in -Xcompiler for ninfer_native_weight_codec_test."
+    },
     "tests/ops/reduction/vocabulary_logprobs.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -1721,7 +1751,7 @@
     },
     "tests/ops/sampling/candidate_selector.cpp": {
       "status": "M",
-      "disposition": "unknown",
+      "disposition": "product",
       "review": "",
       "reason": ""
     },
@@ -1887,6 +1917,12 @@
       "review": "product",
       "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
     },
+    "tests/test_serve_shutdown_real.py": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Uses CREATE_NEW_PROCESS_GROUP + CTRL_BREAK_EVENT on win32 for graceful shutdown testing and explicit encoding='utf-8' on log file I/O (check_subprocess_encoding.py)."
+    },
     "tests/text/fixtures/glm5next-tokenizer.json": {
       "status": "M",
       "disposition": "unknown",
@@ -2025,11 +2061,29 @@
       "review": "windows",
       "reason": "Windows necessity in the converter's entry point: the drive letter is not the `file.py:function` separator, so a spec like C:/x.py:f is split with os.path.splitdrive before rpartition. Without it the drive letter is read as the function name."
     },
+    "tools/convert/config.py": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Adds required keyword flag to expect_value() so missing required config fields fail loudly, plus dict[str, Any] annotation for mypy."
+    },
+    "tools/convert/dflash.py": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Requires is_causal in draft_config(..., required=True) instead of silently assuming False when absent, plus dict[str, Any] annotation for mypy."
+    },
     "tools/convert/methods.py": {
       "status": "M",
       "disposition": "unknown",
       "review": "an upstream typing gap, not independently reviewed; evidence is mypy tools/release tools/convert tests, the pre-commit hook's own step, and pytest tests/convert. The two types are the ones the surrounding code already declares rather than new decisions: AuxiliaryKey and AuxiliaryValue are defined at the top of this file and are the field types of PreparedMethod.auxiliaries, and EncodedRows.weight_divisor is declared bytes | None at tools/convert/sources/logical.py:17. No runtime behaviour changes -- an empty dict literal carries no value to alter. Reverting it puts the gate red, which is why the review is 'keep' rather than 'revert to upstream'.",
       "reason": "Two annotations on empty dict literals in import_encoded: dict[AuxiliaryKey, AuxiliaryValue] and dict[int, bytes | None]. Upstream's version of this function fails the port's mypy gate with var-annotated on both lines."
+    },
+    "tools/convert/methods_csf.py": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Adds mypy type annotations and explicit None guards on target.layout_parameters and source.weight_scale so mypy passes in the pre-commit gate."
     },
     "tools/convert/official_recipes.py": {
       "status": "M",

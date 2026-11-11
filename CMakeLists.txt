@@ -43,9 +43,9 @@ if(CMAKE_GENERATOR MATCHES "Ninja")
   set(CMAKE_JOB_POOL_LINK ninfer_link)
 endif()
 
-# Tests also exercise product input, logging and protocol adapters.
+# Tests and inference benchmarks also exercise product input, logging and protocol adapters.
 set(NINFER_BUILD_PRODUCT_SUPPORT OFF)
-if(NINFER_BUILD_ENGINE AND (NINFER_BUILD_APPS OR BUILD_TESTING))
+if(NINFER_BUILD_ENGINE AND (NINFER_BUILD_APPS OR BUILD_TESTING OR NINFER_BUILD_BENCHMARKS))
   set(NINFER_BUILD_PRODUCT_SUPPORT ON)
 endif()
 

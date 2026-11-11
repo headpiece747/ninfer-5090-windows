@@ -20,16 +20,19 @@ __device__ __forceinline__ int row_factor_offset(int row, int column) {
 // Native U_K is reduction-major; U_V is output-major. Transpose U_K fragments on
 // chip. Both maps reuse a weight tile across queries, including different requests.
 template <bool Key, int Queries, int Rows = 64, int K = 32, bool Direct = false, bool Merge = false,
-          bool Fp8 = false>
-__global__ __launch_bounds__(Rows > 64 ? 256 : 128) void mla_factor_kernel(
-    const __grid_constant__ SparseMlaArguments a) {
+          bool Fp8 = false, bool Mxfp8 = false>
+__global__
+__launch_bounds__(Rows > 128 ? 512
+                  : Rows > 64
+                      ? 256
+                      : 128) void mla_factor_kernel(const __grid_constant__ SparseMlaArguments a) {
     if constexpr (Key)
         if (a.direct) return;
     constexpr int Outputs = Key ? 512 : 256, Reduction = Key ? 256 : 512;
-    constexpr int Threads  = Rows > 64 ? 256 : 128;
+    constexpr int Threads  = Rows > 128 ? 512 : Rows > 64 ? 256 : 128;
     constexpr int WarpRows = Rows / 16, WarpColumns = Threads / 32 / WarpRows,
                   PerWarp = Queries / WarpColumns;
-    static_assert(Rows == 32 || Rows == 64 || Rows == 128);
+    static_assert(Rows == 32 || Rows == 64 || Rows == 128 || (!Key && Rows == 256));
     static_assert(PerWarp % 8 == 0);
     const int tid = threadIdx.x, lane = tid % 32, warp = tid / 32;
     const int warp_row = warp % WarpRows, warp_column = warp / WarpRows * PerWarp;
@@ -70,43 +73,56 @@ __global__ __launch_bounds__(Rows > 64 ? 256 : 128) void mla_factor_kernel(
     // Runtime singleton splits still consume the attention stage's mapped row.
     __shared__ float merge_weights[Merge ? Queries * 32 : 1];
     __shared__ int merge_splits[Merge ? Queries : 1];
+    const int layout_splits = Merge ? a.execution_splits() : 1;
     if constexpr (Merge) {
         for (int q = warp; q < Queries; q += Threads / 32) {
             const auto work  = a.work(q0 + q);
-            const int splits = min(a.splits, (work.size + a.tile - 1) / a.tile);
+            const int splits = min(layout_splits, (work.size + a.tile - 1) / a.tile);
             if (lane == 0) merge_splits[q] = splits;
             if (splits <= 1) continue;
-            float maximum =
-                lane < splits ? a.maximum[a.partial(q0 + q, lane, head)] : -CUDART_INF_F;
-            maximum = common::warp_max(maximum);
+            float maximum = lane < splits ? a.maximum[a.partial(q0 + q, lane, head, layout_splits)]
+                                          : -CUDART_INF_F;
+            maximum       = common::warp_max(maximum);
             const float weight =
                 lane < splits
-                    ? common::exp2_approx_ftz(a.maximum[a.partial(q0 + q, lane, head)] - maximum)
+                    ? common::exp2_approx_ftz(
+                          a.maximum[a.partial(q0 + q, lane, head, layout_splits)] - maximum)
                     : 0;
             const float denominator = common::warp_sum(
-                lane < splits ? weight * a.denominator[a.partial(q0 + q, lane, head)] : 0);
+                lane < splits ? weight * a.denominator[a.partial(q0 + q, lane, head, layout_splits)]
+                              : 0);
             merge_weights[q * 32 + lane] = weight * __frcp_rn(denominator);
         }
         __syncthreads();
     }
     extern __shared__ __align__(16) __nv_bfloat16 storage[];
-    constexpr int Stage = (Rows + Queries) * K;
-    const auto stage    = [&](int k0, int buffer) {
+    constexpr int Stage      = (Rows + Queries) * K;
+    const auto stage_weights = [&](int k0, int buffer) {
         auto* ws = storage + buffer * Stage;
-        auto* xs = ws + Rows * K;
         for (int i = tid; i < Rows * K / 8; i += Threads) {
-            if constexpr (Key) {
-                const int k = i / (Rows / 8), m = i % (Rows / 8) * 8;
-                common::cp_async<16, Cache::cg>(ws + row_factor_offset<Rows>(k, m),
-                                                   a.key_up + head * (256 * 512) + (k0 + k) * 512 +
-                                                       m0 + m);
+            const int row       = Key ? k0 + i / (Rows / 8) : m0 + i / (K / 8);
+            const int col       = Key ? m0 + i % (Rows / 8) * 8 : k0 + i % (K / 8) * 8;
+            auto* dst           = ws + (Key ? row_factor_offset<Rows>(row - k0, col - m0)
+                                            : row_factor_offset<K>(row - m0, col - k0));
+            const auto offset   = (head * 256 + row) * 512 + col;
+            const auto* weights = Key ? a.key_up : a.value_up;
+            if constexpr (Mxfp8) {
+                const auto codes =
+                    common::load_vec<uint2>(static_cast<const std::uint8_t*>(weights) + offset);
+                const auto scale = (Key ? a.key_scales : a.value_scales)[offset / 32];
+                common::store_vec(dst,
+                                  make_uint4(common::fp8_dequant_bf16x2(codes.x, scale),
+                                             common::fp8_dequant_bf16x2(codes.x >> 16, scale),
+                                             common::fp8_dequant_bf16x2(codes.y, scale),
+                                             common::fp8_dequant_bf16x2(codes.y >> 16, scale)));
             } else {
-                const int m = i / (K / 8), k = i % (K / 8) * 8;
-                common::cp_async<16, Cache::cg>(ws + row_factor_offset<K>(m, k),
-                                                   a.value_up + head * (256 * 512) + (m0 + m) * 512 +
-                                                       k0 + k);
+                common::cp_async<16, Cache::cg>(dst, static_cast<const __nv_bfloat16*>(weights) +
+                                                         offset);
             }
         }
+    };
+    const auto stage_input = [&](int k0, int buffer) {
+        auto* xs = storage + buffer * Stage + Rows * K;
         for (int i = tid; i < Queries * K / 8; i += Threads) {
             const int q = i / (K / 8), k = i % (K / 8) * 8;
             auto* dst = xs + row_factor_offset<K>(q, k);
@@ -127,8 +143,9 @@ __global__ __launch_bounds__(Rows > 64 ? 256 : 128) void mla_factor_kernel(
                         float values[8]{};
                         for (int split = 0; split < merge_splits[q]; ++split) {
                             const float weight = merge_weights[q * 32 + split];
-                            const auto* src =
-                                a.numerator + a.partial(q0 + q, split, head) * 512 + k0 + k;
+                            const auto* src    = a.numerator +
+                                              a.partial(q0 + q, split, head, layout_splits) * 512 +
+                                              k0 + k;
                             const float4 first = *reinterpret_cast<const float4*>(src);
                             const float4 last  = *reinterpret_cast<const float4*>(src + 4);
                             values[0] += weight * first.x;
@@ -141,29 +158,76 @@ __global__ __launch_bounds__(Rows > 64 ? 256 : 128) void mla_factor_kernel(
                             values[7] += weight * last.w;
                         }
                         common::store_vec(dst,
-                                             make_uint4(common::pack_bf16x2(values[0], values[1]),
-                                                        common::pack_bf16x2(values[2], values[3]),
-                                                        common::pack_bf16x2(values[4], values[5]),
-                                                        common::pack_bf16x2(values[6], values[7])));
+                                          make_uint4(common::pack_bf16x2(values[0], values[1]),
+                                                     common::pack_bf16x2(values[2], values[3]),
+                                                     common::pack_bf16x2(values[4], values[5]),
+                                                     common::pack_bf16x2(values[6], values[7])));
                         continue;
                     }
                 }
                 const auto* src = Key      ? a.query + ((a.begin + q0 + q) * 64 + head) * 256
-                                     : Direct ? direct_inputs[q]
-                                              : a.mapped + ((q0 + q) * 64 + head) * 512;
+                                  : Direct ? direct_inputs[q]
+                                           : a.mapped + ((q0 + q) * 64 + head) * 512;
                 common::cp_async<16>(dst, src + k0 + k);
             } else
                 common::store_vec(dst, make_int4(0, 0, 0, 0));
         }
         common::cp_commit();
     };
+    constexpr bool PipelineWeights = Mxfp8 && K < Reduction;
+    constexpr int Packs            = Rows * K / (8 * Threads);
+    static_assert(Rows * K % (8 * Threads) == 0);
+    uint2 pending_codes[PipelineWeights ? Packs : 1];
+    unsigned pending_scales[PipelineWeights ? Packs : 1];
+    const auto prefetch_weights = [&](int k0) {
+#pragma unroll
+        for (int j = 0; j < Packs; ++j) {
+            const int i       = tid + j * Threads;
+            const int row     = Key ? k0 + i / (Rows / 8) : m0 + i / (K / 8);
+            const int col     = Key ? m0 + i % (Rows / 8) * 8 : k0 + i % (K / 8) * 8;
+            const auto offset = (head * 256 + row) * 512 + col;
+            const auto* codes =
+                static_cast<const std::uint8_t*>(Key ? a.key_up : a.value_up) + offset;
+            const auto* scale = (Key ? a.key_scales : a.value_scales) + offset / 32;
+            asm volatile("ld.global.nc.v2.u32 {%0,%1}, [%2];"
+                         : "=r"(pending_codes[j].x), "=r"(pending_codes[j].y)
+                         : "l"(codes));
+            asm volatile("ld.global.nc.u8 %0, [%1];" : "=r"(pending_scales[j]) : "l"(scale));
+        }
+    };
+    const auto publish_weights = [&](int buffer) {
+        auto* ws = storage + buffer * Stage;
+#pragma unroll
+        for (int j = 0; j < Packs; ++j) {
+            const int i = tid + j * Threads;
+            auto* dst   = ws + (Key ? row_factor_offset<Rows>(i / (Rows / 8), i % (Rows / 8) * 8)
+                                    : row_factor_offset<K>(i / (K / 8), i % (K / 8) * 8));
+            const auto codes = pending_codes[j];
+            const auto scale = pending_scales[j];
+            common::store_vec(dst, make_uint4(common::fp8_dequant_bf16x2(codes.x, scale),
+                                              common::fp8_dequant_bf16x2(codes.x >> 16, scale),
+                                              common::fp8_dequant_bf16x2(codes.y, scale),
+                                              common::fp8_dequant_bf16x2(codes.y >> 16, scale)));
+        }
+    };
     float acc[PerWarp / 8][4]{};
-    stage(0, 0);
+    if constexpr (PipelineWeights) {
+        prefetch_weights(0);
+        publish_weights(0);
+    } else
+        stage_weights(0, 0);
+    stage_input(0, 0);
     for (int k0 = 0, iteration = 0; k0 < Reduction; k0 += K, ++iteration) {
         const int buffer = iteration % 2;
         common::cp_wait<0>();
         __syncthreads();
-        if (k0 + K < Reduction) stage(k0 + K, 1 - buffer);
+        if (k0 + K < Reduction) {
+            if constexpr (PipelineWeights)
+                prefetch_weights(k0 + K);
+            else
+                stage_weights(k0 + K, 1 - buffer);
+            stage_input(k0 + K, 1 - buffer);
+        }
         const auto* ws = storage + buffer * Stage;
         const auto* xs = ws + Rows * K;
 #pragma unroll
@@ -190,6 +254,8 @@ __global__ __launch_bounds__(Rows > 64 ? 256 : 128) void mla_factor_kernel(
                                  af[3], bf[0], bf[1]);
             }
         }
+        if constexpr (PipelineWeights)
+            if (k0 + K < Reduction) publish_weights(1 - buffer);
     }
     if constexpr (Key && Fp8) {
         static_assert(Key && Fp8 && Rows == 128);

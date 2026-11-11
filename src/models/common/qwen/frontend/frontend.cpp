@@ -429,8 +429,6 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
             processed.stats.media_preprocess_work_seconds;
         result.prepare.tokenize_seconds    = processed.stats.tokenize_seconds;
         result.identity.rewrite_checkpoint = processed.rewrite_checkpoint;
-        result.identity.rewrite_execution_frontiers =
-            std::move(processed.rewrite_execution_frontiers);
         message_boundaries = std::move(processed.message_boundaries);
         cache_boundaries   = std::move(processed.cache_boundaries);
     } else {
@@ -455,8 +453,6 @@ PreparedPrompt Frontend::prepare(PromptInput input, const PreparationControl& co
         }
         result.token_ids                   = std::move(encoded.input_ids);
         result.identity.rewrite_checkpoint = encoded.rewrite_checkpoint;
-        result.identity.rewrite_execution_frontiers =
-            std::move(encoded.rewrite_execution_frontiers);
         message_boundaries = std::move(encoded.message_boundaries);
         cache_boundaries   = std::move(encoded.cache_boundaries);
         const auto positions_started = Clock::now();

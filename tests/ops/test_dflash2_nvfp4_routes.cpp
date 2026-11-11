@@ -62,8 +62,8 @@ bool sample_ok(double actual, double reference, double tolerance) {
 
 PackedWeight nvfp4_weight(std::int32_t rows, std::int32_t columns, std::uint32_t seed) {
     PatternedWeightOptions options;
-    options.weight_scale_divisor = 512.0F;
-    options.input_scale_divisor  = 1.0F;
+    options.weight_scale = 512.0F;
+    options.input_scale  = 1.0F;
     return quantized_weight::make_patterned_weight(QType::NVFP4, rows, columns, seed, options);
 }
 
@@ -152,7 +152,7 @@ int verify_dynamic_conv(const PackedWeight& kernel_projection, const PackedWeigh
     GuardedDeviceBuffer prepared_device(columns * kHidden * sizeof(std::uint16_t));
     GuardedDeviceBuffer finish_device(columns * 2 * 320 * sizeof(std::uint16_t));
     const std::size_t prepare_bytes = ops::rmsnorm_dynamic_grouped_conv_prepare_workspace_capacity_bytes(
-        width, width, batch, batch);
+        kHidden, width, width, batch, batch);
     GuardedDeviceBuffer scratch(std::max<std::size_t>(prepare_bytes, 1));
     MemoryArena workspace(scratch.span());
     Tensor residual_tensor(residual_device.span(), DType::BF16, {kHidden, width, batch});
@@ -297,6 +297,8 @@ int verify_dynamic_conv(const PackedWeight& kernel_projection, const PackedWeigh
 constexpr int kCachePadded    = 2056;
 constexpr int kCacheLanes     = 2;
 constexpr double kRopeTheta   = 1.0e7;
+constexpr ops::ContextKVMaterializeProfile kContextProfile{
+    kHidden, 128, 8, 2048U, QType::NVFP4, 1.0e-6F, static_cast<float>(kRopeTheta)};
 constexpr std::uint16_t kCacheSentinel = 0x5a5aU;
 
 std::size_t cache_elements() {
@@ -380,7 +382,7 @@ int verify_context_kv(std::int32_t width, std::int32_t batch, std::uint32_t seed
                               static_cast<std::uint32_t>(kCachePadded), 8, 128};
     }
     const std::size_t capacity = ops::context_kv_materialize_workspace_capacity_bytes(
-        batch, width, width);
+        kContextProfile, batch, width, width);
     GuardedDeviceBuffer scratch(std::max<std::size_t>(capacity, 1));
     MemoryArena workspace(scratch.span());
     Tensor context_tensor(context_device.span(), DType::BF16, {kHidden, width, batch});
@@ -388,7 +390,8 @@ int verify_context_kv(std::int32_t width, std::int32_t batch, std::uint32_t seed
     Tensor counts_tensor(counts_device.span(), DType::I32, {batch});
     if (!graph) {
         ops::context_kv_materialize(context_tensor, positions_tensor, counts_tensor, views,
-                                    {0U, static_cast<std::uint32_t>(width)}, workspace,
+                                    kContextProfile, {0U, static_cast<std::uint32_t>(width)},
+                                    workspace,
                                     ninfer::test::cuda_environment().default_execution);
         cuda_synchronize();
     } else {
@@ -423,9 +426,10 @@ int verify_context_kv(std::int32_t width, std::int32_t batch, std::uint32_t seed
         DecodeGraphExecutable executable;
         cudaStream_t capture_stream = stream;
         definition.capture(capture_stream, [&] {
-            ops::context_kv_materialize(context_tensor, positions_tensor, counts_tensor, views,
-                                        {0U, static_cast<std::uint32_t>(width)}, workspace,
-                                        ninfer::test::cuda_environment().context.execution_view(capture_stream));
+            ops::context_kv_materialize(
+                context_tensor, positions_tensor, counts_tensor, views, kContextProfile,
+                {0U, static_cast<std::uint32_t>(width)}, workspace,
+                ninfer::test::cuda_environment().context.execution_view(capture_stream));
         });
         executable.instantiate(definition);
         counts_device.copy_from_host(counts.data(), batch * 4);

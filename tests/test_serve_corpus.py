@@ -272,8 +272,8 @@ def test_result_record_parses_production_timings(
         seed=7,
     )
     payload = {"model": spec.model_id}
-    response = {"usage": {"prompt_tokens": 10, "completion_tokens": 5}}
-    event = {
+    response: dict[str, Any] = {"usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+    event: dict[str, Any] = {
         "artifact_type": "ninfer_serve_request_log",
         "schema_version": corpus.SERVER_LOG_SCHEMA_VERSION,
         "event": "request_done",
@@ -340,6 +340,14 @@ def test_result_record_parses_production_timings(
     assert record["metrics"]["decode_scheduler_yield_us_per_round"] == pytest.approx(
         100000.0
     )
+    event["timings_seconds"]["ttft"] = None
+    event["result"]["finish_reason"] = "cancelled"
+    event["result"]["completion_tokens"] = 0
+    response["usage"]["completion_tokens"] = 0
+    cancelled = build_result_record(
+        spec, "cancelled-prefill-bindings", payload, response, event
+    )
+    assert cancelled["metrics"]["server_ttft_ms"] is None
 
 
 @pytest.mark.parametrize("resource_case", ["single", "pair", "missing", "partial"])

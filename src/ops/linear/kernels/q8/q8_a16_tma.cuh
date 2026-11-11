@@ -115,7 +115,8 @@ q8_tma_decode_eight_compensated(uint2 packed, std::uint16_t scale_bits) {
     return {high.raw, low.raw};
 }
 
-struct alignas(128) Q8A16TmaDescriptors {
+// `alignas(64)`: MSVC's cudafe1 host stub rejects by-value parameters aligned past 64 with C2719.
+struct alignas(64) Q8A16TmaDescriptors {
     CUtensorMap x;
     CUtensorMap codes;
 };

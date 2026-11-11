@@ -17,10 +17,22 @@ struct SplitShape {
     int second_rows        = 0;
 };
 
+using SplitBiasLaunch = void (*)(const Tensor&, const Weight&, const Tensor&,
+                                 std::span<const Tensor>, LinearPolicy, MemoryArena*, cudaStream_t);
+
+struct SplitBiasShape {
+    int rows, input_rows;
+    std::span<const int> segments;
+    SplitBiasLaunch launch;
+    SplitCapacity capacity                                = nullptr;
+    bool (*uses_tensor_cores)(LinearPolicy, std::int32_t) = nullptr;
+};
+
 template <int... Rows>
 inline constexpr std::array kSplitRows{Rows...};
 
 extern const SplitShape kBf16SplitN20480K1536;
+extern const SplitShape kBf16SplitN3072K4096;
 extern const SplitShape kBf16SplitN1152K2560, kBf16SplitN7296K2560;
 extern const SplitShape kBf16SplitN1152K2560ThreeOutput, kBf16SplitN640K2560;
 extern const SplitShape kBf16SplitN288K4096, kBf16SplitN1664K2560, kBf16SplitN13952K2560,
@@ -35,8 +47,14 @@ extern const SplitShape kNvfp4SplitN14336K5120, kNvfp4SplitN16384K5120;
 // The port's NVFP4-encoded DFlash2 drafter geometry: one [6144,5120] parent, three outputs.
 extern const SplitShape kNvfp4SplitN6144K5120;
 
-void launch_bf16_bias_n3072_k1024(const Tensor& x, const Weight& weight, const Tensor& bias,
-                                  std::span<const Tensor> outputs, cudaStream_t stream);
+extern const SplitShape kMxfp8SplitN20480K1536;
+extern const SplitShape kFp8BlockBf16SplitN16384N4096K1536;
+extern const SplitBiasShape kBf16SplitBiasN3072K1024, kMxfp8SplitBiasN3072K1024;
+
+const SplitBiasShape& select_split_bias_shape(QType type, int n, int k, LinearPolicy policy,
+                                              std::span<const std::int32_t> output_rows);
+const SplitBiasShape& select_split_bias_shape(QType type, int n, int k, LinearPolicy policy,
+                                              std::span<const Tensor> outputs);
 
 const SplitShape& select_split_shape(ProjectionProfile weights,
                                      std::span<const std::int32_t> output_rows);

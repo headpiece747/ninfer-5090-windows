@@ -16,6 +16,7 @@ struct SparseMlaPlan {
     MlaFactorSchedule factor;
     MlaAttentionSchedule attention;
     int splits, tile;
+    int preferred_splits = 0;
     bool direct;
     bool merge_value = false;
     MlaFactorSchedule fp8_query;
@@ -24,11 +25,11 @@ struct SparseMlaPlan {
     std::size_t bytes = 0;
 };
 
-SparseMlaPlan sparse_mla_plan(KpoolMlaStorage, int columns, int batch, KpoolExecutionEnvelope,
-                              int sms);
-std::size_t sparse_mla_capacity(KpoolMlaStorage, int lo, int hi, int batch, KpoolExecutionEnvelope,
-                                int sms);
-void launch_sparse_mla(SparseMlaArguments, MemorySpan, KpoolMlaStorage, KpoolExecutionEnvelope,
-                       int sms, cudaStream_t);
+SparseMlaPlan sparse_mla_plan(const KpoolSparseMlaProfile&, KpoolMlaStorage, int columns, int batch,
+                              KpoolExecutionEnvelope, int sms);
+std::size_t sparse_mla_capacity(const KpoolSparseMlaProfile&, KpoolMlaStorage, int lo, int hi,
+                                int batch, KpoolExecutionEnvelope, int sms);
+void launch_sparse_mla(SparseMlaArguments, MemorySpan, const KpoolSparseMlaProfile&,
+                       KpoolMlaStorage, KpoolExecutionEnvelope, int sms, cudaStream_t);
 
 } // namespace ninfer::ops::detail::kpool

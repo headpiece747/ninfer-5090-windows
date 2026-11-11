@@ -145,14 +145,14 @@ ships, and every profile reaches the full native context. **Three lanes ship `--
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **302 tok/s** | 46.6% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 224 tok/s | 57.3% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **365 tok/s** | 47.3% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 167 tok/s | 47.3% |
-| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **355 tok/s** | 57.8% |
-| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 214 tok/s | 51.7% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **336 tok/s** | 45.4% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 197 tok/s | 46.7% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **305 tok/s** | 52.9% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 211 tok/s | 60.2% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **305 tok/s** | 40.9% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 194 tok/s | 55.0% |
+| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **313 tok/s** | 53.6% |
+| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 205 tok/s | 54.1% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **352 tok/s** | 52.1% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 206 tok/s | 55.5% |
 
 Context ceilings are measured, not assumed. The engine refuses a profile whose minimum Engine
 runtime reservation plus its 512 MiB automatic headroom does not fit in what remains after

@@ -31,6 +31,13 @@ int main() {
     baseline.runtime.prefix_cache.shared_prefix.adopted       = 2;
     baseline.runtime.prefix_cache.shared_prefix.reused_tokens = 256;
     baseline.ranks.resize(1);
+    CommunicationBackendStatistics communication;
+    communication.eager.calls[0]               = 3;
+    communication.graph.calls[0]               = 7;
+    communication.memory.owned_host_bytes      = 4096;
+    communication.memory.registered_host_bytes = 4096;
+    communication.memory.library               = LibraryCommunicationMemory{100, 20, 80};
+    baseline.ranks[0].communication.push_back({4, 2, {communication}});
     baseline.ranks[0].gpu_intervals[0] = {1, 1000, 1000};
     baseline.executions[1].units       = 3;
     baseline.executions[1].rows        = 5;
@@ -42,6 +49,8 @@ int main() {
     Metrics metrics;
     metrics.configure("custom\"model\\name\nline", options, startup, observations.start_seconds());
     EngineSnapshot running = baseline;
+    running.ranks[0].communication[0].backends[0].eager.calls[0] += 2;
+    running.ranks[0].communication[0].backends[0].graph.calls[0] += 4;
     running.executions[1].units += 2;
     running.executions[1].rows += 4;
     running.decode_by_batch[1].observe(
@@ -70,6 +79,20 @@ int main() {
     observations.first_token(1, {.prepare_seconds = 0.05, .elapsed_since_submit_seconds = 0.2});
     const auto live =
         metrics.render(observations.normalize(running), observations.snapshot(), true);
+    check(live.find("ninfer_communication_calls_total{rank=\"0\",node=\"0\",group=\"4\","
+                    "size=\"2\",backend=\"nccl\",path=\"graph\",operation=\"all_reduce\"} 4\n") !=
+              std::string::npos,
+          "communication metrics lost backend identity or retained preparation counters");
+    const auto communication_json = product::observation_json(observations.normalize(running), 0)
+                                        .at("ranks")[0]
+                                        .at("communication")[0]
+                                        .at("backends")[0];
+    check(communication_json.at("backend") == "nccl" &&
+              communication_json.at("eager").at("all_reduce").at("calls") == 2 &&
+              communication_json.at("graph").at("all_reduce").at("calls") == 4 &&
+              communication_json.at("memory").at("owned_host_bytes") == 4096 &&
+              communication_json.at("memory").at("library").at("tracked_device_bytes") == 100,
+          "communication JSON conflated counter deltas with resource capacities");
     check(live.find("ninfer_memory_headroom_bytes{rank=\"0\",node=\"0\"} 512\n") !=
                   std::string::npos &&
               live.find("ninfer_memory_host_reservation_bytes{rank=\"0\",node=\"0\"} 1024\n") !=
@@ -176,6 +199,16 @@ int main() {
               constrained.find("ninfer_constraint_mask_upload_bytes_total 128\n") !=
                   std::string::npos,
           "interrupted complete constraint lost its state or actual work");
+    running.progress_owner          = 19;
+    running.runtime.direct_restores = 2;
+    running.requests                = std::vector<RequestSnapshot>{
+        {.id               = 19,
+                        .phase            = RequestPhase::Replay,
+                        .preemptions      = 2,
+                        .replayed_tokens  = 640,
+                        .recovery         = RecoveryProgress{GenerationRecoveryRoute::Replay, 128, 256, 512},
+                        .last_progress_ns = 900,
+                        .recovery_pending = true}};
     const auto normalized = observations.normalize(running);
     const auto json       = product::observation_json(normalized, 1000);
     check(json["runtime"]["generated_tokens"] == 5 &&
@@ -184,6 +217,18 @@ int main() {
     check(json["runtime"]["prefix_cache"]["shared_prefix"]["adopted"] == 3 &&
               json["runtime"]["prefix_cache"]["shared_prefix"]["reused_tokens"] == 512,
           "prefix JSON lost normalized adoption counters");
+    check(json["progress_owner"] == 19 && json["runtime"]["direct_restores"] == 2 &&
+              json["requests"][0]["recovery"] == nlohmann::json{{"route", "replay"},
+                                                                {"begin_frontier", 128},
+                                                                {"frontier", 256},
+                                                                {"target_frontier", 512}} &&
+              json["requests"][0]["recovery_pending"] == true &&
+              json["requests"][0]["replayed_tokens"] == 640 &&
+              json["requests"][0]["last_progress_ns"] == 900,
+          "monitor omitted recovery progress, ownership or last completed work");
+    check(metrics.render(normalized, observations.snapshot(), false)
+                  .find("ninfer_direct_restores_total 2\n") != std::string::npos,
+          "direct restores were omitted from metrics");
     RankSnapshot sampled;
     sampled.received_ns      = 700;
     sampled.stamp.sampled_ns = 400;
@@ -205,6 +250,13 @@ int main() {
     auto subscriber = live_service.events.subscribe();
     check(subscriber && !subscriber->next(std::chrono::milliseconds(0)),
           "new monitor subscription must not replay historical events");
+    live_service.scheduling(7, {.transition = GenerationSchedulingTransition::Restored,
+                                .route      = GenerationRecoveryRoute::Direct,
+                                .phase      = RequestPhase::Prefill});
+    const auto restored = subscriber->next(std::chrono::milliseconds(0));
+    check(restored && restored->find("\"phase\":\"prefill\"") != std::string::npos &&
+              restored->find("\"route\":\"direct\"") != std::string::npos,
+          "restoration event lost its actual phase or source");
     live_service.failed(8, false);
     const auto event = subscriber->next(std::chrono::milliseconds(0));
     check(event && event->find("request_failed") != std::string::npos &&

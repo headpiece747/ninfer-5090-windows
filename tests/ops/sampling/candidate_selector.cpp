@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <set>
 #include <span>
 #include <stdexcept>
@@ -479,12 +480,12 @@ struct Fixture {
             Tensor drafts(draft_device.span(), DType::I32, {steps, batch_size});
             Tensor q(q_device.span(), DType::FP32, {kCandidates, steps, batch_size});
             const auto capacity = ops::candidate_selector_path_workspace_capacity_bytes(
-                steps, steps, batch_size, batch_size);
+                ops::CandidateSelectorInput::Candidates, steps, steps, batch_size, batch_size);
             GuardedDeviceBuffer scratch(std::max<std::size_t>(capacity, 1));
             MemoryArena workspace(scratch.span());
             const auto launch = [&](CudaExecutionView cuda) {
                 ops::candidate_selector_path(
-                    ids, unary, hidden, anchor, predecessor, successor, positions,
+                    ids, unary, hidden, anchor, predecessor, successor, kTokenDomain, positions,
                     static_cast<const ops::SamplingConfig*>(config_device.data()), drafts, q,
                     workspace, cuda);
             };
@@ -598,8 +599,8 @@ struct Fixture {
             auto di = to_device(pi), du = to_device(pu), dh = to_device(ph), da = to_device(pa),
                  dp = to_device(pp), dc = to_device(pc);
             GuardedDeviceBuffer dd(3 * steps * 4), dq(3 * steps * kCandidates * 4);
-            const auto capacity =
-                ops::candidate_selector_path_workspace_capacity_bytes(steps, steps, 3, 3);
+            const auto capacity = ops::candidate_selector_path_workspace_capacity_bytes(
+                ops::CandidateSelectorInput::Candidates, steps, steps, 3, 3);
             GuardedDeviceBuffer sw(std::max<std::size_t>(capacity, 1));
             MemoryArena workspace(sw.span());
             Tensor ti(di.span(), DType::I32, {kCandidates, steps, 3}),
@@ -608,7 +609,7 @@ struct Fixture {
                 tp(dp.span(), DType::I32, {3});
             Tensor td(dd.span(), DType::I32, {steps, 3}),
                 tq(dq.span(), DType::FP32, {kCandidates, steps, 3});
-            ops::candidate_selector_path(ti, tu, th, ta, predecessor, successor, tp,
+            ops::candidate_selector_path(ti, tu, th, ta, predecessor, successor, kTokenDomain, tp,
                                          static_cast<const ops::SamplingConfig*>(dc.data()), td, tq,
                                          workspace,
                                          ninfer::test::cuda_environment().default_execution);
@@ -637,18 +638,303 @@ struct Fixture {
                                  from_device<int>(counts.data(), host_counts.size()), host_counts);
         return failures;
     }
+
+    static constexpr float kE2M1Magnitudes[8] = {0.0F, 0.5F, 1.0F, 1.5F, 2.0F, 3.0F, 4.0F, 6.0F};
+
+    static float decode_e2m1_nibble(unsigned nibble) {
+        return std::copysign(kE2M1Magnitudes[nibble & 0x7U], (nibble & 0x8U) != 0U ? -1.0F : 1.0F);
+    }
+
+    static float decode_e4m3fn_word(unsigned word) {
+        const float sign        = (word & 0x80U) != 0U ? -1.0F : 1.0F;
+        const unsigned exponent = (word >> 3) & 0xFU;
+        const unsigned fraction = word & 0x7U;
+        if (exponent == 0xFU && fraction == 0x7U) return std::numeric_limits<float>::quiet_NaN();
+        if (exponent == 0) return sign * static_cast<float>(fraction) * 0x1p-9F;
+        return sign * (1.0F + static_cast<float>(fraction) / 8.0F) *
+               std::ldexp(1.0F, static_cast<int>(exponent) - 7);
+    }
+
+    static std::size_t scale_byte_offset(std::int32_t row, std::int32_t group, std::int32_t k) {
+        return static_cast<std::size_t>((row / 128) * (k / 64) + group / 4) * 512 +
+               static_cast<std::size_t>(row & 31) * 16 +
+               static_cast<std::size_t>((row & 127) >> 5) * 4 +
+               static_cast<std::size_t>(group & 3);
+    }
+
+    static unsigned nvfp4_nibble(std::int32_t token, std::int32_t rank) {
+        return (static_cast<unsigned>(rank % 8)) | ((token & 1) ? 0x8U : 0x0U);
+    }
+
+    static std::uint8_t nvfp4_scale_word(std::int32_t token, std::int32_t group) {
+        static constexpr unsigned kScaleWords[8] = {0x38, 0x3C, 0x40, 0x44,
+                                                    0x48, 0x4C, 0x50, 0x54};
+        return static_cast<std::uint8_t>(kScaleWords[(group + (token & 1) * 3) % 8]);
+    }
+
+    struct Nvfp4Codebook {
+        std::vector<std::uint8_t> payload;
+        std::map<std::int32_t, std::vector<float>> predecessor_rows, successor_rows;
+    };
+
+    static float nvfp4_lookup(const std::map<std::int32_t, std::vector<float>>& rows,
+                              std::int32_t token, std::int32_t rank) {
+        const auto it = rows.find(token);
+        return it == rows.end() ? 0.0F : it->second[rank];
+    }
+
+    static Nvfp4Codebook build_nvfp4_codebook(std::span<const std::int32_t> tokens,
+                                              bool predecessor) {
+        const float divisor = predecessor ? 2.0F : 4.0F;
+        Nvfp4Codebook book;
+        const std::size_t code_plane   = static_cast<std::size_t>(kCodebookRows) * kRank / 2;
+        const std::size_t plane_offset = ((code_plane + 255U) / 256U) * 256U;
+        const std::size_t scale_plane  = static_cast<std::size_t>(kCodebookRows) * kRank / 16;
+        book.payload.assign(plane_offset + scale_plane + sizeof(float), 0U);
+        std::uint8_t* codes  = book.payload.data();
+        std::uint8_t* scales = book.payload.data() + plane_offset;
+        auto& rows           = predecessor ? book.predecessor_rows : book.successor_rows;
+
+        for (const std::int32_t token : tokens) {
+            std::vector<float> decoded(kRank);
+            for (std::int32_t rank = 0; rank < kRank; rank += 2) {
+                const unsigned low  = nvfp4_nibble(token, rank);
+                const unsigned high = nvfp4_nibble(token, rank + 1);
+                codes[static_cast<std::size_t>(token) * (kRank / 2) + rank / 2] =
+                    static_cast<std::uint8_t>((high << 4) | low);
+            }
+            for (std::int32_t group = 0; group < kRank / 16; ++group)
+                scales[scale_byte_offset(token, group, kRank)] = nvfp4_scale_word(token, group);
+            for (std::int32_t rank = 0; rank < kRank; ++rank) {
+                const float code = decode_e2m1_nibble(nvfp4_nibble(token, rank)) *
+                                   decode_e4m3fn_word(nvfp4_scale_word(token, rank / 16));
+                decoded[rank] = predecessor ? code / divisor
+                                            : bf16_to_f32(f32_to_bf16(code / divisor));
+            }
+            rows.emplace(token, std::move(decoded));
+        }
+        return book;
+    }
+
+    std::vector<double> build_lattice_nvfp4(const std::vector<std::int32_t>& candidate_ids,
+                                            const std::vector<float>& unary_scores,
+                                            const std::vector<std::uint16_t>& projected_hidden,
+                                            const std::vector<std::int32_t>& anchors,
+                                            const Nvfp4Codebook& book) {
+        std::vector<double> lattice(static_cast<std::size_t>(kMaxBatch) * steps * kCandidates *
+                                    kCandidates);
+        for (std::int32_t batch = 0; batch < kMaxBatch; ++batch)
+            for (std::int32_t step = 0; step < steps; ++step)
+                for (std::int32_t predecessor_rank = 0; predecessor_rank < kCandidates;
+                     ++predecessor_rank) {
+                    const std::int32_t predecessor =
+                        step == 0 ? anchors[batch]
+                                  : candidate_ids[candidate_offset(batch, step - 1,
+                                                                   predecessor_rank)];
+                    for (std::int32_t candidate = 0; candidate < kCandidates; ++candidate) {
+                        const std::int32_t successor =
+                            candidate_ids[candidate_offset(batch, step, candidate)];
+                        double edge = unary_scores[candidate_offset(batch, step, candidate)];
+                        const std::size_t hidden_base =
+                            static_cast<std::size_t>(batch * steps + step) * kRank;
+                        for (std::int32_t rank = 0; rank < kRank; ++rank)
+                            edge += nvfp4_lookup(book.predecessor_rows, predecessor, rank) *
+                                    static_cast<double>(bf16_to_f32(
+                                        projected_hidden[hidden_base + rank])) *
+                                    nvfp4_lookup(book.successor_rows, successor, rank);
+                        lattice[lattice_offset(batch, step, predecessor_rank, candidate)] = edge;
+                    }
+                }
+        return lattice;
+    }
+
+    int run_nvfp4() {
+        const std::vector<std::int32_t> candidate_ids    = make_candidate_ids();
+        const std::vector<std::uint16_t> projected_hidden = make_projected_hidden();
+        const std::vector<std::int32_t> anchors          = make_anchors();
+        const std::vector<std::int32_t> base_positions   = make_base_positions();
+        const std::vector<std::int32_t> tokens = accessed_tokens(candidate_ids, anchors);
+        const Nvfp4Codebook book               = build_nvfp4_codebook(tokens, true);
+        const Nvfp4Codebook successor_book     = build_nvfp4_codebook(tokens, false);
+        Nvfp4Codebook merged                   = book;
+        merged.successor_rows                  = successor_book.successor_rows;
+
+        std::vector<float> unary_scores;
+        std::vector<double> lattice;
+        bool stable = false;
+        const std::vector<ops::SamplingConfig> greedy_probe(kMaxBatch);
+        for (std::uint32_t salt = 0; salt < 64; ++salt) {
+            unary_scores = make_unary_scores(salt);
+            lattice      = build_lattice_nvfp4(candidate_ids, unary_scores, projected_hidden,
+                                               anchors, merged);
+            const auto probe = walk_oracle(candidate_ids, lattice, greedy_probe, base_positions);
+            stable           = true;
+            for (int b = 1; b < kMaxBatch; b += 2)
+                stable &= probe.minimum_decision_margin[b] > 5.0e-4;
+            if (stable) break;
+        }
+        if (!stable) throw std::runtime_error("could not construct stable NVFP4 selector fixture");
+        const auto configs  = choose_configs(candidate_ids, lattice, base_positions);
+        const auto expected = walk_oracle(candidate_ids, lattice, configs, base_positions);
+
+        const std::size_t scale_offset =
+            ((static_cast<std::size_t>(kCodebookRows) * kRank / 2 + 255U) / 256U) * 256U;
+        const auto upload_codebook = [&](const Nvfp4Codebook& source, float scale,
+                                         DeviceBuffer& storage) {
+            Weight weight{};
+            weight.device          = ninfer::test::cuda_environment().context.device();
+            weight.payload         = storage.data();
+            weight.payload_bytes   = source.payload.size();
+            weight.qtype           = QType::NVFP4;
+            weight.layout          = QuantLayout::BlockScaleK16M128x4;
+            weight.scale_dtype     = DType::FP8_E4M3FN;
+            weight.group_size      = 16;
+            weight.group           = 16;
+            weight.ndim            = 2;
+            weight.n               = kCodebookRows;
+            weight.k               = kRank;
+            weight.shape[0]        = kCodebookRows;
+            weight.shape[1]        = kRank;
+            weight.padded_shape[0] = kCodebookRows;
+            weight.padded_shape[1] = kRank;
+            weight.qdata           = storage.data();
+            weight.scales          = static_cast<const std::uint8_t*>(storage.data()) + scale_offset;
+            weight.weight_scale    = scale;
+            weight.input_scale     = 1.0F;
+            return weight;
+        };
+
+        DeviceBuffer candidate_device = to_device(candidate_ids);
+        DeviceBuffer unary_device     = to_device(unary_scores);
+        DeviceBuffer hidden_device    = to_device(projected_hidden);
+        DeviceBuffer anchor_device    = to_device(anchors);
+        DeviceBuffer position_device  = to_device(base_positions);
+        DeviceBuffer config_device    = to_device(configs);
+        DeviceBuffer predecessor_device(ninfer::test::cuda_environment().context.device(),
+                                        book.payload.size());
+        DeviceBuffer successor_device(ninfer::test::cuda_environment().context.device(),
+                                      successor_book.payload.size());
+        predecessor_device.copy_from_host(book.payload.data(), book.payload.size());
+        successor_device.copy_from_host(successor_book.payload.data(),
+                                        successor_book.payload.size());
+
+        const Weight predecessor = upload_codebook(book, 2.0F, predecessor_device);
+        const Weight successor   = upload_codebook(successor_book, 4.0F, successor_device);
+
+        int failures = 0;
+        for (int batch_size = 1; batch_size <= kMaxBatch; ++batch_size) {
+            const std::size_t draft_count = static_cast<std::size_t>(batch_size) * steps;
+            const std::size_t q_count     = draft_count * kCandidates;
+            GuardedDeviceBuffer draft_device(draft_count * sizeof(std::int32_t));
+            GuardedDeviceBuffer q_device(q_count * sizeof(float));
+            draft_device.fill(0xff);
+            q_device.fill(0xff);
+            Tensor ids(candidate_device.span(), DType::I32, {kCandidates, steps, batch_size});
+            Tensor unary(unary_device.span(), DType::FP32, {kCandidates, steps, batch_size});
+            Tensor hidden(hidden_device.span(), DType::BF16, {kRank, steps, batch_size});
+            Tensor anchor(anchor_device.span(), DType::I32, {batch_size});
+            Tensor position(position_device.span(), DType::I32, {batch_size});
+            Tensor drafts(draft_device.span(), DType::I32, {steps, batch_size});
+            Tensor q(q_device.span(), DType::FP32, {kCandidates, steps, batch_size});
+            const auto capacity = ops::candidate_selector_path_workspace_capacity_bytes(
+                ops::CandidateSelectorInput::Candidates, steps, steps, batch_size, batch_size);
+            GuardedDeviceBuffer scratch(std::max<std::size_t>(capacity, 1));
+            MemoryArena workspace(scratch.span());
+            ops::candidate_selector_path(ids, unary, hidden, anchor, predecessor, successor,
+                                         kTokenDomain, position,
+                                         static_cast<const ops::SamplingConfig*>(
+                                             config_device.data()),
+                                         drafts, q, workspace,
+                                         ninfer::test::cuda_environment().default_execution);
+            cuda_synchronize();
+            const std::string label = "nvfp4 B=" + std::to_string(batch_size) + " K=" +
+                                      std::to_string(steps);
+            const auto actual_d = from_device<int>(draft_device.data(), draft_count);
+            const auto actual_q = from_device<float>(q_device.data(), q_count);
+            failures += verify_exact((label + " drafts").c_str(), actual_d,
+                                     std::vector<int>(expected.drafts.begin(),
+                                                      expected.drafts.begin() + draft_count));
+            failures += verify_pointwise(
+                (label + " q").c_str(), std::vector<double>(actual_q.begin(), actual_q.end()),
+                std::vector<double>(expected.probabilities.begin(),
+                                    expected.probabilities.begin() + q_count),
+                kProbabilityCriterion);
+            failures += verify_draws(label, batch_size, candidate_ids, configs, base_positions,
+                                     actual_d, actual_q);
+            failures += draft_device.verify_guards(label + " drafts") +
+                        q_device.verify_guards(label + " q") +
+                        scratch.verify_guards(label + " workspace");
+        }
+
+        if (steps == 1 || steps == 15) {
+            DeviceBuffer bf16_device(
+                ninfer::test::cuda_environment().context.device(),
+                static_cast<std::size_t>(kCodebookRows) * kRank * sizeof(std::uint16_t));
+            Weight bf16_successor{};
+            bf16_successor.device          = ninfer::test::cuda_environment().context.device();
+            bf16_successor.payload         = bf16_device.data();
+            bf16_successor.payload_bytes   = static_cast<std::size_t>(kCodebookRows) * kRank * 2U;
+            bf16_successor.qtype           = QType::BF16;
+            bf16_successor.layout          = QuantLayout::Contiguous;
+            bf16_successor.ndim            = 2;
+            bf16_successor.n               = kCodebookRows;
+            bf16_successor.k               = kRank;
+            bf16_successor.shape[0]        = kCodebookRows;
+            bf16_successor.shape[1]        = kRank;
+            bf16_successor.padded_shape[0] = kCodebookRows;
+            bf16_successor.padded_shape[1] = kRank;
+            bf16_successor.qdata           = bf16_device.data();
+
+            GuardedDeviceBuffer d1(static_cast<std::size_t>(steps) * sizeof(std::int32_t)),
+                q1(static_cast<std::size_t>(steps) * kCandidates * sizeof(float));
+            Tensor t_ids(candidate_device.span(), DType::I32, {kCandidates, steps, 1});
+            Tensor t_unary(unary_device.span(), DType::FP32, {kCandidates, steps, 1});
+            Tensor t_hidden(hidden_device.span(), DType::BF16, {kRank, steps, 1});
+            Tensor t_anchor(anchor_device.span(), DType::I32, {1});
+            Tensor t_pos(position_device.span(), DType::I32, {1});
+            Tensor t_d(d1.span(), DType::I32, {steps, 1});
+            Tensor t_q(q1.span(), DType::FP32, {kCandidates, steps, 1});
+            const auto mixed_capacity = ops::candidate_selector_path_workspace_capacity_bytes(
+                ops::CandidateSelectorInput::Candidates, steps, steps, 1, 1);
+            GuardedDeviceBuffer sw(std::max<std::size_t>(mixed_capacity, 1));
+            MemoryArena ws(sw.span());
+            bool refused = false;
+            try {
+                ops::candidate_selector_path(
+                    t_ids, t_unary, t_hidden, t_anchor, predecessor, bf16_successor, kTokenDomain,
+                    t_pos, static_cast<const ops::SamplingConfig*>(config_device.data()), t_d, t_q,
+                    ws, ninfer::test::cuda_environment().default_execution);
+                cuda_synchronize();
+            } catch (const std::invalid_argument&) { refused = true; }
+            if (!refused) {
+                std::cerr << "nvfp4 mixed codebooks: NVFP4 predecessor with BF16 successor passed\n";
+                ++failures;
+            }
+        }
+        return failures;
+    }
 };
 
 } // namespace
 
+void add_gathered_selector_cases(ninfer::test::OpSuite& suite);
+
 void add_candidate_selector_cases(ninfer::test::OpSuite& suite) {
+    add_gathered_selector_cases(suite);
     for (int steps = 1; steps <= 15; ++steps)
         suite.add("candidate_selector/k" + std::to_string(steps),
-                  [=] { return Fixture(steps).run(); }, {{"execution", "graph"}});
+                  [=] { return Fixture(steps).run(); },
+                  {{"execution", "graph"}, {"suite", "selector"}});
     for (int steps : {1, 15})
         suite.add("candidate_selector/ties/k" + std::to_string(steps),
-                  [=] { return Fixture(steps).run(true); }, {{"execution", "graph"}});
+                  [=] { return Fixture(steps).run(true); },
+                  {{"execution", "graph"}, {"suite", "selector"}});
     for (int steps : {2, 15})
         suite.add("candidate_selector/dependent/k" + std::to_string(steps),
-                  [=] { return Fixture(steps).run(false, true); }, {{"execution", "graph"}});
+                  [=] { return Fixture(steps).run(false, true); },
+                  {{"execution", "graph"}, {"suite", "selector"}});
+    for (int steps = 1; steps <= 15; ++steps)
+        suite.add("candidate_selector/nvfp4/k" + std::to_string(steps),
+                  [=] { return Fixture(steps).run_nvfp4(); },
+                  {{"execution", "direct"}, {"suite", "selector"}});
 }

@@ -30,7 +30,7 @@ add_executable(ninfer_qwen3_5_chat_render_bench
   "${CMAKE_CURRENT_LIST_DIR}/chat_render_bench.cpp")
 ninfer_internal_includes(ninfer_qwen3_5_chat_render_bench)
 target_link_libraries(ninfer_qwen3_5_chat_render_bench PRIVATE
-  ninfer_model_runtime ninfer_core ninfer::json)
+  ninfer_model_control ninfer_core ninfer::json)
 
 # Opt-in Segment Heap for that bench. Microsoft's documented replacement for the legacy NT heap is an
 # application manifest; the NT heap serializes every allocation process-wide and scales badly with

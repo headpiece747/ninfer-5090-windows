@@ -160,12 +160,12 @@ def compressed_matrix_source(
                 .float()
                 .repeat_interleave(16, dim=1)
             )
-            # The same absence `divisor()` reports below; reading the field directly here would
-            # otherwise fail inside struct.unpack with a TypeError naming no source.
-            weight_divisor = words.weight_divisor
-            if weight_divisor is None:
-                raise ValueError("selected source does not provide weight_divisor")
-            values = values * scales / struct.unpack("<f", weight_divisor)[0]
+            # The same absence `weight_scale()` reports below; reading the field directly here
+            # would otherwise fail inside struct.unpack with a TypeError naming no source.
+            weight_scale = words.weight_scale
+            if weight_scale is None:
+                raise ValueError("selected source does not provide weight_scale")
+            values = values * scales / struct.unpack("<f", weight_scale)[0]
         return values.reshape(-1)[begin - first * k : end - first * k]
 
     return LogicalSource(
@@ -270,7 +270,7 @@ def matrix_source(
         f"{store.path}:{name}",
         lambda begin, end: resolve().values(begin, end),
         encoded,
-        lambda: divisor("weight_divisor"),
-        lambda: divisor("input_divisor"),
+        lambda: divisor("weight_scale"),
+        lambda: divisor("activation_scale"),
         encoded_format=lambda: resolve().encoding(),
     )

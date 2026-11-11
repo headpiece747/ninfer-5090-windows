@@ -26,7 +26,6 @@ struct WorkRow {
     std::uint32_t main_frontier = 0, mtp_frontier = 0;
     std::vector<TokenId> ids;
     std::optional<TokenId> control_last_token;
-    std::vector<std::uint32_t> window_ends;
     ResolvedSamplingParameters sampling;
     std::uint32_t sampling_position = 0;
     bool constrained                = false;
@@ -51,7 +50,7 @@ struct ForwardWork {
     std::optional<vision::Work> visual;
 };
 
-struct MtpWork {
+struct SpeculativeWork {
     std::vector<WorkRow> rows;
     std::vector<std::uint32_t> draft_extents;
 };
@@ -74,7 +73,7 @@ struct ScoreWork {
 
 struct Work {
     ContextActions actions;
-    std::variant<ForwardWork, MtpWork, ContextWork, ScoreWork> operation;
+    std::variant<ForwardWork, SpeculativeWork, ContextWork, ScoreWork> operation;
     BatchPlan batch;
 };
 

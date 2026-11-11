@@ -23,9 +23,9 @@ struct MhcPreParameters {
 
 struct MhcPreWeights {
     Weight projection; // BF16 Contiguous [N,S*D], N=S*(S+2), no padding or bias.
-    Tensor base;       // BF16 [N].
-    Tensor scale;      // BF16 [3].
-    Tensor gamma;      // BF16 [D], direct gain.
+    Tensor base;       // BF16 or FP32 [N].
+    Tensor scale;      // BF16 or FP32 [3].
+    Tensor gamma;      // BF16 or FP32 [D], direct gain.
 };
 
 struct MhcCoefficients {
@@ -104,11 +104,19 @@ void mhc_expand_pre(const Tensor& embedding, const MhcPreWeights& weights,
  * its actual rounded BF16 values. Updated residual has mhc_post's exact-alias option;
  * next outputs are disjoint from every input, weight and other output. In particular,
  * old and new q/C cannot overlap. The fusion adds no other representation boundaries.
+ *
+ * Optional mean_tap is BF16 [D,C,B], C*B=M, with contiguous features and positive,
+ * naturally aligned, non-overlapping column/batch strides. Its base is 16-byte aligned.
+ * Writes RN_BF16(sum_j FP32(published_updated_residual[d,j,m])/S), m=b*C+c, directly
+ * to that feature slice. This is the actual rounded post residual's mean, with no final
+ * norm. A null data pointer disables the tap. It overlaps no input, other output or scratch;
+ * gaps and other feature slices are untouched. The capacity query covers both tap options.
  */
 void mhc_post_pre(const Tensor& residual, const Tensor& block_output,
                   const MhcCoefficients& coefficients, const MhcPreWeights& next_weights,
                   const MhcPreParameters& next_parameters, Tensor& updated_residual,
-                  MhcPreOutputs next_outputs, MemoryArena& workspace, CudaExecutionView execution);
+                  MhcPreOutputs next_outputs, MemoryArena& workspace, CudaExecutionView execution,
+                  const Tensor& mean_tap = {});
 
 /**
  * Computes the complete mhc_post BF16 boundary on chip, then:
@@ -117,7 +125,7 @@ void mhc_post_pre(const Tensor& residual, const Tensor& block_output,
  *                        *rsqrt(sum_d mean[d,m]^2/D + final_epsilon)).
  * Mean remains FP32 through final RMSNorm. Does not assume unit row/column sums of C.
  * Only hidden (contiguous BF16 [D,M]) is written; all inputs are preserved. Gamma_final
- * is contiguous BF16 [D], a direct gain; final_epsilon is finite and positive.
+ * is contiguous BF16 or FP32 [D], a direct gain; final_epsilon is finite and positive.
  * Hidden is disjoint from all inputs and workspace. Other rules follow mhc_pre.
  */
 void mhc_post_mean_norm(const Tensor& residual, const Tensor& block_output,
@@ -130,7 +138,8 @@ void mhc_post_mean_norm(const Tensor& residual, const Tensor& block_output,
  * from a 256-byte-aligned call-local cursor, including internal gaps but no trailing
  * padding. Geometry is registered, sm_count is the device's positive physical SM count,
  * and 0 < min_columns <= max_columns. Inspects metadata only; invalid queries throw.
- * Parameters do not change scratch. Public tensors are excluded.
+ * Parameters do not change scratch. Post/pre capacity covers both with and without mean_tap.
+ * Public tensors are excluded.
  */
 [[nodiscard]] std::size_t mhc_pre_workspace_capacity_bytes(const MhcGeometry& geometry,
                                                            std::int32_t sm_count,

@@ -46,6 +46,8 @@ echo BUILD_EXIT=%ERRORLEVEL%
 echo === STAGE FFMPEG RUNTIME DLLS ===
 xcopy /y /q ffmpeg\bin\*.dll build-test\tests\ >nul
 copy /y jpeg\bin\*.dll build-test\tests\ >nul
+xcopy /y /q ffmpeg\bin\*.dll build-test\apps\ >nul
+copy /y jpeg\bin\*.dll build-test\apps\ >nul
 
 REM --schedule-random because order-dependence is a real bug class here: a test that decorates itself
 REM with an environment variable poisoned every test after it on 2026-09-25 (the empty NINFER_CUDA_SYNC

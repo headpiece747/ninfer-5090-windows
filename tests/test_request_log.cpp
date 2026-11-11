@@ -519,6 +519,7 @@ int main() {
         check(done.at("generation").at("engine_request_id") == 991 &&
                   done.at("generation").at("scheduling") == Json{{"preemptions", 3},
                                                                  {"snapshot_restores", 1},
+                                                                 {"direct_restores", 0},
                                                                  {"replay_restores", 2},
                                                                  {"replayed_tokens", 640},
                                                                  {"paused_ns", 123456789012345ULL},
@@ -535,16 +536,21 @@ int main() {
     cancelled.completion_tokens             = 0;
     cancelled.stats.computed_prefill_tokens = 128;
     cancelled.stats.timings.prefill_seconds = 0.25;
+    cancelled.stats.timings.first_token_seconds.reset();
     const Json cancelled_done =
         Json::parse(format_request_done_json("server-test", 123456789, context, cancelled));
     failures += check(cancelled_done.at("result").at("computed_prefill_tokens") == 128,
                       "cancelled prefill reported the uncomputed remainder as executed work");
     failures += check(cancelled_done.at("first_output_timing").is_null() &&
+                          cancelled_done.at("timings_seconds").at("ttft").is_null() &&
                           cancelled_done.at("result").at("generated_token_ids").empty(),
                       "cancelled before output fabricated an output boundary or generated tokens");
     failures += check(render_request_done(context, cancelled).message.find("prefill 512.0 tok/s") !=
                           std::string::npos,
                       "cancelled prefill rate must use completed work, not the remaining prompt");
+    failures +=
+        check(render_request_done(context, cancelled).message.find("TTFT —") != std::string::npos,
+              "cancelled before first token fabricated a TTFT");
     failures += check(done.at("result").at("prefix_reuse_path") == "checkpoint",
                       "prefix reuse path missing");
     failures += check(done.at("result").at("thinking_budget") == 256 &&
@@ -562,8 +568,10 @@ int main() {
                           outcome.stats.timings.decode_seconds,
                       "decode time lost precision");
     failures += check(done.at("timings_seconds").at("ttft").get<double>() ==
-                          outcome.stats.timings.first_token_seconds,
+                          outcome.stats.timings.first_token_seconds.value(),
                       "TTFT missing or lost precision");
+    failures += check(done.at("first_output_timing").is_null(),
+                      "first committed token must not fabricate visible output timing");
     failures += check(done.at("speculative").at("backend") == "mtp", "speculative backend missing");
     failures +=
         check(done.at("speculative").at("draft_window") == 3, "speculative draft window missing");
@@ -629,6 +637,7 @@ int main() {
     const ninfer::GenerationSchedulingObservation scheduling{
         .transition              = ninfer::GenerationSchedulingTransition::ReplayComplete,
         .route                   = ninfer::GenerationRecoveryRoute::Replay,
+        .phase                   = ninfer::RequestPhase::Prefill,
         .engine_request_id       = 19,
         .steady_ns               = 9007199254740993ULL,
         .elapsed_ns              = 123456789,
@@ -648,7 +657,7 @@ int main() {
             scheduling_json.at("request").at("http_request_id") == "http-eight" &&
             scheduling_json.at("engine_request_id") == 19 &&
             scheduling_json.at("transition") == "replay_complete" &&
-            scheduling_json.at("route") == "replay" &&
+            scheduling_json.at("route") == "replay" && scheduling_json.at("phase") == "prefill" &&
             scheduling_json.at("steady_ns").get<std::uint64_t>() == scheduling.steady_ns &&
             scheduling_json.at("elapsed_ns") == scheduling.elapsed_ns &&
             scheduling_json.at("preemption_index") == 2 &&
@@ -865,10 +874,27 @@ int main() {
     failures +=
         check(pretty_throughput ==
                   "throughput | 2.0s | prefill 50.0 tok/s (100 tok) | decode 20.0 tok/s (40 tok) | "
+                  "replay 384.0 tok/s (768 tok) | "
                   "running 2 (prefill 1, decode-ready 1) | waiting 3 | paused 2 | replaying 1 | "
                   "materializing 1 | "
                   "capture-pending 1 | terminal-pending 1 | batch 1.80 | host 0.8% (15.0 ms)",
               "pretty throughput record mismatch");
+    ThroughputReport replay_only;
+    replay_only.interval_seconds           = 2;
+    replay_only.current.replaying_requests = 1;
+    replay_only.current.replayed_tokens    = 100;
+    const auto active_replay               = render_throughput(replay_only).message;
+    failures += check(active_replay.find("replay 50.0 tok/s (100 tok)") != std::string::npos &&
+                          active_replay.find("prefill ") == std::string::npos,
+                      "replay-only work is invisible or charged to initial prefill");
+    replay_only.previous = replay_only.current;
+    failures += check(render_throughput(replay_only).message.find("replay 0.0 tok/s (0 tok)") !=
+                          std::string::npos,
+                      "a replay with no completed work hides its zero progress");
+    const auto replay_json = Json::parse(format_throughput_json("serve-test", 3005, replay_only));
+    failures += check(replay_json["tokens"]["replayed"] == 0 &&
+                          replay_json["throughput_tokens_per_second"]["replay"] == 0,
+                      "JSON and pretty replay windows disagree");
     ThroughputReport single_decode;
     single_decode.interval_seconds                     = 5.000168;
     single_decode.committed_decode_tokens              = 1025;
@@ -915,6 +941,7 @@ int main() {
                       "context scheduler gauges missing");
     failures += check(throughput_json.at("scheduling") == Json{{"preemptions", 3},
                                                                {"snapshot_restores", 1},
+                                                               {"direct_restores", 0},
                                                                {"replay_restores", 2},
                                                                {"replayed_tokens", 768}},
                       "scheduling counters were not reported as interval deltas");
