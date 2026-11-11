@@ -47,8 +47,8 @@ void launch_fp8_swiglu_a8(const Tensor& x, const Weight& weight, Tensor& out,
     };
     // UNGATED 2026-10-02 (measured: docs/maintainer/fp8-ungated-bands.md). This was PORT-DISPATCH-gated on Windows because
     // upstream's TMA route faulted here with cudaErrorIllegalInstruction. That fault was a descriptor
-    // ABI defect -- alignas(128) on a by-value kernel parameter, which MSVC cannot lay out -- and it is
-    // fixed at alignas(64), which is the width cuda.h asks for. The harness that demonstrated this end
+    // ABI defect -- alignas(128) on a by-value kernel parameter, which MSVC's host stub rejected with C2719 --
+    // and is now resolved via common::TmaKernelParam<Fp8TmaDescriptors> preserving alignas(128) and .param .align 128 in PTX. The harness that demonstrated this end
     // to end is withdrawn with the gates it flipped: it toggled nine PORT-DISPATCH gates, and there are
     // none left, so it could only ever exit non-zero while presenting as a live check. The measurement it
     // took is recorded in docs/maintainer/fp8-ungated-bands.md. PyGPUkit #107 reports the same misalignment

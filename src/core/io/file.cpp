@@ -128,13 +128,22 @@ void ReadOnlyFile::read_exact(std::uint64_t offset, std::span<std::byte> destina
         throw std::invalid_argument("read_exact requires a buffered file");
     if (offset > view_.bytes || destination.size() > view_.bytes - offset)
         fail(path_, "read exceeds file length", ENODATA);
+    const HANDLE handle = reinterpret_cast<HANDLE>(_get_osfhandle(view_.descriptor));
+    if (handle == INVALID_HANDLE_VALUE) fail(path_, "read", EBADF);
     while (!destination.empty()) {
-        const auto count = std::min<std::size_t>(destination.size(), 64ULL * 1024 * 1024);
-        _lseeki64(view_.descriptor, position(offset), SEEK_SET);
-        const auto n = _read(view_.descriptor, destination.data(), static_cast<unsigned int>(
-                                                                      std::min<std::size_t>(count, (std::size_t)UINT_MAX)));
-        if (n < 0) fail(path_, "read");
-        if (!n) fail(path_, "unexpected EOF", ENODATA);
+        (void)position(offset);
+        const DWORD count = static_cast<DWORD>(
+            std::min<std::size_t>(destination.size(), 64ULL * 1024 * 1024));
+        OVERLAPPED ov{};
+        ov.Offset     = static_cast<DWORD>(offset & 0xFFFFFFFFULL);
+        ov.OffsetHigh = static_cast<DWORD>(offset >> 32);
+        DWORD n       = 0;
+        if (!::ReadFile(handle, destination.data(), count, &n, &ov)) {
+            const DWORD err = ::GetLastError();
+            if (err == ERROR_HANDLE_EOF) fail(path_, "unexpected EOF", ENODATA);
+            fail(path_, "read", static_cast<int>(err));
+        }
+        if (n == 0) fail(path_, "unexpected EOF", ENODATA);
         offset += static_cast<std::uint64_t>(n);
         destination = destination.subspan(static_cast<std::size_t>(n));
     }
@@ -157,11 +166,18 @@ std::size_t ReadOnlyFile::read_direct(std::uint64_t offset,
                                       std::span<std::byte> destination) const {
     validate_direct_read(view_, offset, destination);
     if (destination.empty()) return 0;
-    _lseeki64(view_.descriptor, position(offset), SEEK_SET);
-    auto n = _read(view_.descriptor, destination.data(), static_cast<unsigned int>(
-                                                             std::min<std::size_t>(destination.size(), (std::size_t)INT_MAX)));
-    if (n < 0) fail(path_, "direct read");
-    return static_cast<std::size_t>(n < 0 ? 0 : n);
+    const HANDLE handle = reinterpret_cast<HANDLE>(_get_osfhandle(view_.descriptor));
+    if (handle == INVALID_HANDLE_VALUE) fail(path_, "direct read", EBADF);
+    OVERLAPPED ov{};
+    ov.Offset     = static_cast<DWORD>(offset & 0xFFFFFFFFULL);
+    ov.OffsetHigh = static_cast<DWORD>(offset >> 32);
+    DWORD n       = 0;
+    if (!::ReadFile(handle, destination.data(), static_cast<DWORD>(destination.size()), &n, &ov)) {
+        const DWORD err = ::GetLastError();
+        if (err == ERROR_HANDLE_EOF) return 0;
+        fail(path_, "direct read", static_cast<int>(err));
+    }
+    return static_cast<std::size_t>(n);
 }
 
 DirectReadWindow direct_read_window(FileView file, std::uint64_t offset, std::size_t bytes) {

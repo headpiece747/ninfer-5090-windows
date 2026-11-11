@@ -122,10 +122,10 @@ Two build notes specific to Windows:
 - Artifact I/O uses Win32 unbuffered positional reads (`CreateFileW` with
   `FILE_FLAG_NO_BUFFERING`), the counterpart of POSIX `O_DIRECT`/`pread`. Nothing is mapped: the
   payload is read, never mapped into the address space.
-- The Blackwell TMA kernels pass their descriptor block **by value** in parameter space
-  (`const __grid_constant__`, `alignas(64)`), as upstream does. The port once passed it by device
-  pointer because MSVC rejects a by-value `alignas(128)` parameter with `C2719`; that form broke
-  CUDA Graph capture and was removed.
+- The Blackwell TMA kernels preserve upstream `alignas(128)` descriptor bundles and pass them
+  **by value** in parameter space (`const __grid_constant__`) through `common::TmaKernelParam<T>`,
+  emitting `.param .align 128` in device PTX while giving MSVC's host stub an `alignas(64)` carrier
+  to avoid `C2719` without downgrading alignment or breaking CUDA Graph capture.
 - MSVC has no `__int128`; the runtime contract's 128-bit cost arithmetic goes through
   `ninfer::Uint128` (`src/core/uint128.h`).
 
@@ -144,14 +144,14 @@ ships, and every profile reaches the full native context. **Three lanes ship `--
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **308 tok/s** | 52.2% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 214 tok/s | 60.5% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **311 tok/s** | 42.2% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **311 tok/s** | 52.9% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 212 tok/s | 60.3% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **311 tok/s** | 41.9% |
 | `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 197 tok/s | 55.6% |
-| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **304 tok/s** | 53.4% |
-| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 210 tok/s | 54.7% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **359 tok/s** | 50.9% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 203 tok/s | 55.8% |
+| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **308 tok/s** | 53.3% |
+| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 212 tok/s | 54.6% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **361 tok/s** | 51.1% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 198 tok/s | 55.4% |
 
 Context ceilings are measured, not assumed. The engine defaults to 512 MiB of automatic planning headroom (`kDefaultMemoryHeadroomBytes`), while all eight shipped Windows launchers pass `--memory-headroom 1024MiB` so automatic KV allocation leaves enough free device memory to avoid Windows WDDM Shared System Memory eviction; the engine refuses a profile whose minimum runtime reservation plus headroom does not fit after weights. That ceiling is a property of the artifact's weight size:
 QUASAR's MTP lane carries 16.3 GiB of device weights and NVFP4-full's 17.1 GiB, both of which leave

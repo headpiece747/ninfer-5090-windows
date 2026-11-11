@@ -52,12 +52,19 @@ void check_control(const Policy& policy) {
 
 #if defined(NINFER_HAVE_LIBCURL) || defined(_WIN32)
 long bounded_timeout_ms(const Policy& policy, int configured) {
-    if (policy.deadline == Clock::time_point{}) { return configured; }
+    constexpr std::int64_t kLongMax = std::numeric_limits<long>::max();
+    if (policy.deadline == Clock::time_point{}) {
+        return configured > 0 ? static_cast<long>(std::min<std::int64_t>(configured, kLongMax))
+                              : 0L;
+    }
     check_control(policy);
-    const auto remaining =
+    const auto remaining = std::max<std::int64_t>(
+        1,
         std::chrono::duration_cast<std::chrono::milliseconds>(policy.deadline - Clock::now())
-            .count();
-    return std::min<long>(configured, std::max<std::int64_t>(1, remaining));
+            .count());
+    const std::int64_t capped =
+        configured > 0 ? std::min<std::int64_t>(configured, remaining) : remaining;
+    return static_cast<long>(std::min<std::int64_t>(capped, kLongMax));
 }
 #endif
 
@@ -622,9 +629,23 @@ std::string query_header_string(HINTERNET request, DWORD info_level) {
     return wide_to_utf8(std::wstring_view(wide.data(), chars));
 }
 
+bool is_redirect_status(DWORD status) noexcept {
+    return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+}
+
+[[noreturn]] void throw_winhttp_failure(DWORD err, const Policy& policy, const char* prefix) {
+    check_control(policy);
+    if (err == ERROR_WINHTTP_TIMEOUT) {
+        throw Error(ErrorKind::RemoteTimeout,
+                    "media URL fetch timed out (WinHTTP " + std::to_string(err) + ")");
+    }
+    throw Error(ErrorKind::RemoteUnavailable,
+                std::string(prefix) + " (WinHTTP " + std::to_string(err) + ")");
+}
+
 template <class Pred>
-void wait_async_step(AsyncRequestGuard& guard, WinHttpRequestContext& ctx, const Policy& policy,
-                     Clock::time_point op_deadline, const char* stage, Pred&& done) {
+DWORD wait_async_step(AsyncRequestGuard& guard, WinHttpRequestContext& ctx, const Policy& policy,
+                      Clock::time_point op_deadline, const char* stage, Pred&& done) {
     std::unique_lock lock(ctx.mu);
     for (;;) {
         if (done()) { break; }
@@ -639,12 +660,28 @@ void wait_async_step(AsyncRequestGuard& guard, WinHttpRequestContext& ctx, const
             guard.close_and_wait();
             throw;
         }
+        auto wait_slice = std::chrono::milliseconds(25);
+        const auto now  = Clock::now();
+        if (policy.deadline != Clock::time_point{} && policy.deadline > now) {
+            wait_slice = std::min(
+                wait_slice,
+                std::max(std::chrono::milliseconds(1),
+                         std::chrono::duration_cast<std::chrono::milliseconds>(policy.deadline -
+                                                                               now)));
+        }
+        if (op_deadline != Clock::time_point::max() && op_deadline > now) {
+            wait_slice = std::min(
+                wait_slice,
+                std::max(std::chrono::milliseconds(1),
+                         std::chrono::duration_cast<std::chrono::milliseconds>(op_deadline - now)));
+        }
         lock.lock();
         if (done()) { break; }
-        ctx.cv.wait_for(lock, std::chrono::milliseconds(25), [&] { return done(); });
+        ctx.cv.wait_for(lock, wait_slice, [&] { return done(); });
     }
-    const bool blocked   = ctx.blocked_private;
-    const DWORD err_code = ctx.async_error;
+    const bool blocked     = ctx.blocked_private;
+    const DWORD err_code   = ctx.async_error;
+    const DWORD bytes_read = ctx.bytes_read;
     lock.unlock();
     if (blocked) {
         guard.close_and_wait();
@@ -652,14 +689,9 @@ void wait_async_step(AsyncRequestGuard& guard, WinHttpRequestContext& ctx, const
     }
     if (err_code != 0) {
         guard.close_and_wait();
-        check_control(policy);
-        if (err_code == ERROR_WINHTTP_TIMEOUT) {
-            throw Error(ErrorKind::RemoteTimeout, "media URL fetch timed out (WinHTTP " +
-                                                      std::to_string(err_code) + ")");
-        }
-        throw Error(ErrorKind::RemoteUnavailable, "failed to fetch media URL (WinHTTP " +
-                                                      std::to_string(err_code) + ")");
+        throw_winhttp_failure(err_code, policy, "failed to fetch media URL");
     }
+    return bytes_read;
 }
 
 std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
@@ -667,16 +699,39 @@ std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
 
     for (int redirect = 0; redirect <= policy.max_redirects; ++redirect) {
         check_control(policy);
-        const UrlParts parts = parse_url(url);
-        (void)resolve_public(parts, policy.allow_private_network);
+        const UrlParts parts         = parse_url(url);
+        const std::string resolved   = resolve_public(parts, policy.allow_private_network);
         check_control(policy);
 
-        const int connect_ms =
-            static_cast<int>(bounded_timeout_ms(policy, policy.connect_timeout_ms));
-        const int total_ms = static_cast<int>(bounded_timeout_ms(policy, policy.timeout_ms));
+        // Keep op_deadline strictly governed by policy.timeout_ms (so timeout -> RemoteTimeout)
+        // while wait_async_step enforces policy.deadline first (so expired deadline -> DeadlineExceeded).
+        // Give WinHTTP a small margin over policy.deadline when deadline < timeout_ms so WinHTTP
+        // does not report ERROR_WINHTTP_TIMEOUT a millisecond before policy.deadline elapses.
+        constexpr std::int64_t kLongMax = std::numeric_limits<long>::max();
+        const long connect_ms =
+            policy.connect_timeout_ms > 0
+                ? static_cast<long>(std::min<std::int64_t>(policy.connect_timeout_ms, kLongMax))
+                : 0L;
+        const long req_timeout_ms =
+            policy.timeout_ms > 0
+                ? static_cast<long>(std::min<std::int64_t>(policy.timeout_ms, kLongMax))
+                : 0L;
         const Clock::time_point op_deadline =
-            total_ms > 0 ? Clock::now() + std::chrono::milliseconds(total_ms)
-                         : Clock::time_point::max();
+            req_timeout_ms > 0 ? Clock::now() + std::chrono::milliseconds(req_timeout_ms)
+                               : Clock::time_point::max();
+        int winhttp_op_ms = static_cast<int>(req_timeout_ms);
+        if (policy.deadline != Clock::time_point{}) {
+            const auto remaining = std::max<std::int64_t>(
+                1,
+                std::chrono::duration_cast<std::chrono::milliseconds>(policy.deadline -
+                                                                      Clock::now())
+                    .count());
+            const auto buffered =
+                std::min<std::int64_t>(kLongMax, remaining + 50);
+            winhttp_op_ms = req_timeout_ms > 0
+                                ? static_cast<int>(std::min<std::int64_t>(req_timeout_ms, buffered))
+                                : static_cast<int>(buffered);
+        }
 
         WinHttpHandle session(::WinHttpOpen(L"ninfer/vision", WINHTTP_ACCESS_TYPE_NO_PROXY,
                                             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS,
@@ -684,10 +739,16 @@ std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
         if (!session.handle) {
             throw Error(ErrorKind::RemoteUnavailable, "failed to open WinHTTP session");
         }
-        ::WinHttpSetTimeouts(session.handle, connect_ms, connect_ms, total_ms, total_ms);
+        (void)::WinHttpSetTimeouts(session.handle, connect_ms, connect_ms, winhttp_op_ms,
+                                   winhttp_op_ms);
 
+        // For plaintext HTTP, connect directly to the validated IP (like CURLOPT_RESOLVE) with an
+        // explicit Host header so multi-record DNS cannot fail on an unchosen private address.
+        // For HTTPS, keep the hostname so Schannel performs standard SAN/SNI verification while
+        // CONNECTING_TO_SERVER rejects private peers before TCP connect().
+        const std::string& connect_raw = parts.scheme == "http" ? resolved : parts.host;
         const std::wstring connect_host = utf8_to_wide(
-            parts.host.find(':') != std::string::npos ? "[" + parts.host + "]" : parts.host);
+            connect_raw.find(':') != std::string::npos ? "[" + connect_raw + "]" : connect_raw);
         WinHttpHandle connection(
             ::WinHttpConnect(session.handle, connect_host.c_str(), parts.port_num, 0));
         if (!connection.handle) {
@@ -704,6 +765,18 @@ std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
                                           WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
         if (!req.handle) {
             throw Error(ErrorKind::RemoteUnavailable, "failed to create WinHTTP request");
+        }
+        if (parts.scheme == "http" && resolved != parts.host) {
+            const std::string host_part =
+                parts.host.find(':') != std::string::npos ? "[" + parts.host + "]" : parts.host;
+            const std::string host_value =
+                parts.port_num == 80 ? host_part : host_part + ":" + parts.port;
+            const std::wstring wide_host = utf8_to_wide("Host: " + host_value + "\r\n");
+            if (!::WinHttpAddRequestHeaders(
+                    req.handle, wide_host.c_str(), static_cast<DWORD>(wide_host.size()),
+                    WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE)) {
+                throw Error(ErrorKind::RemoteUnavailable, "failed to set WinHTTP Host header");
+            }
         }
         DWORD disable_redirects = WINHTTP_DISABLE_REDIRECTS;
         if (!::WinHttpSetOption(req.handle, WINHTTP_OPTION_DISABLE_FEATURE, &disable_redirects,
@@ -735,12 +808,10 @@ std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
                 throw std::invalid_argument(
                     "media URL resolves only to disallowed network addresses");
             }
-            check_control(policy);
-            throw Error(ErrorKind::RemoteUnavailable,
-                        "failed to send media URL request (WinHTTP " + std::to_string(err) + ")");
+            throw_winhttp_failure(err, policy, "failed to send media URL request");
         }
-        wait_async_step(req, ctx, policy, op_deadline, "send",
-                        [&] { return ctx.send_done || ctx.handle_closed; });
+        (void)wait_async_step(req, ctx, policy, op_deadline, "send",
+                              [&] { return ctx.send_done || ctx.handle_closed; });
 
         if (!::WinHttpReceiveResponse(req.handle, nullptr)) {
             const DWORD err = ::GetLastError();
@@ -749,13 +820,10 @@ std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
                 throw std::invalid_argument(
                     "media URL resolves only to disallowed network addresses");
             }
-            check_control(policy);
-            throw Error(ErrorKind::RemoteUnavailable,
-                        "failed to receive media URL response (WinHTTP " + std::to_string(err) +
-                            ")");
+            throw_winhttp_failure(err, policy, "failed to receive media URL response");
         }
-        wait_async_step(req, ctx, policy, op_deadline, "headers",
-                        [&] { return ctx.headers_done || ctx.handle_closed; });
+        (void)wait_async_step(req, ctx, policy, op_deadline, "headers",
+                              [&] { return ctx.headers_done || ctx.handle_closed; });
 
         DWORD status      = 0;
         DWORD status_size = sizeof(status);
@@ -801,25 +869,23 @@ std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
                                        static_cast<DWORD>(scratch.size()), nullptr)) {
                     const DWORD err = ::GetLastError();
                     req.close_and_wait();
-                    check_control(policy);
-                    throw Error(ErrorKind::RemoteUnavailable,
-                                "failed to read media URL body (WinHTTP " + std::to_string(err) +
-                                    ")");
+                    throw_winhttp_failure(err, policy, "failed to read media URL body");
                 }
-                wait_async_step(req, ctx, policy, op_deadline, "read",
-                                [&] { return ctx.read_done || ctx.handle_closed; });
-                if (ctx.bytes_read == 0) { break; }
-                if (ctx.bytes_read > policy.max_bytes - bytes.size()) {
+                const DWORD bytes_read =
+                    wait_async_step(req, ctx, policy, op_deadline, "read",
+                                    [&] { return ctx.read_done || ctx.handle_closed; });
+                if (bytes_read == 0) { break; }
+                if (bytes_read > policy.max_bytes - bytes.size()) {
                     throw Error(ErrorKind::BudgetExceeded, "media URL exceeds byte limit");
                 }
-                bytes.insert(bytes.end(), scratch.data(), scratch.data() + ctx.bytes_read);
+                bytes.insert(bytes.end(), scratch.data(), scratch.data() + bytes_read);
             }
             req.close_and_wait();
             check_control(policy);
             return bytes;
         }
 
-        if (status < 300 || status >= 400 || redirect == policy.max_redirects) {
+        if (!is_redirect_status(status) || redirect == policy.max_redirects) {
             throw Error(ErrorKind::RemoteUnavailable,
                         "media URL returned HTTP " + std::to_string(status));
         }

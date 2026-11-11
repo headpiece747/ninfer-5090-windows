@@ -69,8 +69,9 @@ This is why the table can be read as evidence about the transport at all.
 
 The SwiGLU ladder was PORT-DISPATCH-gated on Windows because upstream's TMA route faulted there with
 `cudaErrorIllegalInstruction`. That fault was a descriptor ABI defect — `alignas(128)` on a by-value
-kernel parameter, which MSVC cannot lay out — and it is fixed at `alignas(64)`, the width `cuda.h`
-asks for. PyGPUkit #107 reports the same misalignment defect on this GPU and OS.
+kernel parameter, which MSVC's host stub rejected with `C2719` — and is resolved without downgrading
+via `common::TmaKernelParam<Fp8TmaDescriptors>`, keeping `alignas(128)` and `.param .align 128` in
+PTX. PyGPUkit #107 reports the same misalignment defect on this GPU and OS.
 
 The ungating decision rests on three pieces of evidence per route, not on the transport being faster
 in general:

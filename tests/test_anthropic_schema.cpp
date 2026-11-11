@@ -436,6 +436,15 @@ int test_tools() {
     body["tools"] = Json::array({ordinary_tool(), ordinary_tool()});
     failures += check(api_param([&] { (void)parse(body); }) == "tools",
                       "duplicate tool names were accepted");
+    body["tools"] =
+        Json::array({Json{{"name", std::string(128, 'a')}, {"input_schema", {{"type", "object"}}}}});
+    failures += check(parse(body).generation.tool_name_max_length == 128 &&
+                          parse(body).generation.tools[0].name.size() == 128,
+                      "128-char Anthropic tool name accepted");
+    body["tools"] =
+        Json::array({Json{{"name", std::string(129, 'a')}, {"input_schema", {{"type", "object"}}}}});
+    failures += check(api_param([&] { (void)parse(body); }) == "tools",
+                      "129-char Anthropic tool name rejected");
     return failures;
 }
 

@@ -186,7 +186,7 @@ void scaled_f16_decode(const Tensor& x, const SwiGLUWeights& w, Output output,
     constexpr int bytes   = fp8_block_a16_tma_bytes<D, DownEpilogue>;
     common::prepare_shared<bytes, kernel, true>();
     kernel<<<(4096 / D::kBlockRows) * common::div_up(tokens, D::kBlockTokens), D::kThreads, bytes,
-             stream>>>(maps, down, output, DownEpilogue{{}, tokens});
+             stream>>>(common::make_tma_kernel_param(maps), down, output, DownEpilogue{{}, tokens});
     CUDA_CHECK(cudaGetLastError());
 }
 

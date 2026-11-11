@@ -44,7 +44,8 @@ void launch_a8(const Tensor& x, const Weight& weight, std::span<const Tensor> ou
     };
     // UNGATED 2026-10-02 (measured: docs/maintainer/fp8-ungated-bands.md). Second of the nine, ungated on the same three
     // grounds as linear_swiglu -- the cudaErrorIllegalInstruction that justified the gate was a
-    // descriptor ABI defect, alignas(128) on a by-value kernel parameter, now alignas(64) -- and this
+    // descriptor ABI defect (alignas(128) on a by-value kernel parameter rejected by MSVC C2719),
+    // now resolved via common::TmaKernelParam<Fp8TmaDescriptors> preserving .align 128 in PTX -- and this
     // route's coverage is the best of the nine:
     //   - all four tiles are oracle-checked on both arms: 64x128 Stages=2, 64x256, 96x256, and the
     //     128x256 split Bulk. TMA leads the median on each (1.107, 1.270, 1.288, and 1.270 on the

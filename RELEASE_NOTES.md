@@ -16,8 +16,8 @@ A major feature, stability, and upstream synchronization release following `v1.2
 - **Native Windows Port Hardening**:
   - **MSVC 128-bit Arithmetic (`ninfer::Uint128`)**: Implemented complete 128-bit integer arithmetic (shifts, carries, borrows, and full 128-bit division) in `core/uint128.h` for MSVC, eliminating standard library type limitations and ensuring exact cost-model evaluations in `resource_manager.h`.
   - **Cross-Platform Process ID Cleanup**: Unified platform process ID retrieval via `current_process_id()` in `src/serve/observations.cpp` and `tests/test_request_log.cpp`, removing orphaned POSIX `<unistd.h>` headers.
-  - **Test Suite Coverage**: 200 registered CTest targets (`196/200` passing against the QUASAR artifact alongside 4 documented baseline known failures and 4 artifact-optional skips) plus OP permutation mutation checks.
-  - **Certified Engine Identity**: The 8 launcher profiles in `tools/release/profiles.py` are measured against engine `39669f778360` (with `--memory-headroom 1024MiB` in all 8 launchers to avoid WDDM shared-memory eviction under `--context-capacity auto`).
+  - **Test Suite Coverage**: 201 registered CTest targets (`check_test_baseline.py`: `197/201` non-failing against the QUASAR artifact — 193 passed, 4 documented baseline known failures, and 4 artifact-optional skips) plus OP permutation mutation checks.
+  - **Certified Engine Identity**: The 8 launcher profiles in `tools/release/profiles.py` are measured against engine `85ac20aa2d8e` (with `--memory-headroom 1024MiB` in all 8 launchers to avoid WDDM shared-memory eviction under `--context-capacity auto`).
 
 ---
 
@@ -259,14 +259,14 @@ that earlier builds shipped.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **308 tok/s** | 52.2% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **214 tok/s** | 60.5% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **311 tok/s** | 42.2% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **311 tok/s** | 52.9% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **212 tok/s** | 60.3% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **311 tok/s** | 41.9% |
 | `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 197 tok/s | 55.6% |
-| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **304 tok/s** | 53.4% |
-| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (5) | yes | 262,144 | 210 tok/s | 54.7% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (9) | yes | 262,144 | **359 tok/s** | 50.9% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 203 tok/s | 55.8% |
+| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **308 tok/s** | 53.3% |
+| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (5) | yes | 262,144 | 212 tok/s | 54.6% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (9) | yes | 262,144 | **361 tok/s** | 51.1% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 198 tok/s | 55.4% |
 
 Every number was measured on an RTX 5090 with the exact arguments the launcher passes; every context
 ceiling is the highest value the engine accepts for that configuration -- the next step up is refused,

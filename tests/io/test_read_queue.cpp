@@ -5,10 +5,16 @@
 #include "symbol_interpose.h"
 
 #include <liburing.h>
+#else
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <filesystem>
@@ -181,6 +187,66 @@ void run() {
     while (!queue.poll(output)) (void)queue.wait();
     require(output[0].tag == 1234 && !output[0].error && !output[0].bytes,
             "past-eof IOCP read did not deliver clean zero-byte completion");
+
+    // Verify ReadOnlyFile::read_exact and read_direct are positional under concurrent callers.
+    {
+        std::atomic<int> worker_failures{0};
+        HostBuffer slab0(4096, 4096);
+        HostBuffer slab1(4096, 4096);
+        auto check_buffered_worker = [&](std::uint64_t offset, std::size_t len, int iters) {
+            std::vector<std::byte> local(len);
+            for (int iter = 0; iter < iters; ++iter) {
+                buffered.read_exact(offset, local);
+                for (std::size_t idx = 0; idx < len; ++idx) {
+                    if (local[idx] != pattern(0, offset + idx)) {
+                        worker_failures.fetch_add(1);
+                        return;
+                    }
+                }
+            }
+        };
+        auto check_direct_worker = [&](HostBuffer& buf, std::uint64_t offset, int iters) {
+            std::span<std::byte> dst{static_cast<std::byte*>(buf.data()), 4096};
+            const std::size_t expected = offset == 0 ? 4096 : 123;
+            for (int iter = 0; iter < iters; ++iter) {
+                const auto got = owners[0].read_direct(offset, dst);
+                if (got != expected) {
+                    worker_failures.fetch_add(1);
+                    return;
+                }
+                for (std::size_t idx = 0; idx < expected; ++idx) {
+                    if (dst[idx] != pattern(0, offset + idx)) {
+                        worker_failures.fetch_add(1);
+                        return;
+                    }
+                }
+            }
+        };
+        {
+            std::jthread t0([&] { check_buffered_worker(0, 128, 128); });
+            std::jthread t1([&] { check_buffered_worker(2048, 256, 128); });
+            std::jthread t2([&] { check_direct_worker(slab0, 0, 64); });
+            std::jthread t3([&] { check_direct_worker(slab1, 4096, 64); });
+        }
+        require(worker_failures.load() == 0, "concurrent positional file read failed");
+    }
+
+    // Verify DirectReadQueue maps genuine kernel I/O failures (unwritable PAGE_READONLY destination)
+    // to a non-zero completion error while releasing the slot cleanly.
+    {
+        void* ro_mem = ::VirtualAlloc(nullptr, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READONLY);
+        require(ro_mem != nullptr, "VirtualAlloc PAGE_READONLY failed");
+        const std::array<MemorySpan, 1> ro_buf{MemorySpan{ro_mem, 4096, Device::cpu()}};
+        DirectReadQueue err_queue(files, ro_buf, 1);
+        require(err_queue.try_enqueue({0, 0, 0, 4096, 5678}) == ReadAdmission::Accepted,
+                "error probe rejected");
+        err_queue.submit();
+        std::array<ReadCompletion, 1> err_out{};
+        while (!err_queue.poll(err_out)) (void)err_queue.wait();
+        ::VirtualFree(ro_mem, 0, MEM_RELEASE);
+        require(err_out[0].tag == 5678 && err_out[0].error != 0 && err_out[0].bytes == 0,
+                "kernel I/O failure on read-only page was not delivered as non-zero error");
+    }
 #endif
 
     require(queue.try_enqueue({0, 0, 4096, 4096, 9999}) == ReadAdmission::Accepted,

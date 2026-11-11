@@ -547,7 +547,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Win32 direct I/O implementation (CreateFileW FILE_FLAG_NO_BUFFERING, _open_osfhandle, aligned ReadFile, _fstat64 size query) with upstream POSIX implementation preserved under #else."
+      "reason": "Win32 positional I/O and direct I/O implementation (CreateFileW FILE_FLAG_NO_BUFFERING, positional OVERLAPPED ReadFile on read_exact and read_direct, _fstat64 size query) with upstream POSIX implementation preserved under #else."
     },
     "src/core/io/read_queue.cpp": {
       "status": "M",
@@ -1079,9 +1079,9 @@
     },
     "src/ops/linear/split/fp8/shapes/n14336_k5120/a8.cu": {
       "status": "M",
-      "disposition": "unknown",
+      "disposition": "windows",
       "review": "product",
-      "reason": "Cited in the diff -- item: 12. Open it before changing this path."
+      "reason": "Port FP8 ungated band ladder and split-K partials sizing (docs/maintainer/fp8-ungated-bands.md), with descriptor alignment comments updated for common::TmaKernelParam<Fp8TmaDescriptors>."
     },
     "src/ops/linear/split/fp8/shapes/n16384_k5120/a8.cu": {
       "status": "M",
@@ -1097,9 +1097,9 @@
     },
     "src/ops/linear/swiglu/fp8/shapes/n34816_k5120/a8.cu": {
       "status": "M",
-      "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- item: 12. Open it before changing this path."
+      "disposition": "product",
+      "review": "product",
+      "reason": "Port FP8 ungated band ladder and split-K partials sizing (docs/maintainer/fp8-ungated-bands.md), with descriptor alignment comments updated for common::TmaKernelParam<Fp8TmaDescriptors>."
     },
     "src/ops/linear/swiglu/fp8_block/dgx_spark/shapes/n2048_k4096.cu": {
       "status": "M",
@@ -1321,7 +1321,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Adds asynchronous WinHTTP HTTP(S) acquisition under _WIN32 (disabling redirects, re-checking SSRF on DNS and CONNECTING_TO_SERVER callbacks, honoring deadlines/cancellations/byte limits) while keeping libcurl support."
+      "reason": "Adds asynchronous WinHTTP HTTP(S) acquisition under _WIN32 (pinned resolved IP with Host header for HTTP and SNI/CONNECTING_TO_SERVER SSRF checks for HTTPS, 301/302/303/307/308 redirect validation, deadline-vs-timeout separation, locked byte accounting, cancellation, and byte limits) while keeping libcurl support."
     },
     "src/product/media_acquire/source.h": {
       "status": "M",
@@ -1609,7 +1609,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Replaces POSIX mkdtemp with portable std::filesystem::create_directory, guards Linux liburing symbol interposition under #ifndef _WIN32, and adds Windows IOCP past-EOF zero-byte completion checks."
+      "reason": "Replaces POSIX mkdtemp with portable std::filesystem::create_directory, guards Linux liburing symbol interposition under #ifndef _WIN32, and adds Windows positional concurrent read_exact/read_direct, past-EOF zero-byte completion, and PAGE_READONLY kernel I/O failure checks."
     },
     "tests/models/common/qwen/test_tool_call_parser.cpp": {
       "status": "M",
@@ -1983,6 +1983,12 @@
       "review": "windows",
       "reason": "Guard dlfcn.h and next_symbol under #ifndef _WIN32 because Windows does not provide dlfcn.h."
     },
+    "tests/test_anthropic_schema.cpp": {
+      "status": "M",
+      "disposition": "product",
+      "review": "product",
+      "reason": "Adds 128-char accepted and 129-char rejected tool name boundary checks matching PR #396 kMaxToolNameLength = 128."
+    },
     "tests/test_cli_options.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -2024,6 +2030,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "Updates oversized tool name threshold to 123+5=128 (PR #396) and verifies acceptance of 71-char MCP tool names."
+    },
+    "tests/test_openai_schema.cpp": {
+      "status": "M",
+      "disposition": "product",
+      "review": "product",
+      "reason": "Adds 128-char accepted and 129-char rejected tool name boundary checks matching PR #396 kMaxToolNameLength = 128."
     },
     "tests/test_pretty_logging.cpp": {
       "status": "M",

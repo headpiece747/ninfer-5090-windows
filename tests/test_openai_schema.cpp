@@ -478,6 +478,13 @@ int test_tools() {
     body["parallel_tool_calls"] = false;
     failures += check(!parse(body).generation.tool_choice.parallel,
                       "parallel_tool_calls=false reaches generation");
+    body["tools"] = Json::array({function_tool(std::string(128, 'a'))});
+    failures += check(parse(body).generation.tool_name_max_length == 128 &&
+                          parse(body).generation.tools[0].name.size() == 128,
+                      "128-char OpenAI Chat tool name accepted");
+    body["tools"] = Json::array({function_tool(std::string(129, 'a'))});
+    failures += check(api_error([&] { (void)parse(body); }).status == 400,
+                      "129-char OpenAI Chat tool name rejected");
     body.erase("tools");
     failures += check(parse(body).generation.tools.empty(),
                       "parallel_tool_calls=false is neutral without tools");

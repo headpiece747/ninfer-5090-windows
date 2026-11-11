@@ -273,6 +273,8 @@ void test_url_kind() {
 
     std::atomic<bool> stop{false};
     std::atomic<int> accepted{0};
+    std::atomic<bool> slow_request_seen{false};
+    std::vector<std::jthread> conn_workers;
     std::thread server([&] {
         while (!stop.load()) {
             fd_set rfds;
@@ -283,25 +285,51 @@ void test_url_kind() {
             SOCKET client = ::accept(listen_sock, nullptr, nullptr);
             if (client == INVALID_SOCKET) { continue; }
             accepted.fetch_add(1);
-            char req[1024]{};
-            const int n = ::recv(client, req, sizeof(req) - 1, 0);
-            if (n > 0) {
-                std::string_view req_view(req, static_cast<std::size_t>(n));
-                std::string response;
-                if (req_view.starts_with("GET /ok ")) {
-                    response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nPNG99";
-                } else if (req_view.starts_with("GET /redir ")) {
-                    response = "HTTP/1.1 302 Found\r\nLocation: /ok\r\nContent-Length: 0\r\n"
-                               "Connection: close\r\n\r\n";
-                } else if (req_view.starts_with("GET /big ")) {
-                    response = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n" +
-                               std::string(100, 'x');
-                } else {
-                    response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            conn_workers.emplace_back([&, client] {
+                char req[1024]{};
+                const int n = ::recv(client, req, sizeof(req) - 1, 0);
+                if (n > 0) {
+                    std::string_view req_view(req, static_cast<std::size_t>(n));
+                    std::string response;
+                    if (req_view.starts_with("GET /ok ")) {
+                        response =
+                            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nPNG99";
+                    } else if (req_view.starts_with("GET /empty ")) {
+                        response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    } else if (req_view.starts_with("GET /redir ")) {
+                        response = "HTTP/1.1 302 Found\r\nLocation: /ok\r\nContent-Length: 0\r\n"
+                                   "Connection: close\r\n\r\n";
+                    } else if (req_view.starts_with("GET /r308 ")) {
+                        response = "HTTP/1.1 308 Permanent Redirect\r\nLocation: /r307\r\n"
+                                   "Content-Length: 0\r\nConnection: close\r\n\r\n";
+                    } else if (req_view.starts_with("GET /r307 ")) {
+                        response = "HTTP/1.1 307 Temporary Redirect\r\nLocation: /ok\r\n"
+                                   "Content-Length: 0\r\nConnection: close\r\n\r\n";
+                    } else if (req_view.starts_with("GET /r304 ")) {
+                        response = "HTTP/1.1 304 Not Modified\r\nLocation: /ok\r\n"
+                                   "Content-Length: 0\r\nConnection: close\r\n\r\n";
+                    } else if (req_view.starts_with("GET /chunked_big ")) {
+                        response = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n"
+                                   "Connection: close\r\n\r\n40\r\n" +
+                                   std::string(64, 'z') + "\r\n0\r\n\r\n";
+                    } else if (req_view.starts_with("GET /slow ")) {
+                        slow_request_seen.store(true);
+                        for (int step = 0; step < 35 && !stop.load(); ++step) {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                        }
+                        response =
+                            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nPNG99";
+                    } else if (req_view.starts_with("GET /big ")) {
+                        response = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n" +
+                                   std::string(100, 'x');
+                    } else {
+                        response =
+                            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    }
+                    ::send(client, response.data(), static_cast<int>(response.size()), 0);
                 }
-                ::send(client, response.data(), static_cast<int>(response.size()), 0);
-            }
-            ::closesocket(client);
+                ::closesocket(client);
+            });
         }
     });
 
@@ -322,6 +350,21 @@ void test_url_kind() {
     const auto redirected =
         acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/redir"}, loopback);
     require(redirected == fetched, "WinHTTP follows relative redirect");
+
+    const auto chained_redir =
+        acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/r308"}, loopback);
+    require(chained_redir == fetched, "WinHTTP follows chained 308 -> 307 redirects");
+
+    try {
+        acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/r304"}, loopback);
+        std::cerr << "FAIL: HTTP 304 followed as redirect\n";
+        ++failures;
+    } catch (const Error& e) {
+        require(e.kind() == ErrorKind::RemoteUnavailable, "HTTP 304 reports RemoteUnavailable");
+    }
+
+    require_throws([&] { acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/empty"}, loopback); },
+                   "empty 200 OK URL body rejected");
 
     Policy no_redirect = loopback;
     no_redirect.max_redirects = 0;
@@ -350,9 +393,105 @@ void test_url_kind() {
     } catch (const Error& e) {
         require(e.kind() == ErrorKind::BudgetExceeded, "oversized URL reports BudgetExceeded");
     }
+    try {
+        acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/chunked_big"}, tiny);
+        std::cerr << "FAIL: oversized chunked HTTP body accepted\n";
+        ++failures;
+    } catch (const Error& e) {
+        require(e.kind() == ErrorKind::BudgetExceeded,
+                "chunked streaming body limit reports BudgetExceeded");
+    }
+
+    {
+        slow_request_seen.store(false);
+        Policy cancel_policy = loopback;
+        cancel_policy.is_cancelled = [&] { return slow_request_seen.load(); };
+        try {
+            acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/slow"}, cancel_policy);
+            std::cerr << "FAIL: slow request did not cancel\n";
+            ++failures;
+        } catch (const Error& e) {
+            require(e.kind() == ErrorKind::Cancelled && slow_request_seen.load(),
+                    "in-flight cancel after server accept reports Cancelled");
+        }
+    }
+    {
+        slow_request_seen.store(false);
+        Policy deadline_policy = loopback;
+        deadline_policy.deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(80);
+        try {
+            acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/slow"}, deadline_policy);
+            std::cerr << "FAIL: slow request did not hit deadline\n";
+            ++failures;
+        } catch (const Error& e) {
+            require(e.kind() == ErrorKind::DeadlineExceeded,
+                    "expired in-flight deadline reports DeadlineExceeded");
+        }
+    }
+    {
+        slow_request_seen.store(false);
+        Policy timeout_policy = loopback;
+        timeout_policy.timeout_ms = 80;
+        timeout_policy.deadline =
+            std::chrono::steady_clock::now() + std::chrono::hours(24 * 30);
+        try {
+            acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/slow"}, timeout_policy);
+            std::cerr << "FAIL: slow request did not time out\n";
+            ++failures;
+        } catch (const Error& e) {
+            require(e.kind() == ErrorKind::RemoteTimeout,
+                    "exceeded timeout_ms (even with >24.8d deadline) reports RemoteTimeout");
+        }
+    }
+
+    // Exercise IPv6 literal parsing + private filtering when IPv6 loopback binds on the host.
+    {
+        SOCKET v6 = ::socket(AF_INET6, SOCK_STREAM, 0);
+        if (v6 != INVALID_SOCKET) {
+            sockaddr_in6 addr6{};
+            addr6.sin6_family = AF_INET6;
+            ::inet_pton(AF_INET6, "::1", &addr6.sin6_addr);
+            int len6 = sizeof(addr6);
+            if (::bind(v6, reinterpret_cast<sockaddr*>(&addr6), len6) == 0 &&
+                ::listen(v6, 4) == 0 &&
+                ::getsockname(v6, reinterpret_cast<sockaddr*>(&addr6), &len6) == 0) {
+                const int port6 = ::ntohs(addr6.sin6_port);
+                const std::string base6 = "http://[::1]:" + std::to_string(port6);
+                std::atomic<bool> stop6{false};
+                std::thread v6_srv([&] {
+                    while (!stop6.load()) {
+                        fd_set rfds;
+                        FD_ZERO(&rfds);
+                        FD_SET(v6, &rfds);
+                        timeval tv{0, 50000};
+                        if (::select(0, &rfds, nullptr, nullptr, &tv) <= 0) { continue; }
+                        SOCKET client = ::accept(v6, nullptr, nullptr);
+                        if (client == INVALID_SOCKET) { continue; }
+                        char buf[512]{};
+                        (void)::recv(client, buf, sizeof(buf), 0);
+                        const std::string resp =
+                            "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nIPv6";
+                        ::send(client, resp.data(), static_cast<int>(resp.size()), 0);
+                        ::closesocket(client);
+                    }
+                });
+                require_throws([&] { acquire_bytes(Source{.kind = SourceKind::Url, .value = base6 + "/ok"}); },
+                               "SSRF blocks IPv6 ::1 by default");
+                const auto got6 =
+                    acquire_bytes(Source{.kind = SourceKind::Url, .value = base6 + "/ok"}, loopback);
+                require(got6 == std::vector<std::uint8_t>{'I', 'P', 'v', '6'},
+                        "WinHTTP fetches IPv6 [::1] loopback URL");
+                stop6.store(true);
+                v6_srv.join();
+            }
+            ::closesocket(v6);
+        }
+    }
 
     stop.store(true);
     server.join();
+    conn_workers.clear();
     ::closesocket(listen_sock);
     ::WSACleanup();
 #endif
