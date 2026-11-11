@@ -168,11 +168,12 @@ fp8_block_a16_tma_body(const Fp8TmaDescriptors& maps, Fp8BlockA16Operands<> p, O
 
 template <class S, bool Full, class O, class E, bool PairedRows = false>
 __global__ __launch_bounds__(S::kThreads, S::kMinBlocksPerSm) void fp8_block_a16_tma_kernel(
-    const __grid_constant__ Fp8TmaDescriptors maps, Fp8BlockA16Operands<> p, O output, E epilogue,
-    int token_offset) {
+    const __grid_constant__ common::TmaKernelParam<Fp8TmaDescriptors> descriptor_param,
+    Fp8BlockA16Operands<> p, O output, E epilogue, int token_offset) {
     const int k = S::kStaticK ? S::kStaticK : p.k;
     fp8_block_a16_tma_body<S, Full, false, O, E, PairedRows>(
-        maps, p, output, epilogue, token_offset, int(blockIdx.x), 0, k / S::kBlockK, nullptr);
+        descriptor_param.get(), p, output, epilogue, token_offset, int(blockIdx.x), 0,
+        k / S::kBlockK, nullptr);
 }
 
 template <class S, bool PairedRows = false>
@@ -209,8 +210,8 @@ void launch_fp8_block_a16_tma(const Fp8BlockA16Operands<>& p, O output, E epilog
         const auto run = [&]<bool Full>() {
             constexpr auto fn = fp8_block_a16_tma_kernel<S, Full, O, E, PairedRows>;
             common::prepare_shared<bytes, fn, true>();
-            fn<<<unsigned(blocks), S::kThreads, bytes, stream>>>(maps, slice, output, epilogue,
-                                                                 offset);
+            fn<<<unsigned(blocks), S::kThreads, bytes, stream>>>(
+                common::make_tma_kernel_param(maps), slice, output, epilogue, offset);
             CUDA_CHECK(cudaGetLastError());
         };
         if (count % S::kBlockTokens == 0)

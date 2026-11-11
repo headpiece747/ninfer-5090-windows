@@ -7,6 +7,10 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#if !defined(NINFER_HAVE_LIBCURL)
+#include <windows.h>
+#include <winhttp.h>
+#endif
 #else
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -15,6 +19,9 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cctype>
+#include <condition_variable>
 #include <cstddef>
 #include <chrono>
 #include <cstdint>
@@ -43,7 +50,7 @@ void check_control(const Policy& policy) {
     }
 }
 
-#if defined(NINFER_HAVE_LIBCURL)
+#if defined(NINFER_HAVE_LIBCURL) || defined(_WIN32)
 long bounded_timeout_ms(const Policy& policy, int configured) {
     if (policy.deadline == Clock::time_point{}) { return configured; }
     check_control(policy);
@@ -93,7 +100,7 @@ std::vector<std::uint8_t> decode_base64(std::string_view text) {
     return out;
 }
 
-#if defined(NINFER_HAVE_LIBCURL)
+#if defined(NINFER_HAVE_LIBCURL) || defined(_WIN32)
 bool private_ipv4(std::uint32_t address) {
     const std::uint32_t a = ntohl(address);
     return (a >> 24U) == 0 || (a >> 24U) == 10 || (a >> 24U) == 127 || (a >> 16U) == 0xa9fe ||
@@ -123,8 +130,13 @@ struct UrlParts {
     std::string scheme;
     std::string host;
     std::string port;
+#if !defined(NINFER_HAVE_LIBCURL)
+    std::string path_query;
+    std::uint16_t port_num = 80;
+#endif
 };
 
+#if defined(NINFER_HAVE_LIBCURL)
 std::string curlu_part(CURLU* url, CURLUPart part, unsigned flags = 0) {
     char* raw            = nullptr;
     const CURLUcode code = curl_url_get(url, part, &raw, flags);
@@ -151,6 +163,119 @@ UrlParts parse_url(std::string_view value) {
     }
     return out;
 }
+#else
+std::wstring utf8_to_wide(std::string_view text) {
+    if (text.empty()) { return {}; }
+    if (text.find('\0') != std::string_view::npos ||
+        text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        throw std::invalid_argument("invalid media URL");
+    }
+    const int needed = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                             static_cast<int>(text.size()), nullptr, 0);
+    if (needed <= 0) { throw std::invalid_argument("invalid media URL"); }
+    std::wstring out(static_cast<std::size_t>(needed), L'\0');
+    const int converted = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                                static_cast<int>(text.size()), out.data(), needed);
+    if (converted != needed) { throw std::invalid_argument("invalid media URL"); }
+    return out;
+}
+
+std::string wide_to_utf8(std::wstring_view text) {
+    if (text.empty()) { return {}; }
+    const int needed =
+        ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0,
+                              nullptr, nullptr);
+    if (needed <= 0) { throw std::runtime_error("failed to convert wide URL text"); }
+    std::string out(static_cast<std::size_t>(needed), '\0');
+    const int converted =
+        ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(),
+                              needed, nullptr, nullptr);
+    if (converted != needed) { throw std::runtime_error("failed to convert wide URL text"); }
+    return out;
+}
+
+std::string lower_ascii(std::string_view text) {
+    std::string out(text);
+    for (char& ch : out) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return out;
+}
+
+UrlParts parse_url(std::string_view value) {
+    const auto scheme_sep = value.find("://");
+    if (scheme_sep == std::string_view::npos || scheme_sep == 0) {
+        throw std::invalid_argument("invalid media URL");
+    }
+    const std::string scheme = lower_ascii(value.substr(0, scheme_sep));
+    if (scheme != "http" && scheme != "https") {
+        throw std::invalid_argument("media URL must be credential-free HTTP(S)");
+    }
+
+    const std::wstring wide = utf8_to_wide(value);
+    const std::size_t cap   = wide.size() + 1;
+    std::wstring wscheme(cap, L'\0');
+    std::wstring whost(cap, L'\0');
+    std::wstring wuser(cap, L'\0');
+    std::wstring wpass(cap, L'\0');
+    std::wstring wpath(cap, L'\0');
+    std::wstring wextra(cap, L'\0');
+    URL_COMPONENTSW uc{};
+    uc.dwStructSize     = sizeof(uc);
+    uc.lpszScheme       = wscheme.data();
+    uc.dwSchemeLength   = static_cast<DWORD>(cap);
+    uc.lpszHostName     = whost.data();
+    uc.dwHostNameLength = static_cast<DWORD>(cap);
+    uc.lpszUserName     = wuser.data();
+    uc.dwUserNameLength = static_cast<DWORD>(cap);
+    uc.lpszPassword     = wpass.data();
+    uc.dwPasswordLength = static_cast<DWORD>(cap);
+    uc.lpszUrlPath      = wpath.data();
+    uc.dwUrlPathLength  = static_cast<DWORD>(cap);
+    uc.lpszExtraInfo    = wextra.data();
+    uc.dwExtraInfoLength = static_cast<DWORD>(cap);
+    if (!::WinHttpCrackUrl(wide.c_str(), static_cast<DWORD>(wide.size()), 0, &uc)) {
+        throw std::invalid_argument("invalid media URL");
+    }
+    if ((uc.nScheme != INTERNET_SCHEME_HTTP && uc.nScheme != INTERNET_SCHEME_HTTPS) ||
+        uc.dwHostNameLength == 0 || uc.nPort == 0) {
+        throw std::invalid_argument("invalid media URL");
+    }
+    if (uc.dwUserNameLength != 0 || uc.dwPasswordLength != 0) {
+        throw std::invalid_argument("media URL must be credential-free HTTP(S)");
+    }
+    const auto authority_end = value.find_first_of("/?#", scheme_sep + 3);
+    const auto authority =
+        value.substr(scheme_sep + 3, authority_end == std::string_view::npos
+                                         ? std::string_view::npos
+                                         : authority_end - (scheme_sep + 3));
+    if (authority.find('@') != std::string_view::npos) {
+        throw std::invalid_argument("media URL must be credential-free HTTP(S)");
+    }
+
+    std::string host =
+        wide_to_utf8(std::wstring_view(whost.data(), static_cast<std::size_t>(uc.dwHostNameLength)));
+    if (host.size() >= 2 && host.front() == '[' && host.back() == ']') {
+        host = host.substr(1, host.size() - 2);
+    }
+    std::string path_query =
+        wide_to_utf8(std::wstring_view(wpath.data(), static_cast<std::size_t>(uc.dwUrlPathLength)));
+    std::string extra =
+        wide_to_utf8(std::wstring_view(wextra.data(), static_cast<std::size_t>(uc.dwExtraInfoLength)));
+    const auto hash_pos = extra.find('#');
+    if (hash_pos != std::string::npos) { extra.resize(hash_pos); }
+    path_query += extra;
+    if (path_query.empty()) { path_query = "/"; }
+
+    UrlParts out;
+    out.scheme     = scheme;
+    out.host       = std::move(host);
+    out.port       = std::to_string(uc.nPort);
+    out.path_query = std::move(path_query);
+    out.port_num   = uc.nPort;
+    return out;
+}
+#endif
 
 std::string resolve_public(const UrlParts& url, bool allow_private) {
 #ifdef _WIN32
@@ -199,6 +324,7 @@ std::string resolve_public(const UrlParts& url, bool allow_private) {
     return selected;
 }
 
+#if defined(NINFER_HAVE_LIBCURL)
 struct CurlBuffer {
     std::vector<std::uint8_t> bytes;
     std::size_t limit = 0;
@@ -301,6 +427,409 @@ std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
     }
     throw Error(ErrorKind::RemoteUnavailable, "too many media URL redirects");
 }
+#elif defined(_WIN32)
+bool literal_address_is_private(std::wstring_view text) {
+    if (text.size() >= 2 && text.front() == L'[' && text.back() == L']') {
+        text = text.substr(1, text.size() - 2);
+    }
+    std::wstring clean(text);
+    const auto zone = clean.find(L'%');
+    if (zone != std::wstring::npos) { clean.resize(zone); }
+
+    sockaddr_in v4{};
+    if (::InetPtonW(AF_INET, clean.c_str(), &v4.sin_addr) == 1) {
+        v4.sin_family = AF_INET;
+        return private_address(reinterpret_cast<const sockaddr*>(&v4));
+    }
+    sockaddr_in6 v6{};
+    if (::InetPtonW(AF_INET6, clean.c_str(), &v6.sin6_addr) == 1) {
+        v6.sin6_family = AF_INET6;
+        return private_address(reinterpret_cast<const sockaddr*>(&v6));
+    }
+    return true;
+}
+
+struct WinHttpHandle {
+    HINTERNET handle = nullptr;
+    WinHttpHandle()  = default;
+    explicit WinHttpHandle(HINTERNET h) : handle(h) {}
+    WinHttpHandle(const WinHttpHandle&)            = delete;
+    WinHttpHandle& operator=(const WinHttpHandle&) = delete;
+    ~WinHttpHandle() {
+        if (handle != nullptr) { ::WinHttpCloseHandle(handle); }
+    }
+};
+
+struct WinHttpRequestContext {
+    std::mutex mu;
+    std::condition_variable cv;
+    bool allow_private_network = false;
+    bool blocked_private       = false;
+    bool close_started         = false;
+    bool send_done             = false;
+    bool headers_done          = false;
+    bool read_done             = false;
+    bool handle_closed         = false;
+    DWORD async_error          = 0;
+    DWORD bytes_read           = 0;
+};
+
+void CALLBACK winhttp_callback(HINTERNET hInternet, DWORD_PTR dwContext, DWORD dwInternetStatus,
+                               LPVOID lpvStatusInformation, DWORD dwStatusInformationLength) {
+    if (dwContext == 0) { return; }
+    auto* ctx = reinterpret_cast<WinHttpRequestContext*>(dwContext);
+    switch (dwInternetStatus) {
+    case WINHTTP_CALLBACK_STATUS_CONNECTING_TO_SERVER: {
+        bool should_abort = false;
+        const wchar_t* raw_ip = static_cast<const wchar_t*>(lpvStatusInformation);
+        const std::wstring_view ip_view =
+            raw_ip != nullptr ? std::wstring_view(raw_ip) : std::wstring_view{};
+        {
+            std::lock_guard lock(ctx->mu);
+            if (!ctx->allow_private_network &&
+                (ip_view.empty() || literal_address_is_private(ip_view))) {
+                ctx->blocked_private = true;
+                if (!ctx->close_started) {
+                    ctx->close_started = true;
+                    should_abort       = true;
+                }
+            }
+        }
+        if (should_abort) { ::WinHttpCloseHandle(hInternet); }
+        break;
+    }
+    case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE: {
+        std::lock_guard lock(ctx->mu);
+        ctx->send_done = true;
+        ctx->cv.notify_all();
+        break;
+    }
+    case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE: {
+        std::lock_guard lock(ctx->mu);
+        ctx->headers_done = true;
+        ctx->cv.notify_all();
+        break;
+    }
+    case WINHTTP_CALLBACK_STATUS_READ_COMPLETE: {
+        std::lock_guard lock(ctx->mu);
+        ctx->bytes_read = dwStatusInformationLength;
+        ctx->read_done  = true;
+        ctx->cv.notify_all();
+        break;
+    }
+    case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR: {
+        const auto* info = static_cast<const WINHTTP_ASYNC_RESULT*>(lpvStatusInformation);
+        std::lock_guard lock(ctx->mu);
+        ctx->async_error  = info != nullptr ? info->dwError : ERROR_GEN_FAILURE;
+        ctx->send_done    = true;
+        ctx->headers_done = true;
+        ctx->read_done    = true;
+        ctx->cv.notify_all();
+        break;
+    }
+    case WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING: {
+        std::lock_guard lock(ctx->mu);
+        ctx->handle_closed = true;
+        ctx->send_done     = true;
+        ctx->headers_done  = true;
+        ctx->read_done     = true;
+        ctx->cv.notify_all();
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+struct AsyncRequestGuard {
+    HINTERNET handle             = nullptr;
+    WinHttpRequestContext* ctx   = nullptr;
+    bool callback_installed      = false;
+
+    void close_and_wait() noexcept {
+        if (handle == nullptr) { return; }
+        const HINTERNET h = handle;
+        handle            = nullptr;
+        bool need_close   = true;
+        if (ctx != nullptr) {
+            std::lock_guard lock(ctx->mu);
+            if (ctx->close_started) {
+                need_close = false;
+            } else {
+                ctx->close_started = true;
+            }
+        }
+        if (need_close) { ::WinHttpCloseHandle(h); }
+        if (callback_installed && ctx != nullptr) {
+            std::unique_lock lock(ctx->mu);
+            ctx->cv.wait(lock, [&] { return ctx->handle_closed; });
+        }
+    }
+
+    ~AsyncRequestGuard() { close_and_wait(); }
+};
+
+std::string resolve_redirect_url(const UrlParts& base, std::string_view location) {
+    while (!location.empty() && (location.front() == ' ' || location.front() == '\t')) {
+        location.remove_prefix(1);
+    }
+    while (!location.empty() && (location.back() == ' ' || location.back() == '\t' ||
+                                 location.back() == '\r' || location.back() == '\n')) {
+        location.remove_suffix(1);
+    }
+    if (location.empty()) {
+        throw Error(ErrorKind::RemoteUnavailable, "media URL redirect has no location");
+    }
+    const auto colon = location.find(':');
+    if (colon != std::string_view::npos && colon > 0) {
+        const auto slash = location.find_first_of("/?#");
+        if (slash == std::string_view::npos || colon < slash) { return std::string(location); }
+    }
+    if (location.starts_with("//")) { return base.scheme + ":" + std::string(location); }
+
+    const bool default_port =
+        (base.scheme == "http" && base.port_num == 80) ||
+        (base.scheme == "https" && base.port_num == 443);
+    const std::string host_part =
+        base.host.find(':') != std::string::npos ? "[" + base.host + "]" : base.host;
+    const std::string authority =
+        base.scheme + "://" + host_part + (default_port ? std::string{} : ":" + base.port);
+    if (location.starts_with('/')) { return authority + std::string(location); }
+
+    const auto q_pos   = base.path_query.find('?');
+    const auto base_p  = std::string_view(base.path_query).substr(0, q_pos);
+    if (location.starts_with('?')) { return authority + std::string(base_p) + std::string(location); }
+    const auto dir_end = base_p.rfind('/');
+    const std::string dir =
+        dir_end == std::string_view::npos ? "/" : std::string(base_p.substr(0, dir_end + 1));
+    return authority + dir + std::string(location);
+}
+
+std::string query_header_string(HINTERNET request, DWORD info_level) {
+    DWORD bytes = 0;
+    if (::WinHttpQueryHeaders(request, info_level, WINHTTP_HEADER_NAME_BY_INDEX, nullptr, &bytes,
+                              WINHTTP_NO_HEADER_INDEX) ||
+        ::GetLastError() != ERROR_INSUFFICIENT_BUFFER || bytes == 0) {
+        return {};
+    }
+    std::wstring wide(bytes / sizeof(wchar_t), L'\0');
+    if (!::WinHttpQueryHeaders(request, info_level, WINHTTP_HEADER_NAME_BY_INDEX, wide.data(),
+                               &bytes, WINHTTP_NO_HEADER_INDEX)) {
+        return {};
+    }
+    std::size_t chars = bytes / sizeof(wchar_t);
+    while (chars > 0 && wide[chars - 1] == L'\0') { --chars; }
+    return wide_to_utf8(std::wstring_view(wide.data(), chars));
+}
+
+template <class Pred>
+void wait_async_step(AsyncRequestGuard& guard, WinHttpRequestContext& ctx, const Policy& policy,
+                     Clock::time_point op_deadline, const char* stage, Pred&& done) {
+    std::unique_lock lock(ctx.mu);
+    for (;;) {
+        if (done()) { break; }
+        lock.unlock();
+        try {
+            check_control(policy);
+            if (Clock::now() >= op_deadline) {
+                throw Error(ErrorKind::RemoteTimeout,
+                            std::string("media URL fetch timed out during ") + stage);
+            }
+        } catch (...) {
+            guard.close_and_wait();
+            throw;
+        }
+        lock.lock();
+        if (done()) { break; }
+        ctx.cv.wait_for(lock, std::chrono::milliseconds(25), [&] { return done(); });
+    }
+    const bool blocked   = ctx.blocked_private;
+    const DWORD err_code = ctx.async_error;
+    lock.unlock();
+    if (blocked) {
+        guard.close_and_wait();
+        throw std::invalid_argument("media URL resolves only to disallowed network addresses");
+    }
+    if (err_code != 0) {
+        guard.close_and_wait();
+        check_control(policy);
+        if (err_code == ERROR_WINHTTP_TIMEOUT) {
+            throw Error(ErrorKind::RemoteTimeout, "media URL fetch timed out (WinHTTP " +
+                                                      std::to_string(err_code) + ")");
+        }
+        throw Error(ErrorKind::RemoteUnavailable, "failed to fetch media URL (WinHTTP " +
+                                                      std::to_string(err_code) + ")");
+    }
+}
+
+std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
+    if (!policy.allow_remote) { throw std::invalid_argument("remote media URLs are disabled"); }
+
+    for (int redirect = 0; redirect <= policy.max_redirects; ++redirect) {
+        check_control(policy);
+        const UrlParts parts = parse_url(url);
+        (void)resolve_public(parts, policy.allow_private_network);
+        check_control(policy);
+
+        const int connect_ms =
+            static_cast<int>(bounded_timeout_ms(policy, policy.connect_timeout_ms));
+        const int total_ms = static_cast<int>(bounded_timeout_ms(policy, policy.timeout_ms));
+        const Clock::time_point op_deadline =
+            total_ms > 0 ? Clock::now() + std::chrono::milliseconds(total_ms)
+                         : Clock::time_point::max();
+
+        WinHttpHandle session(::WinHttpOpen(L"ninfer/vision", WINHTTP_ACCESS_TYPE_NO_PROXY,
+                                            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS,
+                                            WINHTTP_FLAG_ASYNC));
+        if (!session.handle) {
+            throw Error(ErrorKind::RemoteUnavailable, "failed to open WinHTTP session");
+        }
+        ::WinHttpSetTimeouts(session.handle, connect_ms, connect_ms, total_ms, total_ms);
+
+        const std::wstring connect_host = utf8_to_wide(
+            parts.host.find(':') != std::string::npos ? "[" + parts.host + "]" : parts.host);
+        WinHttpHandle connection(
+            ::WinHttpConnect(session.handle, connect_host.c_str(), parts.port_num, 0));
+        if (!connection.handle) {
+            throw Error(ErrorKind::RemoteUnavailable, "failed to open WinHTTP connection");
+        }
+
+        const std::wstring wide_target = utf8_to_wide(parts.path_query);
+        const DWORD flags              = parts.scheme == "https" ? WINHTTP_FLAG_SECURE : 0;
+        WinHttpRequestContext ctx;
+        ctx.allow_private_network = policy.allow_private_network;
+        AsyncRequestGuard req;
+        req.ctx    = &ctx;
+        req.handle = ::WinHttpOpenRequest(connection.handle, L"GET", wide_target.c_str(), nullptr,
+                                          WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+        if (!req.handle) {
+            throw Error(ErrorKind::RemoteUnavailable, "failed to create WinHTTP request");
+        }
+        DWORD disable_redirects = WINHTTP_DISABLE_REDIRECTS;
+        if (!::WinHttpSetOption(req.handle, WINHTTP_OPTION_DISABLE_FEATURE, &disable_redirects,
+                                sizeof(disable_redirects))) {
+            throw Error(ErrorKind::RemoteUnavailable, "failed to disable automatic redirects");
+        }
+        DWORD_PTR ctx_ptr = reinterpret_cast<DWORD_PTR>(&ctx);
+        if (!::WinHttpSetOption(req.handle, WINHTTP_OPTION_CONTEXT_VALUE, &ctx_ptr,
+                                sizeof(ctx_ptr))) {
+            throw Error(ErrorKind::RemoteUnavailable, "failed to bind WinHTTP context");
+        }
+        constexpr DWORD kMask = WINHTTP_CALLBACK_FLAG_CONNECT_TO_SERVER |
+                                WINHTTP_CALLBACK_FLAG_HANDLES |
+                                WINHTTP_CALLBACK_FLAG_SENDREQUEST_COMPLETE |
+                                WINHTTP_CALLBACK_FLAG_HEADERS_AVAILABLE |
+                                WINHTTP_CALLBACK_FLAG_READ_COMPLETE |
+                                WINHTTP_CALLBACK_FLAG_REQUEST_ERROR;
+        if (::WinHttpSetStatusCallback(req.handle, winhttp_callback, kMask, 0) ==
+            WINHTTP_INVALID_STATUS_CALLBACK) {
+            throw Error(ErrorKind::RemoteUnavailable, "failed to set WinHTTP callback");
+        }
+        req.callback_installed = true;
+
+        if (!::WinHttpSendRequest(req.handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0,
+                                  ctx_ptr)) {
+            const DWORD err = ::GetLastError();
+            req.close_and_wait();
+            if (ctx.blocked_private) {
+                throw std::invalid_argument(
+                    "media URL resolves only to disallowed network addresses");
+            }
+            check_control(policy);
+            throw Error(ErrorKind::RemoteUnavailable,
+                        "failed to send media URL request (WinHTTP " + std::to_string(err) + ")");
+        }
+        wait_async_step(req, ctx, policy, op_deadline, "send",
+                        [&] { return ctx.send_done || ctx.handle_closed; });
+
+        if (!::WinHttpReceiveResponse(req.handle, nullptr)) {
+            const DWORD err = ::GetLastError();
+            req.close_and_wait();
+            if (ctx.blocked_private) {
+                throw std::invalid_argument(
+                    "media URL resolves only to disallowed network addresses");
+            }
+            check_control(policy);
+            throw Error(ErrorKind::RemoteUnavailable,
+                        "failed to receive media URL response (WinHTTP " + std::to_string(err) +
+                            ")");
+        }
+        wait_async_step(req, ctx, policy, op_deadline, "headers",
+                        [&] { return ctx.headers_done || ctx.handle_closed; });
+
+        DWORD status      = 0;
+        DWORD status_size = sizeof(status);
+        if (!::WinHttpQueryHeaders(req.handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                   WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size,
+                                   WINHTTP_NO_HEADER_INDEX)) {
+            throw Error(ErrorKind::RemoteUnavailable, "failed to inspect media URL HTTP status");
+        }
+
+        if (status >= 200 && status < 300) {
+            const std::string content_length =
+                query_header_string(req.handle, WINHTTP_QUERY_CONTENT_LENGTH);
+            if (!content_length.empty()) {
+                std::uint64_t declared = 0;
+                bool valid_len         = true;
+                for (unsigned char ch : content_length) {
+                    if (!std::isdigit(ch)) {
+                        valid_len = false;
+                        break;
+                    }
+                    const auto d = static_cast<std::uint64_t>(ch - '0');
+                    if (declared > (std::numeric_limits<std::uint64_t>::max() - d) / 10) {
+                        declared = std::numeric_limits<std::uint64_t>::max();
+                        break;
+                    }
+                    declared = declared * 10 + d;
+                }
+                if (valid_len && declared > policy.max_bytes) {
+                    throw Error(ErrorKind::BudgetExceeded, "media URL exceeds byte limit");
+                }
+            }
+
+            std::vector<std::uint8_t> bytes;
+            std::array<std::uint8_t, 64 * 1024> scratch{};
+            for (;;) {
+                check_control(policy);
+                {
+                    std::lock_guard lock(ctx.mu);
+                    ctx.read_done  = false;
+                    ctx.bytes_read = 0;
+                }
+                if (!::WinHttpReadData(req.handle, scratch.data(),
+                                       static_cast<DWORD>(scratch.size()), nullptr)) {
+                    const DWORD err = ::GetLastError();
+                    req.close_and_wait();
+                    check_control(policy);
+                    throw Error(ErrorKind::RemoteUnavailable,
+                                "failed to read media URL body (WinHTTP " + std::to_string(err) +
+                                    ")");
+                }
+                wait_async_step(req, ctx, policy, op_deadline, "read",
+                                [&] { return ctx.read_done || ctx.handle_closed; });
+                if (ctx.bytes_read == 0) { break; }
+                if (ctx.bytes_read > policy.max_bytes - bytes.size()) {
+                    throw Error(ErrorKind::BudgetExceeded, "media URL exceeds byte limit");
+                }
+                bytes.insert(bytes.end(), scratch.data(), scratch.data() + ctx.bytes_read);
+            }
+            req.close_and_wait();
+            check_control(policy);
+            return bytes;
+        }
+
+        if (status < 300 || status >= 400 || redirect == policy.max_redirects) {
+            throw Error(ErrorKind::RemoteUnavailable,
+                        "media URL returned HTTP " + std::to_string(status));
+        }
+        const std::string location = query_header_string(req.handle, WINHTTP_QUERY_LOCATION);
+        req.close_and_wait();
+        url = resolve_redirect_url(parts, location);
+    }
+    throw Error(ErrorKind::RemoteUnavailable, "too many media URL redirects");
+}
+#endif
 #endif
 
 std::vector<std::uint8_t> read_path(const Source& source, const Policy& policy) {
@@ -359,7 +888,7 @@ std::vector<std::uint8_t> acquire_bytes(const Source& source, const Policy& poli
     if (source.value.empty()) { throw std::invalid_argument("media source is empty"); }
 
     if (source.kind == SourceKind::Url) {
-#if defined(NINFER_HAVE_LIBCURL)
+#if defined(NINFER_HAVE_LIBCURL) || defined(_WIN32)
         std::vector<std::uint8_t> bytes = fetch_url(source.value, policy);
         if (bytes.empty()) { throw std::invalid_argument("media source contains no data"); }
         return bytes;

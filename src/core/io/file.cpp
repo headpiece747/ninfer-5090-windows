@@ -89,11 +89,9 @@ ReadOnlyFile::ReadOnlyFile(const std::filesystem::path& path, ReadMode mode) : p
     try {
         struct _stat64 status {};
         if (_fstat64(fd, &status) != 0) fail(path, "fstat");
-        if (status.st_size < 0) fail(path, "expected regular file", EINVAL);
-        struct _stat64 s2 {};
-        if (_fstat64(fd, &s2) != 0) fail(path, "fstat");
         // st_mode on Windows via MSVC includes _S_IFREG.
-        if (!(s2.st_mode & _S_IFREG)) fail(path, "expected regular file", EINVAL);
+        if (status.st_size < 0 || !(status.st_mode & _S_IFREG))
+            fail(path, "expected regular file", EINVAL);
         view_.bytes = static_cast<std::uint64_t>(status.st_size);
         if (mode == ReadMode::Direct) {
             view_.memory_alignment = 4096;

@@ -48,6 +48,7 @@ SYSTEM_DLLS = {
     "vcruntime140.dll",
     "vcruntime140_1.dll",
     "version.dll",
+    "winhttp.dll",
     "winmm.dll",
     "winspool.drv",
     "ws2_32.dll",

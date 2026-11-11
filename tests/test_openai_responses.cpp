@@ -796,11 +796,18 @@ int test_namespace_tools() {
                       }) == "tool_type_not_supported",
                       "namespace custom tools remain explicitly unsupported");
 
+    Json mcp_long              = {{"model", "m"}, {"input", "hello"}};
+    const std::string mcp_name = std::string(71, 'm');
+    mcp_long["tools"]          = Json::array({Json{{"type", "function"}, {"name", mcp_name}}});
+    failures += check(parse_openai_responses_create_request(mcp_long, limits())
+                              .prompt.generation.tool_name_max_length == 128,
+                      "long MCP function name under 128 chars should be accepted");
+
     Json oversized           = body;
     oversized["tool_choice"] = "auto";
     oversized["tools"] =
         Json::array({Json{{"type", "namespace"},
-                          {"name", std::string(60, 'n')},
+                          {"name", std::string(123, 'n')},
                           {"tools", Json::array({Json{{"type", "function"}, {"name", "tool"}}})}}});
     failures += check(api_code([&] {
                           (void)parse_openai_responses_create_request(oversized, limits());

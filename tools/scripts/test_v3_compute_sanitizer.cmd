@@ -19,7 +19,13 @@ if not exist "%REPO%\build-test\tests\CTestTestfile.cmake" (
     exit /b 1
 )
 
-call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+set "VCVARS="
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if exist "%VSWHERE%" (
+  for /f "usebackq delims=" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VCVARS=%%I\VC\Auxiliary\Build\vcvars64.bat"
+)
+if not defined VCVARS set "VCVARS=C:\Program Files (x86)\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+call "%VCVARS%" >nul 2>&1
 
 set "SANITIZER=%CUDA_PATH%\compute-sanitizer\compute-sanitizer.exe"
 if not exist "%SANITIZER%" (
@@ -32,7 +38,7 @@ cd /d "%REPO%"
 REM The tests load the FFmpeg runtime DLLs from beside themselves.
 xcopy /y /q ffmpeg\bin\*.dll build-test\tests\ >nul
 
-set "SUBSET=ninfer_add_bias_test ninfer_gelu_test ninfer_silu_mul_test ninfer_residual_add_test ninfer_sigmoid_mul_test"
+set "SUBSET=ninfer_elementwise_test ninfer_embedding_test ninfer_indexing_test ninfer_reduction_test ninfer_rope_test"
 set "FAILED="
 for %%T in (%SUBSET%) do (
     echo === memcheck: %%T ===

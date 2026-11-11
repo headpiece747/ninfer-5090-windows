@@ -1,6 +1,6 @@
 {
-  "recorded": "2026-11-10",
-  "suite_size": 200,
+  "recorded": "2026-11-11",
+  "suite_size": 201,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -135,6 +135,11 @@
       "date": "2026-11-10",
       "count": 2,
       "note": "upstream/dev merge through 13ebb92f6 adds ninfer_serve_shutdown_real_test (tests/cmake/ProductTests.cmake; joined required_tests) and ninfer_native_weight_codec_test (tests/ops/quant/tests.cmake). Also folded the NVFP4 candidate_selector tests (nvfp4/k1..15 + mixed-codebook guard) from the removed orphan tests/ops/test_candidate_selector.cpp into tests/ops/sampling/candidate_selector.cpp inside ninfer_sampling_test. ctest -N confirms 200 tests registered."
+    },
+    {
+      "date": "2026-11-11",
+      "count": 1,
+      "note": "ninfer_read_queue_test enabled on Windows (tests/cmake/CoreTests.cmake, tests/io/test_read_queue.cpp) exercising real async Win32 IOCP DirectReadQueue behavior including overlapped page/tail/past-EOF completions, bounded capacity, wake(), and close/drain invariants. ctest -N confirms 201 tests registered."
     }
   ]
 }

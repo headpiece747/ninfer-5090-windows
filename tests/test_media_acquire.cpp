@@ -10,12 +10,20 @@
 // disagree about allow_private_network with nothing asserting which value each passes.
 #include "product/media_acquire/acquire.h"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
+
+#include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -230,16 +238,124 @@ void test_url_kind() {
     source.kind  = SourceKind::Url;
     source.value = "https://example.invalid/x.png";
 
-    // With curl compiled in this would attempt a fetch, so the test only asserts that the kind
-    // does not silently fall through to the filesystem path. A caller that wants a real fetch
-    // needs a server; that is the seam this module does not yet expose.
     try {
         acquire_bytes(source);
         std::cerr << "FAIL: a Url source was accepted without a reachable host\n";
         ++failures;
     } catch (const std::exception&) {
-        // Either the no-curl refusal or a RemoteUnavailable from the fetch. Both are correct.
+        // Unreachable / non-remote environments reject unreachable remote URLs.
     }
+
+#ifdef _WIN32
+    Policy no_remote;
+    no_remote.allow_remote = false;
+    require_throws([&] { acquire_bytes(source, no_remote); }, "allow_remote=false rejects URL");
+
+    Source credentialed;
+    credentialed.kind  = SourceKind::Url;
+    credentialed.value = "http://user:pass@example.com/x.png";
+    require_throws([&] { acquire_bytes(credentialed); }, "credentialed URL rejected");
+
+    WSADATA wsa{};
+    require(::WSAStartup(MAKEWORD(2, 2), &wsa) == 0, "WSAStartup for loopback server");
+    SOCKET listen_sock = ::socket(AF_INET, SOCK_STREAM, 0);
+    require(listen_sock != INVALID_SOCKET, "loopback listen socket created");
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    require(::bind(listen_sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0,
+            "loopback bind succeeded");
+    int addr_len = sizeof(addr);
+    require(::getsockname(listen_sock, reinterpret_cast<sockaddr*>(&addr), &addr_len) == 0,
+            "loopback getsockname succeeded");
+    require(::listen(listen_sock, 8) == 0, "loopback listen succeeded");
+    const int port = ::ntohs(addr.sin_port);
+
+    std::atomic<bool> stop{false};
+    std::atomic<int> accepted{0};
+    std::thread server([&] {
+        while (!stop.load()) {
+            fd_set rfds;
+            FD_ZERO(&rfds);
+            FD_SET(listen_sock, &rfds);
+            timeval tv{0, 50000};
+            if (::select(0, &rfds, nullptr, nullptr, &tv) <= 0) { continue; }
+            SOCKET client = ::accept(listen_sock, nullptr, nullptr);
+            if (client == INVALID_SOCKET) { continue; }
+            accepted.fetch_add(1);
+            char req[1024]{};
+            const int n = ::recv(client, req, sizeof(req) - 1, 0);
+            if (n > 0) {
+                std::string_view req_view(req, static_cast<std::size_t>(n));
+                std::string response;
+                if (req_view.starts_with("GET /ok ")) {
+                    response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nPNG99";
+                } else if (req_view.starts_with("GET /redir ")) {
+                    response = "HTTP/1.1 302 Found\r\nLocation: /ok\r\nContent-Length: 0\r\n"
+                               "Connection: close\r\n\r\n";
+                } else if (req_view.starts_with("GET /big ")) {
+                    response = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n" +
+                               std::string(100, 'x');
+                } else {
+                    response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                }
+                ::send(client, response.data(), static_cast<int>(response.size()), 0);
+            }
+            ::closesocket(client);
+        }
+    });
+
+    // Public-only policy blocks loopback before accepting or connecting.
+    const std::string base = "http://127.0.0.1:" + std::to_string(port);
+    require_throws([&] { acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/ok"}); },
+                   "SSRF blocks loopback by default");
+    require(accepted.load() == 0, "SSRF loopback block prevented connection attempt");
+
+    // Loopback enabled explicitly fetches bytes, follows redirects, and enforces HTTP & byte limits.
+    Policy loopback;
+    loopback.allow_private_network = true;
+    const auto fetched =
+        acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/ok"}, loopback);
+    require(fetched == std::vector<std::uint8_t>{'P', 'N', 'G', '9', '9'},
+            "WinHTTP fetches loopback URL bytes");
+
+    const auto redirected =
+        acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/redir"}, loopback);
+    require(redirected == fetched, "WinHTTP follows relative redirect");
+
+    Policy no_redirect = loopback;
+    no_redirect.max_redirects = 0;
+    try {
+        acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/redir"}, no_redirect);
+        std::cerr << "FAIL: max_redirects=0 allowed redirect\n";
+        ++failures;
+    } catch (const Error& e) {
+        require(e.kind() == ErrorKind::RemoteUnavailable, "redirect limit reports RemoteUnavailable");
+    }
+
+    try {
+        acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/missing"}, loopback);
+        std::cerr << "FAIL: 404 accepted\n";
+        ++failures;
+    } catch (const Error& e) {
+        require(e.kind() == ErrorKind::RemoteUnavailable, "HTTP 404 reports RemoteUnavailable");
+    }
+
+    Policy tiny = loopback;
+    tiny.max_bytes = 10;
+    try {
+        acquire_bytes(Source{.kind = SourceKind::Url, .value = base + "/big"}, tiny);
+        std::cerr << "FAIL: oversized HTTP body accepted\n";
+        ++failures;
+    } catch (const Error& e) {
+        require(e.kind() == ErrorKind::BudgetExceeded, "oversized URL reports BudgetExceeded");
+    }
+
+    stop.store(true);
+    server.join();
+    ::closesocket(listen_sock);
+    ::WSACleanup();
+#endif
 }
 
 } // namespace

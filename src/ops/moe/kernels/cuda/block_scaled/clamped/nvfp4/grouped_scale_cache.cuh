@@ -114,9 +114,11 @@ __device__ __forceinline__ void consume(Shared<S>& s, int columns, int rotation,
 
 template <class S>
 __global__ __launch_bounds__(S::threads, S::min_blocks) void contract(
-    const __grid_constant__ Maps maps, ExpertMatrixDeviceView bank, ActivationScale input_scale,
-    ActivationScale product_scale, Groups groups, const float* coefficients, std::uint8_t* product,
-    std::uint8_t* product_scales, float* output, int minimum, int maximum, float limit) {
+    const __grid_constant__ common::TmaKernelParam<Maps> descriptor_param,
+    ExpertMatrixDeviceView bank, ActivationScale input_scale, ActivationScale product_scale,
+    Groups groups, const float* coefficients, std::uint8_t* product, std::uint8_t* product_scales,
+    float* output, int minimum, int maximum, float limit) {
+    const auto& maps = descriptor_param.get();
     const int population_load = balanced_group_load(groups);
     if (groups.load_range[1] <= minimum ||
         (population_load ? population_load : groups.load_range[0]) > maximum)
@@ -285,7 +287,7 @@ void launch(const Tensor& x, const CudaSwiGLUExperts& experts, const ExpertRoute
     const int blocks = std::min(jobs * ((Gate ? I : kHidden) / S::features),
                                 execution.multiprocessor_count() * S::min_blocks);
     kernel<<<blocks, S::threads, bytes, execution.stream()>>>(
-        maps, bank,
+        common::make_tma_kernel_param(maps), bank,
         calibration(Gate ? experts.activation_calibration.gate_up
                          : experts.activation_calibration.down),
         calibration(experts.activation_calibration.down), storage.groups,

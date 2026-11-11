@@ -66,8 +66,10 @@ __device__ __forceinline__ int q8_tma_swizzle_k32(int row, int column) {
 
 template <class Cfg, bool Full, class Output, class Epilogue, class RowPolicy>
 __global__ __launch_bounds__(Cfg::kThreads, Cfg::kMinBlocksPerSm) void q8_a16_tma_k32_kernel(
-    Q8LinearOperands operands, const __grid_constant__ Q8A16TmaDescriptors maps, Output output,
-    Epilogue epilogue, int token_begin, int token_count) {
+    Q8LinearOperands operands,
+    const __grid_constant__ common::TmaKernelParam<Q8A16TmaDescriptors> descriptor_param,
+    Output output, Epilogue epilogue, int token_begin, int token_count) {
+    const auto& maps = descriptor_param.get();
     const auto* __restrict__ scales = operands.scales;
     const int m = operands.rows, k = Cfg::kStaticK > 0 ? Cfg::kStaticK : operands.k,
               n                     = token_begin + token_count;
@@ -365,7 +367,8 @@ void launch_q8_a16_tma_k32(const Q8LinearOperands& operands, Output output, Epil
             static_assert(Schedule::kBlockRows % RowPolicy::kTmaRowsPerPanel == 0);
             kernel<<<dim3(operands.rows / ratio / RowPolicy::kOutputRowsPerCta,
                           common::div_up(count, 128)),
-                     256, bytes, stream>>>(operands, maps, output, epilogue, offset, count);
+                     256, bytes, stream>>>(operands, common::make_tma_kernel_param(maps), output,
+                                           epilogue, offset, count);
             CUDA_CHECK(cudaGetLastError());
         };
         if (count % 128 == 0)

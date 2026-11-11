@@ -33,6 +33,7 @@ def test_converter_ranking_fixture_is_required_and_present() -> None:
 def test_pe_audit_system_dll_recognition() -> None:
     assert pe_audit.is_system_dll("kernel32.dll")
     assert pe_audit.is_system_dll("KERNEL32.DLL")
+    assert pe_audit.is_system_dll("WINHTTP.dll")
     assert pe_audit.is_system_dll("api-ms-win-crt-runtime-l1-1-0.dll")
     assert pe_audit.is_system_dll("ext-ms-win-gdi-draw-l1-1-0.dll")
     assert not pe_audit.is_system_dll("ninfer_ops.dll")

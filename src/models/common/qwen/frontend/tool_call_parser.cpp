@@ -216,6 +216,20 @@ std::size_t suffix_prefix(std::string_view value, std::string_view marker) {
     return 0;
 }
 
+enum class CloserLook : std::uint8_t { Real, ValueText, Undecided };
+
+// Free route only: a standalone `</parameter>` inside a value is value text unless the
+// grammar's next token (`<parameter=` or `</function>`) follows it after whitespace.
+CloserLook classify_parameter_close(std::string_view after) {
+    std::size_t pos = 0;
+    while (pos < after.size() && is_format_whitespace(after[pos])) { ++pos; }
+    const auto rest = after.substr(pos);
+    if (rest.starts_with(kParamOpen) || rest.starts_with(kFunctionClose)) return CloserLook::Real;
+    if (rest.empty() || kParamOpen.starts_with(rest) || kFunctionClose.starts_with(rest))
+        return CloserLook::Undecided;
+    return CloserLook::ValueText;
+}
+
 } // namespace
 
 class ToolCallOutputDecoder::Impl {
@@ -290,9 +304,12 @@ public:
         if (!calls.empty()) return fail("invalid tool call header");
         diagnostic.fallback_reason = reason;
         content(std::move(preamble));
-        flush_pending();
+        // The demoted header is prose from here on; republish its marker bytes and continue
+        // scanning so Plain can still decode a later real call.
+        content(std::string(kToolOpen));
+        consume(kToolOpen.size());
         state = State::Plain;
-        return false;
+        return true;
     }
 
     // The prepared contract determines encoding before any value bytes are published.
@@ -419,41 +436,44 @@ public:
         cursor = 0;
     }
 
+    bool scan_plain(std::string_view input, bool clear_fallback) {
+        const auto marker = input.find(kToolOpen);
+        if (marker != std::string::npos) {
+            const auto before  = input.substr(0, marker);
+            const auto trimmed = rtrim_format_whitespace(before);
+            content(trimmed);
+            preamble = before.substr(trimmed.size());
+            consume(marker);
+            diagnostic.marker_seen = true;
+            if (clear_fallback) diagnostic.fallback_reason = FallbackReason::None;
+            state = State::Header;
+            return true;
+        }
+        auto count = input.size() - suffix_prefix(input, kToolOpen);
+        while (count && is_format_whitespace(input[count - 1])) --count;
+        // Preserve split UTF-8 without blocking preceding complete codepoints.
+        std::size_t complete = 0;
+        while (complete < count) {
+            const auto n = codepoint_bytes(input.substr(complete, count - complete));
+            if (!n) break;
+            complete += n;
+        }
+        if (!complete) return false;
+        content(std::string(input.substr(0, complete)));
+        consume(complete);
+        return true;
+    }
+
     bool step() {
         if (cursor == pending.size()) return false;
         const auto input = std::string_view(pending).substr(cursor);
         switch (state) {
         case State::Plain:
-            flush_pending();
-            return false;
+            return scan_plain(input, true);
         case State::Failed:
             return false;
-        case State::Text: {
-            const auto marker = input.find(kToolOpen);
-            if (marker != std::string::npos) {
-                const auto before  = input.substr(0, marker);
-                const auto trimmed = rtrim_format_whitespace(before);
-                content(trimmed);
-                preamble = before.substr(trimmed.size());
-                consume(marker);
-                diagnostic.marker_seen = true;
-                state                  = State::Header;
-                return true;
-            }
-            auto count = input.size() - suffix_prefix(input, kToolOpen);
-            while (count && is_format_whitespace(input[count - 1])) --count;
-            // Preserve split UTF-8 without blocking preceding complete codepoints.
-            std::size_t complete = 0;
-            while (complete < count) {
-                const auto n = codepoint_bytes(input.substr(complete, count - complete));
-                if (!n) break;
-                complete += n;
-            }
-            if (!complete) return false;
-            content(std::string(input.substr(0, complete)));
-            consume(complete);
-            return true;
-        }
+        case State::Text:
+            return scan_plain(input, false);
         case State::Header: {
             std::size_t pos = kToolOpen.size();
             skip_format_whitespace(input, pos);
@@ -547,6 +567,16 @@ public:
                         consume(delimiter.size());
                         return true;
                     }
+                    if (!contract->constrained && codec != Codec::JsonValue) {
+                        switch (classify_parameter_close(input.substr(delimiter.size()))) {
+                        case CloserLook::Undecided: return false;
+                        case CloserLook::ValueText:
+                            value_bytes(delimiter);
+                            consume(delimiter.size());
+                            return true;
+                        case CloserLook::Real: break;
+                        }
+                    }
                     consume(delimiter.size());
                     return finish_value();
                 }
@@ -617,9 +647,10 @@ public:
             reason == FinishReason::Cancelled || reason == FinishReason::StopString;
         if (state == State::Text || state == State::Plain)
             content(std::exchange(pending, {}));
-        else if (state == State::Header && calls.empty() && !contract->constrained)
+        else if (state == State::Header && calls.empty() && !contract->constrained) {
             (void)fallback_header(FallbackReason::MalformedStructure);
-        else if (state != State::Between || !pending.empty()) {
+            flush_pending();
+        } else if (state != State::Between || !pending.empty()) {
             if (!interrupted)
                 (void)fail("incomplete tool call at model stop");
             else

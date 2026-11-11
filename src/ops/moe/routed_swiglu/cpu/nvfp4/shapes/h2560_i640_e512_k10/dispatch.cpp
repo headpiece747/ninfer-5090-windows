@@ -1,4 +1,5 @@
 #include "ops/moe/routed_swiglu/cpu/dispatch.h"
+#include "ops/common/cpu/unreachable.h"
 #include "ops/moe/kernels/cpu/nvfp4/work.h"
 
 namespace ninfer::ops::detail::moe_routed_cpu {
@@ -15,11 +16,7 @@ kernel::Plan select_plan(CpuFeatures features) {
     case Isa::Avx2:
         return {.run = kernel::run_avx2, .token_block = token_block, .max_columns = 2};
     }
-#if defined(_MSC_VER)
-    __assume(false);
-#else
-    __builtin_unreachable();
-#endif
+    ninfer::ops::common::unreachable();
 }
 
 std::size_t capacity(int tokens) { return kernel::capacity(tokens, token_block); }

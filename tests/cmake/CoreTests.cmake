@@ -56,12 +56,15 @@ add_test(NAME ninfer_nf4_exact_test
   COMMAND ${Python3_EXECUTABLE} -B "${CMAKE_CURRENT_LIST_DIR}/../test_nf4_exact.py"
     $<TARGET_FILE:ninfer_nf4_test>)
 
-if(NOT WIN32)
+if(WIN32)
+  ninfer_add_test(ninfer_read_queue_test SOURCES "${CMAKE_CURRENT_LIST_DIR}/../io/test_read_queue.cpp"
+    LIBRARIES ninfer_core)
+else()
   ninfer_add_test(ninfer_read_queue_test SOURCES "${CMAKE_CURRENT_LIST_DIR}/../io/test_read_queue.cpp"
     LIBRARIES ninfer_core PkgConfig::URING)
   ninfer_test_interpose(ninfer_read_queue_test io_uring_submit)
-  set_tests_properties(ninfer_read_queue_test PROPERTIES TIMEOUT 30)
 endif()
+set_tests_properties(ninfer_read_queue_test PROPERTIES TIMEOUT 30)
 
 ninfer_add_test(ninfer_arena_test        SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_arena.cpp"
   LIBRARIES ninfer_core)

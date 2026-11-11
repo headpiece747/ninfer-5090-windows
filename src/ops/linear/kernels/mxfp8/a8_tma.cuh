@@ -38,7 +38,7 @@ struct Mxfp8A8TmaSchedule
     static_assert(kThreads <= 1024 && (FragmentStages == 1 || FragmentStages == 2));
 };
 
-struct Mxfp8ScaledTmaDescriptors {
+struct alignas(128) Mxfp8ScaledTmaDescriptors {
     CUtensorMap activation, weight, activation_scales, weight_scales;
 };
 
@@ -122,8 +122,10 @@ mxfp8_tma_scale_stage(const Mxfp8ScaledTmaDescriptors& maps, const Rows& rows, i
 
 template <class S, bool Full, bool TmaScales, class Output, class Epilogue, class Rows>
 __global__ __launch_bounds__(S::kThreads, S::kMinBlocksPerSm) void mxfp8_a8_tma_kernel(
-    const __grid_constant__ Mxfp8TmaDescriptors<TmaScales> maps, Mxfp8A8Operands p, Output output,
-    Epilogue epilogue, Rows rows) {
+    const __grid_constant__ common::TmaKernelParam<Mxfp8TmaDescriptors<TmaScales>>
+        descriptor_param,
+    Mxfp8A8Operands p, Output output, Epilogue epilogue, Rows rows) {
+    const auto& maps = descriptor_param.get();
     constexpr int BR = S::kBlockRows, BT = S::kBlockTokens, BK = S::kBlockK, ST = S::kStages;
     constexpr int Groups = BK / 32, Words = BK / 128;
     constexpr int SFSteps = 512 / BK, FS = S::kFragmentStages;
@@ -366,8 +368,8 @@ void launch_mxfp8_a8_tma(const Mxfp8A8Operands& p, Output output, Epilogue epilo
         constexpr int bytes   = mxfp8_tma_scratch_bytes<S, Epilogue, TmaScales> +
                               Mxfp8TmaStorage<S, TmaScales>::kBarrierBytes;
         const auto shared = common::prepare_shared<bytes, kernel, true>();
-        kernel<<<static_cast<unsigned>(blocks), S::kThreads, shared, stream>>>(maps, p, output,
-                                                                               epilogue, rows);
+        kernel<<<static_cast<unsigned>(blocks), S::kThreads, shared, stream>>>(
+            common::make_tma_kernel_param(maps), p, output, epilogue, rows);
         CUDA_CHECK(cudaGetLastError());
     };
     const auto selected = [&]<bool TmaScales>() {

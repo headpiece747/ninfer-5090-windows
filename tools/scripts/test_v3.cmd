@@ -28,7 +28,13 @@ REM Honours NINFER_PYTHON so CI and a developer override select the same interpr
 set "PY=%NINFER_PYTHON%"
 if "%PY%"=="" set "PY=C:/vllm-env/Scripts/python.exe"
 
-call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+set "VCVARS="
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if exist "%VSWHERE%" (
+  for /f "usebackq delims=" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VCVARS=%%I\VC\Auxiliary\Build\vcvars64.bat"
+)
+if not defined VCVARS set "VCVARS=C:\Program Files (x86)\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+call "%VCVARS%" >nul 2>&1
 cd /d "%REPO%"
 
 echo === CONFIGURE (BUILD_TESTING=ON) ===

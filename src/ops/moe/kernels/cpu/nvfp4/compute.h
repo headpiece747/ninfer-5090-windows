@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ops/moe/kernels/cpu/nvfp4/work.h"
+#include "ops/common/cpu/unreachable.h"
 #include "ops/common/numeric/math.h"
 #include "ops/common/quant/nvfp4.h"
 
@@ -39,11 +40,7 @@ inline void with_columns(int columns, Function&& function) noexcept {
         if constexpr (MaxColumns >= 8) { return function.template operator()<8>(); }
         break;
     }
-#if defined(_MSC_VER)
-    __assume(false);
-#else
-    __builtin_unreachable();
-#endif
+    ninfer::ops::common::unreachable();
 }
 
 template <class Simd, int K, int Rows, int Columns, class Input>

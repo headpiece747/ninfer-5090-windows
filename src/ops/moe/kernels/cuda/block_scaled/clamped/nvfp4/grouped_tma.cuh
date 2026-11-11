@@ -1,13 +1,13 @@
 #pragma once
 
 #include "ops/moe/kernels/cuda/block_scaled/clamped/nvfp4/compute.cuh"
+#include "ops/common/cuda/tma_param.cuh"
 #include "ops/common/host/launch.h"
 #include <cuda.h>
 
 namespace ninfer::ops::detail::moe_cuda::block_scaled::clamped::nvfp4::grouped_tma {
 
-// `alignas(64)`: MSVC's cudafe1 host stub rejects by-value parameters aligned past 64 with C2719.
-struct alignas(64) Maps {
+struct alignas(128) Maps {
     CUtensorMap weights, inputs, scales;
 };
 
@@ -234,9 +234,11 @@ __device__ __forceinline__ void consume(Shared<S>& tile, int columns, float (&ac
 
 template <class S>
 __global__ __launch_bounds__(S::threads, S::min_blocks) void contract(
-    const __grid_constant__ Maps maps, ExpertMatrixDeviceView bank, ActivationScale input_scale,
-    ActivationScale product_scale, Groups groups, const float* coefficients, std::uint8_t* product,
-    std::uint8_t* product_scales, float* sum, int minimum, int maximum, int subtiles, float limit) {
+    const __grid_constant__ common::TmaKernelParam<Maps> descriptor_param,
+    ExpertMatrixDeviceView bank, ActivationScale input_scale, ActivationScale product_scale,
+    Groups groups, const float* coefficients, std::uint8_t* product, std::uint8_t* product_scales,
+    float* sum, int minimum, int maximum, int subtiles, float limit) {
+    const auto& maps = descriptor_param.get();
     const int population_load = balanced_group_load(groups);
     if (groups.load_range[1] <= minimum ||
         (population_load ? population_load : groups.load_range[0]) > maximum)
@@ -400,7 +402,7 @@ void launch(const Tensor& x, const CudaSwiGLUExperts& experts, const ExpertRoute
         if (subtiles > 1 && blocks > 1 && !(blocks & 1)) --blocks;
     }
     kernel<<<blocks, S::threads, bytes, execution.stream()>>>(
-        maps, bank,
+        common::make_tma_kernel_param(maps), bank,
         calibration(Gate ? experts.activation_calibration.gate_up
                          : experts.activation_calibration.down),
         calibration(experts.activation_calibration.down), storage.groups,

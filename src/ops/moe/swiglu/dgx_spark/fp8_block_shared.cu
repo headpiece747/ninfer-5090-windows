@@ -138,7 +138,8 @@ void scaled_f16(const Tensor& x, const SwiGLUWeights& w, Output output,
     if (gblocks > std::numeric_limits<int>::max() || dblocks > std::numeric_limits<int>::max())
         throw std::invalid_argument("scaled F16 shared FFN grid exceeds CUDA grid.x");
     gkernel<<<unsigned(gblocks), GS::kThreads, gb, stream>>>(
-        maps, gu, ScaledF16Output{values, scales}, Product{{limit}}, 0);
+        common::make_tma_kernel_param(maps), gu, ScaledF16Output{values, scales}, Product{{limit}},
+        0);
     CUDA_CHECK(cudaGetLastError());
     const auto& dw = w.down.weight;
     const ScaledF16BlockOperands down{values,
@@ -153,8 +154,8 @@ void scaled_f16(const Tensor& x, const SwiGLUWeights& w, Output output,
     constexpr int db  = fp8_block_a16_tma_bytes<DS, DownEpilogue>;
     static_assert(db <= 99 * 1024);
     common::prepare_shared<db, dk, true>();
-    dk<<<unsigned(dblocks), DS::kThreads, db, stream>>>(dm, down, output,
-                                                        DownEpilogue{{}, logical});
+    dk<<<unsigned(dblocks), DS::kThreads, db, stream>>>(common::make_tma_kernel_param(dm), down,
+                                                        output, DownEpilogue{{}, logical});
     CUDA_CHECK(cudaGetLastError());
 }
 

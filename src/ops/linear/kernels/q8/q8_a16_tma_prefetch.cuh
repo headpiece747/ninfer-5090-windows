@@ -30,8 +30,10 @@ struct Q8A16TmaPrefetchStorage {
 
 template <class Cfg, bool Full, class Output, class Epilogue>
 __global__ __launch_bounds__(Cfg::kThreads, Cfg::kMinBlocksPerSm) void q8_a16_tma_prefetch_kernel(
-    Q8LinearOperands operands, const __grid_constant__ Q8A16TmaDescriptors maps, Output output,
-    Epilogue epilogue, int token_begin, int token_count) {
+    Q8LinearOperands operands,
+    const __grid_constant__ common::TmaKernelParam<Q8A16TmaDescriptors> descriptor_param,
+    Output output, Epilogue epilogue, int token_begin, int token_count) {
+    const auto& maps = descriptor_param.get();
     const auto* __restrict__ scales = operands.scales;
     const int m = operands.rows, k = Cfg::kStaticK > 0 ? Cfg::kStaticK : operands.k,
               n                     = token_begin + token_count;
@@ -290,8 +292,8 @@ void launch_q8_a16_tma_prefetch(const Q8LinearOperands& operands, Output output,
                 static_assert(bytes >= sizeof(Q8A16TmaPrefetchStorage<Schedule>) &&
                               bytes <= 99 * 1024);
                 (void)common::prepare_shared<bytes, kernel>();
-                kernel<<<grid, Schedule::kThreads, bytes, stream>>>(operands, maps, output,
-                                                                    epilogue, offset, count);
+                kernel<<<grid, Schedule::kThreads, bytes, stream>>>(
+                    operands, common::make_tma_kernel_param(maps), output, epilogue, offset, count);
                 CUDA_CHECK(cudaGetLastError());
             };
             if (count % Schedule::kBlockTokens == 0)

@@ -3,6 +3,7 @@
 #include "ops/common/cuda/memory.cuh"
 #include "ops/common/cuda/mma.cuh"
 #include "ops/common/cuda/pipeline.cuh"
+#include "ops/common/cuda/tma_param.cuh"
 #include "ops/common/host/launch.h"
 #include "ops/common/numeric/math.h"
 #include "ops/linear/common/epilogue.cuh"
@@ -115,8 +116,7 @@ q8_tma_decode_eight_compensated(uint2 packed, std::uint16_t scale_bits) {
     return {high.raw, low.raw};
 }
 
-// `alignas(64)`: MSVC's cudafe1 host stub rejects by-value parameters aligned past 64 with C2719.
-struct alignas(64) Q8A16TmaDescriptors {
+struct alignas(128) Q8A16TmaDescriptors {
     CUtensorMap x;
     CUtensorMap codes;
 };
@@ -178,8 +178,10 @@ __device__ __forceinline__ int q8_tma_activation_col(int row, int column) {
 
 template <class Cfg, bool Full, class Output, class Epilogue, class RowPolicy>
 __global__ __launch_bounds__(Cfg::kThreads, Cfg::kMinBlocksPerSm) void q8_a16_tma_mma_kernel(
-    Q8LinearOperands operands, const __grid_constant__ Q8A16TmaDescriptors maps, Output output,
-    Epilogue epilogue, int token_begin, int token_count) {
+    Q8LinearOperands operands,
+    const __grid_constant__ common::TmaKernelParam<Q8A16TmaDescriptors> descriptor_param,
+    Output output, Epilogue epilogue, int token_begin, int token_count) {
+    const auto& maps = descriptor_param.get();
     const auto* __restrict__ scales = operands.scales;
     const int m = operands.rows, k = Cfg::kStaticK > 0 ? Cfg::kStaticK : operands.k,
               n                     = token_begin + token_count;
@@ -493,8 +495,8 @@ void launch_q8_a16_tma_mma(const Q8LinearOperands& operands, Output output, Epil
             constexpr int bytes = linear_mma_shared_bytes<Schedule, Epilogue>;
             static_assert(bytes >= sizeof(Q8A16TmaStorage<Schedule>) && bytes <= 99 * 1024);
             (void)common::prepare_shared<bytes, kernel>();
-            kernel<<<grid, Schedule::kThreads, bytes, stream>>>(operands, maps, output, epilogue,
-                                                                offset, count);
+            kernel<<<grid, Schedule::kThreads, bytes, stream>>>(
+                operands, common::make_tma_kernel_param(maps), output, epilogue, offset, count);
             CUDA_CHECK(cudaGetLastError());
         };
         if (operands.rows % Schedule::kBlockRows == 0 && count % Schedule::kBlockTokens == 0)

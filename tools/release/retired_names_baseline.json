@@ -345,7 +345,8 @@
     "tools/release/check_fp8_band_ladders.py": {
       "fp8_attn_input_a8": "the pre-reorganisation path of the file a ladder moved from: the gate reads the base revision there, which is the only way to compare a moved ladder against what it selected before the move, and the name survives nowhere else in the tree by design",
       "fp8_gdn_input_a8": "the pre-reorganisation path of the file a ladder moved from: the gate reads the base revision there, which is the only way to compare a moved ladder against what it selected before the move, and the name survives nowhere else in the tree by design",
-      "fp8_linear_add_a8": "the pre-reorganisation path of the file a ladder moved from: the gate reads the base revision there, which is the only way to compare a moved ladder against what it selected before the move, and the name survives nowhere else in the tree by design"
+      "fp8_linear_add_a8": "the pre-reorganisation path of the file a ladder moved from: the gate reads the base revision there, which is the only way to compare a moved ladder against what it selected before the move, and the name survives nowhere else in the tree by design",
+      "fp8_linear_swiglu_a8": "the pre-reorganisation path of the file a ladder moved from: the gate reads the base revision there, which is the only way to compare a moved ladder against what it selected before the move, and the name survives nowhere else in the tree by design"
     },
     "tools/convert/quantization/stored_scale.py": {
       "ninfer_stored_scale": "the label this codec writes into the artifact's provenance; it names a conversion output, not a symbol in this tree"

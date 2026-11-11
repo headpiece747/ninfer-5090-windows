@@ -7,16 +7,18 @@ namespace ninfer::ops::detail {
 
 template <class S, bool Full, class O, class E>
 __global__ __launch_bounds__(S::kThreads, S::kMinBlocksPerSm) void fp8_block_a16_tail_kernel(
-    const __grid_constant__ Fp8TmaDescriptors maps, Fp8BlockA16Operands<> p, O output, E epilogue,
-    float* partials, int token_offset, int full_tiles) {
+    const __grid_constant__ common::TmaKernelParam<Fp8TmaDescriptors> descriptor_param,
+    Fp8BlockA16Operands<> p, O output, E epilogue, float* partials, int token_offset,
+    int full_tiles) {
     using P        = typename S::TailPlan;
     const int tail = int(blockIdx.x) % P::kTailTiles, rank = int(blockIdx.x) / P::kTailTiles;
     const int groups = p.k / 128;
     const int first  = groups * rank / P::kParts;
     const int last   = groups * (rank + 1) / P::kParts;
     fp8_block_a16_tma_body<S, Full, true>(
-        maps, p, output, epilogue, token_offset, full_tiles + tail, first * (128 / S::kBlockK),
-        (last - first) * (128 / S::kBlockK), partials + int(blockIdx.x) * P::kTileElements);
+        descriptor_param.get(), p, output, epilogue, token_offset, full_tiles + tail,
+        first * (128 / S::kBlockK), (last - first) * (128 / S::kBlockK),
+        partials + int(blockIdx.x) * P::kTileElements);
 }
 
 // One CTA per accumulator fragment exposes enough parallelism for the small merge.
@@ -69,15 +71,16 @@ void launch_fp8_block_a16_split_tail(const Fp8BlockA16Operands<>& p, O output, E
             constexpr auto prefix = fp8_block_a16_tma_kernel<S, Full, O, E>;
             common::prepare_shared<bytes, prefix, true>();
             const auto prefix_tiles = plan.split_tail() ? plan.full_tiles() : plan.tiles;
+            const auto param        = common::make_tma_kernel_param(maps);
             if (prefix_tiles) {
-                prefix<<<unsigned(prefix_tiles), S::kThreads, bytes, stream>>>(maps, slice, output,
-                                                                               epilogue, offset);
+                prefix<<<unsigned(prefix_tiles), S::kThreads, bytes, stream>>>(
+                    param, slice, output, epilogue, offset);
                 CUDA_CHECK(cudaGetLastError());
             }
             if (!plan.split_tail()) return;
             constexpr auto tail = fp8_block_a16_tail_kernel<S, Full, O, E>;
             common::prepare_shared<bytes, tail, true>();
-            tail<<<P::kCtas, S::kThreads, bytes, stream>>>(maps, slice, output, epilogue, partials,
+            tail<<<P::kCtas, S::kThreads, bytes, stream>>>(param, slice, output, epilogue, partials,
                                                            offset, int(prefix_tiles));
             CUDA_CHECK(cudaGetLastError());
             fp8_block_a16_tail_reduce<S, Full>

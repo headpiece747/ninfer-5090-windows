@@ -117,8 +117,8 @@ void tma(const Tensor& x, const Weight& weight, Tensor& out, float limit, bool c
         if (blocks > std::numeric_limits<int>::max())
             throw std::invalid_argument("FP8 block SwiGLU grid exceeds CUDA grid.x");
         common::prepare_shared<bytes, fn, true>();
-        fn<<<unsigned(blocks), S::kThreads, bytes, stream>>>(maps, p, output, E{{product, logical}},
-                                                                0);
+        fn<<<unsigned(blocks), S::kThreads, bytes, stream>>>(
+            common::make_tma_kernel_param(maps), p, output, E{{product, logical}}, 0);
         CUDA_CHECK(cudaGetLastError());
     };
     if (clamped)

@@ -9,10 +9,11 @@ struct Avx2 : common::cpu::avx2::F32 {
     static constexpr auto first_chunk = FirstChunkPreparation::Worker;
 
     static Float scale(std::uint16_t bits) noexcept {
-    const __m128 tmp  = _mm_cvtph_ps(_mm_set1_epi16((short)bits));
-    const float value = _mm_cvtss_f32(tmp);
-    return _mm256_set1_ps(value);
-}
+        // MSVC lacks _cvtsh_ss; broadcast 16-bit lane and extract scalar float.
+        const __m128 tmp  = _mm_cvtph_ps(_mm_set1_epi16((short)bits));
+        const float value = _mm_cvtss_f32(tmp);
+        return _mm256_set1_ps(value);
+    }
 
     template <int Bits>
     static Float decode(const std::uint8_t* code, const std::uint8_t* high) noexcept {

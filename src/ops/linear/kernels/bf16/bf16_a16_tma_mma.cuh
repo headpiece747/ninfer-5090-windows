@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ops/common/cuda/pipeline.cuh"
+#include "ops/common/cuda/tma_param.cuh"
 #include "ops/common/host/launch.h"
 #include "ops/common/numeric/math.h"
 #include "ops/linear/common/epilogue.cuh"
@@ -13,36 +14,9 @@
 
 namespace ninfer::ops::detail {
 
-// No alignas override, and the reason is NOT the one an earlier revision of this comment gave. It
-// used to say CUtensorMap "already declares alignas(TENSOR_MAP_ALIGN), which is 64 under MSVC and 128
-// elsewhere, so inheriting it leaves a by-value kernel parameter MSVC can lay out". The macro is 64.
-// The attribute is not applied at all. cuda.h:3749-3753 selects TENSOR_MAP_ALIGN = 64 under _MSC_VER,
-// but cuda.h:3756 applies it only inside `#if defined(__cplusplus) && (__cplusplus >= 201103L)`, and
-// nvcc's host pass on MSVC reports __cplusplus = 199711L unless /Zc:__cplusplus is passed. This build
-// does not pass it, so CUtensorMap carries no alignment attribute and inherits alignof == 8 from its
-// `cuuint64_t[16]` payload. It is the ABSENCE of the attribute, not an inherited 64, that leaves the
-// by-value parameter below layable.
-//
-// Measured on this toolchain (CUDA 13.3, MSVC) by tools/scripts/probe_tma_align.cmd:
-//   alignof(CUtensorMap) = 8, TENSOR_MAP_ALIGN = 64, __cplusplus = 199711, attribute applied: NO
-//   with /Zc:__cplusplus: alignof = 64, __cplusplus = 202002, attribute applied: yes
-// So this is a property of the build flags, not of the type. Re-run that tool after touching the CUDA
-// headers, the MSVC toolchain, or the C++ flags in CMakeLists.txt; these comments quote its numbers.
-//
-// Overriding to alignas(128) produced C2719 ("formal parameter with requested alignment of 128 won't
-// be aligned") in nvcc's cudafe1 host stub on Windows. The same sweep shows a by-value
-// __grid_constant__ descriptor block accepted at 8/16/32/64 and rejected at 128 and 256 with four
-// C2719 sites each, so 128 is past what MSVC's ABI will honour for a by-value parameter -- which is
-// why the header picks 64 and why this struct declares nothing.
-//
-// If /Zc:__cplusplus is ever added to this build, the struct below inherits alignas(64) and the
-// reasoning above has to be re-checked rather than assumed to carry over. That combination is not
-// built today, so it is not measured here.
-//
-// This is the port's fix from 1218d574, which also makes the descriptor safe under CUDA Graph capture
-// -- the bytes travel in the kernel node, so a replay sees them again, where a device buffer filled by
-// cudaMemcpyAsync would read a caller stack frame that is gone.
-struct Bf16TmaDescriptors {
+// Keep 128-byte alignment on both host and device; kernels carry the descriptor bundle by value
+// through common::TmaKernelParam<T> to avoid MSVC C2719 without downgrading PTX alignment.
+struct alignas(128) Bf16TmaDescriptors {
     CUtensorMap weight;
     CUtensorMap activation;
 };
@@ -52,10 +26,7 @@ inline CUtensorMap bf16_tma_map(const __nv_bfloat16* pointer, int rows, int k, i
                                 int block_k) {
     // Factor K into 64-element sectors. The contiguous 128-byte dimension matches the
     // hardware swizzle while the next box dimension permits larger K tiles without repacking.
-    // `alignas(64)` is this port's change (1218d574): MSVC's host stub rejects a by-value descriptor
-    // at 128 with C2719, and the measured acceptance ceiling is 64 -- see the struct above, which
-    // carries the probe's numbers.
-    alignas(64) CUtensorMap result{};
+    CUtensorMap result{};
     std::uint64_t dimensions[]{64, static_cast<std::uint64_t>(k / 64),
                                static_cast<std::uint64_t>(rows)};
     std::uint64_t strides[]{128, static_cast<std::uint64_t>(k) * 2};
@@ -210,10 +181,10 @@ template <class Schedule, bool FullTokens, class Output, class Epilogue, int Spl
           class WeightAccess = Bf16ContiguousTmaWeightAccess>
 __global__
 __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void bf16_a16_tma_mma_kernel(
-    const __grid_constant__ Bf16TmaDescriptors descriptors, Output output, Epilogue epilogue,
-    int rows, int input_rows, int token_offset, int count) {
+    const __grid_constant__ common::TmaKernelParam<Bf16TmaDescriptors> descriptor_param,
+    Output output, Epilogue epilogue, int rows, int input_rows, int token_offset, int count) {
     bf16_a16_tma_mma_body<Schedule, FullTokens, Output, Epilogue, Splits, WeightAccess>(
-        descriptors, output, epilogue, rows, input_rows, token_offset, count);
+        descriptor_param.get(), output, epilogue, rows, input_rows, token_offset, count);
 }
 
 template <class Schedule, int Splits = 1, class Output, class Epilogue,
@@ -243,7 +214,8 @@ void launch_bf16_a16_tma_mma(const Bf16A16Operands& p, Output output, Epilogue e
                 bf16_tma_scratch_bytes<Schedule, Epilogue> + Schedule::kBarrierBytes;
             common::prepare_shared<bytes, kernel, true>();
             kernel<<<dim3(static_cast<unsigned>(blocks), 1, Splits), Schedule::kThreads, bytes,
-                     stream>>>(descriptors, output, epilogue, p.rows, p.k, offset, count);
+                     stream>>>(common::make_tma_kernel_param(descriptors), output, epilogue, p.rows,
+                               p.k, offset, count);
             CUDA_CHECK(cudaGetLastError());
         };
         if (count % Schedule::kBlockTokens == 0)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ops/common/cuda/pipeline.cuh"
+#include "ops/common/cuda/tma_param.cuh"
 #include "ops/common/host/launch.h"
 #include "ops/common/numeric/math.h"
 
@@ -17,43 +18,18 @@
 
 namespace ninfer::ops::detail {
 
-// alignas(64), not 128. The 128 was what MSVC's ABI rejected (C2719) and what forced the pointer
-// form below; tools/scripts/probe_tma_align.cmd measures this toolchain directly and records
-// 8/16/32/64 ACCEPTED with 128 and 256 rejected by four C2719 sites each. 64 is the width CUDA asks
-// for here (cuda.h:3749) and it compiles, so the by-value parameter can be used on Windows too --
-// which removes the pointer form, and the pointer form is the only thing that differs from the three
-// ports that run this route on sm_120a.
-struct alignas(64) Fp8TmaDescriptors {
+struct alignas(128) Fp8TmaDescriptors {
     CUtensorMap activation;
     CUtensorMap weight;
 };
 
-// The comment above states an invariant; this makes the compiler enforce it. Documentation drift is
-// not detectable in general -- 28.9% of the top 1000 GitHub projects are stale right now, and ~55% of
-// an outdated reference is still present a month later -- so where a documented claim CAN be bound to
-// the compiler, binding it beats writing it down.
-static_assert(alignof(Fp8TmaDescriptors) == 64,
-              "the comment above says alignas(64); if this fails the comment is wrong, not the compiler");
+static_assert(alignof(Fp8TmaDescriptors) == 128);
 static_assert(sizeof(Fp8TmaDescriptors) == 2 * sizeof(CUtensorMap),
               "two descriptors back to back; the fp8_tma_acquire_map size argument assumes this");
 
-// The descriptor is passed BY VALUE on every platform, including Windows. It used to be a pointer on
-// Windows because a by-value alignas(128) parameter would not compile there; at alignas(64) it does,
-// so there is now one code path. That matters beyond compilation: a map in parameter space is already
-// in the proxy the TMA unit reads it through, whereas the pointer form had to stage the map into
-// device memory and could be caught mid-flight by the pool. A macro rather than a typedef so every
-// kernel translation unit spells it identically.
-#ifndef NINFER_FP8_TMA_DESCRIPTOR_PARAM
-#define NINFER_FP8_TMA_DESCRIPTOR_PARAM const __grid_constant__ Fp8TmaDescriptors
-#endif
-
-// Fp8SplitKPlan, fp8_split_k_plan, fp8_store_split_partials and fp8_a8_split_k_reduce moved to
-// fp8_split_k.cuh: none of them reads a tensor map, so the split-K route does not belong to TMA. See
-// that header for why item 12 needed them reachable from the MMA transport too.
-
 inline CUtensorMap fp8_tma_map(const std::uint8_t* pointer, int rows, int k, int block_rows,
                                int block_k) {
-    alignas(64) CUtensorMap result{};
+    CUtensorMap result{};
     const std::uint64_t dimensions[]{static_cast<std::uint64_t>(k),
                                      static_cast<std::uint64_t>(rows)};
     const std::uint64_t strides[]{static_cast<std::uint64_t>(k)};
@@ -92,9 +68,10 @@ template <class Schedule, bool FullTokens, class Output, class Epilogue, bool Sp
           class RowPolicy = Fp8IdentityRows>
 __global__
 __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void fp8_a8_tma_mma_kernel(
-    NINFER_FP8_TMA_DESCRIPTOR_PARAM descriptors, Fp8A8Operands operands, Output output,
-    Epilogue epilogue, RowPolicy row_policy, int token_offset, int count, Fp8SplitKPlan plan,
-    float* partials) {
+    const __grid_constant__ common::TmaKernelParam<Fp8TmaDescriptors> descriptor_param,
+    Fp8A8Operands operands, Output output, Epilogue epilogue, RowPolicy row_policy, int token_offset,
+    int count, Fp8SplitKPlan plan, float* partials) {
+    const auto& descriptors = descriptor_param.get();
     constexpr int BT = Schedule::kBlockTokens, BR = Schedule::kBlockRows;
     constexpr int BK = Schedule::kBlockK, S = Schedule::kStages;
     const int k = Schedule::kStaticK ? Schedule::kStaticK : operands.k;
@@ -208,7 +185,8 @@ void launch_fp8_a8_tma_mma(const Fp8A8Operands& p, Output output, Epilogue epilo
             const int dynamic = common::prepare_shared<bytes, kernel, true>();
             const int grid    = Split ? plan.full_tiles + plan.split_ctas : blocks;
             kernel<<<grid, Schedule::kThreads, dynamic, stream>>>(
-                descriptors, p, output, epilogue, row_policy, offset, count, plan, partials);
+                common::make_tma_kernel_param(descriptors), p, output, epilogue, row_policy, offset,
+                count, plan, partials);
             CUDA_CHECK(cudaGetLastError());
             if constexpr (Split) {
                 fp8_a8_split_k_reduce<Schedule>

@@ -5,6 +5,8 @@ ninfer_internal_includes(ninfer_media_acquire)
 if(TARGET CURL::libcurl)
   target_link_libraries(ninfer_media_acquire PRIVATE CURL::libcurl)
   target_compile_definitions(ninfer_media_acquire PRIVATE NINFER_HAVE_LIBCURL=1)
+elseif(WIN32)
+  target_link_libraries(ninfer_media_acquire PRIVATE winhttp ws2_32)
 endif()
 
 

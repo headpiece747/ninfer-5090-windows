@@ -273,8 +273,8 @@ __device__ __forceinline__ void scaled_f16_block_tma_body(const Fp8TmaDescriptor
 
 template <class S, class O, class E>
 __global__ __launch_bounds__(S::kThreads, S::kMinBlocksPerSm) void scaled_f16_block_tma_kernel(
-    const __grid_constant__ Fp8TmaDescriptors maps, ScaledF16BlockOperands p, O output,
-    E epilogue) {
-    scaled_f16_block_tma_body<S>(maps, p, output, epilogue, int(blockIdx.x));
+    const __grid_constant__ common::TmaKernelParam<Fp8TmaDescriptors> descriptor_param,
+    ScaledF16BlockOperands p, O output, E epilogue) {
+    scaled_f16_block_tma_body<S>(descriptor_param.get(), p, output, epilogue, int(blockIdx.x));
 }
 } // namespace ninfer::ops::detail::swiglu_ffn

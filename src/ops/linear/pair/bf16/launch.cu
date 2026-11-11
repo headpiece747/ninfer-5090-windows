@@ -24,7 +24,7 @@ using CompleteK = Bf16ScheduleInstance<
                               Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>>,
     128>;
 
-struct PairDescriptors {
+struct alignas(128) PairDescriptors {
     Bf16TmaDescriptors first, second;
 };
 
@@ -80,10 +80,11 @@ void mma(Bf16A16Operands a, Bf16A16Operands b, LinearBf16Output ya, LinearBf16Ou
 
 template <class S, bool Full, class Output>
 __global__ __launch_bounds__(S::kThreads, S::kMinBlocksPerSm) void bf16_pair_tma_kernel(
-    const __grid_constant__ PairDescriptors descriptors, Output ya, Output yb, int rows, int offset,
-    int count) {
+    const __grid_constant__ common::TmaKernelParam<PairDescriptors> descriptor_param, Output ya,
+    Output yb, int rows, int offset, int count) {
     // Keep both descriptors in launch-owned parameter storage; each CTA borrows one pair.
-    const auto& maps = blockIdx.y ? descriptors.second : descriptors.first;
+    const auto& descriptors = descriptor_param.get();
+    const auto& maps        = blockIdx.y ? descriptors.second : descriptors.first;
     bf16_a16_tma_mma_body<S, Full>(maps, blockIdx.y ? yb : ya, TokenTileVectorEpilogue{}, rows, 128,
                                    offset, count);
 }
@@ -105,8 +106,8 @@ void tma(Bf16A16Operands a, Bf16A16Operands b, LinearBf16Output ya, LinearBf16Ou
             constexpr int bytes =
                 bf16_tma_scratch_bytes<S, TokenTileVectorEpilogue> + S::kBarrierBytes;
             common::prepare_shared<bytes, kernel, true>();
-            kernel<<<grid, S::kThreads, bytes, stream>>>(maps, first, second, a.rows, offset,
-                                                         count);
+            kernel<<<grid, S::kThreads, bytes, stream>>>(common::make_tma_kernel_param(maps), first,
+                                                         second, a.rows, offset, count);
             CUDA_CHECK(cudaGetLastError());
         };
         if (count % S::kBlockTokens == 0)

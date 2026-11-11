@@ -27,11 +27,13 @@ template <class Schedule, bool FullTokens, class Output, class Epilogue,
 __global__ __launch_bounds__(
     Schedule::kThreads,
     Schedule::kMinBlocksPerSm) void bf16_a16_tma_register_b_kernel(const __grid_constant__
-                                                                       Bf16TmaDescriptors
-                                                                           descriptors,
+                                                                       common::TmaKernelParam<
+                                                                           Bf16TmaDescriptors>
+                                                                           descriptor_param,
                                                                    Output output, Epilogue epilogue,
                                                                    int rows, int input_rows,
                                                                    int token_offset, int count) {
+    const auto& descriptors = descriptor_param.get();
     constexpr int BR = Schedule::kBlockRows, BT = Schedule::kBlockTokens;
     constexpr int BK = Schedule::kBlockK, MT = Schedule::kMmaRows, NT = Schedule::kMmaTokens;
     constexpr int KS  = BK / 16;
@@ -158,7 +160,8 @@ void launch_bf16_a16_tma_register_b(const Bf16A16Operands& p, Output output, Epi
                 bf16_tma_scratch_bytes<Schedule, Epilogue> + Schedule::kBarrierBytes;
             common::prepare_shared<bytes, kernel, true>();
             kernel<<<static_cast<unsigned>(blocks), Schedule::kThreads, bytes, stream>>>(
-                descriptors, output, epilogue, p.rows, p.k, offset, count);
+                common::make_tma_kernel_param(descriptors), output, epilogue, p.rows, p.k, offset,
+                count);
             CUDA_CHECK(cudaGetLastError());
         };
         if (count % Schedule::kBlockTokens == 0)

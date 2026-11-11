@@ -5,6 +5,9 @@ ninfer_add_test(ninfer_media_decode_test
 ninfer_add_test(ninfer_media_acquire_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/../test_media_acquire.cpp"
   LIBRARIES ninfer_media_acquire)
+if(WIN32)
+  target_link_libraries(ninfer_media_acquire_test PRIVATE ws2_32)
+endif()
 
 ninfer_add_test(ninfer_prompt_input_test
   NEEDS_SOURCE_DIR

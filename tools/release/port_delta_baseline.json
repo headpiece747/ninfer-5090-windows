@@ -37,7 +37,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "MSVC definitions and flags (NOMINMAX, WIN32_LEAN_AND_MEAN, UTF8PROC_STATIC, /Zc:preprocessor, /Zc:__cplusplus and -Xcompiler=/Zc:__cplusplus), Windows optionality for FFmpeg/libcurl, and NINFER_BUILD_MEDIA_ACQUIRE / NINFER_BUILD_BENCHMARKS / BUILD_TESTING gates."
     },
     "CONTRIBUTING.md": {
       "status": "M",
@@ -192,8 +192,8 @@
     "cmake/NinferPlatform.cmake": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Permits WIN32 + AMD64 for NINFER_TARGET_RTX5090 in ninfer_validate_platform alongside upstream Linux targets."
     },
     "docs/README.md": {
       "status": "M",
@@ -253,7 +253,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Port documentation restored 2026-10-06 from a silent take by the b9114396 merge: the check_request_logs.py validation paragraph and the tool-call fallback's rejected_* subject fields. Both describe surfaces that exist at HEAD -- tools/release/check_request_logs.py, and rejected_tool_name / rejected_tool_near_match / rejected_tool_name_length in types.h, set at src/models/qwen3_5/frontend/tool_call_parser.cpp:649-659 -- and neither was documented anywhere until this restore."
+      "reason": "Documents check_request_logs.py validation, tool-call fallback diagnostics, and unconstrained Qwen </parameter> disambiguation / quoted <tool_call> marker recovery semantics."
     },
     "docs/startup-configuration.md": {
       "status": "M",
@@ -318,8 +318,8 @@
     "examples/cli/send_to_serve.py": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "product",
+      "reason": "Redacts the env var name from the missing API key stderr message in send_to_serve.py."
     },
     "examples/configs/README.md": {
       "status": "M",
@@ -546,14 +546,14 @@
     "src/core/io/file.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Win32 direct I/O implementation (CreateFileW FILE_FLAG_NO_BUFFERING, _open_osfhandle, aligned ReadFile, _fstat64 size query) with upstream POSIX implementation preserved under #else."
     },
     "src/core/io/read_queue.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Win32 IOCP async DirectReadQueue implementation (ReOpenFile FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING, CreateIoCompletionPort, ReadFile, GetQueuedCompletionStatusEx, PostQueuedCompletionStatus for wake/immediate errors) with verbatim upstream Linux io_uring implementation preserved under #else."
     },
     "src/core/paged_kv_cache.h": {
       "status": "M",
@@ -576,14 +576,14 @@
     "src/models/common/bindings.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "product",
+      "reason": "Calls binder.reader().object(part.object) directly to resolve binding source object IDs."
     },
     "src/models/common/context/physical_reclaim.h": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Lifts local ReclaimHistory/ReclaimPageOwners structs and kReclaimNone constant to namespace detail for MSVC 14.51 std::vector::resize compatibility."
     },
     "src/models/common/dflash/weights.cpp": {
       "status": "M",
@@ -600,8 +600,8 @@
     "src/models/common/moe/offload/resources.h": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Forward-declares LayerGraphExecutable with class instead of struct/mismatch to satisfy MSVC C++ name mangling."
     },
     "src/models/common/qwen/frontend/chat_template.cpp": {
       "status": "M",
@@ -620,6 +620,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "The frontier ledger, restored 2026-10-06 after item 16 found the b9114396 merge had taken the port's version of it. encode_rendered_chat built a bare byte_boundaries vector and read it back with a running boundary_index, so the push order and the read order were two independent traversals of the same fields agreeing only by convention; the port replaced that with a FrontierEntry ledger (kind + ordinal + offset) written and read by label. Upstream's own b9114396 change added a SIXTH field to both traversals (rewrite_checkpoint->recovery_offset), which is the pattern the ledger exists to make safe -- a change reaching one side and missing the other mislabels every later frontier silently, and the count check saw only the totals differing. The restoration carries RewriteRecovery as its own BoundaryKind. Verified by ninfer_qwen3_5_frontend_test, ninfer_qwen3_5_prefix_real_test and the full suite."
+    },
+    "src/models/common/qwen/frontend/tool_call_parser.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Upstream PR #318 recovery for quoted </parameter> and quoted <tool_call> markers on Qwen free-generation output, with fixes for exact </function> classification, EOF incomplete header duplication, and streaming JsonValue early rejection."
     },
     "src/models/glm5next/frontend/processor.cpp": {
       "status": "M",
@@ -654,8 +660,8 @@
     "src/models/qwen3_5/definition.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "product",
+      "reason": "Passes full artifact::Reader to parse_config(reader, options) so config parsing accesses reader metadata."
     },
     "src/models/qwen3_5/execution/draft.cpp": {
       "status": "M",
@@ -678,14 +684,14 @@
     "src/models/qwen3_5/measurement.h": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Forward-declares ninfer::models::moe::Plan as class instead of struct to match its class definition under MSVC name mangling."
     },
     "src/models/qwen3_5/planning.h": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Forward-declares ninfer::models::moe::Plan as class instead of struct to match its class definition under MSVC name mangling."
     },
     "src/models/qwen3_5/program/decision.cpp": {
       "status": "M",
@@ -702,14 +708,14 @@
     "src/models/qwen3_5/program/inputs.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens axis * columns/width arithmetic to std::size_t to prevent 32-bit signed overflow warnings/UB on MSVC."
     },
     "src/models/qwen3_5/program/program.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens words * row.positions to std::size_t to avoid 32-bit signed multiplication overflow on MSVC."
     },
     "src/models/qwen3_5/state/decoder_state.cpp": {
       "status": "M",
@@ -726,32 +732,32 @@
     "src/models/qwen4_exp/program/planning.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens (o.speculative.draft_tokens + 1) * o.max_concurrency to std::size_t before sizeof(TokenId) multiplication on MSVC."
     },
     "src/models/qwen4_exp/session/checkpoints.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Uses std::uint32_t pool loop index matching pool_count() width under MSVC conversion warnings."
     },
     "src/models/qwen4_exp/session/context.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Uses std::uint32_t pool loop index matching pool_count() width under MSVC."
     },
     "src/models/qwen4_exp/session/reclaim.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Uses std::uint32_t pool loop index matching pool_count() width under MSVC."
     },
     "src/models/qwen4_exp/session/session.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Uses std::uint32_t loop index with explicit std::uint16_t cast when constructing pool descriptors on MSVC."
     },
     "src/ops/CMakeLists.txt": {
       "status": "M",
@@ -865,13 +871,19 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path. MSVC alignment necessity, measured by tools/scripts/probe_tma_align.cmd and quoted in the file's own comment: CUtensorMap carries no alignment attribute under this build (cuda.h applies alignas(TENSOR_MAP_ALIGN) only when __cplusplus >= 201103L, and nvcc's MSVC host pass reports 199711L), so the by-value descriptor needs an explicit `alignas(64)`, and 128 is rejected with C2719. The struct above it declares no override for the same reason. Kept through the 2026-10-07 merge alongside upstream's new predicated-K block, which mutates the descriptor arrays and is why they are no longer const."
+      "reason": "MSVC x64 host-pass TMA parameter compatibility: gives Bf16TmaDescriptors alignas(128) and passes it via common::TmaKernelParam<Bf16TmaDescriptors> to preserve .param .align 128 in PTX."
+    },
+    "src/ops/linear/kernels/bf16/bf16_a16_tma_register_b.cuh": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Passes Bf16TmaDescriptors via common::TmaKernelParam<Bf16TmaDescriptors> so MSVC/nvcc emits .param .align 128 in PTX."
     },
     "src/ops/linear/kernels/bf16/bf16_template_launch.cuh": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Uses static constexpr auto kernel = bf16_a16_sliced_k_mma_kernel<...> so MSVC accepts taking kernel attributes as a constant expression."
     },
     "src/ops/linear/kernels/fp8/fp8_a8_mma.cuh": {
       "status": "M",
@@ -883,7 +895,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff. This path carries static_asserts binding the comment above them to the compiler; read the comment block before changing it."
+      "reason": "MSVC x64 host-pass TMA parameter compatibility: gives Fp8TmaDescriptors alignas(128) and passes it via common::TmaKernelParam<Fp8TmaDescriptors> so PTX emits .param .align 128."
     },
     "src/ops/linear/kernels/fp8/fp8_schedule.cuh": {
       "status": "M",
@@ -896,6 +908,24 @@
       "disposition": "unknown",
       "review": "windows",
       "reason": "Cited in the diff -- win32: GetLastError. Open it before changing this path."
+    },
+    "src/ops/linear/kernels/fp8_block/a16_split_tail.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Passes Fp8TmaDescriptors via common::TmaKernelParam<Fp8TmaDescriptors> across prefix and tail kernels so MSVC/nvcc preserves .param .align 128 in PTX."
+    },
+    "src/ops/linear/kernels/fp8_block/a16_tma.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Passes Fp8TmaDescriptors via common::TmaKernelParam<Fp8TmaDescriptors> so MSVC/nvcc preserves .param .align 128 in PTX."
+    },
+    "src/ops/linear/kernels/mxfp8/a8_tma.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Gives Mxfp8ScaledTmaDescriptors alignas(128) and passes Mxfp8TmaDescriptors<TmaScales> via common::TmaKernelParam so MSVC/nvcc preserves .param .align 128 in PTX."
     },
     "src/ops/linear/kernels/nvfp4/nvfp4_a4_mma.cuh": {
       "status": "M",
@@ -911,7 +941,7 @@
     },
     "src/ops/linear/kernels/nvfp4/nvfp4_a4_tma_split.cuh": {
       "status": "M",
-      "disposition": "windows",
+      "disposition": "unknown",
       "review": "windows",
       "reason": "MSVC cudafe1/C2326 compatibility: uses static constexpr kernel local for C2326 and packs Nvfp4A4TmaDescriptorSet<parts> via common::make_tma_kernel_param to preserve alignas(128) across the MSVC host stub."
     },
@@ -924,20 +954,38 @@
     "src/ops/linear/kernels/nvfp4/nvfp4_template_launch.cuh": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Uses static constexpr auto kernel = nvfp4_a16_sliced_k_mma_kernel<...> so MSVC treats kernel as a compile-time constant expression."
     },
     "src/ops/linear/kernels/q4/q4_a16_tma_prefetch.cuh": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Lowers Q4A16TmaDescriptors alignment from alignas(128) to alignas(64) for MSVC cudafe1 C2719 compatibility."
+      "reason": "MSVC x64 host-pass TMA parameter compatibility: gives Q4A16TmaDescriptors alignas(128) and passes it via common::TmaKernelParam<Q4A16TmaDescriptors> so PTX emits .param .align 128."
     },
     "src/ops/linear/kernels/q8/q8_a16_tma.cuh": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Lowers Q8A16TmaDescriptors alignment from alignas(128) to alignas(64) for MSVC cudafe1 C2719 compatibility."
+      "reason": "MSVC x64 host-pass TMA parameter compatibility: gives Q8A16TmaDescriptors alignas(128) and passes it via common::TmaKernelParam<Q8A16TmaDescriptors> so PTX emits .param .align 128."
+    },
+    "src/ops/linear/kernels/q8/q8_a16_tma_k32.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Passes Q8A16TmaDescriptors via common::TmaKernelParam<Q8A16TmaDescriptors> so MSVC/nvcc preserves .param .align 128 in PTX."
+    },
+    "src/ops/linear/kernels/q8/q8_a16_tma_prefetch.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Passes Q8A16TmaDescriptors via common::TmaKernelParam<Q8A16TmaDescriptors> so MSVC/nvcc preserves .param .align 128 in PTX."
+    },
+    "src/ops/linear/pair/bf16/launch.cu": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Gives PairDescriptors alignas(128) and passes it via common::TmaKernelParam<PairDescriptors> so MSVC/nvcc preserves .param .align 128 in PTX."
     },
     "src/ops/linear/projection/fp8/fp8_launch.cuh": {
       "status": "M",
@@ -1053,6 +1101,12 @@
       "review": "windows",
       "reason": "Cited in the diff -- item: 12. Open it before changing this path."
     },
+    "src/ops/linear/swiglu/fp8_block/dgx_spark/shapes/n2048_k4096.cu": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Launches fp8_block_a16_tma_kernel using common::make_tma_kernel_param(maps) to match the TmaKernelParam<Fp8TmaDescriptors> signature."
+    },
     "src/ops/linear/swiglu/nvfp4/dispatch.h": {
       "status": "M",
       "disposition": "unknown",
@@ -1079,39 +1133,57 @@
     },
     "src/ops/moe/kernels/cpu/groupwise_int/avx2.cpp": {
       "status": "M",
-      "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Replaces GCC/Clang _cvtsh_ss with _mm_cvtph_ps(_mm_set1_epi16(...)) since MSVC 14.51 <immintrin.h> omits _cvtsh_ss."
     },
     "src/ops/moe/kernels/cpu/groupwise_int/avx512.h": {
       "status": "M",
-      "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Replaces GCC/Clang _cvtsh_ss with _mm_cvtph_ps(_mm_set1_epi16(...)) since MSVC 14.51 <immintrin.h> omits _cvtsh_ss."
     },
     "src/ops/moe/kernels/cpu/nvfp4/compute.h": {
       "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Replaces bare __builtin_unreachable() with shared ninfer::ops::common::unreachable() helper for MSVC."
+    },
+    "src/ops/moe/kernels/cuda/block_scaled/clamped/nvfp4/grouped_scale_cache.cuh": {
+      "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "MSVC x64 host-pass TMA parameter compatibility: gives grouped_scale_cache::Maps alignas(128) and passes it via common::TmaKernelParam<Maps> so PTX emits .param .align 128."
     },
     "src/ops/moe/kernels/cuda/block_scaled/clamped/nvfp4/grouped_tma.cuh": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Lowers grouped_tma::Maps alignment from alignas(128) to alignas(64) for MSVC cudafe1 C2719 compatibility."
+      "reason": "MSVC x64 host-pass TMA parameter compatibility: gives grouped_tma::Maps alignas(128) and passes it via common::TmaKernelParam<Maps> so PTX emits .param .align 128."
     },
     "src/ops/moe/routed_swiglu/cpu/nvfp4/shapes/h2560_i640_e512_k10/dispatch.cpp": {
       "status": "M",
-      "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Replaces bare __builtin_unreachable() with shared ninfer::ops::common::unreachable() helper for MSVC."
     },
     "src/ops/moe/routed_swiglu/cpu/sources.cmake": {
       "status": "M",
       "disposition": "windows",
       "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test, the MoE CPU tests and the runtime CPUID dispatch in dispatch.cpp. Performance on this card is unmeasured.",
       "reason": "Applies the per-variant ISA split with /arch:AVX2 and /arch:AVX512 under MSVC, and keeps upstream's -m flags for the GCC/Clang build. Measured: cl.exe accepts -mavx2/-mavx512f without a word, where an option it does not know is reported (D9002 for /arch:AVX512FP16), so upstream's flags alone leave the AVX2 and AVX-512 objects on MSVC's default codegen. Safe to compile per variant because select_isa() only reaches a variant after a CPUID check reports its features. NOT MEASURED for performance: this makes upstream's intent take effect, and the throughput effect on this card is unmeasured."
+    },
+    "src/ops/moe/swiglu/dgx_spark/fp8_block_shared.cu": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "windows",
+      "reason": "Launches scaled_f16_block_tma_kernel and fp8_block_a16_tma_kernel with common::make_tma_kernel_param to match TmaKernelParam<Fp8TmaDescriptors>."
+    },
+    "src/ops/moe/swiglu/kernel/fp8_block_scaled_product.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Passes Fp8TmaDescriptors via common::TmaKernelParam<Fp8TmaDescriptors> so MSVC/nvcc preserves .param .align 128 in PTX."
     },
     "src/ops/reduction/sources.cmake": {
       "status": "M",
@@ -1217,9 +1289,9 @@
     },
     "src/product/CMakeLists.txt": {
       "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "The media-acquire wire-source classification: data URIs and HTTP(S) URLs, with libcurl linked behind NINFER_HAVE_LIBCURL and the CMake option NINFER_BUILD_MEDIA_ACQUIRE. prompt_input.cpp uses classify_wire_source to decide a message part's SourceKind, so the same prefix rule serves every wire endpoint instead of each parsing its own."
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Links libcurl when available or native winhttp and ws2_32 on WIN32 so ninfer_media_acquire supports HTTP(S) URLs natively on Windows."
     },
     "src/product/config/file.cpp": {
       "status": "M",
@@ -1230,8 +1302,8 @@
     "src/product/config/schema.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Uses core/uint128.h Uint128 in quantity() fraction reduction because MSVC lacks GCC/Clang unsigned __int128."
     },
     "src/product/logging/logging.cpp": {
       "status": "M",
@@ -1249,7 +1321,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
+      "reason": "Adds asynchronous WinHTTP HTTP(S) acquisition under _WIN32 (disabling redirects, re-checking SSRF on DNS and CONNECTING_TO_SERVER callbacks, honoring deadlines/cancellations/byte limits) while keeping libcurl support."
     },
     "src/product/media_acquire/source.h": {
       "status": "M",
@@ -1320,8 +1392,8 @@
     "src/runtime/engine/startup.inl": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Supplies explicit template argument for CalibratedPlan<typename Setup::ExecutionPlan> and uses _putenv_s under _WIN32 instead of POSIX setenv."
     },
     "src/serve/anthropic_messages_http.cpp": {
       "status": "M",
@@ -1382,6 +1454,12 @@
       "disposition": "unknown",
       "review": "product",
       "reason": "Engine-failure reporting: the engine latches failure permanently (fail_all_locked sets failed_ once and nothing clears it), so without this check the process stays alive forever after an engine-wide failure, indistinguishable from a healthy one at the process level. Exit code 3 is kept distinct from 1 (configuration, bind or warmup error) so a supervisor can tell them apart."
+    },
+    "src/serve/request.h": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Upstream PR #396 parity: shares constexpr kMaxToolNameLength = 128 as the GenerationRequest default across OpenAI and Anthropic request parsers."
     },
     "src/serve/request_log.cpp": {
       "status": "M",
@@ -1476,14 +1554,14 @@
     "tests/cmake/CoreTests.cmake": {
       "status": "M",
       "disposition": "windows",
-      "review": "product",
-      "reason": "Cited in the diff -- measure: Measured. Open it before changing this path."
+      "review": "windows",
+      "reason": "Registers Windows-enabled ninfer_read_queue_test without liburing/symbol_interpose, plus port core/artifact/tokenization tests."
     },
     "tests/cmake/ProductTests.cmake": {
       "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Links ws2_32 for ninfer_media_acquire_test loopback HTTP tests on Windows and registers port product/perplexity tests."
     },
     "tests/convert/glm5next_fixture.py": {
       "status": "M",
@@ -1518,8 +1596,8 @@
     "tests/distributed/test_execution.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens group_.rank() * w.count to std::size_t to prevent 32-bit integer multiplication overflow on MSVC."
     },
     "tests/expert_cache_cuda_errors.cpp": {
       "status": "M",
@@ -1527,11 +1605,17 @@
       "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile or link under MSVC 14.51 as written. The injected-failure cases are therefore not exercised on this platform.",
       "reason": "Guards the __real_/__wrap_ definitions and the injected-failure cases with _MSC_VER, reporting SKIP rather than passing silently. The wrappers need GNU ld --wrap, which MSVC does not provide, and an import-address patch cannot substitute because this build resolves cudart statically. This is the arrangement tests/artifact/materialization_cuda_errors.cpp already uses for the same class of case."
     },
-    "tests/models/common/context/test_kv_cache.cpp": {
+    "tests/io/test_read_queue.cpp": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Replaces POSIX mkdtemp with portable std::filesystem::create_directory, guards Linux liburing symbol interposition under #ifndef _WIN32, and adds Windows IOCP past-EOF zero-byte completion checks."
+    },
+    "tests/models/common/qwen/test_tool_call_parser.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "product",
+      "reason": "Covers PR #318 quoted </parameter> and quoted <tool_call> recovery cases plus EOF incomplete-header non-duplication."
     },
     "tests/models/common/qwen/test_tool_schema.py": {
       "status": "M",
@@ -1590,14 +1674,14 @@
     "tests/models/qwen3_5/test_mtp_history_real.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens accepted[lane] * hidden pointer offset to std::size_t on MSVC."
     },
     "tests/models/qwen3_5/test_native_transactions.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens stride * mask.positions to std::size_t before vector::resize on MSVC."
     },
     "tests/models/qwen3_5/tests.cmake": {
       "status": "M",
@@ -1608,20 +1692,20 @@
     "tests/models/qwen4_exp/ple/disk/test_prepare.py": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Passes explicit check=False to subprocess.run in test_prepare.py for ruff/tooling compliance on Windows."
     },
     "tests/models/qwen4_exp/ple/disk/test_table.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Sets stdout/stdin to _O_BINARY under _WIN32 so binary table records are not corrupted by CRLF translation."
     },
     "tests/models/qwen4_exp/ple/disk/test_table.py": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Passes explicit check=False to subprocess.run in test_table.py."
     },
     "tests/models/qwen4_exp/test_loading_real.cpp": {
       "status": "M",
@@ -1632,8 +1716,8 @@
     "tests/models/qwen4_exp/tests.cmake": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Excludes Unix-only ninfer_ple_disk_prepare_test on MSVC and links psapi on WIN32 for GetProcessMemoryInfo peak-RSS reporting."
     },
     "tests/ops/indexing/gather_rows.cpp": {
       "status": "M",
@@ -1644,38 +1728,38 @@
     "tests/ops/indexing/position.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens lane_size * batch to std::size_t for vector allocation on MSVC."
     },
     "tests/ops/indexing/scatter_bf16_batch.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens signed index multiplication to std::size_t for span/indexing arithmetic on MSVC."
     },
     "tests/ops/indexing/scatter_columns.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens dimension products to std::size_t and std::ptrdiff_t for iterator offsets on MSVC."
     },
     "tests/ops/kv_cache/append_full.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens width * batch and logical_pages * table_rows to std::size_t for vector allocation on MSVC."
     },
     "tests/ops/kv_cache/append_prefix.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens width * batch to std::size_t for vector allocation on MSVC."
     },
     "tests/ops/kv_cache/context_kv_materialize.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens width * batch to std::size_t for vector allocation on MSVC."
     },
     "tests/ops/linear/add/cases_bank.cpp": {
       "status": "M",
@@ -1698,8 +1782,8 @@
     "tests/ops/linear/projection/cases_nvfp4.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "product",
+      "reason": "Adds DFlash2 A16 Linear weight-only shape regression cases (5120x25600, 6144x5120, 5120x4096, 1280x5120, 256x5120)."
     },
     "tests/ops/linear/split/cases_bank.cpp": {
       "status": "M",
@@ -1722,8 +1806,8 @@
     "tests/ops/linear/swiglu/cases_nvfp4.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "product",
+      "reason": "Expands NVFP4 A16 SwiGLU qualification to 19 extents from 1 to 1024 covering wide-T fused MatrixFusedA16 routes."
     },
     "tests/ops/linear/weights.cpp": {
       "status": "M",
@@ -1758,8 +1842,8 @@
     "tests/ops/ple/test_lookup.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens stride * b and tail_stride * slots/s indices to std::size_t on MSVC."
     },
     "tests/ops/quant/tests.cmake": {
       "status": "M",
@@ -1782,14 +1866,14 @@
     "tests/ops/sampling/accept_sparse.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens kSparse* batch size products to std::size_t for vector/device buffer allocation on MSVC."
     },
     "tests/ops/sampling/candidate_selector.cpp": {
       "status": "M",
       "disposition": "product",
-      "review": "",
-      "reason": ""
+      "review": "product",
+      "reason": "Includes <map> and widens iterator stride, plus folds the port's NVFP4 codebook candidate-selector tests (k1..15 and mixed-codebook guard)."
     },
     "tests/ops/sampling/vocabulary.cpp": {
       "status": "M",
@@ -1806,26 +1890,26 @@
     "tests/ops/sequence/masked_block.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens width * batch to std::size_t for expected vector allocations on MSVC."
     },
     "tests/ops/sequence/ragged_prefix.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens width * batch to std::size_t for position vector allocations on MSVC."
     },
     "tests/ops/sequence/verify.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens k * batch and width * batch to std::size_t for host/device buffer sizing on MSVC."
     },
     "tests/ops/softmax_attention/causal/runner.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens b * width to std::ptrdiff_t for iterator offsets on MSVC."
     },
     "tests/ops/softmax_attention/plain_and_packed.cpp": {
       "status": "M",
@@ -1842,8 +1926,8 @@
     "tests/ops/softmax_attention/qsa/indexer_fixture.h": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens key_page_stride * pages, T * B, and table_stride * (B + 2) to std::size_t for buffer allocations on MSVC."
     },
     "tests/ops/softmax_attention/qsa/sparse_gqa_fixture.h": {
       "status": "M",
@@ -1860,8 +1944,8 @@
     "tests/ops/softmax_attention/qsa/test_indexer.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens f.T * f.B to std::size_t in from_device call on MSVC."
     },
     "tests/ops/softmax_attention/qsa/test_sparse_gqa.cpp": {
       "status": "M",
@@ -1872,8 +1956,8 @@
     "tests/ops/softmax_attention/sliding_window_attention.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens width * batch to std::size_t for position vector allocation on MSVC."
     },
     "tests/ops/tests.cmake": {
       "status": "M",
@@ -1926,14 +2010,20 @@
     "tests/test_nf4.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Sets stdout/stdin to _O_BINARY under _WIN32 so binary FP32/NF4 test records are not corrupted by CRLF translation."
     },
     "tests/test_nf4_exact.py": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Guards `d is not None` before `Fraction(448) / d` to satisfy strict mypy type checking."
+    },
+    "tests/test_openai_responses.cpp": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "product",
+      "reason": "Updates oversized tool name threshold to 123+5=128 (PR #396) and verifies acceptance of 71-char MCP tool names."
     },
     "tests/test_pretty_logging.cpp": {
       "status": "M",
@@ -2004,8 +2094,8 @@
     "third_party/llama-jinja/jinja/json.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Widens indent multiplier products `(level + 1) * indent` and `level * indent` to std::size_t on MSVC."
     },
     "third_party/llama-jinja/jinja/runtime.cpp": {
       "status": "M",
@@ -2058,8 +2148,8 @@
     "tools/bench/run_serve_ttft_campaign.py": {
       "status": "M",
       "disposition": "unknown",
-      "review": "",
-      "reason": ""
+      "review": "windows",
+      "reason": "Specifies explicit encoding=\"utf-8\" on subprocess text capture to prevent cp1252 decode errors on Windows."
     },
     "tools/bench/ttft/build_fixtures.py": {
       "status": "M",

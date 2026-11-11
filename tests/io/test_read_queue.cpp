@@ -1,24 +1,31 @@
 #include "core/io/file.h"
 #include "core/io/read_queue.h"
 #include "core/buffer.h"
+#ifndef _WIN32
 #include "symbol_interpose.h"
 
 #include <liburing.h>
+#endif
 
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
 namespace {
+#ifndef _WIN32
 bool interrupt_submit = false;
 bool short_submit     = false;
 bool fail_submit      = false;
 bool fail_read        = false;
+#endif
 
 void require(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
@@ -41,10 +48,18 @@ struct Files {
     static constexpr std::size_t bytes = 4096 + 123;
 
     Files() {
-        std::string name = (std::filesystem::temp_directory_path() / "ninfer-io-XXXXXX").string();
-        auto* path       = ::mkdtemp(name.data());
-        if (!path) throw std::runtime_error("mkdtemp failed");
-        directory = path;
+        const auto base  = std::filesystem::temp_directory_path();
+        const auto stamp = static_cast<unsigned long long>(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        for (unsigned long long attempt = 0; attempt < 128; ++attempt) {
+            auto candidate = base / ("ninfer-io-" + std::to_string(stamp + attempt));
+            std::error_code error;
+            if (std::filesystem::create_directory(candidate, error)) {
+                directory = std::move(candidate);
+                break;
+            }
+        }
+        if (directory.empty()) throw std::runtime_error("cannot create fixture directory");
         std::vector<std::byte> data(bytes);
         for (std::size_t file = 0; file < 2; ++file) {
             for (std::size_t i = 0; i < data.size(); ++i) data[i] = pattern(file, i);
@@ -115,7 +130,9 @@ void run() {
     rejects([&] { (void)queue.try_enqueue({1, 0, 0, 4096, 999}); });
     enqueue(1);
     require(queue.try_enqueue({0, 0, 0, 4096, 999}) == ReadAdmission::Full, "queue is not bounded");
+#ifndef _WIN32
     interrupt_submit = short_submit = true;
+#endif
     queue.submit();
     std::array<ReadCompletion, 1> output;
     while (completed < seen.size()) {
@@ -145,6 +162,7 @@ void run() {
     require(queue.wait() == ReadWake::Signalled, "notification did not wake idle queue");
     notifier.join();
 
+#ifndef _WIN32
     require(queue.try_enqueue({0, 0, 0, 4096, 1234}) == ReadAdmission::Accepted,
             "error probe rejected");
     fail_submit = true;
@@ -154,6 +172,16 @@ void run() {
     while (!queue.poll(output)) (void)queue.wait();
     require(output[0].tag == 1234 && output[0].error == EBADF && !output[0].bytes,
             "kernel I/O failure was not delivered");
+#else
+    // Past-EOF page reads on FILE_FLAG_OVERLAPPED deliver STATUS_END_OF_FILE, which maps to a
+    // clean zero-byte completion without retaining the buffer slot.
+    require(queue.try_enqueue({0, 0, 8192, 4096, 1234}) == ReadAdmission::Accepted,
+            "past-eof probe rejected");
+    queue.submit();
+    while (!queue.poll(output)) (void)queue.wait();
+    require(output[0].tag == 1234 && !output[0].error && !output[0].bytes,
+            "past-eof IOCP read did not deliver clean zero-byte completion");
+#endif
 
     require(queue.try_enqueue({0, 0, 4096, 4096, 9999}) == ReadAdmission::Accepted,
             "close probe rejected");
@@ -176,6 +204,7 @@ void run() {
 }
 } // namespace
 
+#ifndef _WIN32
 extern "C" int io_uring_submit(io_uring* ring) {
     static const auto real = ninfer::test::next_symbol<int (*)(io_uring*)>("io_uring_submit");
     if (interrupt_submit) {
@@ -202,6 +231,7 @@ extern "C" int io_uring_submit(io_uring* ring) {
     }
     return real(ring);
 }
+#endif
 
 int main() {
     try {
