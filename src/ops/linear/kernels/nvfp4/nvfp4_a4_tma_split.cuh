@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ops/common/cuda/tma_param.cuh"
 #include "ops/linear/kernels/nvfp4/nvfp4_a4_tma.cuh"
 #include "ops/common/numeric/convert.cuh"
 
@@ -81,8 +82,9 @@ void launch_nvfp4_a4_tma_split_linear(const Nvfp4A4Operands& p, Nvfp4A4Workspace
     for (int part = 0; part < parts; ++part)
         descriptors.partitions[part] = make_nvfp4_a4_tma_descriptors<Schedule, Nvfp4IdentityRows>(
             p, part * (p.k / parts), p.k / parts);
-    constexpr auto kernel = nvfp4_a4_tma_kernel<Schedule, Nvfp4A4PartialStore, Nvfp4A4PartialOutput,
-                                                Nvfp4IdentityRows, Descriptors>;
+    static constexpr auto kernel = nvfp4_a4_tma_kernel<Schedule, Nvfp4A4PartialStore,
+                                                       Nvfp4A4PartialOutput, Nvfp4IdentityRows,
+                                                       Descriptors>;
     constexpr int shared_bytes =
         sizeof(Nvfp4A4TmaSharedStorage<Schedule, Nvfp4IdentityRows, Nvfp4A4PartialStore>);
     (void)common::prepare_shared<shared_bytes, kernel, true>();
@@ -91,7 +93,7 @@ void launch_nvfp4_a4_tma_split_linear(const Nvfp4A4Operands& p, Nvfp4A4Workspace
         const dim3 grid(p.rows / Schedule::kBlockRows,
                         common::div_up(count, Schedule::kBlockTokens), parts);
         kernel<<<grid, Schedule::kThreads, shared_bytes, stream>>>(
-            descriptors, p.alpha, Nvfp4A4PartialStore{},
+            common::make_tma_kernel_param(descriptors), p.alpha, Nvfp4A4PartialStore{},
             Nvfp4A4PartialOutput{workspace.partials, p.tokens}, offset + count, p.rows, p.k,
             offset);
         CUDA_CHECK(cudaGetLastError());

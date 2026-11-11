@@ -805,7 +805,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Lowers by-value __grid_constant__ parameter Descriptors alignment from alignas(128) to alignas(64) because MSVC cudafe1 host stub rejects alignas(>64) parameters with C2719."
+      "reason": "MSVC cudafe1 compatibility: preserves upstream alignas(128) on Descriptors (1280B) and passes it to tma_projection_kernel via common::TmaKernelParam<Descriptors> so the MSVC host stub avoids C2719 while PTX emits .param .align 128."
     },
     "src/ops/kv_cache/context_materialize/context_kv_materialize.cpp": {
       "status": "M",
@@ -907,7 +907,13 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "MSVC cudafe1 compatibility & port epilogue: lowers Nvfp4A4TmaDescriptors and Nvfp4A4TmaDescriptorSet to alignas(64) for C2719, uses static constexpr kernel local for C2326, and calls epilogue.apply_scaled."
+      "reason": "MSVC cudafe1/C2326 compatibility & port epilogue: preserves upstream alignas(128) on Nvfp4A4TmaDescriptors and Nvfp4A4TmaDescriptorSet, passes descriptors through common::TmaKernelParam<Descriptors> so MSVC cudafe1 avoids C2719 while PTX emits .param .align 128, uses static constexpr kernel local for C2326, and calls epilogue.apply_scaled."
+    },
+    "src/ops/linear/kernels/nvfp4/nvfp4_a4_tma_split.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "MSVC cudafe1/C2326 compatibility: uses static constexpr kernel local for C2326 and packs Nvfp4A4TmaDescriptorSet<parts> via common::make_tma_kernel_param to preserve alignas(128) across the MSVC host stub."
     },
     "src/ops/linear/kernels/nvfp4/nvfp4_launch.h": {
       "status": "M",

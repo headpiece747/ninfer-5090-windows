@@ -73,7 +73,7 @@ and that window could not replace anything. Treat the decode column as this wind
 re-measure before quoting it as the engine's current speed.
 Re-folded 2026-11-03 on engine `f3bc4e01ca39` after the rebuild and upstream merge: lane fingerprint
 figures folded onto this engine's record.
-Re-folded 2026-11-11 on engine `258983dc9d89` after merging upstream/dev (`1fdb37160`) and setting
+Re-folded 2026-11-11 on engine `39669f778360` after merging upstream/dev (`1fdb37160`), restoring alignas(128) TMA descriptor bundles via TmaKernelParam, and setting
 `--memory-headroom 1024MiB` in `INVARIANT_FLAGS` to prevent Windows WDDM Shared System Memory eviction. `MEASURED_ENGINE` records the engine these
 values came from, so `check_lane_figures.py` fails when the table and the tree disagree on that as well as
 on the fingerprint's own identity. Treat the decode column as this window's reading, as above.
@@ -146,14 +146,14 @@ NVIDIA = "qwen3_8_27b_nvfp4nvidia.v3.ninfer"
 # the fingerprint's own engine certifies the record and not the published numbers: without this, a green gate
 # stands over a table measured on a binary the tree no longer builds. `fold_lane_figures.py --apply` rewrites it
 # from the record it folds.
-MEASURED_ENGINE = "258983dc9d89f225a001392f9964df6c5b37e82d773d3b3a2e485fb675214c07"
+MEASURED_ENGINE = "39669f7783606f2bb240aaa5ca7868740493de606d30c26fac905ea9d1608cd4"
 
 
 PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
-         tok=312.0, acc="52.8%", runtime="8.83 GiB", free="4.09 GiB",
+         tok=301.7, acc="52.5%", runtime="8.83 GiB", free="4.09 GiB",
          note="Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 "
               "across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime "
               "10.3 GiB) were taken before the workspace grew and no longer describe this lane; at "
@@ -199,7 +199,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=218.8, acc="59.2%", runtime="8.07 GiB", free="5.17 GiB",
+         tok=212.5, acc="60.5%", runtime="8.07 GiB", free="5.17 GiB",
          note="KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 136.2 against k8v4 132.7, +2.6% against a 0.7% spread, six interleaved rounds), with no disclosed cost outside the spread and a 3.1% gain on long Chinese. Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept "
               "2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this "
               "depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against "
@@ -218,7 +218,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=301.1, acc="41.6%", runtime="10.6 GiB", free="2.85 GiB",
+         tok=304.3, acc="42.1%", runtime="10.6 GiB", free="2.85 GiB",
          note="This lane is REFUSED at startup on the BF16-exception image and was, until "
               "2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB "
               "of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after "
@@ -236,7 +236,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_ninfer_v3_mtp4_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP4 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=192.1, acc="55.3%", runtime="8.07 GiB", free="4.45 GiB",
+         tok=195.8, acc="55.9%", runtime="8.07 GiB", free="4.45 GiB",
          note="KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 149.5 against k8v4 139.1, +7.0% against a 0.8% spread, three interleaved rounds); the disclosed cost is 6.0% of long Chinese and the short code cell is flat. MTP lane on the second artifact, and the one lane where the BF16 exception "
               "projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's "
               "context costs that lane acceptance points and throughput, measured interleaved "
@@ -263,7 +263,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=308.4, acc="53.6%", runtime="8.83 GiB", free="4.20 GiB",
+         tok=307.5, acc="53.3%", runtime="8.83 GiB", free="4.20 GiB",
          note="KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 222.0 against k8v4 205.7, +7.3% against a 0.9% spread, three interleaved rounds); the disclosed costs are 11.0% of the short code cell - the inversion the rule warns about - and 7.6% of long Chinese. Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured "
               "2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured "
               "against every window 1-15 on the code domain and re-measured on four others: 13 is "
@@ -301,7 +301,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_swift_v3_mtp4_vision.bat", port=8091, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + MTP4 + Vision", model_id="qwen3.8-27b-swift15-v3-mtp4-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
-         tok=207.1, acc="54.6%", runtime="8.07 GiB", free="5.16 GiB",
+         tok=207.2, acc="54.6%", runtime="8.07 GiB", free="5.16 GiB",
          note="Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped "
               "at 5 by kMaximumMtpDraftTokens, so the window of 10 proposed on 2026-09-30 "
               "cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, "
@@ -324,7 +324,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
          spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=346.1, acc="51.0%", runtime="10.6 GiB", free="2.91 GiB",
+         tok=358.7, acc="50.7%", runtime="10.6 GiB", free="2.91 GiB",
          note="NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP "
               "imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same "
               "full-corpus perplexity as the official stock at 20% smaller, with no FP8 tensor where "
@@ -350,7 +350,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_nvidia_v3_mtp4_vision.bat", port=8093, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + MTP4 + Vision", model_id="qwen3.8-27b-nvidia-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
-         tok=199.6, acc="55.6%", runtime="9.96 GiB", free="3.45 GiB",
+         tok=202.1, acc="55.8%", runtime="9.96 GiB", free="3.45 GiB",
          note="KV format moved fp8 -> k8v4 on 2026-10-13, decided on the served-length code cell (k8v4 145.7 against fp8 136.3, +6.5% against a 2.4% spread, six interleaved rounds); the disclosed costs are 11.0% of the short code cell and 6.6% of long Chinese, and the code cell's acceptance reads 47.7% where the previous fp8 measurement read 52.2%. Depth 4 measured fastest of 2-5 here, and the largest correction in the table: d5 read "
               "228.3 on the 2026-09-17 records, which the warmup transient accounts for almost "
               "entirely, and measures 167.8 with it excluded. Depth 4 against depth 5 is 223.4 "

@@ -1,5 +1,6 @@
 #include "ops/kv_cache/context_materialize/dispatch.h"
 #include "ops/kv_cache/context_materialize/epilogue.cuh"
+#include "ops/common/cuda/tma_param.cuh"
 #include "ops/linear/kernels/bf16/bf16_a16_tma_mma.cuh"
 
 namespace ninfer::ops::detail::context_kv::bf16 {
@@ -188,16 +189,17 @@ __global__ __launch_bounds__(S::kThreads, S::kMinBlocksPerSm) void projection_ke
                                    threadIdx.x % 32);
 }
 
-// `alignas(64)`: MSVC's cudafe1 host stub rejects by-value parameters aligned past 64 with C2719.
-struct alignas(64) Descriptors {
+struct alignas(128) Descriptors {
     Bf16TmaDescriptors layer[kLayers];
 };
+static_assert(alignof(Descriptors) == 128);
 
 template <class S>
 __global__ __launch_bounds__(S::kThreads, S::kMinBlocksPerSm) void tma_projection_kernel(
-    const __grid_constant__ Descriptors descriptors, const __grid_constant__ DeviceLayers layers,
-    const int* positions, const int* counts, float* scratch, int width, int batch, int min_count,
-    int prefix) {
+    const __grid_constant__ common::TmaKernelParam<Descriptors> descriptor_param,
+    const __grid_constant__ DeviceLayers layers, const int* positions, const int* counts,
+    float* scratch, int width, int batch, int min_count, int prefix) {
+    const auto& descriptors = descriptor_param.get();
     int r, t;
     bf16_mma_tile_coordinates<S>(blockIdx.x, 1024 / S::kBlockRows,
                                  (prefix * batch + S::kBlockTokens - 1) / S::kBlockTokens, r, t);
@@ -291,9 +293,10 @@ void launch(const Tensor& x, const Tensor& positions, const Tensor& counts,
             constexpr int bytes = bf16_tma_scratch_bytes<S, Epilogue> + S::kBarrierBytes;
             common::prepare_shared<bytes, tma_projection_kernel<S>, true>();
             tma_projection_kernel<S><<<grid, S::kThreads, bytes, stream>>>(
-                descriptors, device, static_cast<const int*>(positions.data),
-                static_cast<const int*>(counts.data), static_cast<float*>(scratch.data), x.ne[1],
-                x.ne[2], envelope.min_count, envelope.max_count);
+                common::make_tma_kernel_param(descriptors), device,
+                static_cast<const int*>(positions.data), static_cast<const int*>(counts.data),
+                static_cast<float*>(scratch.data), x.ne[1], x.ne[2], envelope.min_count,
+                envelope.max_count);
         } else {
             using C = Bf16ScheduleInstance<
                 Bf16A16MmaSchedule<S::kBlockRows, S::kBlockTokens, S::kBlockK, S::kWarpRows,

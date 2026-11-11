@@ -2,6 +2,7 @@
 
 #include "ops/common/cuda/pipeline.cuh"
 #include "ops/common/cuda/memory.cuh"
+#include "ops/common/cuda/tma_param.cuh"
 #include "ops/common/cuda/mma.cuh"
 #include "ops/common/host/launch.h"
 #include "ops/common/numeric/math.h"
@@ -21,37 +22,32 @@
 
 namespace ninfer::ops::detail {
 
-// No alignas override, for the reason recorded on Bf16TmaDescriptors: CUtensorMap carries NO
-// alignment attribute in this build -- not an inherited TENSOR_MAP_ALIGN of 64 -- because cuda.h
-// gates the alignas on __cplusplus >= 201103L and nvcc's MSVC host pass reports 199711 without
-// /Zc:__cplusplus. Measured by tools/scripts/probe_tma_align.cmd: alignof(CUtensorMap) == 8.
-// Overriding it to 128 is what produced C2719 on Windows and forced the pointer form this port
-// later removed.
-struct alignas(64) Nvfp4A4TmaDescriptors {
+// Keep 128-byte alignment on both host and device. On Windows, nvcc passes kernel arguments
+// by value through common::TmaKernelParam<T> so MSVC's cudafe1 host stub avoids C2719 without
+// downgrading descriptor alignment or device .param .align 128 emission.
+struct alignas(128) Nvfp4A4TmaDescriptors {
     CUtensorMap a_codes;
     CUtensorMap b_codes;
     CUtensorMap a_scales;
     CUtensorMap b_scales;
 };
 
-// The alignment above is what the TMA instruction needs, and the device pass is inferred to apply
-// alignas(TENSOR_MAP_ALIGN) to CUtensorMap -- the host pass measures 8, which is why the by-value form
-// once failed here as C2719. The fp8 sibling solves this the same way and pins it; this struct relied
-// on the inference alone, so a device pass that stopped applying it would place a by-value
-// __grid_constant__ parameter below 64 bytes and misalign the tensormap operand with nothing to say so.
-static_assert(alignof(Nvfp4A4TmaDescriptors) == 64,
-              "the alignment above is what the TMA instruction needs; if this fails, the compiler "
-              "stopped applying the device-side alignment this struct depends on");
+static_assert(alignof(Nvfp4A4TmaDescriptors) == 128);
 static_assert(sizeof(Nvfp4A4TmaDescriptors) == 4 * sizeof(CUtensorMap),
               "four descriptors back to back; the acquire-map size argument assumes this");
 
-// alignas(64), not 128: MSVC's cudafe1 host stub rejects by-value kernel parameters past 64B with C2719,
-// and Nvfp4A4TmaDescriptors already has 64B TMA alignment with size 256B.
 template <int Partitions>
-struct alignas(64) Nvfp4A4TmaDescriptorSet {
+struct alignas(128) Nvfp4A4TmaDescriptorSet {
     Nvfp4A4TmaDescriptors partitions[Partitions];
 };
-static_assert(alignof(Nvfp4A4TmaDescriptorSet<2>) == 64);
+static_assert(alignof(Nvfp4A4TmaDescriptorSet<2>) == 128);
+#if defined(__CUDA_ARCH__) || !defined(_MSC_VER)
+static_assert(alignof(common::TmaKernelParam<Nvfp4A4TmaDescriptors>) == 128);
+static_assert(alignof(common::TmaKernelParam<Nvfp4A4TmaDescriptorSet<2>>) == 128);
+#else
+static_assert(alignof(common::TmaKernelParam<Nvfp4A4TmaDescriptors>) == 64);
+static_assert(alignof(common::TmaKernelParam<Nvfp4A4TmaDescriptorSet<2>>) == 64);
+#endif
 
 __device__ __forceinline__ const Nvfp4A4TmaDescriptors&
 nvfp4_tma_descriptor(const Nvfp4A4TmaDescriptors& descriptor) {
@@ -186,11 +182,11 @@ template <class Schedule, class Epilogue, class OutputPolicy, class Rows,
           class Descriptors = Nvfp4A4TmaDescriptors>
 __global__
 __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void nvfp4_a4_tma_kernel(
-    const __grid_constant__ Descriptors descriptor_set, float alpha,
+    const __grid_constant__ common::TmaKernelParam<Descriptors> descriptor_set, float alpha,
     const __grid_constant__ Epilogue epilogue, const __grid_constant__ OutputPolicy output,
     int token_count, int output_rows, int input_rows, int token_offset) {
     const int K               = Schedule::kStaticK ? Schedule::kStaticK : input_rows;
-    const auto& descriptors   = nvfp4_tma_descriptor(descriptor_set);
+    const auto& descriptors   = nvfp4_tma_descriptor(descriptor_set.get());
     constexpr int branches    = Rows::kPaired ? 2 : 1;
     constexpr int loaded_rows = Schedule::kBlockRows / branches;
     static_assert(Schedule::kStages >= 2, "the activation-scale buffer needs two slots");
@@ -449,8 +445,9 @@ void launch_nvfp4_a4_tma_mma(const Nvfp4A4Operands& p, Output output, Epilogue e
     common::for_each_token_slice(p.tokens, Schedule::kBlockTokens, [&](int offset, int count) {
         const dim3 grid(p.rows / Schedule::kBlockRows,
                         common::div_up(count, Schedule::kBlockTokens));
-        kernel<<<grid, Schedule::kThreads, bytes, stream>>>(descriptors, p.alpha, epilogue, output,
-                                                            offset + count, p.rows, p.k, offset);
+        kernel<<<grid, Schedule::kThreads, bytes, stream>>>(
+            common::make_tma_kernel_param(descriptors), p.alpha, epilogue, output, offset + count,
+            p.rows, p.k, offset);
         CUDA_CHECK(cudaGetLastError());
     });
 }
