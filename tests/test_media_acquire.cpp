@@ -16,6 +16,7 @@
 #endif
 
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -294,6 +295,19 @@ void test_url_kind() {
                     if (req_view.starts_with("GET /ok ")) {
                         response =
                             "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nPNG99";
+                    } else if (req_view.starts_with("GET /host_check ")) {
+                        const std::string expected_host = "host: localhost:" + std::to_string(port);
+                        std::string lowered(req_view);
+                        for (char& ch : lowered) {
+                            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                        }
+                        if (lowered.find(expected_host) != std::string::npos) {
+                            response =
+                                "HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nHOSTOK";
+                        } else {
+                            response =
+                                "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        }
                     } else if (req_view.starts_with("GET /empty ")) {
                         response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                     } else if (req_view.starts_with("GET /redir ")) {
@@ -486,6 +500,72 @@ void test_url_kind() {
                 v6_srv.join();
             }
             ::closesocket(v6);
+        }
+    }
+
+    // Exercise hostname DNS resolution (GetAddrInfoExW), IP pinning Host header, and HTTPS rejection.
+    {
+        const auto host_bytes = acquire_bytes(
+            Source{.kind = SourceKind::Url,
+                   .value = "http://localhost:" + std::to_string(port) + "/host_check"},
+            loopback);
+        require(host_bytes == std::vector<std::uint8_t>{'H', 'O', 'S', 'T', 'O', 'K'},
+                "WinHTTP IP pinning preserved Host: localhost:<port>");
+
+        const std::string https_url = "https://127.0.0.1:" + std::to_string(port) + "/ok";
+        const int before_https      = accepted.load();
+        require_throws([&] { acquire_bytes(Source{.kind = SourceKind::Url, .value = https_url}); },
+                       "SSRF blocks HTTPS loopback by default");
+        require(accepted.load() == before_https, "SSRF HTTPS block prevented connect");
+
+        Policy https_loopback   = loopback;
+        https_loopback.timeout_ms = 500;
+        try {
+            acquire_bytes(Source{.kind = SourceKind::Url, .value = https_url}, https_loopback);
+            std::cerr << "FAIL: HTTPS client accepted plaintext loopback listener\n";
+            ++failures;
+        } catch (const Error& e) {
+            require(e.kind() == ErrorKind::RemoteUnavailable || e.kind() == ErrorKind::RemoteTimeout,
+                    "HTTPS against non-TLS listener fails cleanly");
+        }
+
+        Policy dns_cancel;
+        dns_cancel.is_cancelled = [] { return true; };
+        try {
+            acquire_bytes(Source{.kind = SourceKind::Url, .value = "http://nonexistent.invalid/x.png"},
+                          dns_cancel);
+            std::cerr << "FAIL: cancelled DNS lookup succeeded\n";
+            ++failures;
+        } catch (const Error& e) {
+            require(e.kind() == ErrorKind::Cancelled, "pre-cancelled DNS reports Cancelled");
+        }
+
+        Policy dns_deadline;
+        dns_deadline.deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
+        try {
+            acquire_bytes(Source{.kind = SourceKind::Url, .value = "http://nonexistent.invalid/x.png"},
+                          dns_deadline);
+            std::cerr << "FAIL: expired DNS deadline succeeded\n";
+            ++failures;
+        } catch (const Error& e) {
+            require(e.kind() == ErrorKind::DeadlineExceeded,
+                    "expired deadline before DNS reports DeadlineExceeded");
+        }
+
+        Policy dns_short_timeout;
+        dns_short_timeout.connect_timeout_ms = 5;
+        dns_short_timeout.deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+        try {
+            acquire_bytes(Source{.kind = SourceKind::Url, .value = "http://nonexistent.invalid/x.png"},
+                          dns_short_timeout);
+            std::cerr << "FAIL: unresolvable .invalid host succeeded\n";
+            ++failures;
+        } catch (const Error& e) {
+            require(e.kind() == ErrorKind::RemoteUnavailable ||
+                        e.kind() == ErrorKind::RemoteTimeout ||
+                        e.kind() == ErrorKind::DeadlineExceeded,
+                    "GetAddrInfoExW bounded failure maps to RemoteUnavailable/Timeout/Deadline");
         }
     }
 

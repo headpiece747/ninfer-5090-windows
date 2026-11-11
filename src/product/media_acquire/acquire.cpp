@@ -66,6 +66,58 @@ long bounded_timeout_ms(const Policy& policy, int configured) {
         configured > 0 ? std::min<std::int64_t>(configured, remaining) : remaining;
     return static_cast<long>(std::min<std::int64_t>(capped, kLongMax));
 }
+
+std::chrono::milliseconds next_control_wait_slice(const Policy& policy,
+                                                  Clock::time_point op_deadline,
+                                                  const char* timeout_message) {
+    check_control(policy);
+    const auto now = Clock::now();
+    if (now >= op_deadline) { throw Error(ErrorKind::RemoteTimeout, timeout_message); }
+    auto slice = std::chrono::milliseconds(25);
+    if (policy.deadline != Clock::time_point{}) {
+        slice = std::min(slice, std::max(std::chrono::milliseconds(1),
+                                         std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             policy.deadline - now)));
+    }
+    if (op_deadline != Clock::time_point::max()) {
+        slice = std::min(
+            slice, std::max(std::chrono::milliseconds(1),
+                            std::chrono::duration_cast<std::chrono::milliseconds>(op_deadline - now)));
+    }
+    return slice;
+}
+#endif
+
+#ifdef _WIN32
+std::wstring utf8_to_wide(std::string_view text) {
+    if (text.empty()) { return {}; }
+    if (text.find('\0') != std::string_view::npos ||
+        text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        throw std::invalid_argument("invalid media URL");
+    }
+    const int needed = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                             static_cast<int>(text.size()), nullptr, 0);
+    if (needed <= 0) { throw std::invalid_argument("invalid media URL"); }
+    std::wstring out(static_cast<std::size_t>(needed), L'\0');
+    const int converted = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                                static_cast<int>(text.size()), out.data(), needed);
+    if (converted != needed) { throw std::invalid_argument("invalid media URL"); }
+    return out;
+}
+
+std::string wide_to_utf8(std::wstring_view text) {
+    if (text.empty()) { return {}; }
+    const int needed =
+        ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0,
+                              nullptr, nullptr);
+    if (needed <= 0) { throw std::runtime_error("failed to convert wide URL text"); }
+    std::string out(static_cast<std::size_t>(needed), '\0');
+    const int converted =
+        ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(),
+                              needed, nullptr, nullptr);
+    if (converted != needed) { throw std::runtime_error("failed to convert wide URL text"); }
+    return out;
+}
 #endif
 
 std::vector<std::uint8_t> decode_base64(std::string_view text) {
@@ -171,36 +223,6 @@ UrlParts parse_url(std::string_view value) {
     return out;
 }
 #else
-std::wstring utf8_to_wide(std::string_view text) {
-    if (text.empty()) { return {}; }
-    if (text.find('\0') != std::string_view::npos ||
-        text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-        throw std::invalid_argument("invalid media URL");
-    }
-    const int needed = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                             static_cast<int>(text.size()), nullptr, 0);
-    if (needed <= 0) { throw std::invalid_argument("invalid media URL"); }
-    std::wstring out(static_cast<std::size_t>(needed), L'\0');
-    const int converted = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                                static_cast<int>(text.size()), out.data(), needed);
-    if (converted != needed) { throw std::invalid_argument("invalid media URL"); }
-    return out;
-}
-
-std::string wide_to_utf8(std::wstring_view text) {
-    if (text.empty()) { return {}; }
-    const int needed =
-        ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0,
-                              nullptr, nullptr);
-    if (needed <= 0) { throw std::runtime_error("failed to convert wide URL text"); }
-    std::string out(static_cast<std::size_t>(needed), '\0');
-    const int converted =
-        ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(),
-                              needed, nullptr, nullptr);
-    if (converted != needed) { throw std::runtime_error("failed to convert wide URL text"); }
-    return out;
-}
-
 std::string lower_ascii(std::string_view text) {
     std::string out(text);
     for (char& ch : out) {
@@ -284,34 +306,11 @@ UrlParts parse_url(std::string_view value) {
 }
 #endif
 
-std::string resolve_public(const UrlParts& url, bool allow_private) {
-#ifdef _WIN32
-    static std::once_flag winsock_init;
-    std::call_once(winsock_init, [] {
-        WSADATA data{};
-        const int result = ::WSAStartup(MAKEWORD(2, 2), &data);
-        if (result != 0) {
-            throw Error(ErrorKind::RemoteUnavailable,
-                        "failed to initialize Winsock: " + std::to_string(result));
-        }
-    });
-#endif
-    addrinfo hints{};
-    hints.ai_family   = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    addrinfo* raw     = nullptr;
-    const int rc      = getaddrinfo(url.host.c_str(), url.port.c_str(), &hints, &raw);
-    if (rc != 0) {
-        throw Error(ErrorKind::RemoteUnavailable,
-#ifdef _WIN32
-                    "failed to resolve media URL host: " + std::to_string(rc));
-#else
-                    "failed to resolve media URL host: " + std::string(gai_strerror(rc)));
-#endif
-    }
-    std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> addresses(raw, freeaddrinfo);
+template <class AddrInfoNode>
+std::string select_resolved_address(const AddrInfoNode* raw, bool allow_private) {
     std::string selected;
-    for (const addrinfo* it = raw; it != nullptr; it = it->ai_next) {
+    for (const AddrInfoNode* it = raw; it != nullptr; it = it->ai_next) {
+        if (it->ai_family != AF_INET && it->ai_family != AF_INET6) { continue; }
         if (!allow_private && private_address(it->ai_addr)) { continue; }
         std::array<char, INET6_ADDRSTRLEN> text{};
         const void* bytes =
@@ -329,6 +328,117 @@ std::string resolve_public(const UrlParts& url, bool allow_private) {
         throw std::invalid_argument("media URL resolves only to disallowed network addresses");
     }
     return selected;
+}
+
+std::string resolve_public(const UrlParts& url, const Policy& policy) {
+    const bool allow_private = policy.allow_private_network;
+#ifdef _WIN32
+    static std::once_flag winsock_init;
+    std::call_once(winsock_init, [] {
+        WSADATA data{};
+        const int result = ::WSAStartup(MAKEWORD(2, 2), &data);
+        if (result != 0) {
+            throw Error(ErrorKind::RemoteUnavailable,
+                        "failed to initialize Winsock: " + std::to_string(result));
+        }
+    });
+
+    check_control(policy);
+    constexpr std::int64_t kLongMax = std::numeric_limits<long>::max();
+    const long connect_ms =
+        policy.connect_timeout_ms > 0
+            ? static_cast<long>(std::min<std::int64_t>(policy.connect_timeout_ms, kLongMax))
+            : 0L;
+    const Clock::time_point dns_deadline =
+        connect_ms > 0 ? Clock::now() + std::chrono::milliseconds(connect_ms)
+                       : Clock::time_point::max();
+
+    struct AsyncDnsGuard {
+        HANDLE event         = nullptr;
+        HANDLE cancel_handle = nullptr;
+        OVERLAPPED ov{};
+        PADDRINFOEXW raw     = nullptr;
+        bool pending         = false;
+
+        void cancel_and_wait() noexcept {
+            if (pending) {
+                if (cancel_handle != nullptr) { (void)::GetAddrInfoExCancel(&cancel_handle); }
+                if (event != nullptr) { (void)::WaitForSingleObject(event, INFINITE); }
+                pending = false;
+            }
+        }
+
+        ~AsyncDnsGuard() {
+            cancel_and_wait();
+            if (raw != nullptr) {
+                ::FreeAddrInfoExW(raw);
+                raw = nullptr;
+            }
+            if (event != nullptr) {
+                ::CloseHandle(event);
+                event = nullptr;
+            }
+        }
+    };
+
+    AsyncDnsGuard dns;
+    dns.event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (dns.event == nullptr) {
+        throw Error(ErrorKind::RemoteUnavailable, "failed to allocate DNS resolution event");
+    }
+    dns.ov.hEvent = dns.event;
+
+    const std::wstring wide_host = utf8_to_wide(url.host);
+    const std::wstring wide_port = utf8_to_wide(url.port);
+    ADDRINFOEXW hints{};
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    INT rc = ::GetAddrInfoExW(wide_host.c_str(), wide_port.c_str(), NS_DNS, nullptr, &hints,
+                              &dns.raw, nullptr, &dns.ov, nullptr, &dns.cancel_handle);
+    if (rc == WSA_IO_PENDING) {
+        dns.pending = true;
+        for (;;) {
+            const auto slice = next_control_wait_slice(
+                policy, dns_deadline, "media URL host resolution timed out");
+            const DWORD waited =
+                ::WaitForSingleObject(dns.event, static_cast<DWORD>(slice.count()));
+            if (waited == WAIT_OBJECT_0) {
+                dns.pending = false;
+                rc          = ::GetAddrInfoExOverlappedResult(&dns.ov);
+                break;
+            }
+            if (waited != WAIT_TIMEOUT) {
+                throw Error(ErrorKind::RemoteUnavailable,
+                            "failed waiting for media URL host resolution");
+            }
+        }
+    }
+    check_control(policy);
+    if (rc == WSAETIMEDOUT) {
+        throw Error(ErrorKind::RemoteTimeout,
+                    "media URL host resolution timed out (" + std::to_string(rc) + ")");
+    }
+    if (rc != 0) {
+        throw Error(ErrorKind::RemoteUnavailable,
+                    "failed to resolve media URL host: " + std::to_string(rc));
+    }
+
+    return select_resolved_address(dns.raw, allow_private);
+#else
+    (void)policy;
+    addrinfo hints{};
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* raw     = nullptr;
+    const int rc      = getaddrinfo(url.host.c_str(), url.port.c_str(), &hints, &raw);
+    if (rc != 0) {
+        throw Error(ErrorKind::RemoteUnavailable,
+                    "failed to resolve media URL host: " + std::string(gai_strerror(rc)));
+    }
+    std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> addresses(raw, freeaddrinfo);
+    return select_resolved_address(raw, allow_private);
+#endif
 }
 
 #if defined(NINFER_HAVE_LIBCURL)
@@ -369,7 +479,7 @@ std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
     for (int redirect = 0; redirect <= policy.max_redirects; ++redirect) {
         check_control(policy);
         const UrlParts parts = parse_url(url);
-        const std::string ip = resolve_public(parts, policy.allow_private_network);
+        const std::string ip = resolve_public(parts, policy);
         check_control(policy);
         std::string resolve = parts.host + ":" + parts.port + ":";
         resolve += ip.find(':') == std::string::npos ? ip : "[" + ip + "]";
@@ -650,30 +760,13 @@ DWORD wait_async_step(AsyncRequestGuard& guard, WinHttpRequestContext& ctx, cons
     for (;;) {
         if (done()) { break; }
         lock.unlock();
+        std::chrono::milliseconds wait_slice(25);
         try {
-            check_control(policy);
-            if (Clock::now() >= op_deadline) {
-                throw Error(ErrorKind::RemoteTimeout,
-                            std::string("media URL fetch timed out during ") + stage);
-            }
+            const std::string timeout_msg = std::string("media URL fetch timed out during ") + stage;
+            wait_slice                    = next_control_wait_slice(policy, op_deadline, timeout_msg.c_str());
         } catch (...) {
             guard.close_and_wait();
             throw;
-        }
-        auto wait_slice = std::chrono::milliseconds(25);
-        const auto now  = Clock::now();
-        if (policy.deadline != Clock::time_point{} && policy.deadline > now) {
-            wait_slice = std::min(
-                wait_slice,
-                std::max(std::chrono::milliseconds(1),
-                         std::chrono::duration_cast<std::chrono::milliseconds>(policy.deadline -
-                                                                               now)));
-        }
-        if (op_deadline != Clock::time_point::max() && op_deadline > now) {
-            wait_slice = std::min(
-                wait_slice,
-                std::max(std::chrono::milliseconds(1),
-                         std::chrono::duration_cast<std::chrono::milliseconds>(op_deadline - now)));
         }
         lock.lock();
         if (done()) { break; }
@@ -700,7 +793,7 @@ std::vector<std::uint8_t> fetch_url(std::string url, const Policy& policy) {
     for (int redirect = 0; redirect <= policy.max_redirects; ++redirect) {
         check_control(policy);
         const UrlParts parts         = parse_url(url);
-        const std::string resolved   = resolve_public(parts, policy.allow_private_network);
+        const std::string resolved   = resolve_public(parts, policy);
         check_control(policy);
 
         // Keep op_deadline strictly governed by policy.timeout_ms (so timeout -> RemoteTimeout)

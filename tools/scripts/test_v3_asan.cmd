@@ -16,62 +16,10 @@ REM Windows: setting detect_leaks=1 makes every instrumented binary abort with
 REM "AddressSanitizer: detect_leaks is not supported on this platform." It is not a choice about
 REM reachable CUDA allocations, and no leak coverage is lost by leaving it off -- there was none.
 REM
-REM No host leak check exists on this platform today. The MSVC CRT debug heap
-REM (_CrtSetDbgFlag(_CRTDBG_LEAK_CHECK_DF) + _CrtDumpMemoryLeaks) does detect leaks, but only
-REM under the debug CRT (/MDd), and these tests link CUDA libraries built with the release CRT,
-REM so mixing them fails with LNK2038. Dr. Memory was evaluated as the rebuild-free alternative
-REM and cannot instrument on Windows 11 build 26200 (25H2): both 2.6.0 and the December 2025
-REM weekly build abort with an internal crash before the target starts. Re-check Dr. Memory when
-REM DynamoRIO ships a build for 25H2; until then, a Linux ASan run is the only route to host leak
-REM coverage.
-REM
-REM KNOWN FAILURE, 2026-09-20 -- DIAGNOSED, not hypothesised. ninfer_context_cost_test dies with
-REM 0xC0000409 and prints no report, while passing in the normal build. cdb gives the whole stack
-REM inside the ASan runtime's own initialisation:
-REM
-REM   clang_rt.asan_dynamic-x86_64!_asan_wrap_strlen+0x139    <- the fault
-REM   ntdll!RtlInitAnsiStringEx
-REM   clang_rt.asan_dynamic-x86_64!__sanitizer::GetEnv
-REM   clang_rt.asan_dynamic-x86_64!__sanitizer::FindPathToBinary
-REM   clang_rt.asan_dynamic-x86_64!__sanitizer::ChooseSymbolizerTools
-REM   clang_rt.asan_dynamic-x86_64!__sanitizer::Symbolizer::PlatformInit
-REM   clang_rt.asan_dynamic-x86_64!__asan::AsanInitInternal
-REM   clang_rt.asan_dynamic-x86_64!dllmain_crt_process_attach
-REM
-REM ASan picks a symbolizer and calls its own strlen interceptor before the shadow memory is ready.
-REM Nothing from this repository appears in the stack, so it is not a defect in the code under test.
-REM Each of these was falsified by experiment rather than argued away: stack exhaustion (an 8 MB
-REM /STACK changes nothing), ASan's stack-use-after-return instrumentation, an uncaught exception (a
-REM catch handler that prints never fires), the CRT invalid-parameter handler (a handler installed to
-REM name the call never fires), every ASAN_OPTIONS tried including unset, PATH content, the
-REM std::filesystem imports (two passing tests import the same set), and /INCLUDE:__asan_init to
-REM force the runtime's init first.
-REM
-REM Verdict: an MSVC AddressSanitizer runtime bootstrap defect on this toolchain, deterministic for
-REM this binary and not fixable from this repository -- it wants reporting upstream. Kept in the
-REM subset rather than dropped: a verification list that hides a failing member is worse than one
-REM that names it and says why. The other three pass.
-REM
-REM Two members of the earlier five are gone, not skipped: ninfer_admission_policy_test and
-REM ninfer_materialization_budget_test were deleted with the admission-policy and materialization-
-REM budget subsystems in the 2026-10-04 upstream context-cache rewrite (tests/test_admission_policy.cpp
-REM and tests/test_materialization_budget.cpp no longer exist), so naming them made --target fail
-REM against a target CMake no longer defines. Their coverage went with the features they tested.
-REM ONLINE, 2026-09-21 -- and searching should have been step one, not an afterthought. The class is
-REM known: "ASan Interception Failure (Crash) on Windows 11 24H2"
-REM (developercommunity.microsoft.com/t/11061273) reports the same shape -- a crash inside the
-REM runtime during function interception -- and actions/runner-images#8891 offers
-REM ASAN_WIN_CONTINUE_ON_INTERCEPTION_FAILURE=1. This runtime (clang_rt.asan_dynamic-x86_64.dll
-REM 19.51.36256.0) does contain that variable, and its own strings name the mechanism:
-REM "interception_win: cannot write jmp further than 2GB away" and "Interception failure, stopping
-REM early". This machine is Windows 11 25H2 (build 26200), newer than the reported 24H2.
-REM
-REM Tried and useless, recorded so they are not repeated: ASAN_WIN_CONTINUE_ON_INTERCEPTION_FAILURE=1
-REM (no change), ASAN_SYMBOLIZER_PATH, external_symbolizer_path with a quoted value, a symbolizer
-REM copied beside the executable, and /INCLUDE:__asan_init. One trap for whoever tries ASAN_OPTIONS
-REM next: external_symbolizer_path=C:\... cannot parse, because the drive colon is the option
-REM separator -- ASan exits 1 with "expected '=' in ASAN_OPTIONS", which looks like a result and is
-REM not one. Read the output, not the exit code.
+REM Passing -DCMAKE_CXX_FLAGS overwrites CMake's default /DWIN32 /D_WINDOWS /EHsc /Ob0 flags,
+REM so /DWIN32 /D_WINDOWS /EHsc /bigobj MUST be included explicitly alongside /fsanitize=address:
+REM omitting /EHsc previously caused exception-throwing host tests (ninfer_context_cost_test)
+REM to abort with 0xC0000409 under C++ unwinding, and /bigobj avoids COFF section-limit C1128.
 setlocal
 set "REPO=%~dp0..\.."
 
@@ -82,17 +30,13 @@ if exist "%VSWHERE%" (
 )
 if not defined VCVARS set "VCVARS=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
 call "%VCVARS%" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Failed to initialize Visual Studio environment
+    exit /b 1
+)
 cd /d "%REPO%"
 
-REM A member is named here rather than silently dropped, for the same reason the release gate names its
-REM optional tests: a list that hides a failing member is worse than one that fails.
-REM
-REM ninfer_context_cost_test cannot start under ASan on this machine. It exits 0xC0000135 because a DLL
-REM it imports, api-ms-win-crt-filesystem-l1-1-0.dll, does not resolve for this build, while the same
-REM test passes in the normal build (build-test). Its ASan coverage is therefore absent, and saying so
-REM is the point of this note.
-set "TESTS=ninfer_resource_manager_test ninfer_artifact_reader_test ninfer_context_capacity_test"
-set "ASAN_SKIPPED=ninfer_context_cost_test"
+set "TESTS=ninfer_context_cost_test ninfer_resource_manager_test ninfer_artifact_reader_test ninfer_context_capacity_test ninfer_read_queue_test ninfer_media_acquire_test"
 
 REM The build must use the project's Python and not whatever find_package(Python3) finds: the tests'
 REM declared dependencies live in the selected environment, and tests/CMakeLists.txt requires an
@@ -106,14 +50,16 @@ cmake -B build-asan -S . -G Ninja ^
   -DCMAKE_BUILD_TYPE=Release ^
   -DPython3_EXECUTABLE="%PY%" ^
   -DBUILD_TESTING=ON ^
-  -DCMAKE_CXX_FLAGS="/fsanitize=address /Zi" ^
-  -DCMAKE_CUDA_FLAGS="-Xcompiler=/fsanitize=address" ^
+  -DCMAKE_CXX_FLAGS="/DWIN32 /D_WINDOWS /EHsc /bigobj /fsanitize=address /Zi" ^
+  -DCMAKE_CUDA_FLAGS="-Xcompiler=/EHsc,/bigobj,/fsanitize=address" ^
   -DCMAKE_EXE_LINKER_FLAGS="/INCREMENTAL:NO /DEBUG"
 echo CONFIGURE_EXIT=%ERRORLEVEL%
+if errorlevel 1 exit /b 1
 
 echo === BUILD ASAN TESTS ===
 cmake --build build-asan --config Release -j --target %TESTS%
 echo BUILD_EXIT=%ERRORLEVEL%
+if errorlevel 1 exit /b 1
 
 set "ASAN_OPTIONS=detect_leaks=0"
 set "FAILED=0"
@@ -124,8 +70,6 @@ for %%T in (%TESTS%) do (
   echo ---- %%T ----
   build-asan\tests\%%T.exe || set "FAILED=1"
 )
-echo note: 1 member is not run under ASan on this machine:
-echo   %ASAN_SKIPPED%  -- exits 0xC0000135 under ASan while it passes in the normal build, so its ASan coverage is absent
 echo FAILED=%FAILED%
 if not "%FAILED%"=="0" exit /b 1
 echo ASAN SUBSET CLEAN

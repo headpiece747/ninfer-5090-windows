@@ -1321,7 +1321,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Adds asynchronous WinHTTP HTTP(S) acquisition under _WIN32 (pinned resolved IP with Host header for HTTP and SNI/CONNECTING_TO_SERVER SSRF checks for HTTPS, 301/302/303/307/308 redirect validation, deadline-vs-timeout separation, locked byte accounting, cancellation, and byte limits) while keeping libcurl support."
+      "reason": "Adds asynchronous GetAddrInfoExW DNS resolution and asynchronous WinHTTP HTTP(S) acquisition under _WIN32 (pinned resolved IP with Host header for HTTP and SNI/CONNECTING_TO_SERVER SSRF checks for HTTPS, 301/302/303/307/308 redirect validation, deadline-vs-timeout separation, locked byte accounting, cancellation, and byte limits) while keeping libcurl support."
     },
     "src/product/media_acquire/source.h": {
       "status": "M",
