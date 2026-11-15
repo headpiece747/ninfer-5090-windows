@@ -5,6 +5,7 @@
 
 #include "ninfer/engine.h"
 #include "product/logging/configuration.h"
+#include "product/logging/console_code_page.h"
 #include "product/logging/pretty_format.h"
 #include "product/logging/startup_log.h"
 
@@ -186,6 +187,9 @@ int run(const Options& options, const std::shared_ptr<spdlog::logger>& logger,
 } // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    const ninfer::product::ConsoleOutputCodePage console_code_page;
+#endif
     ninfer::perplexity::Options options;
     try {
         options = ninfer::perplexity::parse_options(argc, argv);

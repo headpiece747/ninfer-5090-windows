@@ -19,7 +19,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- port: this port. Open it before changing this path."
+      "reason": "Pins LF line endings repo-wide and on TTFT text/JSON fixtures (overriding Windows core.autocrlf=true so corpus SHA256 verification holds), while pinning *.bat and *.cmd to CRLF for byte-exact launcher checks."
     },
     ".gitignore": {
       "status": "M",
@@ -31,7 +31,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Upstream restructured this file -- it dropped 'Objective and scope', condensed Product/architecture, Change policy and Verification, and added '## References' and '## Local environment' -- and the port's material slots under its headings: the 2026-09-27 'Before proposing anything' directive, the check table, the reporting and completion rules, the tooling and skills tables, the 65 rules, the Windows working practices, the crash-dump row and the merge-stash and contention rules. Changed 2026-10-06 on the owner's directive: the commit policy is now 'commit and push when it is deemed necessary and nothing in flight is disturbed', in place of 'create commits only when requested' at both places it appeared. 2026-10-08: a tooling-table row added, pointing at the port's real-text acceptance instrument (`tools/bench/realtext_acceptance.py`), which is the only tool that can compare speculative acceptance between artifacts -- the bench corpus fails at both ends of its range. 2026-10-08: the tooling table gained a row pointing at `check_request_logs.py --logs`, which had been written but wired nowhere: it validates captured request logs, and those live outside the repo, so the connection it needed was a pointer at measurement time rather than a line in the commit hook. It now also asserts that each phase fits inside the clock it is measured in, which is the check that catches a reader printing clean zeros from an empty block. 2026-10-09: the tooling table's upstream-tracker row now names `gh pr list --state open` beside `gh issue list`. Earned by the ecosystem scan: upstream's 30+ open pull requests are the unmerged half of the same reference corpus, and six of Wallawalla47's sixteen engine changes were readable there while only issues were searched. An issue search cannot return a PR title."
+      "reason": "Upstream restructured this file -- it dropped 'Objective and scope', condensed Product/architecture, Change policy and Verification, and added '## References' and '## Local environment' -- and the port's Windows material slots under the upstream headings: 'Before proposing anything', 'Reporting and completion', the reference navigation table, local MSVC 14.51 / CUDA 13.3 environment notes, the tooling and skills tables, the 60 rules earned by failures, and the two document-correction rules (keeping upstream's Conventional Commit guidance when the user requests a commit)."
     },
     "CMakeLists.txt": {
       "status": "M",
@@ -57,11 +57,23 @@
       "review": "windows",
       "reason": "Windows necessity: links winmm into ninfer-serve (timeBeginPeriod/timeEndPeriod) and embeds cmake/windows-utf8.manifest via /MANIFESTINPUT on ninfer, ninfer-serve, and ninfer-perplexity under MSVC."
     },
+    "apps/cli/main.cpp": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Instantiates ninfer::product::ConsoleOutputCodePage under #ifdef _WIN32 at main() entry so UTF-8 stdout renders cleanly on an attached Windows console without changing redirected pipes."
+    },
     "apps/perplexity/corpus.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "product",
       "reason": "Port change: checked_relative_path rejected only empty, absolute and '..' components, and is_absolute() on Windows needs both a root name and a root directory -- so '\\Windows\\System32\\drivers\\etc\\hosts' and '/etc/passwd' passed a check whose message says 'must be relative', and operator/ then replaced the manifest's directory with them. Measured on this toolchain. has_root_directory() closes both forms; 'C:relative.txt' was measured not to escape, and the manifest is repo-controlled, so this is the check doing what it claims rather than a privilege boundary. Found by the c-review detect pass."
+    },
+    "apps/perplexity/main.cpp": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Instantiates ninfer::product::ConsoleOutputCodePage under #ifdef _WIN32 at main() entry so UTF-8 stdout renders cleanly on an attached Windows console without changing redirected pipes."
     },
     "apps/perplexity/report.cpp": {
       "status": "M",
@@ -79,7 +91,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "product",
-      "reason": "a contract correction from the c-review Detect pass: both this file and the header state the selector codebooks as [256,248320], while the Op requires n == 248320 and k == 256 (src/ops/sampling/candidate_path/entry.cpp:23) and the loader declares {vocab_size, selector_rank} (src/models/qwen3_5/load/dflash2.cpp:31-34), and the header's own next sentence says candidate rank is the fastest axis -- so [256,248320] transposes what the kernels index (row = token, fastest axis = rank; src/ops/sampling/candidate_path/nvfp4/path.cu:66,186). The shape is the artifact's, so the prose is what was wrong. A caller following the old text is refused by require_codebook rather than reading out of bounds."
+      "reason": "a contract correction from the c-review Detect pass: both this file and include/ninfer/ops/candidate_selector.h stated the selector codebooks as [256,248320], while the Op requires n == 248320 and k == 256 (src/ops/sampling/candidate_path/entry.cpp:23) and the loader declares {vocab_size, selector_rank} (src/models/qwen3_5/load/dflash2.cpp:31-34), and the header's own next sentence says candidate rank is the fastest axis -- so [256,248320] transposes what the kernels index (row = token, fastest axis = rank; src/ops/sampling/candidate_path/nvfp4/path.cu:66,186). The shape is the artifact's, so the prose is what was wrong. A caller following the old text is refused by require_codebook rather than reading out of bounds."
     },
     "bench/context_cost/context_cost_bench.cpp": {
       "status": "M",
@@ -91,7 +103,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "MSVC has no __int128; computes prefill attention_pairs through ninfer::Uint128 (src/core/uint128.h)."
     },
     "bench/context_cost/model_context_fixture.h": {
       "status": "M",
@@ -102,7 +114,7 @@
     "bench/cpu/execution_bench.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain. Verified by the three CPU tests where it touches the executor, and by the ASan subset where it touches host lifetime",
+      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the QSA test suite, and the gate chain",
       "reason": "Windows necessity: upstream's bench reads process CPU time through <sys/resource.h> and getrusage(), which MSVC does not have; the Windows path reads the same quantity through GetProcessTimes (100-ns user+kernel ticks, divided by 10 for microseconds). Checked by the bench building and by the two paths returning the same units."
     },
     "bench/fixtures/ttft/manifest.json": {
@@ -114,44 +126,44 @@
     "bench/fixtures/ttft/text/long_64k_independent.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "bench/fixtures/ttft/text/rotation_55k_0.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "bench/fixtures/ttft/text/rotation_55k_1.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "bench/fixtures/ttft/text/rotation_55k_2.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "bench/fixtures/ttft/text/rotation_55k_3.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "bench/fixtures/ttft/text/rotation_55k_4.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "bench/fixtures/ttft/text/rotation_55k_5.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "bench/inference/benchmarks.cmake": {
       "status": "M",
@@ -163,7 +175,7 @@
       "status": "M",
       "disposition": "product",
       "review": "product",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "reason": "Registers port benchmarks (ninfer_score_token_logprobs, ninfer_qwen3_5_chat_render_bench with optional NINFER_BENCH_SEGMENT_HEAP manifest)."
     },
     "bench/ops/candidate_selector_bench.cu": {
       "status": "M",
@@ -187,7 +199,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "Windows dependency wiring: staged ffmpeg/ and jpeg/ libraries replace pkg-config/system discovery, skips Linux-only hwloc/liburing, and uses CMake FindCURL 7.85."
     },
     "cmake/NinferPlatform.cmake": {
       "status": "M",
@@ -199,7 +211,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "product",
-      "reason": "Cited in the diff -- port: this port. Open it before changing this path."
+      "reason": "Documents the port's four weight lines / five locally built Qwen3.8-27B images, shipped guides (opencode-settings, v2-v3-flag-diff, fp8-ungated-bands, ADRs), and links docs/maintainer/README.md."
     },
     "docs/designs/qwen4-27b-rtx5090.md": {
       "status": "M",
@@ -217,7 +229,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- port: this port. Open it before changing this path."
+      "reason": "Maintainer build-system reference translated/adapted for the Windows port (MSVC + CUDA 13.3, staged DLLs next to executables, NINFER_OP_TEST_MUTATIONS, Python 3.12 virtualenv)."
     },
     "docs/maintainer/op-development.md": {
       "status": "M",
@@ -229,7 +241,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- port: this port. Open it before changing this path."
+      "reason": "Points to docs/performance/lanes.md and tools/release/profiles.py as the single source for the port's eight shipped launcher profiles."
     },
     "docs/performance/qwen3.6-27b.md": {
       "status": "D",
@@ -265,13 +277,13 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "reason": "Documents C:\\vllm-env\\Scripts\\python.exe substitution on Windows and the port's Qwen3.8-27B NVFP4 QAT / Unsloth / Swift conversion recipes and calibration inputs."
     },
     "eval/README.md": {
       "status": "M",
       "disposition": "windows",
       "review": "product",
-      "reason": "Cited in the diff -- doc: docs/perplexity-baseline.md. Open it before changing this path."
+      "reason": "Port capability-evaluation guide (Windows venv path, coding/coding_smoke suites, run_qwen3_8_27b_quasar_gpqa_budgets.ps1, and Qwen3.8 recorded eval results)."
     },
     "eval/configs/capability-suite.yaml": {
       "status": "M",
@@ -300,20 +312,20 @@
     "examples/cli/messages/long_niah_128k.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "examples/cli/messages/long_niah_256k.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "examples/cli/messages/long_niah_64k.json": {
       "status": "M",
       "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "review": "product",
+      "reason": "Fixes upstream C1-control mojibake (U+0097 / \\xc2\\x97) to clean UTF-8 em-dash (\\xe2\\x80\\x94) so check_text_encoding.py and TTFT fixture manifest SHA256 checks pass."
     },
     "examples/cli/send_to_serve.py": {
       "status": "M",
@@ -331,7 +343,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "a contract correction from the c-review Detect pass: both this file and the header state the selector codebooks as [256,248320], while the Op requires n == 248320 and k == 256 (src/ops/sampling/candidate_path/entry.cpp:23) and the loader declares {vocab_size, selector_rank} (src/models/qwen3_5/load/dflash2.cpp:31-34), and the header's own next sentence says candidate rank is the fastest axis -- so [256,248320] transposes what the kernels index (row = token, fastest axis = rank; src/ops/sampling/candidate_path/nvfp4/path.cu:66,186). The shape is the artifact's, so the prose is what was wrong. A caller following the old text is refused by require_codebook rather than reading out of bounds."
+      "reason": "a contract correction from the c-review Detect pass: both bench/README.md and this header stated the selector codebooks as [256,248320], while the Op requires n == 248320 and k == 256 (src/ops/sampling/candidate_path/entry.cpp:23) and the loader declares {vocab_size, selector_rank} (src/models/qwen3_5/load/dflash2.cpp:31-34), and this header's own next sentence says candidate rank is the fastest axis -- so [256,248320] transposes what the kernels index (row = token, fastest axis = rank; src/ops/sampling/candidate_path/nvfp4/path.cu:66,186). The shape is the artifact's, so the prose is what was wrong. A caller following the old text is refused by require_codebook rather than reading out of bounds."
     },
     "include/ninfer/ops/kv_cache_append.h": {
       "status": "M",
@@ -522,7 +534,7 @@
     "src/core/CMakeLists.txt": {
       "status": "M",
       "disposition": "windows",
-      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain. Verified by the three CPU tests where it touches the executor, and by the ASan subset where it touches host lifetime",
+      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the QSA test suite, and the gate chain",
       "reason": "Windows necessity: upstream gates the CPU execution layer to Linux x86-64 with a FATAL_ERROR. The port supplies a native Windows implementation (cpu/system_windows.cpp), so the guard widens to Windows x86-64 and the hwloc link is Linux-only. Checked by ninfer_cpu_system_test, ninfer_cpu_task_pool_test and ninfer_cpu_executor_test, which pass on Windows."
     },
     "src/core/cpu/system.cpp": {
@@ -534,7 +546,7 @@
     "src/core/cyclic_kv_cache.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain. Verified by the three CPU tests where it touches the executor, and by the ASan subset where it touches host lifetime",
+      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the QSA test suite, and the gate chain",
       "reason": "Windows necessity: adds <string> for std::to_string, which libstdc++ provides transitively through another header and MSVC does not (C2039). Same class as the <span> include the previous merge added to generation_service.h."
     },
     "src/core/device_memory.cpp": {
@@ -607,7 +619,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- measure: Measured. Open it before changing this path."
+      "reason": "Fast-path generation_begin lookup reuses layout message boundaries when closed, falling back to full-conversation prefix probe only for folded preambles or open turns."
     },
     "src/models/common/qwen/frontend/frontend.cpp": {
       "status": "M",
@@ -817,13 +829,13 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- dedup: ops/common/validation.h. Open it before changing this path."
+      "reason": "Validates QType::NVFP4 (hidden_size=5120, kv_heads=8, BlockScaleK16M128x4, 16-byte aligned scales inside query_key_value parent) in require_math_profile/require_weight."
     },
     "src/ops/kv_cache/context_materialize/dispatch.cu": {
       "status": "M",
       "disposition": "unknown",
       "review": "cpp-cuda-review + the FP64 oracle. Verified: the NVFP4 divisors are written where the device views are built and read where the group scales decode; kLayers is derived from kContextKVMaterializeLayers so the loop bound cannot disagree with the array it writes; the key-post kernel has internal linkage. This is where the >256-column regression was found: the staging swizzle substituted by this merge was not the one the kernel was written against. The oracle now passes at every width including 257/512 with the port's own tile.",
-      "reason": "the port's NVFP4 implementation family is selected from the layer weights' format rather than from the column count, because the two families are exclusive per call; the dense selector keeps upstream's signature. Also carries the two inverse-divisor fields into the device views. Checked by tests/ops/test_context_kv_materialize.cpp and the dflash2 route test."
+      "reason": "the port's NVFP4 implementation family is selected from the layer weights' format rather than from the column count, because the two families are exclusive per call; the dense selector keeps upstream's signature. Also carries the two inverse-divisor fields into the device views. Checked by tests/ops/kv_cache/context_kv_materialize.cpp and the dflash2 route test."
     },
     "src/ops/kv_cache/context_materialize/dispatch.h": {
       "status": "M",
@@ -907,7 +919,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "windows",
-      "reason": "Cited in the diff -- win32: GetLastError. Open it before changing this path."
+      "reason": "Uses static constexpr kernel pointer in launch_fp8_a16_sliced_k_mma for MSVC device-symbol compatibility alongside upstream's split-K launch changes."
     },
     "src/ops/linear/kernels/fp8_block/a16_split_tail.cuh": {
       "status": "M",
@@ -1009,31 +1021,31 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- item: 12. Open it before changing this path."
+      "reason": "Ungates TMA ladder on Windows RTX 5090 (measured: docs/maintainer/fp8-ungated-bands.md) and aligns partial_capacity_bytes threshold to kBandBulkSelectsAt (288)."
     },
     "src/ops/linear/projection/fp8/shapes/n16384_k5120.cu": {
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- item: 12. Open it before changing this path."
+      "reason": "Ungates TMA ladder on Windows RTX 5090 (docs/maintainer/fp8-ungated-bands.md) and aligns partial_capacity_bytes selection band to kBandBulkSelectsAt (192)."
     },
     "src/ops/linear/projection/fp8/shapes/n34816_k5120.cu": {
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- item: 12. Open it before changing this path."
+      "reason": "Ungates TMA ladder on Windows RTX 5090 (docs/maintainer/fp8-ungated-bands.md) and allocates partials across the full Bulk selection band (>192) where fp8_split_k_plan can trigger."
     },
     "src/ops/linear/projection/fp8/shapes/n5120_k17408.cu": {
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- item: 12. Open it before changing this path."
+      "reason": "Ungates K-templated TMA ladder on Windows RTX 5090 (docs/maintainer/fp8-ungated-bands.md) with shared named band boundary constants."
     },
     "src/ops/linear/projection/fp8/shapes/n5120_k6144.cu": {
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- item: 12. Open it before changing this path."
+      "reason": "Ungates K-templated TMA ladder on Windows RTX 5090 (docs/maintainer/fp8-ungated-bands.md) with shared named band boundary constants."
     },
     "src/ops/linear/projection/nvfp4/nvfp4_dispatch.cpp": {
       "status": "M",
@@ -1087,7 +1099,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- item: 12. Open it before changing this path."
+      "reason": "Ungates TMA ladder and MidBulk split-K partials buffer at >192 tokens on Windows RTX 5090 (docs/maintainer/fp8-ungated-bands.md)."
     },
     "src/ops/linear/split/sources.cmake": {
       "status": "M",
@@ -1203,6 +1215,12 @@
       "review": "product",
       "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/sampling/candidate_selector.cpp covers it."
     },
+    "src/ops/sampling/kernels/selection.cuh": {
+      "status": "M",
+      "disposition": "unknown",
+      "review": "compute-sanitizer --tool memcheck and --tool synccheck across all 566 cases of ninfer_sampling_test (0 errors)",
+      "reason": "Port fix: avoid partial (< 16-byte) cp_async_zfill<16, Cache::cg> and out-of-bounds global pointers in SamplingInputTile::prefetch when available - first leaves fewer than 8 bf16 logits or 4 int32 token-count entries at the end of a tightly sized allocation (such as accept_sparse d_token_counts at token_domain = 248,077), which NVIDIA Compute Sanitizer 2026.2.1.0 flagged as an out-of-bounds 16-byte global read."
+    },
     "src/ops/sampling/sources.cmake": {
       "status": "M",
       "disposition": "unknown",
@@ -1273,13 +1291,13 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
+      "reason": "Uses Win32 _isatty/_fileno and localtime_s under #ifdef _WIN32 instead of POSIX isatty/localtime_r."
     },
     "src/product/logging/startup_log.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
+      "reason": "Uses GetConsoleScreenBufferInfo(GetStdHandle(STD_ERROR_HANDLE)) under #ifdef _WIN32 instead of POSIX TIOCGWINSZ ioctl."
     },
     "src/product/media_acquire/acquire.cpp": {
       "status": "M",
@@ -1315,13 +1333,13 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "Uses constexpr ninfer::Uint128 instead of GNU unsigned __int128 so MSVC compiles attention_pairs arithmetic."
     },
     "src/runtime/engine/context_cache/context_cost.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
+      "reason": "Uses ninfer::Uint128 instead of unsigned __int128 and _getpid() under #ifdef _WIN32 instead of POSIX getpid()."
     },
     "src/runtime/engine/context_cache/placement_policy.cpp": {
       "status": "M",
@@ -1345,7 +1363,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "MSVC has no __int128. The context-capacity estimate multiplies three 64-bit quantities and divides by device_bytes, so it is computed through ninfer::Uint128 (src/core/uint128.h), which is a real 128-bit builtin under GCC/Clang and a constexpr two-word stand-in under MSVC. Pinned by tests/test_uint128.cpp."
+      "reason": "MSVC has no __int128; computes estimate_context_token_capacity via ninfer::Uint128 (src/core/uint128.h), tested by ninfer_uint128_test (tests/test_uint128.cpp)."
     },
     "src/runtime/engine/engine.cpp": {
       "status": "M",
@@ -1399,7 +1417,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- port: the port . Open it before changing this path."
+      "reason": "Winsock2 SO_EXCLUSIVEADDRUSE (with SO_REUSEADDR disabled) and SO_KEEPALIVE/TCP_KEEP* socket options under _WIN32 plus explicit JSON nesting limit error wording."
     },
     "src/serve/observations.cpp": {
       "status": "M",
@@ -1471,13 +1489,13 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- doc: docs/maintainer/op-development.md. Open it before changing this path."
+      "reason": "Port test suite guide describing Windows build-test/ and build-asan/ recipes, MSVC symbol-interpose skip behavior, NINFER_TEST_ARTIFACT usage, and current CTest targets."
     },
     "tests/artifact/fixture.h": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "Replaces POSIX mkdtemp with portable std::filesystem::create_directory loop and adds explicit errno reporting on fixture ofstream open failures."
     },
     "tests/artifact/materialization_io.cpp": {
       "status": "M",
@@ -1489,19 +1507,19 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
+      "reason": "Port Python hygiene: removes unused json/MAGIC imports (ruff) and adds list[TensorSpec | ResourceSpec] annotation (mypy)."
     },
     "tests/artifact/test_reader.cpp": {
       "status": "M",
       "disposition": "product",
       "review": "product",
-      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
+      "reason": "Adds aligned NVFP4 K/V WeightView subslice alignment and unaligned-origin/count rejection regression assertions."
     },
     "tests/artifact/tests.cmake": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "Guards ninfer_test_interpose (--wrap) with if(NOT MSVC) and registers Windows Direct I/O regression test ninfer_artifact_direct_io_test."
     },
     "tests/artifact/writer_interop.py": {
       "status": "M",
@@ -1513,13 +1531,19 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- ADR: 0012. Open it before changing this path."
+      "reason": "Documents removal of the retired native chat-template differential oracle alongside its implementation (benchmarked 1.65 ms slower than Ninja Jinja)."
     },
     "tests/cmake/CoreTests.cmake": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
       "reason": "Registers Windows-enabled ninfer_read_queue_test without liburing/symbol_interpose, plus port core/artifact/tokenization tests."
+    },
+    "tests/cmake/NinferTests.cmake": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "Early-returns on WIN32 or MSVC inside ninfer_test_interpose so GNU ld --export-dynamic-symbol flags are not passed to MSVC link.exe (LNK4044)."
     },
     "tests/cmake/ProductTests.cmake": {
       "status": "M",
@@ -1536,25 +1560,25 @@
     "tests/convert/test_cli.py": {
       "status": "M",
       "disposition": "unknown",
-      "review": "product",
-      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
+      "review": "windows",
+      "reason": "Passes encoding='utf-8' and explicit check=False to subprocess.run for Windows CP1252 / ruff PLW1510 hygiene."
     },
     "tests/convert/test_qwen3_5.py": {
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
+      "reason": "Adds DFlash draft_config is_causal requirement and uniform causality rejection regression assertions."
     },
     "tests/convert/test_sources.py": {
       "status": "M",
       "disposition": "product",
       "review": "product",
-      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
+      "reason": "Adds ModelOpt NVFP4/FP8 source encoding and hf_quant_config declared quant-scheme override/rejection tests."
     },
     "tests/cpu/test_executor.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain. Verified by the three CPU tests where it touches the executor, and by the ASan subset where it touches host lifetime",
+      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the QSA test suite, and the gate chain",
       "reason": "Windows necessity: sched_getcpu() has no MSVC equivalent; current_processor() reads GetCurrentProcessorNumberEx and flattens (group, index) the same way core/cpu/system.h numbers CpuAffinity, so the assertion that each worker runs on its planned CPU still compares like with like."
     },
     "tests/distributed/test_execution.cpp": {
@@ -1615,7 +1639,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
+      "reason": "Catches std::exception from exercise_vision_dflash and prints diagnostic error message instead of aborting via std::terminate (0xC0000409) when dflash route is absent."
     },
     "tests/models/qwen3_5/test_engine_grammar_real.cpp": {
       "status": "M",
@@ -1651,7 +1675,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- port: the port's. Open it before changing this path."
+      "reason": "Links psapi on MSVC for GetProcessMemoryInfo in loading_real_test and registers ninfer_qwen3_5_issue5_race_test in ninfer_qwen3_5_real_tests (RUN_SERIAL)."
     },
     "tests/models/qwen4_exp/ple/disk/test_prepare.py": {
       "status": "M",
@@ -1674,7 +1698,7 @@
     "tests/models/qwen4_exp/test_loading_real.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile under MSVC 14.51 as written. Nothing parses this file; it is test input.",
+      "review": "windows",
       "reason": "peak_rss_kib() reads PeakWorkingSetSize through GetProcessMemoryInfo on Windows and getrusage elsewhere, so the diagnostic line keeps its field and unit on both. sys/resource.h has no MSVC equivalent and is now included only off _WIN32. Same helper as tests/models/qwen3_5/test_loading_real.cpp."
     },
     "tests/models/qwen4_exp/tests.cmake": {
@@ -1728,7 +1752,7 @@
     "tests/ops/linear/add/cases_bank.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile under MSVC 14.51 as written. Nothing parses this file; it is test input.",
+      "review": "windows",
       "reason": "MSVC rejects the nested ternary in the fill_n argument inside a generic lambda (C2326), so the value is named first. Behaviour is unchanged: the same alternating +-6.0F pattern."
     },
     "tests/ops/linear/bias/test.cpp": {
@@ -1740,7 +1764,7 @@
     "tests/ops/linear/projection/cases_bank.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile under MSVC 14.51 as written. Nothing parses this file; it is test input.",
+      "review": "windows",
       "reason": "MSVC rejects the nested ternary in the fill_n argument inside a generic lambda (C2326), so the value is named first. Behaviour is unchanged."
     },
     "tests/ops/linear/projection/cases_nvfp4.cpp": {
@@ -1752,38 +1776,38 @@
     "tests/ops/linear/split/cases_bank.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile under MSVC 14.51 as written. Nothing parses this file; it is test input.",
+      "review": "windows",
       "reason": "MSVC rejects the nested ternary in the fill_n argument inside a generic lambda (C2326), so the value is named first. Behaviour is unchanged."
     },
     "tests/ops/linear/split/runner.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile under MSVC 14.51 as written. Nothing parses this file; it is test input.",
+      "review": "windows",
       "reason": "<array> is included explicitly: MSVC's CTAD needs the complete type and does not find it through the other headers this file includes."
     },
     "tests/ops/linear/swiglu/cases_bank.cpp": {
       "status": "M",
       "disposition": "windows",
-      "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile under MSVC 14.51 as written. Nothing parses this file; it is test input.",
+      "review": "windows",
       "reason": "MSVC rejects the nested ternary in the fill_n argument inside a generic lambda (C2326), so the value is named first. Behaviour is unchanged."
     },
     "tests/ops/linear/weights.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile under MSVC 14.51 as written. Nothing parses this file; it is test input.",
+      "review": "windows",
       "reason": "<array> is included explicitly: MSVC's CTAD needs the complete type and does not find it through the other headers this file includes."
     },
     "tests/ops/linear_attention/gated_delta_net/test_fold.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "Uses const rather than constexpr for 1.0F / std::sqrt(128.0F) because MSVC rejects constexpr std::sqrt (C2131)."
     },
     "tests/ops/linear_attention/gated_delta_net/test_record.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "Uses const rather than constexpr for 1.0F / std::sqrt(128.0F) because MSVC rejects constexpr std::sqrt (C2131)."
     },
     "tests/ops/linear_attention/kimi_delta_attention/replay.cpp": {
       "status": "M",
@@ -1829,7 +1853,7 @@
     },
     "tests/ops/sampling/candidate_selector.cpp": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "review": "product",
       "reason": "Includes <map> and widens iterator stride, folds the port's NVFP4 codebook candidate-selector tests (k1..15 and mixed-codebook guard), and captures the NVFP4 masked CUDA graph on a dedicated cudaStreamNonBlocking stream instead of stream 0 (cudaErrorStreamCaptureUnsupported)."
     },
@@ -1873,12 +1897,12 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "Documents why scale uses const rather than constexpr std::sqrt on MSVC."
     },
     "tests/ops/softmax_attention/qsa/cache_reference.h": {
       "status": "M",
       "disposition": "unknown",
-      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain. Verified by the three CPU tests where it touches the executor, and by the ASan subset where it touches host lifetime",
+      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the QSA test suite, and the gate chain",
       "reason": "Windows necessity: replaces _Float16 with __half for the binary16 oracle conversions: _Float16 is a Clang/GCC type with no MSVC x64 equivalent, and __half is the same IEEE binary16 with the same round-to-nearest-even conversion."
     },
     "tests/ops/softmax_attention/qsa/indexer_fixture.h": {
@@ -1890,7 +1914,7 @@
     "tests/ops/softmax_attention/qsa/sparse_gqa_fixture.h": {
       "status": "M",
       "disposition": "windows",
-      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain. Verified by the three CPU tests where it touches the executor, and by the ASan subset where it touches host lifetime",
+      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the QSA test suite, and the gate chain",
       "reason": "Windows necessity: the same replacement, and half()/unhalf() renamed to half_bits()/half_value() because <cuda_fp16.h> brings a global `half` type and the helper name became ambiguous. Also, on 2026-10-31, the fixture's int shape products (T*B, table_stride*(B+1)) multiply in std::size_t for CodeQL cpp/integer-multiplication-cast-to-long; the values are unchanged for every case the fixture declares."
     },
     "tests/ops/softmax_attention/qsa/tail_fixture.h": {
@@ -1908,7 +1932,7 @@
     "tests/ops/softmax_attention/qsa/test_sparse_gqa.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain. Verified by the three CPU tests where it touches the executor, and by the ASan subset where it touches host lifetime",
+      "review": "Windows portability, not independently reviewed; evidence is the build in both trees, the QSA test suite, and the gate chain",
       "reason": "the renamed helpers' call sites."
     },
     "tests/ops/softmax_attention/sliding_window_attention.cpp": {
@@ -1921,13 +1945,13 @@
       "status": "M",
       "disposition": "product",
       "review": "product",
-      "reason": "Cited in the diff -- measure: measured. Open it before changing this path."
+      "reason": "Registers port-specific and restored op tests (ninfer_dflash2_nvfp4_routes_test, ninfer_speculative_round_test, ninfer_topk_logprobs_test)."
     },
     "tests/runtime/test_context_cost.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
+      "reason": "Uses _getpid() (<process.h>) under #ifdef _WIN32 instead of POSIX getpid()."
     },
     "tests/runtime/test_resource_manager.cpp": {
       "status": "M",
@@ -1993,25 +2017,19 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
-    },
-    "tests/test_replay_records.cpp": {
-      "status": "M",
-      "disposition": "windows",
-      "review": "windows",
-      "reason": "MSVC CRT lacks std::aligned_alloc; uses ::_aligned_malloc/::_aligned_free in make_backing under #ifdef _WIN32 (replaces removed tests/test_gdn_replay_records.cpp)."
+      "reason": "Uses Win32 _pipe(..., _O_BINARY) and _fileno(stderr) under #ifdef _WIN32 instead of POSIX pipe/STDERR_FILENO."
     },
     "tests/test_request_log.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
+      "reason": "Uses _getpid() (<process.h>) via current_process_id() under #ifdef _WIN32 instead of POSIX getpid()."
     },
     "tests/test_serve_corpus.py": {
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Test coverage for a port feature or fix. The port's rule is that advertised surface lands with its evidence, and these are the binaries that would catch a merge silently taking upstream's version of the code they cover."
+      "reason": "Adds mypy type annotations (Any/cast) so tests/ passes strict mypy check."
     },
     "tests/test_serve_shutdown_real.py": {
       "status": "M",
@@ -2035,7 +2053,7 @@
       "status": "M",
       "disposition": "product",
       "review": "product",
-      "reason": "Cited in the diff -- port: this port. Open it before changing this path."
+      "reason": "Searches both build-test/ and build/ with platform executable suffix, specifies encoding='utf-8' for C++ subprocess stdout, and adds test_reasoning_effort_aliases."
     },
     "tests/text/test_json_schema.py": {
       "status": "M",
@@ -2071,13 +2089,13 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- measure: Measured. Open it before changing this path."
+      "reason": "Takes static builtin map by reference in try_builtin_func and uses uint64_t arithmetic for range indexing without GCC __int128."
     },
     "third_party/llama-jinja/jinja/value.cpp": {
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "Cited in the diff -- msvc: MSVC. Open it before changing this path."
+      "reason": "Uses localtime_s under #ifdef _WIN32 instead of localtime_r and replaces GNU __int128 arithmetic in value_range_t with portable 64-bit / explicit 128-bit multiplication."
     },
     "third_party/xgrammar/cpp/support/utils.h": {
       "status": "M",
@@ -2089,7 +2107,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- doc: docs/maintainer/project-map.md. Open it before changing this path."
+      "reason": "Documents Windows C:\\vllm-env tooling setup, .githooks/pre-commit release/consistency gates, and port benchmark/analysis scripts."
     },
     "tools/artifact/file_io.py": {
       "status": "M",
@@ -2185,7 +2203,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "product",
-      "reason": "Cited in the diff -- doc: docs/maintainer/artifact-conventions.md. Open it before changing this path."
+      "reason": "Adds this port's Qwen3.8-27B NVFP4 recipes (qwen3_8_27b_nvfp4_qat, qwen3_8_27b_nvfp4_unsloth, qwen3_8_27b_nvfp4_swift) and NVFP4 draft projection encoding."
     },
     "tools/convert/pipeline.py": {
       "status": "M",
@@ -2227,7 +2245,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Cited in the diff -- port: the port's. Open it before changing this path."
+      "reason": "Extends compressed_matrix_source/matrix_source to auto-detect and decode ModelOpt NVFP4/FP8 encodings alongside compressed-tensors."
     },
     "tools/convert/sources/modelopt_nvfp4.py": {
       "status": "M",

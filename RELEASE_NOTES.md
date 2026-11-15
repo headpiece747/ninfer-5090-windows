@@ -1,12 +1,24 @@
-# NInfer Windows v1.2.5 (RTX 5090)
+# NInfer Windows (post-v1.2.5 dev, RTX 5090)
+
+## What changed since 1.2.5 (unreleased dev)
+
+- **Upstream Synchronization (`a754fcf3b`..`d9ad9dea4`)**: Integrated `Neroued/ninfer@dev` updates through `d9ad9dea4`:
+  - **Concurrent Execution & Cache Recovery**: Expanded concurrent execution capacity (`54466d120`), unified context reclamation and retention cost accounting (`3b76b98c1`), and corrected multimodal prefix lookup and recovery (`1fdb37160`).
+  - **Grammar & Frontend Hardening**: Backported cache and token boundary fixes in structured output grammar (`8e4648129`), corrected Jinja capture lifetimes (`13ebb92f6`), and rejected malformed tool history cleanly (`4461c9683`).
+  - **RTX 5090 Kernels & NVFP4 A16 SwiGLU**: Added tuned RTX 5090 NVFP4 dense FFN shapes, FP8/Q4 projections, 28672/34816-row NVFP4 A16 SwiGLU routes (`7b87d8953`, `9dd11157b`), and TMA/decode micro-optimizations (`alignas(128)` `TmaKernelParam` restoration on Windows).
+- **WDDM Memory Headroom Guard**: All 8 shipped Windows launchers pass `--memory-headroom 1024MiB` in `tools/release/profiles.py` so CUDA graph capture and Windows WDDM driver allocations do not trigger PCIe Shared System Memory eviction under `--context-capacity auto`.
+- **Console UTF-8 Code Page Coverage**: Restored `ConsoleOutputCodePage` (Win32 RAII console output code page guard, leaving redirected stdout untouched) on `ninfer` (`apps/cli/main.cpp`) and `ninfer-perplexity` (`apps/perplexity/main.cpp`) alongside `ninfer-serve`, completing all three executables documented in `cmake/windows-utf8.manifest`.
+- **Test Suite & Certified Engine**: 203 CTest tests (`196` passed, `3` documented non-product baseline failures on `dflash`/`moe`/`moe_offload`, `4` artifact/CLI-argument skips against `qwen3_8_27b_nvfp4nvidia.v3.ninfer`); lane profiles re-folded on engine `3959d3d68b6e`.
+
+---
 
 ## What changed in 1.2.5
 
-A major feature, stability, and upstream synchronization release following `v1.2.4`, incorporating upstream commits from `Neroued/ninfer@dev` (`5b834fc35`..`1fdb37160`) alongside native Windows port hardening:
+A major feature, stability, and upstream synchronization release following `v1.2.4`, incorporating upstream commits from `Neroued/ninfer@dev` (`5b834fc35`..`a754fcf3b`) alongside native Windows port hardening:
 
 - **Interactive Web Monitoring Dashboard & Telemetry**:
-  - Upstream introduced a real-time web monitoring dashboard (`dashboard/`) featuring responsive charts, persistent telemetry history, TTFT distribution histograms, and Paper theme styling (built separately via Node/Vite in `dashboard/`).
-  - Exposes engine observability endpoints (`/monitor/info`, `/monitor/snapshot`, and SSE `/monitor/events`) providing granular visibility into request queue states, resident KV cache pools, and GPU memory allocations.
+  - Upstream introduced a real-time web monitoring dashboard (`dashboard/`) featuring responsive charts, persistent telemetry history, TTFT distribution histograms, and Paper theme styling.
+  - Exposes engine observability endpoints providing granular visibility into request queue states, resident KV cache pools, and GPU memory allocations.
 - **Runtime Starvation Prevention Under Context Pressure** (`a754fcf3b`):
   - Resolved request queue starvation when context memory approaches saturation. Implemented priority-aware queue scheduling and starvation prevention verified end-to-end by `tests/models/qwen3_5/test_engine_fairness_real.cpp`.
 - **Context Cache Retention & Eviction Refinements** (`76b5370bd`):
@@ -16,8 +28,8 @@ A major feature, stability, and upstream synchronization release following `v1.2
 - **Native Windows Port Hardening**:
   - **MSVC 128-bit Arithmetic (`ninfer::Uint128`)**: Implemented complete 128-bit integer arithmetic (shifts, carries, borrows, and full 128-bit division) in `core/uint128.h` for MSVC, eliminating standard library type limitations and ensuring exact cost-model evaluations in `resource_manager.h`.
   - **Cross-Platform Process ID Cleanup**: Unified platform process ID retrieval via `current_process_id()` in `src/serve/observations.cpp` and `tests/test_request_log.cpp`, removing orphaned POSIX `<unistd.h>` headers.
-  - **Test Suite Coverage**: 201 registered CTest targets (`check_test_baseline.py`: `197/201` non-failing against the QUASAR artifact — 193 passed, 4 documented baseline known failures, and 4 artifact-optional skips) plus OP permutation mutation checks.
-  - **Certified Engine Identity**: The 8 launcher profiles in `tools/release/profiles.py` are measured against engine `b4ea73c5e91e` (with `--memory-headroom 1024MiB` in all 8 launchers to avoid WDDM shared-memory eviction under `--context-capacity auto`).
+  - **Test Suite Restorations**: Restored CMake registrations for `ninfer_topk_logprobs_test` (verifying Op mutation perturbation seams) and `ninfer_uint128_test`, bringing tagged `v1.2.5` verified test coverage to 198 targets.
+  - **Certified Engine Identity**: Tagged `v1.2.5` release binaries and launcher profiles were certified against engine `f3bc4e01ca39`.
 
 ---
 
@@ -168,7 +180,7 @@ are new.
   `initial_binding` with 56.3 ms total. Decode and acceptance are unmoved (fingerprint `code` cell
   320.1 tok/s / 45.9%). `ninfer-cli` runs the same loop once per invocation, where it is invisible
   beside model load, and `ninfer-perplexity` does not run it at all.
-- **`ninfer-serve` sets the console output code page** (`ConsoleOutputCodePage`, restored on exit), and all three apps embed `cmake/windows-utf8.manifest` (`activeCodePage=UTF-8`) so UTF-8 output renders cleanly without relying on OEM code pages.
+- **All three apps set the console output code page** (`ConsoleOutputCodePage`, restored on exit), and all three embed `cmake/windows-utf8.manifest` (`activeCodePage=UTF-8`) so UTF-8 output renders cleanly without relying on OEM code pages.
 - **The A16 SwiGLU decomposition above T=16 is gone, and the fused route covers every extent.** Every
   A16 call with T>16 used to project gate/up into a BF16 buffer and apply the nonlinearity to that,
   which measured 8.1e-3 against the profile's own 6.3e-3 tail bound — about 29% over, and identically
@@ -259,18 +271,19 @@ that earlier builds shipped.
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Draft accept |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **318 tok/s** | 57.2% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **215 tok/s** | 60.6% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **296 tok/s** | 41.6% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 195 tok/s | 56.3% |
-| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **382 tok/s** | 70.2% |
-| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (5) | yes | 262,144 | 209 tok/s | 55.3% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (9) | yes | 262,144 | **292 tok/s** | 39.7% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 201 tok/s | 55.4% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR QAT | DFlash2 (7) | yes | 262,144 | **318 tok/s** | 57.4% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR QAT | MTP (4) | yes | 262,144 | **211 tok/s** | 60.4% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **291 tok/s** | 41.4% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 195 tok/s | 55.6% |
+| `start_swift_v3_dflash2_vision.bat` | Swift 1.5 | DFlash2 (7) | yes | 262,144 | **388 tok/s** | 70.2% |
+| `start_swift_v3_mtp4_vision.bat` | Swift 1.5 | MTP (5) | yes | 262,144 | 204 tok/s | 54.6% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVIDIA | DFlash2 (9) | yes | 262,144 | **295 tok/s** | 39.7% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVIDIA | MTP (4) | yes | 262,144 | 197 tok/s | 55.5% |
 
 Every number was measured on an RTX 5090 with the exact arguments the launcher passes; every context
 ceiling is the highest value the engine accepts for that configuration -- the next step up is refused,
-not degraded. Decode is the column with the caveat, measured on 2026-10-13:
+not degraded. Decode is the column with the caveat (historical KV selection measured on 2026-10-13;
+current table folded on 2026-11-15 against engine `3959d3d68b6e`):
 `start_swift_v3_dflash2_vision.bat` read 261.6, 290.8, 293.8, 295.5 and 319.3 tok/s in five runs on this
 machine - 22% from lowest to highest - and `start_ninfer_v3_mtp4_vision.bat` read 186.6 to 212.8. Decode
 moves with the card's thermal and power state, which is machine-specific, so no temperature is a target and
@@ -283,9 +296,9 @@ figure. Compare lanes to each other and expect your own absolute figures to diff
 across sessions, so it is the column to trust in a comparison. Each row carries the identity of what
 measured it, that cell's own spread and the run level it was taken at in
 `tools/release/lane_figures.json`, which also carries the card state where the run recorded one and which
-the pre-commit hook checks; the rows were re-measured on 2026-10-13, after the 2026-09-30 pass this table
-was first built from, the 2026-10-07 re-measurement that read 10.3-48.7% lower on seven of them, and the
-2026-10-09 pass.
+the pre-commit hook checks; the table above was re-folded on 2026-11-15 (`3959d3d68b6e`), superseding the
+2026-09-30 table, the 2026-10-07 re-measurement (10.3-48.7% lower on seven lanes), the 2026-10-09
+pass, and the 2026-10-13 KV-dtype pass (`lane_figures.json` records each row).
 **Three lanes ship `--kv-dtype k8v4`** - `start_quasar_v3_dflash2_vision.bat`,
 `start_swift_v3_mtp4_vision.bat` and `start_nvidia_v3_mtp4_vision.bat`; the other five ship `fp8`.
 Four lanes moved on 2026-10-13, each on an interleaved comparison at three to six rounds, and each decided
@@ -300,22 +313,14 @@ short code cell and 7.6% of long Chinese, nvidia mtp4 11.0% of the short code ce
 Chinese, ninfer mtp4 6.0% of long Chinese, and quasar mtp4 gains 3.1% of long Chinese. Each earlier attempt
 at this question measured a hand-rolled protocol - one prompt, temperature 0, no warmup - which ranks
 configurations at a sampler nobody serves by, and a fresh fingerprint against a recorded one, which is a
-cross-session comparison the interleave exists to replace.
-code-weighted bound (evidence). **This block said "re-measured 2026-09-30" and dated
-the table to that pass as if it were current** — the figures are now the 2026-10-09 re-measurements,
-and `profiles.py` names each earlier set they replaced.
+cross-session comparison the interleave exists to replace. Each historical pass is recorded beside the
+table above and in `tools/release/profiles.py`.
 
 **All four lines are built here now**, so the choice is a measured trade-off rather than one of
 provenance. The QUASAR line is the only one whose text weights are a quantization-aware-trained
 checkpoint imported unchanged; the other three re-encode their FP8 attention from the BF16 base and
-score lower full-corpus perplexity (4.98, 4.92 and 4.90 against QUASAR's 4.99). **The claim that
-"the NVFP4-full line also carrying the fastest DFlash2 lane (340 tok/s against QUASAR's 311)" is
-stale and is withdrawn**: in the v1.2.3 table the NVFP4-full DFlash2 lane read **314 tok/s** against
-QUASAR's **262**, so the fastest DFlash2 lane in that release is the NVFP4-full one. This sentence
-previously read "QUASAR at 382 tok/s" — a depth-7 figure for a lane that moved to depth 9 and, on the merged engine's re-derivation, back to 7
-and to `k8v4` — and before that 331 against 319, the same table at an earlier measurement. The
-340/311 pair is a superseded measurement that no longer reproduces, in the same way as the withdrawn
-figures `profiles.py` names in its own notes. Compare artifacts only on
+score lower full-corpus perplexity (4.98, 4.92 and 4.90 against QUASAR's 4.99; see
+`tools/release/verify_shipping_artifacts.py` for current v3 artifact perplexity). Compare artifacts only on
 the full corpus: a `--quick` figure is decided by four streams and is not comparable, as
 `docs/perplexity-baseline.md` explains. ADR-0004 records why each DFlash2 lane rides a third-party draft
 with no in-house fallback, and Vision is free on every shipped artifact (the with/without comparison is
@@ -341,7 +346,7 @@ fetched before the republish does: the v3 engine **rejects v2 containers outrigh
 the tool in the error:
 
 ```
-python3 tools/upgrade_ninfer_v2_to_v3.py INPUT.ninfer OUTPUT.ninfer
+python tools/upgrade_ninfer_v2_to_v3.py INPUT.ninfer OUTPUT.ninfer
 ```
 
 That upgrade is offline and preserves the weight bytes. On Windows this now works; in
@@ -355,8 +360,8 @@ is documented engine behaviour rather than a defect: acceptance compares a propo
 against the target argmax for its verify column, and the maintainer notes state that
 speculation "does not impose token or logits equality between different quantization,
 prefill or kernel paths" — the batched verify kernel is not the single-token decode path,
-so a near-tie can flip. Speculation measured 3-4x faster (67-83 tok/s without it, 239-343
-with it).
+so a near-tie can flip. Speculation measured roughly 2.4-4.8x faster across the current lanes
+(194.9-388.0 tok/s across all eight shipped profiles vs 80.1-84.8 tok/s non-speculative baseline).
 
 ## Fixed in 1.1.0
 

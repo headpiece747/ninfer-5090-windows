@@ -2270,62 +2270,62 @@ int main() {
     // reported five removed scenarios as still failing. Upstream already catches in the `attention`
     // branch for the same reason; this generalises it rather than adding a second convention.
     try {
-    if (scenario == "attention") {
-        try {
-            result = exercise_attention_integration(artifact);
-        } catch (const std::exception& error) {
-            std::cerr << "attention integration failed: " << error.what() << '\n';
+        if (scenario == "attention") {
+            try {
+                result = exercise_attention_integration(artifact);
+            } catch (const std::exception& error) {
+                std::cerr << "attention integration failed: " << error.what() << '\n';
+                return 1;
+            }
+        } else if (scenario == "vision") {
+            ninfer::Engine engine(engine_options(artifact));
+            result = exercise_vision(engine);
+        } else if (scenario == "all") {
+            result = exercise_artifact(artifact);
+        } else if (scenario == "concurrent") {
+            result = exercise_concurrent_resource_settlement(artifact);
+        } else if (scenario == "anthropic-prefix-regression") {
+            result = exercise_anthropic_prefix_regression(artifact);
+        } else if (scenario == "nested-tool-markers") {
+            result = exercise_nested_tool_markers(artifact);
+        } else if (scenario == "shared-rewrite-materialization") {
+            result = exercise_shared_rewrite_materialization(artifact);
+        } else if (scenario == "late-instructions") {
+            result = exercise_late_instructions(artifact);
+        } else if (scenario == "agent-continuation") {
+            result = exercise_agent_continuation(artifact);
+        } else if (scenario == "explicit-prefix") {
+            result = exercise_explicit_prefix(artifact);
+        } else if (scenario == "explicit-anchor") {
+            result = exercise_explicit_anchor_branch(artifact);
+        } else if (scenario == "rewrite-checkpoint") {
+            auto options = engine_options(artifact);
+            ninfer::test::qwen3_5::set_context_capacity(options, 2);
+            ninfer::Engine engine(std::move(options));
+            result = exercise_rewrite_checkpoints(engine);
+        } else if (scenario == "terminal-publication" || scenario == "stream-observations") {
+            auto options          = engine_options(artifact);
+            options.enable_vision = scenario == "terminal-publication";
+            if (options.enable_vision) { options.vision_memory_budget_bytes = 64ULL << 20; }
+            options.context_cache = ninfer::ContextCacheOptions{.enabled = false};
+            ninfer::test::qwen3_5::set_context_capacity(options);
+            ninfer::Engine engine(std::move(options));
+            if (scenario == "terminal-publication") {
+                result = exercise_abandoned_handle_capacity(engine);
+                if (result == 0) { result = exercise_terminal_publication(engine); }
+            } else {
+                result = exercise_stream_observations(engine);
+                if (result == 0) { result = exercise_admission_wait(engine); }
+                if (result == 0) { result = exercise_abandoned_handle_capacity(engine); }
+            }
+        } else {
+            std::cerr << "unknown prefix integration scenario: " << scenario << '\n'
+                      << "  valid: all, agent-continuation, anthropic-prefix-regression, attention,"
+                         " concurrent, explicit-anchor, explicit-prefix, late-instructions,"
+                         " nested-tool-markers, rewrite-checkpoint, shared-rewrite-materialization,"
+                         " stream-observations, terminal-publication, vision\n";
             return 1;
         }
-    } else if (scenario == "vision") {
-        ninfer::Engine engine(engine_options(artifact));
-        result = exercise_vision(engine);
-    } else if (scenario == "all") {
-        result = exercise_artifact(artifact);
-    } else if (scenario == "concurrent") {
-        result = exercise_concurrent_resource_settlement(artifact);
-    } else if (scenario == "anthropic-prefix-regression") {
-        result = exercise_anthropic_prefix_regression(artifact);
-    } else if (scenario == "nested-tool-markers") {
-        result = exercise_nested_tool_markers(artifact);
-    } else if (scenario == "shared-rewrite-materialization") {
-        result = exercise_shared_rewrite_materialization(artifact);
-    } else if (scenario == "late-instructions") {
-        result = exercise_late_instructions(artifact);
-    } else if (scenario == "agent-continuation") {
-        result = exercise_agent_continuation(artifact);
-    } else if (scenario == "explicit-prefix") {
-        result = exercise_explicit_prefix(artifact);
-    } else if (scenario == "explicit-anchor") {
-        result = exercise_explicit_anchor_branch(artifact);
-    } else if (scenario == "rewrite-checkpoint") {
-        auto options = engine_options(artifact);
-        ninfer::test::qwen3_5::set_context_capacity(options, 2);
-        ninfer::Engine engine(std::move(options));
-        result = exercise_rewrite_checkpoints(engine);
-    } else if (scenario == "terminal-publication" || scenario == "stream-observations") {
-        auto options          = engine_options(artifact);
-        options.enable_vision = scenario == "terminal-publication";
-        if (options.enable_vision) { options.vision_memory_budget_bytes = 64ULL << 20; }
-        options.context_cache = ninfer::ContextCacheOptions{.enabled = false};
-        ninfer::test::qwen3_5::set_context_capacity(options);
-        ninfer::Engine engine(std::move(options));
-        if (scenario == "terminal-publication") {
-            result = exercise_abandoned_handle_capacity(engine);
-            if (result == 0) { result = exercise_terminal_publication(engine); }
-        } else {
-            result = exercise_stream_observations(engine);
-            if (result == 0) { result = exercise_admission_wait(engine); }
-            if (result == 0) { result = exercise_abandoned_handle_capacity(engine); }
-        }
-    } else {
-        std::cerr << "unknown prefix integration scenario: " << scenario << '\n'
-                  << "  valid: all, agent-continuation, anthropic-prefix-regression, attention,"
-                     " concurrent, explicit-anchor, explicit-prefix, late-instructions,"
-                     " nested-tool-markers, rewrite-checkpoint, shared-rewrite-materialization,"
-                     " stream-observations, terminal-publication, vision\n";
-        return 1;
-    }
     } catch (const std::exception& error) {
         std::cerr << "prefix integration scenario '" << scenario << "' failed: " << error.what()
                   << '\n';

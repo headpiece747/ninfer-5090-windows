@@ -3,7 +3,7 @@ REM ============================================================================
 REM  NVIDIA ModelOpt + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), k8v4 KV at the ceiling below:
-REM      context 262,144   decode 201.2 tok/s   draft acceptance 55.4%
+REM      context 262,144   decode 197.3 tok/s   draft acceptance 55.5%
 REM      runtime 9.96 GiB   free VRAM 3.45 GiB
 REM
 REM  KV format moved fp8 -> k8v4 on 2026-10-13, decided on the served-length code cell (k8v4 145.7 against fp8 136.3, +6.5% against a 2.4% spread, six interleaved rounds); the disclosed costs are 11.0% of the short code cell and 6.6% of long Chinese, and the code cell's acceptance reads 47.7% where the previous fp8 measurement read 52.2%. Depth 4 measured fastest of 2-5 here, and the largest correction in the table: d5 read 228.3 on the 2026-09-17 records, which the warmup transient accounts for almost entirely, and measures 167.8 with it excluded. Depth 4 against depth 5 is 223.4 against 167.8, +33%, and d4 also accepts 61.4% against 38.2% -- the one lane where acceptance and throughput agree, which is why the contaminated figure looked plausible. Re-measured 2026-09-28, interleaved two rounds. **The 223.4/61.4% no longer reproduces either**: 2026-09-30 reads 208.7 at 53.1%, and 53.1% is what this lane returns at --prefill-chunk 4096 as well, with a byte-identical digest, so the depth comparison rests on the same stale population as QUASAR's and has not been re-measured since.
@@ -12,13 +12,11 @@ REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
 REM  message, rather than letting the process exit 0xC0000135 having printed nothing.
 REM
-REM  The three context-cache bounds are deliberate. With max-concurrency 1 the defaults
-REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~530-token
-REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
-REM  four of five prompts re-prefilling in full on every call and no error. Raising the
-REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
-REM  runtime are unchanged from the values above.
+REM  The host-cache quota (`--host-cache-capacity 8192MiB`) is deliberate.
+REM  Upstream b9114396 replaced the earlier multi-flag prefix bounds with one unified 8 GiB
+REM  Host quota covering StateImages, Main/backend KV, pause snapshots and in-flight transfers;
+REM  setting it keeps interleaved multi-turn conversations resident without silent tail
+REM  re-prefill, preserving full context capacity.
 REM
 REM  The CUDA wait schedule is pinned to blocking rather than left to the engine's default, which
 REM  is upstream's spin (NINFER_CUDA_SYNC, see docs/cli.md). Measured 2026-09-25 over six
@@ -48,8 +46,8 @@ if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
 set "MODEL=%~dp0models\qwen3_8_27b_nvfp4nvidia.v3.ninfer"
 if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4nvidia.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
-REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
-REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
+REM explicitly stops the lane inheriting whichever template its artifact embeds -- shipped
+REM artifacts embed their own templates, and embedded templates can predate alias updates.
 set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
 if not exist "%TEMPLATE%" set "TEMPLATE=%~dp0tools\chat_templates\qwen3_8.jinja"
 REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it

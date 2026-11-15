@@ -3,7 +3,7 @@ REM ============================================================================
 REM  Swift 1.5 + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 382.4 tok/s   draft acceptance 70.2%
+REM      context 262,144   decode 388.0 tok/s   draft acceptance 70.2%
 REM      runtime 8.83 GiB   free VRAM 4.20 GiB
 REM
 REM  KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 222.0 against k8v4 205.7, +7.3% against a 0.9% spread, three interleaved rounds); the disclosed costs are 11.0% of the short code cell - the inversion the rule warns about - and 7.6% of long Chinese. Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured 2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured against every window 1-15 on the code domain and re-measured on four others: 13 is 33% faster on code and slower on chinese, prose and dialogue, so the width that maximises the worst domain is the one already shipped. This image encodes the DFlash2 draft to NVFP4 where Swift 1.0's left it at Q8, which is 0.77 GiB smaller. The encoding is measured per target and it reverses here: on Swift 1.0 the same change lost 3.2 acceptance points, so it was measured rather than assumed. An earlier revision of this note said the Q8-draft build of this same checkpoint was REFUSED at 262,144 with Vision. That was true when written and is no longer: the tiled saturation guard moved the memory picture, and the claim was not re-measured until 2026-10-04, when it was falsified. Both arms were measured with `verify` minutes apart on the q8draft image already in _superseded, and the Q8 build DOES serve at 262,144 with Vision. It is no longer a capacity question. On the default `code` domain the NVFP4 draft is also the better build on all three measured axes -- 348.3 tok/s and 63.0% acceptance against 290.3 and 49.3%, on 0.78 GiB MORE free memory (2.83 against 2.05 GiB) -- which reproduces this lane's recorded 2026-09-30 figures to within 0.7% five weeks later. That is the documented default domain, so the shipped encoding is settled by measurement rather than merely retained. It does NOT hold everywhere: on `chinese` the ordering reverses and Q8 is 11.7% faster with 4.6 points better acceptance. This note's figures are `code`; the `chinese` cell above is the disclosed reversal. KV format changed from fp8 to k8v4 on 2026-10-09, interleaved on the three cells with each arm twice: the deciding cells' worst improves from 196.2 to 244.4 tok/s (long code +24.6%, acceptance 31.06 -> 42.69) while the published cell gives up 7.9% decode and 6.5 acceptance points (313.5 -> 287.3, 58.32% -> 51.83%) and long Chinese 4.2% and 2.5 points -- both disclosed. Adopted under the code-weighted rule's bound: the deciding worst case improves by more than the worst disclosed non-code cell gives up. Quality costs +0.098% corpus perplexity overall and +0.257% on the worst domain. Published cell re-measured 2026-10-12: three lane fingerprints in one session read it at 312.3, 308.2 and 312.6 tok/s with acceptance identical at 51.8% in all three, so the workload is unchanged and this card's state moved about 11% -- which is the size of the tolerance both the gate and the fingerprint use, and the reason the row now carries the latest of the three. The 2026-10-09 interleaved comparison above is unaffected: it compared the two KV formats inside one session, which is the stronger protocol.
@@ -12,13 +12,11 @@ REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
 REM  message, rather than letting the process exit 0xC0000135 having printed nothing.
 REM
-REM  The three context-cache bounds are deliberate. With max-concurrency 1 the defaults
-REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~530-token
-REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
-REM  four of five prompts re-prefilling in full on every call and no error. Raising the
-REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
-REM  runtime are unchanged from the values above.
+REM  The host-cache quota (`--host-cache-capacity 8192MiB`) is deliberate.
+REM  Upstream b9114396 replaced the earlier multi-flag prefix bounds with one unified 8 GiB
+REM  Host quota covering StateImages, Main/backend KV, pause snapshots and in-flight transfers;
+REM  setting it keeps interleaved multi-turn conversations resident without silent tail
+REM  re-prefill, preserving full context capacity.
 REM
 REM  The CUDA wait schedule is pinned to blocking rather than left to the engine's default, which
 REM  is upstream's spin (NINFER_CUDA_SYNC, see docs/cli.md). Measured 2026-09-25 over six
@@ -48,8 +46,8 @@ if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
 set "MODEL=%~dp0models\qwen3_8_27b_nvfp4swift15.v3.ninfer"
 if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4swift15.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
-REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
-REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
+REM explicitly stops the lane inheriting whichever template its artifact embeds -- shipped
+REM artifacts embed their own templates, and embedded templates can predate alias updates.
 set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
 if not exist "%TEMPLATE%" set "TEMPLATE=%~dp0tools\chat_templates\qwen3_8.jinja"
 REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it

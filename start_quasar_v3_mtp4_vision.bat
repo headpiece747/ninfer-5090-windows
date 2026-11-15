@@ -3,7 +3,7 @@ REM ============================================================================
 REM  QUASAR QAT + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 215.3 tok/s   draft acceptance 60.6%
+REM      context 262,144   decode 210.6 tok/s   draft acceptance 60.4%
 REM      runtime 8.07 GiB   free VRAM 5.17 GiB
 REM
 REM  KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 136.2 against k8v4 132.7, +2.6% against a 0.7% spread, six interleaved rounds), with no disclosed cost outside the spread and a 3.1% gain on long Chinese. Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against d4's 220.4 and chinese 113.2 against 129.0. On maximin -- the rule this table is chosen by, since the worst domain decides -- d4's worst case is 0.0% and d5's is -17.0%, so d5's best case does not buy its worst. d5 is still faster on prose (121.8 against 116.5) and dialogue (159.6 against 155.1), which is the reversal that makes the code domain alone the wrong single domain to read. KV format changed from fp8 to k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code cells decide, every other domain is disclosed). Interleaved on the three cells, each arm twice: code +1.0% decode and acceptance 63.47 -> 63.98, long code +35.6% and acceptance 31.04 -> 51.05, and the disclosed cost is long Chinese at -10.2% decode and acceptance 38.19 -> 31.40. Quality costs +0.144% corpus perplexity overall and +0.202% on the worst domain, the same artifact as the DFlash2 row above. Depth stays 4 under that rule too: depth 5 loses this lane's code cell by 20% (183.0 against 220.4).
@@ -12,13 +12,11 @@ REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
 REM  message, rather than letting the process exit 0xC0000135 having printed nothing.
 REM
-REM  The three context-cache bounds are deliberate. With max-concurrency 1 the defaults
-REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~530-token
-REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
-REM  four of five prompts re-prefilling in full on every call and no error. Raising the
-REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
-REM  runtime are unchanged from the values above.
+REM  The host-cache quota (`--host-cache-capacity 8192MiB`) is deliberate.
+REM  Upstream b9114396 replaced the earlier multi-flag prefix bounds with one unified 8 GiB
+REM  Host quota covering StateImages, Main/backend KV, pause snapshots and in-flight transfers;
+REM  setting it keeps interleaved multi-turn conversations resident without silent tail
+REM  re-prefill, preserving full context capacity.
 REM
 REM  The CUDA wait schedule is pinned to blocking rather than left to the engine's default, which
 REM  is upstream's spin (NINFER_CUDA_SYNC, see docs/cli.md). Measured 2026-09-25 over six
@@ -48,8 +46,8 @@ if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
 set "MODEL=%~dp0models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4qat.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
-REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
-REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
+REM explicitly stops the lane inheriting whichever template its artifact embeds -- shipped
+REM artifacts embed their own templates, and embedded templates can predate alias updates.
 set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
 if not exist "%TEMPLATE%" set "TEMPLATE=%~dp0tools\chat_templates\qwen3_8.jinja"
 REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it

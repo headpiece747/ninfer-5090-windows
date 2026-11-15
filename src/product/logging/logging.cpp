@@ -25,7 +25,6 @@
 
 namespace ninfer::product {
 
-
 namespace {
 bool is_stderr_tty() noexcept {
 #ifdef _WIN32
@@ -34,8 +33,6 @@ bool is_stderr_tty() noexcept {
     return ::isatty(STDERR_FILENO) == 1;
 #endif
 }
-} // namespace
-namespace {
 
 spdlog::level::level_enum to_spdlog_level(LogLevel level) {
     switch (level) {

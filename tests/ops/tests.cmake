@@ -31,15 +31,7 @@ ninfer_add_op_test(ninfer_dflash2_nvfp4_routes_test
 # taking the sparse-accept isolation test with it; restore it so the coverage is not lost
 # silently. Restored from f89e05fc.
 #
-# The context-KV materialize test is deliberately NOT restored here, though it used to be.
-# This block was a second add_executable() for the same target name that kv_cache/tests.cmake
-# already registers through ninfer_add_op_test, so BUILD_TESTING=ON could not configure at
-# all (CMP0002: duplicate target). The registered kv_cache/context_kv_materialize.cpp comes
-# from the f30e661f suite reorganisation, runs the same batch sweep and the same workspace
-# interval checks, and adds capacity-witness cases this copy lacks; the only thing the removed
-# copy added was splitting that one sweep across four ctest entries via --batches, which is
-# parallelism rather than coverage. tests/ops/test_context_kv_materialize.cpp is the now
-# unreferenced source of that removed target, kept only so this decision stays revertable.
+# Context-KV materialize coverage lives in kv_cache/context_kv_materialize.cpp (via kv_cache/tests.cmake).
 ninfer_add_op_test(ninfer_speculative_round_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_speculative_round.cpp"
   LIBRARIES ninfer_ops ninfer_core)

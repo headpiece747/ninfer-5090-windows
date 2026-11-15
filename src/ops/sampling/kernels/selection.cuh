@@ -20,8 +20,15 @@ struct alignas(16) SamplingInputTile {
 #pragma unroll
             for (int i = 0; i < kItems / 8; ++i) {
                 const int first = (i * Threads + tid) * 8;
-                cp_async_zfill<16, Cache::cg>(logits + first, input + first,
-                                              min(16, max(0, (available - first) * 2)));
+                if (first + 8 <= available) {
+                    cp_async_zfill<16, Cache::cg>(logits + first, input + first, 16);
+                } else {
+#pragma unroll
+                    for (int e = 0; e < 8; ++e) {
+                        logits[first + e] =
+                            first + e < available ? input[first + e] : __float2bfloat16(0.F);
+                    }
+                }
             }
             cp_commit();
         } else {
@@ -36,15 +43,25 @@ struct alignas(16) SamplingInputTile {
 #pragma unroll
                 for (int i = 0; i < kItems / 4; ++i) {
                     const int first = (i * Threads + tid) * 4;
-                    cp_async_zfill<16, Cache::cg>(counts + first, history + first,
-                                                  min(16, max(0, (available - first) * 4)));
+                    if (first + 4 <= available) {
+                        cp_async_zfill<16, Cache::cg>(counts + first, history + first, 16);
+                    } else {
+#pragma unroll
+                        for (int e = 0; e < 4; ++e) {
+                            counts[first + e] = first + e < available ? history[first + e] : 0;
+                        }
+                    }
                 }
                 cp_commit();
             } else {
 #pragma unroll
                 for (int i = 0; i < kItems; ++i) {
                     const int at = i * Threads + tid;
-                    cp_async_zfill<4, Cache::ca>(counts + at, history + at, at < available ? 4 : 0);
+                    if (at < available) {
+                        cp_async<4, Cache::ca>(counts + at, history + at);
+                    } else {
+                        counts[at] = 0;
+                    }
                     if (i % 4 == 3) cp_commit();
                 }
             }

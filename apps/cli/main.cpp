@@ -1,4 +1,5 @@
 #include "product/config/options.h"
+#include "product/logging/console_code_page.h"
 #include "product/logging/logging.h"
 #include "product/logging/configuration.h"
 #include "product/logging/pretty_format.h"
@@ -245,6 +246,9 @@ void print_generation_summary(const ninfer::GenerationResult& result,
 } // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    const ninfer::product::ConsoleOutputCodePage console_code_page;
+#endif
     ninfer::product::CliOptions cli;
     try {
         cli = ninfer::product::parse_cli_options(argc, argv);

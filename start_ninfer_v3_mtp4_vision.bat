@@ -3,22 +3,20 @@ REM ============================================================================
 REM  NVFP4-full + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 194.9 tok/s   draft acceptance 56.3%
+REM      context 262,144   decode 194.9 tok/s   draft acceptance 55.6%
 REM      runtime 8.07 GiB   free VRAM 4.45 GiB
 REM
-REM  KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 149.5 against k8v4 139.1, +7.0% against a 0.8% spread, three interleaved rounds); the disclosed cost is 6.0% of long Chinese and the short code cell is flat. MTP lane on the second artifact, and the one lane where the BF16 exception projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's context costs that lane acceptance points and throughput, measured interleaved against the no-exception build. Re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes from 5 to 4: d4 wins prose (120.3 against 110.0), chinese (125.3 against 117.4) and dialogue (166.3 against 140.9), and loses only code (190.6 against 204.8) and repetition by 2.9%, so its worst case is -2.9% against d5's -7.5%. **The first pass of this sweep read the wrong artifact**: `widths --art ninfer` resolves to cometkim's base `qwen3_8_27b_nvfp4`, which is not a shipping lane, while this lane ships `nvfp4full`. Swept on the shipped image the verdict is the same, but it had to be re-measured to be known -- the two images differ by 26 tok/s on the same configuration, which is wider than the depth effect being decided. This lane's 2.96 GiB free is the fleet's tightest, because it carries the BF16 exceptions and so has the heaviest weights at the same runtime. KV format changed from fp8 to k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code cells decide, every other domain is disclosed). Interleaved on the three cells, each arm twice: code +12.1% decode and acceptance 46.67 -> 52.71, long code +2.1% and acceptance 34.07 -> 33.89 (the one cell that gives up a fifth of a point, disclosed rather than smoothed), and long Chinese +11.1% with acceptance 34.07 -> 41.10. Quality costs +0.035% corpus perplexity overall and +0.277% on the worst domain, the smallest quality cost of the five artifacts. Depth stays 4: re-read on served code at fp8, depth 5 loses long code by 26% (110.8 against 140.1), which reverses the short-domain reading that had depth 5 winning that column.
+REM  KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 149.5 against k8v4 139.1, +7.0% against a 0.8% spread, three interleaved rounds); the disclosed cost is 6.0% of long Chinese and the short code cell is flat. MTP lane on the second artifact, and the one lane where the BF16 exception projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's context costs that lane acceptance points and throughput, measured interleaved against the no-exception build. Re-swept 2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this depth changes from 5 to 4: d4 wins prose (120.3 against 110.0), chinese (125.3 against 117.4) and dialogue (166.3 against 140.9), and loses only code (190.6 against 204.8) and repetition by 2.9%, so its worst case is -2.9% against d5's -7.5%. **The first pass of this sweep read the wrong artifact**: `widths --art ninfer` resolves to cometkim's base `qwen3_8_27b_nvfp4`, which is not a shipping lane, while this lane ships `nvfp4full`. Swept on the shipped image the verdict is the same, but it had to be re-measured to be known -- the two images differ by 26 tok/s on the same configuration, which is wider than the depth effect being decided. Earlier 2.96 GiB free was the fleet's tightest, because it carries the BF16 exceptions and so has the heaviest weights at the same runtime. KV format changed from fp8 to k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code cells decide, every other domain is disclosed). Interleaved on the three cells, each arm twice: code +12.1% decode and acceptance 46.67 -> 52.71, long code +2.1% and acceptance 34.07 -> 33.89 (the one cell that gives up a fifth of a point, disclosed rather than smoothed), and long Chinese +11.1% with acceptance 34.07 -> 41.10. Quality costs +0.035% corpus perplexity overall and +0.277% on the worst domain, the smallest quality cost of the five artifacts. Depth stays 4: re-read on served code at fp8, depth 5 loses long code by 26% (110.8 against 140.1), which reverses the short-domain reading that had depth 5 winning that column.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
 REM  message, rather than letting the process exit 0xC0000135 having printed nothing.
 REM
-REM  The three context-cache bounds are deliberate. With max-concurrency 1 the defaults
-REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~530-token
-REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
-REM  four of five prompts re-prefilling in full on every call and no error. Raising the
-REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
-REM  runtime are unchanged from the values above.
+REM  The host-cache quota (`--host-cache-capacity 8192MiB`) is deliberate.
+REM  Upstream b9114396 replaced the earlier multi-flag prefix bounds with one unified 8 GiB
+REM  Host quota covering StateImages, Main/backend KV, pause snapshots and in-flight transfers;
+REM  setting it keeps interleaved multi-turn conversations resident without silent tail
+REM  re-prefill, preserving full context capacity.
 REM
 REM  The CUDA wait schedule is pinned to blocking rather than left to the engine's default, which
 REM  is upstream's spin (NINFER_CUDA_SYNC, see docs/cli.md). Measured 2026-09-25 over six
@@ -48,8 +46,8 @@ if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
 set "MODEL=%~dp0models\qwen3_8_27b_nvfp4full.v3.ninfer"
 if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4full.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
-REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
-REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
+REM explicitly stops the lane inheriting whichever template its artifact embeds -- shipped
+REM artifacts embed their own templates, and embedded templates can predate alias updates.
 set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
 if not exist "%TEMPLATE%" set "TEMPLATE=%~dp0tools\chat_templates\qwen3_8.jinja"
 REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it

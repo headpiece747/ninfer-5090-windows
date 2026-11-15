@@ -3,7 +3,7 @@ REM ============================================================================
 REM  Swift 1.5 + MTP4 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), k8v4 KV at the ceiling below:
-REM      context 262,144   decode 208.6 tok/s   draft acceptance 55.3%
+REM      context 262,144   decode 203.9 tok/s   draft acceptance 54.6%
 REM      runtime 8.07 GiB   free VRAM 5.16 GiB
 REM
 REM  Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped at 5 by kMaximumMtpDraftTokens, so the window of 10 proposed on 2026-09-30 cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, dialogue and repetition, so depth 4 stands. This lane is unaffected by the draft encoding above, which the measurement confirms: the Q8 and NVFP4 builds read 215.7 and 216.0 tok/s on the same configuration. KV format changed from fp8 to k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code cells decide, every other domain is disclosed). Interleaved on the three cells, each arm twice: code +2.4% decode and acceptance 57.68 -> 60.20, long code +7.6% and acceptance 30.63 -> 35.49, with long Chinese the disclosed cost at -6.8% decode and acceptance 41.20 -> 35.02. Quality costs +0.098% corpus perplexity overall and +0.257% on the worst domain. Depth moved from 4 to 5 on 2026-10-09 and the arc is recorded rather than tidied: at fp8, depth 5 won long code 158.2 against 140.2 tok/s and long Chinese 215.7 against 121.8, so the lane moved; at the format it now ships (k8v4) the published cell loses 7.2% decode and 9.3 acceptance points, and the move was reverted on that; it was then re-applied once the comparison was made the way the rule is written -- maximin compares each option's WORST deciding cell, and depth 5's worst (long code 168.9) beats depth 4's (146.2) by 15.5%, with acceptance's worst rising too (42.8 against 35.5). The per-cell comparison was the error, not the measurement.
@@ -12,13 +12,11 @@ REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
 REM  message, rather than letting the process exit 0xC0000135 having printed nothing.
 REM
-REM  The three context-cache bounds are deliberate. With max-concurrency 1 the defaults
-REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~530-token
-REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
-REM  four of five prompts re-prefilling in full on every call and no error. Raising the
-REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
-REM  runtime are unchanged from the values above.
+REM  The host-cache quota (`--host-cache-capacity 8192MiB`) is deliberate.
+REM  Upstream b9114396 replaced the earlier multi-flag prefix bounds with one unified 8 GiB
+REM  Host quota covering StateImages, Main/backend KV, pause snapshots and in-flight transfers;
+REM  setting it keeps interleaved multi-turn conversations resident without silent tail
+REM  re-prefill, preserving full context capacity.
 REM
 REM  The CUDA wait schedule is pinned to blocking rather than left to the engine's default, which
 REM  is upstream's spin (NINFER_CUDA_SYNC, see docs/cli.md). Measured 2026-09-25 over six
@@ -48,8 +46,8 @@ if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
 set "MODEL=%~dp0models\qwen3_8_27b_nvfp4swift15.v3.ninfer"
 if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4swift15.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
-REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
-REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
+REM explicitly stops the lane inheriting whichever template its artifact embeds -- shipped
+REM artifacts embed their own templates, and embedded templates can predate alias updates.
 set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
 if not exist "%TEMPLATE%" set "TEMPLATE=%~dp0tools\chat_templates\qwen3_8.jinja"
 REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it

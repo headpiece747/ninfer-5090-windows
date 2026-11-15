@@ -73,8 +73,7 @@ and that window could not replace anything. Treat the decode column as this wind
 re-measure before quoting it as the engine's current speed.
 Re-folded 2026-11-03 on engine `f3bc4e01ca39` after the rebuild and upstream merge: lane fingerprint
 figures folded onto this engine's record.
-Re-folded 2026-11-11 on engine `b4ea73c5e91e` after merging upstream/dev (`1fdb37160`), restoring alignas(128) TMA descriptor bundles via TmaKernelParam, and setting
-`--memory-headroom 1024MiB` in `INVARIANT_FLAGS` to prevent Windows WDDM Shared System Memory eviction. `MEASURED_ENGINE` records the engine these
+Re-folded 2026-11-11 on engine `b4ea73c5e91e` after merging upstream/dev (`1fdb37160`), restoring alignas(128) TMA descriptor bundles via TmaKernelParam, and setting `--memory-headroom 1024MiB` in `INVARIANT_FLAGS` to prevent Windows WDDM Shared System Memory eviction. Re-folded again on engine `3959d3d68b6e` after integrating upstream/dev through `d9ad9dea4`. `MEASURED_ENGINE` records the engine these
 values came from, so `check_lane_figures.py` fails when the table and the tree disagree on that as well as
 on the fingerprint's own identity. Treat the decode column as this window's reading, as above.
 After the 2026-10-30 fold every value below is backed by `tools/release/lane_figures.json` (the
@@ -89,11 +88,11 @@ The PROFILES table is the only copy: this docstring deliberately restates no fur
 because a hand-copied number is a drift site. The example table that used to stand here was already stale by
 the time the launchers gained --device-state-slots, one day after those measurements.
 
-All four are vision-only and all four reach the native context; the with-vs-without-vision
+All eight lanes across the five artifacts are vision-only and all reach the native context; the with-vs-without-vision
 comparison that justified that is recorded in docs/adr/0004. Text-only variants existed only for
 the retired NVFP4 image, which charged 16,384-27,008 tokens for it.
 
---lm-head-draft is a measured choice per artifact, not a convention: all four shipped profiles set
+`--proposal-head optimized` (formerly `--lm-head-draft`) is a measured choice per artifact, not a convention: all eight shipped profiles set
 it today, and ADR-0005 records what it is worth on each -- including the one where it costs
 headroom to buy speed. Route, depth and this flag are measurements, never convention.
 """
@@ -146,19 +145,19 @@ NVIDIA = "qwen3_8_27b_nvfp4nvidia.v3.ninfer"
 # the fingerprint's own engine certifies the record and not the published numbers: without this, a green gate
 # stands over a table measured on a binary the tree no longer builds. `fold_lane_figures.py --apply` rewrites it
 # from the record it folds.
-MEASURED_ENGINE = "ef43833585b32441a1fb9c8e63c81d6e6a7fabf491e88212a7a5b7e1abccae76"
+MEASURED_ENGINE = "3959d3d68b6eb4c985b7513473cca5019d6f285429d40759567bccfb54b6ee89"
 
 
 PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_dflash2_vision.bat", port=8086, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + DFlash2 + Vision", model_id="qwen3.8-27b-quasar-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
-         tok=317.7, acc="57.2%", runtime="8.83 GiB", free="4.09 GiB",
+         tok=318.2, acc="57.4%", runtime="8.83 GiB", free="4.09 GiB",
          note="Fastest QUASAR lane at full context, at one state slot. Re-measured 2026-09-30 "
               "across all eight lanes. The 2026-09-24 figures this replaces (310.3/52.5%, runtime "
               "10.3 GiB) were taken before the workspace grew and no longer describe this lane; at "
-              "the shipped configuration every DFlash2 lane at fp8 reads 10.6 GiB and free VRAM varying "
-              "by about 0.2 GiB (this lane reads 8.83 GiB and 4.09 GiB free after the KV change below), "
+              "that earlier 2026-09-30 configuration every DFlash2 lane at fp8 read 10.6 GiB "
+              "(this lane later read 8.83 GiB and 4.09 GiB free after the KV change below; current figure beside this note), "
               "and this row is the measured one. Two earlier figures on this lane, 343.4/62.5% and "
               "the 45.7% published-file reading, had already been withdrawn as not reproducing. Depth "
               "changed from 7 to 9 on 2026-10-09, on the served regime. The 2026-09-30 short-domain "
@@ -199,7 +198,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_quasar_v3_mtp4_vision.bat", port=8087, art=QUASAR, device_state_slots=1,
          label="QUASAR QAT + MTP4 + Vision", model_id="qwen3.8-27b-quasar-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=215.3, acc="60.6%", runtime="8.07 GiB", free="5.17 GiB",
+         tok=210.6, acc="60.4%", runtime="8.07 GiB", free="5.17 GiB",
          note="KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 136.2 against k8v4 132.7, +2.6% against a 0.7% spread, six interleaved rounds), with no disclosed cost outside the spread and a 3.1% gain on long Chinese. Depth 5 shipped here from 2026-09-28 records that no longer reproduce, and re-swept "
               "2026-09-30 over depths 1-5 on five domains at three interleaved rounds each, this "
               "depth changes to 4. d5 wins two domains and loses three, badly: code 183.0 against "
@@ -218,7 +217,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_ninfer_v3_dflash2_vision.bat", port=8088, art=NVFP4FULLNOEX, device_state_slots=1,
          label="NVFP4-full + DFlash2 + Vision", model_id="qwen3.8-27b-nvfp4-v3-dflash2-vision",
          spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=296.4, acc="41.6%", runtime="10.6 GiB", free="2.85 GiB",
+         tok=291.0, acc="41.4%", runtime="10.6 GiB", free="2.85 GiB",
          note="This lane is REFUSED at startup on the BF16-exception image and was, until "
               "2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB "
               "of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after "
@@ -232,11 +231,11 @@ PROFILES: list[dict[str, Any]] = [
               "about 1.50 GiB free, so the split into two images remained necessary and the margin on "
               "this class of lane was thin. The guard now returns about 1.35 GiB, and "
               "`--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% "
-              "prefill -- is no longer needed to improve it. Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Depth re-measured 2026-10-09 through the matrix's own widths protocol with the prompts supplied from a file, the served sampling, three interleaved rounds inside one lane each: depth 9 leads on all three treatments -- the 225-character code prompt 378.4 against 352.6 tok/s (+7.3%, spreads 2.3/1.5%), 36,000 characters of real code 194.3 against 188.8 (+2.9%, 1.4/0.3%) and 36,000 characters of Chinese 252.1 against 227.5 (+10.8%, 0.5/0.4%). The greedy readings that disagreed (+1.9% on one prompt, -15% on another) were single-run comparisons whose spreads cannot resolve anything this size, which is why a paired sweep across lane restarts was withdrawn. The figures beside this note are at the shipped depth 9 and were stale from before it."),
+              "prefill -- is no longer needed to improve it. Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Depth re-measured 2026-10-09 through the matrix's own widths protocol with the prompts supplied from a file, the served sampling, three interleaved rounds inside one lane each: depth 9 leads on all three treatments -- the 225-character code prompt 378.4 against 352.6 tok/s (+7.3%, spreads 2.3/1.5%), 36,000 characters of real code 194.3 against 188.8 (+2.9%, 1.4/0.3%) and 36,000 characters of Chinese 252.1 against 227.5 (+10.8%, 0.5/0.4%). The greedy readings that disagreed (+1.9% on one prompt, -15% on another) were single-run comparisons whose spreads cannot resolve anything this size, which is why a paired sweep across lane restarts was withdrawn. The figures beside this note are measured at the shipped depth 9."),
     dict(file="start_ninfer_v3_mtp4_vision.bat", port=8089, art=NVFP4FULL, device_state_slots=1,
          label="NVFP4-full + MTP4 + Vision", model_id="qwen3.8-27b-nvfp4-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=194.9, acc="56.3%", runtime="8.07 GiB", free="4.45 GiB",
+         tok=194.9, acc="55.6%", runtime="8.07 GiB", free="4.45 GiB",
          note="KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 149.5 against k8v4 139.1, +7.0% against a 0.8% spread, three interleaved rounds); the disclosed cost is 6.0% of long Chinese and the short code cell is flat. MTP lane on the second artifact, and the one lane where the BF16 exception "
               "projections earn their keep: encoding them to NVFP4 to fit the DFlash2 lane's "
               "context costs that lane acceptance points and throughput, measured interleaved "
@@ -249,7 +248,7 @@ PROFILES: list[dict[str, Any]] = [
               "which is not a shipping lane, while this lane ships `nvfp4full`. Swept on the shipped "
               "image the verdict is the same, but it had to be re-measured to be known -- the two "
               "images differ by 26 tok/s on the same configuration, which is wider than the depth "
-              "effect being decided. This lane's 2.96 GiB free is the fleet's tightest, because it "
+              "effect being decided. Earlier 2.96 GiB free was the fleet's tightest, because it "
               "carries the BF16 exceptions and so has the heaviest weights at the same runtime. KV format "
               "changed from fp8 to k8v4 on 2026-10-09 under the code-weighted rule (CONTEXT.md: the code "
               "cells decide, every other domain is disclosed). Interleaved on the three cells, each arm "
@@ -263,7 +262,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_swift_v3_dflash2_vision.bat", port=8090, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + DFlash2 + Vision", model_id="qwen3.8-27b-swift15-v3-dflash2-vision",
          spec="dflash2", draft=7, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=382.4, acc="70.2%", runtime="8.83 GiB", free="4.20 GiB",
+         tok=388.0, acc="70.2%", runtime="8.83 GiB", free="4.20 GiB",
          note="KV format moved k8v4 -> fp8 on 2026-10-13, decided on the served-length code cell (fp8 222.0 against k8v4 205.7, +7.3% against a 0.9% spread, three interleaved rounds); the disclosed costs are 11.0% of the short code cell - the inversion the rule warns about - and 7.6% of long Chinese. Swift 1.5 replaces Swift 1.0 on both Swift lanes; these figures are measured "
               "2026-09-30 with `profile` mode through this launcher's own flags. Width 7 was measured "
               "against every window 1-15 on the code domain and re-measured on four others: 13 is "
@@ -301,7 +300,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_swift_v3_mtp4_vision.bat", port=8091, art=SWIFT15, device_state_slots=1,
          label="Swift 1.5 + MTP4 + Vision", model_id="qwen3.8-27b-swift15-v3-mtp4-vision",
          spec="mtp", draft=5, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
-         tok=208.6, acc="55.3%", runtime="8.07 GiB", free="5.16 GiB",
+         tok=203.9, acc="54.6%", runtime="8.07 GiB", free="5.16 GiB",
          note="Depth 4 re-measured 2026-09-30 against depths 1-5 on four domains. MTP is hard-capped "
               "at 5 by kMaximumMtpDraftTokens, so the window of 10 proposed on 2026-09-30 "
               "cannot be run on this tree at all. Depth 5 is faster on code and slower on prose, "
@@ -324,15 +323,14 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_nvidia_v3_dflash2_vision.bat", port=8092, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + DFlash2 + Vision", model_id="qwen3.8-27b-nvidia-v3-dflash2-vision",
          spec="dflash2", draft=9, vision=True, lm_head=True, ctx=262144, kv_dtype="fp8",
-         tok=291.8, acc="39.7%", runtime="10.6 GiB", free="2.91 GiB",
+         tok=295.4, acc="39.7%", runtime="10.6 GiB", free="2.91 GiB",
          note="NVIDIA's ModelOpt quantization of the base model, built by this port: its NVFP4 MLP "
               "imported on all 64 layers and its FP8 attention re-encoded from the BF16 base. Same "
               "full-corpus perplexity as the official stock at 20% smaller, with no FP8 tensor where "
               "that has 146, and this lane reaches the full context where it caps below. The "
               "349.2/61.5% recorded until 2026-09-30 was taken 2026-09-24, before the workspace "
-              "grew; this lane now reads 10.3 GiB and 2.91 GiB free, and its acceptance is 56.2% with "
-              "a byte-identical digest across the tiled saturation guard, so the gap is the stale "
-              "record rather than the configuration. Depth changed from 7 to 9 on 2026-10-09. The "
+              "grew; on 2026-09-30 this lane read 10.3 GiB and 2.91 GiB free at 56.2% acceptance with "
+              "a byte-identical digest across the tiled saturation guard (current figures beside this note). Depth changed from 7 to 9 on 2026-10-09. The "
               "2026-09-30 sweep left 7 because its short-domain worst case was a tie (+0.3%, well "
               "inside one invocation's spread), which is no evidence either way; re-measured on the "
               "served regime at the served sampling, depth 9 leads by 13.2% on 36,000 characters of "
@@ -341,7 +339,7 @@ PROFILES: list[dict[str, Any]] = [
               "depth 9, as do the short-domain mean and the mean over both sets. The proposal head was "
               "measured on this lane twice on 2026-10-10 and the two protocols disagree. At the served "
               "sampling, an interleaved four-run A/B reads 329.5/323.6 tok/s and 45.9% acceptance with "
-              "--lm-head-draft against 257.2/257.9 and 35.9% without, so the flag stays. At greedy the "
+              "`--proposal-head optimized` against 257.2/257.9 and 35.9% without, so the flag stays. At greedy the "
               "same lane reads 38.3% and 270 tok/s without it against 28.8% and 226 with it. The served "
               "protocol decides, and the greedy arm is kept in the record because the disagreement is a "
               "property of the accept rule rather than noise: a frequency-ranked shortlist truncates the "
@@ -350,7 +348,7 @@ PROFILES: list[dict[str, Any]] = [
     dict(file="start_nvidia_v3_mtp4_vision.bat", port=8093, art=NVIDIA, device_state_slots=1,
          label="NVIDIA ModelOpt + MTP4 + Vision", model_id="qwen3.8-27b-nvidia-v3-mtp4-vision",
          spec="mtp", draft=4, vision=True, lm_head=True, ctx=262144, kv_dtype="k8v4",
-         tok=201.2, acc="55.4%", runtime="9.96 GiB", free="3.45 GiB",
+         tok=197.3, acc="55.5%", runtime="9.96 GiB", free="3.45 GiB",
          note="KV format moved fp8 -> k8v4 on 2026-10-13, decided on the served-length code cell (k8v4 145.7 against fp8 136.3, +6.5% against a 2.4% spread, six interleaved rounds); the disclosed costs are 11.0% of the short code cell and 6.6% of long Chinese, and the code cell's acceptance reads 47.7% where the previous fp8 measurement read 52.2%. Depth 4 measured fastest of 2-5 here, and the largest correction in the table: d5 read "
               "228.3 on the 2026-09-17 records, which the warmup transient accounts for almost "
               "entirely, and measures 167.8 with it excluded. Depth 4 against depth 5 is 223.4 "
@@ -486,7 +484,7 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # capacity for interleaved conversations, which is now measured at the shipped quota only.
     #
     # The ladder below was measured on the superseded slot model: it varied --host-state-slots, which
-    # upstream b9114396 replaced with --host-context-mib. It is kept because the finding is about the
+    # upstream b9114396 replaced with --host-context-mib (later renamed --host-cache-capacity). It is kept because the finding is about the
     # *shape* of the bound rather than its unit -- what has to be covered is the live shared prefixes
     # plus the live private continuations, and the private side is the pressure, because an agent
     # session forks on every tool call and each fork is a continuation that needs a slot. The
@@ -520,7 +518,7 @@ def ordered_flags(profile: dict[str, Any]) -> list[tuple[str, str | None]]:
     # for the same Gated-DeltaNet architecture quotes roughly 75 MB per sequence for the recurrent
     # state alone, which is a different accounting and not a corroboration; do not cite it as one.
     #
-    # --context-cache-policy rolling ships enabled: once the pools are full, publishing a conversation's
+    # Historically, `--context-cache-policy rolling` shipped enabled (now retired after upstream's context-cache rewrite): once the pools are full, publishing a conversation's
     # newest checkpoint means replacing a resident, and by default that needs two matching reuse domains
     # or explicit evidence -- which one append-only conversation never has, so its reusable frontier
     # pins (measured: 52,723 tokens, TTFT 2.6 s -> 15.1 s at 65k -> 117k context). `rolling` values a

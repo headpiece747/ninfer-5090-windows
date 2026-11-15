@@ -265,7 +265,7 @@ const func_builtins& global_builtins() {
              args.ensure_vals<value_string>();
              std::string format = args.get_pos(0)->as_string().str();
              std::tm local{};
- #ifdef _WIN32
+#ifdef _WIN32
             // MSVC has no localtime_r; localtime_s returns errno_t and takes the output first.
             if (localtime_s(&local, &args.ctx.current_time) != 0) {
 #else

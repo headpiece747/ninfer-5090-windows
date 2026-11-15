@@ -521,9 +521,8 @@ struct Fixture {
                 ++failures;
             }
             if (batch_size == 1 || batch_size == 8) {
-                cudaStream_t stream = nullptr;
-                cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
-                           "selector graph stream");
+                const CudaStream stream_owner(ninfer::test::cuda_environment().context);
+                const cudaStream_t stream = stream_owner.stream();
                 const auto stream_execution =
                     ninfer::test::cuda_environment().context.execution_view(stream);
                 {
@@ -576,7 +575,6 @@ struct Fixture {
                         cuda_synchronize(stream);
                     }
                 }
-                cuda_check(cudaStreamDestroy(stream), "destroy selector stream");
                 failures += verify_exact((label + " graph drafts").c_str(),
                                          from_device<int>(draft_device.data(), draft_count),
                                          std::vector<int>(expected.drafts.begin(),
@@ -848,11 +846,10 @@ struct Fixture {
                 ops::CandidateSelectorInput::Candidates, steps, steps, batch_size, batch_size);
             GuardedDeviceBuffer scratch(std::max<std::size_t>(capacity, 1));
             MemoryArena workspace(scratch.span());
+            const CudaStream stream_owner(ninfer::test::cuda_environment().context);
+            const cudaStream_t stream = stream_owner.stream();
             DecodeGraphDefinition definition;
             DecodeGraphExecutable executable;
-            cudaStream_t stream = nullptr;
-            cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
-                       "nvfp4 masked selector graph stream");
             const auto cuda = ninfer::test::cuda_environment().context.execution_view(stream);
             cuda_synchronize();
             definition.capture(stream, [&] {
@@ -930,7 +927,6 @@ struct Fixture {
                             q_device.verify_guards("nvfp4 masked q") +
                             scratch.verify_guards("nvfp4 masked workspace");
             }
-            cuda_check(cudaStreamDestroy(stream), "destroy nvfp4 masked selector stream");
             return failures;
         }
         for (int batch_size = 1; batch_size <= kMaxBatch; ++batch_size) {

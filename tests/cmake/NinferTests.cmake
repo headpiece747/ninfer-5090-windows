@@ -8,6 +8,9 @@ endfunction()
 # Export only the replacements used by this executable's fault-injection cases.
 # Production shared libraries resolve these symbols through the normal ELF lookup.
 function(ninfer_test_interpose target)
+  if(WIN32 OR MSVC)
+    return()
+  endif()
   target_link_libraries(${target} PRIVATE ${CMAKE_DL_LIBS})
   foreach(symbol IN LISTS ARGN)
     target_link_options(${target} PRIVATE "LINKER:--export-dynamic-symbol=${symbol}")

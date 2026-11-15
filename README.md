@@ -8,7 +8,7 @@ Docker. It runs text, image, and video prompts through a local CLI or OpenAI-/An
 HTTP APIs. The runtime is deliberately specialized: one GPU, one resident model, and a configurable
 resident-request capacity (`--max-concurrency`; shipped launchers pin `--max-concurrency 1`).
 
-Release v1.2.5 ships **eight measured launchers over four Qwen3.8-27B artifact lines**, all
+This Windows port ships **eight measured launchers over four Qwen3.8-27B artifact lines** (current `dev`, following v1.2.5), all
 vision-capable at the full 262,144-token context, with DFlash2 or MTP speculative decoding. The
 engine rejects v2 artifacts outright, so a v1.0.x user must download a v3 artifact or
 [upgrade the one they have](docs/weight-conversion.md#upgrade-an-existing-v2-artifact). Details in
@@ -77,8 +77,9 @@ cover checkpoints this port does not ship.
 ## Startup notes
 
 GPU residency is fixed at process startup. `--spec` selects speculative decoding residency, and
-`--vision` independently selects Vision residency. On both shipped artifacts the DFlash2 route
-accelerates generated-text decode after multimodal prefill, not Vision encode itself.
+`--vision` independently selects Vision residency. On all shipped DFlash2 lanes (`nvfp4qat`,
+`nvfp4full_noex`, `nvfp4swift15`, and `nvfp4nvidia`), the DFlash2 route accelerates generated-text
+decode after multimodal prefill, not Vision encode itself.
 
 ## Windows
 
@@ -144,27 +145,24 @@ ships, and every profile reaches the full native context. **Three lanes ship `--
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **318 tok/s** | 57.2% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 215 tok/s | 60.6% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **296 tok/s** | 41.6% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 195 tok/s | 56.3% |
-| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **382 tok/s** | 70.2% |
-| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 209 tok/s | 55.3% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **292 tok/s** | 39.7% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 201 tok/s | 55.4% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **318 tok/s** | 57.4% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 211 tok/s | 60.4% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **291 tok/s** | 41.4% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 195 tok/s | 55.6% |
+| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **388 tok/s** | 70.2% |
+| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 204 tok/s | 54.6% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **295 tok/s** | 39.7% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 197 tok/s | 55.5% |
 
 Context ceilings are measured, not assumed. The engine defaults to 512 MiB of automatic planning headroom (`kDefaultMemoryHeadroomBytes`), while all eight shipped Windows launchers pass `--memory-headroom 1024MiB` so automatic KV allocation leaves enough free device memory to avoid Windows WDDM Shared System Memory eviction; the engine refuses a profile whose minimum runtime reservation plus headroom does not fit after weights. That ceiling is a property of the artifact's weight size:
 QUASAR's MTP lane carries 16.3 GiB of device weights and NVFP4-full's 17.1 GiB, both of which leave
 room for the full KV pool. Our earlier NVFP4 image carried 19.7 GiB and could not, which is why it
 was replaced.
 
-The optimized proposal head (`--proposal-head optimized`, formerly `--lm-head-draft`) is set per profile because its value is not uniform; the measured gains behind
-each choice are recorded in [ADR-0005](docs/adr/0005-per-profile-flags-are-measured.md):
-
-- QUASAR: on for both routes;
-- NVFP4 MTP: on at depth 4;
-- NVFP4-full DFlash2: **on**, but marginally, and it costs headroom, so it is the first thing to
-  turn off if a profile ever refuses to start.
+The optimized proposal head (`--proposal-head optimized`, formerly `--lm-head-draft`) is enabled
+for all eight shipped profiles (`profiles.py`); earlier per-profile measurements are recorded in
+[ADR-0005](docs/adr/0005-per-profile-flags-are-measured.md). Turn `--proposal-head` to
+`compatible` if debugging head numerical sensitivity or headroom pressure.
 
 MTP depth is chosen per artifact from measurement rather than convention: depth 4 is fastest on
 QUASAR and both NVFP4 lines, depth 5 on Swift 1.5. Acceptance rate does not predict throughput, because tokens committed
@@ -252,10 +250,10 @@ Two things the server does offer, with defaults worth knowing:
 ## OpenCode Desktop integration
 
 Point an OpenAI-compatible provider at a running launcher, using the model id from that launcher's
-header. [docs/opencode-settings.md](docs/opencode-settings.md) carries the `opencode.json`, the four
-model entries, the compaction settings, and the concurrency answer: the launchers run
-`--max-concurrency 1` deliberately, and that only works because eight conversation states are
-retained in host RAM, which covers a main session plus parallel subagents.
+header. [docs/opencode-settings.md](docs/opencode-settings.md) carries the `opencode.json`, the eight
+shipped model entries, the compaction settings, and the concurrency answer: the launchers run
+`--max-concurrency 1` deliberately, and `--host-cache-capacity 8192MiB` holds interleaved main and
+subagent conversation states in host RAM (measured: 52 interleaved ~20k-token conversations reuse; fails at 56).
 
 ## Capabilities and limits
 
@@ -272,9 +270,10 @@ The engine provides the following capabilities, with optional components enabled
 - OpenAI Responses Core, OpenAI Chat Completions, and Anthropic Messages, including streaming,
   tools, local response state, token counting, and usage accounting.
 
-Both shipped artifacts carry the DFlash2 companion weights and support
-`--spec dflash2 --draft-tokens 7` on the same Text/Vision Engine path, with draft counts 1..15 and
-either full or optimized proposal heads.
+Four of the five shipped artifacts (`nvfp4qat`, `nvfp4full_noex`, `nvfp4swift15`, and `nvfp4nvidia`)
+carry the DFlash2 companion weights and serve `--spec dflash2` with depth 7 or 9 per lane on the
+same Text/Vision Engine path (while `nvfp4full` keeps the BF16 exception weights for its MTP4 lane);
+all lanes support draft counts 1..15 and either full or optimized proposal heads.
 
 Qwen3.8-Flash-Next uses CPU/GPU Main experts, disk-backed NF4 PLE and segmented CUDA Graph.
 Its native MTP uses the full shared head; DFlash/DFlash2 and optimized proposal heads are not

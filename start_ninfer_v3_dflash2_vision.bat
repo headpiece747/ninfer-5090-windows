@@ -3,22 +3,20 @@ REM ============================================================================
 REM  NVFP4-full + DFlash2 + Vision
 REM
 REM  Measured on this machine (32 GB RTX 5090), fp8 KV at the ceiling below:
-REM      context 262,144   decode 296.4 tok/s   draft acceptance 41.6%
+REM      context 262,144   decode 291.0 tok/s   draft acceptance 41.4%
 REM      runtime 10.6 GiB   free VRAM 2.85 GiB
 REM
-REM  This lane is REFUSED at startup on the BF16-exception image and was, until 2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after weights -- short by 308 MiB. Encoding the nine BF16 exception parents to NVFP4 is 0.7 GiB and clears it, at 17.2 GiB of device weights against 17.9. That costs 0.087 % perplexity overall (5.002751 against 4.998419, same binary same day) and buys back the native context plus 24.8 % throughput and 11.6 acceptance points on this route. The exceptions stay on the MTP lane below, where they are worth far more than they cost here. Note that the artifact fix is not the only thing standing between this lane and its context: before the tiled saturation guard, every DFlash2 lane read 11.6 GiB and about 1.50 GiB free, so the split into two images remained necessary and the margin on this class of lane was thin. The guard now returns about 1.35 GiB, and `--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% prefill -- is no longer needed to improve it. Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Depth re-measured 2026-10-09 through the matrix's own widths protocol with the prompts supplied from a file, the served sampling, three interleaved rounds inside one lane each: depth 9 leads on all three treatments -- the 225-character code prompt 378.4 against 352.6 tok/s (+7.3%, spreads 2.3/1.5%), 36,000 characters of real code 194.3 against 188.8 (+2.9%, 1.4/0.3%) and 36,000 characters of Chinese 252.1 against 227.5 (+10.8%, 0.5/0.4%). The greedy readings that disagreed (+1.9% on one prompt, -15% on another) were single-run comparisons whose spreads cannot resolve anything this size, which is why a paired sweep across lane restarts was withdrawn. The figures beside this note are at the shipped depth 9 and were stale from before it.
+REM  This lane is REFUSED at startup on the BF16-exception image and was, until 2026-09-30. The refusal's own arithmetic: at 262,144 with Vision it needs 11.63 GiB of reservation plus 1 GiB of automatic headroom against 12.33 GiB available after weights -- short by 308 MiB. Encoding the nine BF16 exception parents to NVFP4 is 0.7 GiB and clears it, at 17.2 GiB of device weights against 17.9. That costs 0.087 % perplexity overall (5.002751 against 4.998419, same binary same day) and buys back the native context plus 24.8 % throughput and 11.6 acceptance points on this route. The exceptions stay on the MTP lane below, where they are worth far more than they cost here. Note that the artifact fix is not the only thing standing between this lane and its context: before the tiled saturation guard, every DFlash2 lane read 11.6 GiB and about 1.50 GiB free, so the split into two images remained necessary and the margin on this class of lane was thin. The guard now returns about 1.35 GiB, and `--prefill-chunk 4096` -- measured and rejected, it returns the same memory for -2.3% prefill -- is no longer needed to improve it. Depth re-swept 2026-10-08 against depth 7 on all five domains, one invocation per domain, three rounds each: the worst domain decides, and on it (chinese) depth 9 reads 143.1 against 141.0 and repeats at 137.7 against 135.5, margins of 1.5% and 1.6% against within-run spreads of 0.3-1.2%. Code +22.6%, dialogue +31.5% and repetition +12.1% also favour depth 9; prose is the known cost at -4.2% and is not the deciding domain. Non-speculative control 80.1-84.8 tok/s. Depth re-measured 2026-10-09 through the matrix's own widths protocol with the prompts supplied from a file, the served sampling, three interleaved rounds inside one lane each: depth 9 leads on all three treatments -- the 225-character code prompt 378.4 against 352.6 tok/s (+7.3%, spreads 2.3/1.5%), 36,000 characters of real code 194.3 against 188.8 (+2.9%, 1.4/0.3%) and 36,000 characters of Chinese 252.1 against 227.5 (+10.8%, 0.5/0.4%). The greedy readings that disagreed (+1.9% on one prompt, -15% on another) were single-run comparisons whose spreads cannot resolve anything this size, which is why a paired sweep across lane restarts was withdrawn. The figures beside this note are measured at the shipped depth 9.
 REM
 REM  Requires the FFmpeg runtime DLLs beside the executable (staged by
 REM  build_windows.bat). This launcher checks for them and refuses with a readable
 REM  message, rather than letting the process exit 0xC0000135 having printed nothing.
 REM
-REM  The three context-cache bounds are deliberate. With max-concurrency 1 the defaults
-REM  are max(1,4) shared, 2 private and 2 anchors; measured on five distinct ~530-token
-REM  prompts resent, that gave 1/5 round-2 hits at a 19.8% token-level hit rate, with
-REM  four of five prompts re-prefilling in full on every call and no error. Raising the
-REM  shared bound alone changed nothing; all three together gave 5/5 hits at 99.1%.
-REM  They cost no context or VRAM: with the bounds raised, both the ceiling and the
-REM  runtime are unchanged from the values above.
+REM  The host-cache quota (`--host-cache-capacity 8192MiB`) is deliberate.
+REM  Upstream b9114396 replaced the earlier multi-flag prefix bounds with one unified 8 GiB
+REM  Host quota covering StateImages, Main/backend KV, pause snapshots and in-flight transfers;
+REM  setting it keeps interleaved multi-turn conversations resident without silent tail
+REM  re-prefill, preserving full context capacity.
 REM
 REM  The CUDA wait schedule is pinned to blocking rather than left to the engine's default, which
 REM  is upstream's spin (NINFER_CUDA_SYNC, see docs/cli.md). Measured 2026-09-25 over six
@@ -48,8 +46,8 @@ if not exist "%SERVE%" set "SERVE=%~dp0build\apps\ninfer-serve.exe"
 set "MODEL=%~dp0models\qwen3_8_27b_nvfp4full_noex.v3.ninfer"
 if not exist "%MODEL%" set "MODEL=C:\AI\models\qwen3_8_27b_nvfp4full_noex.v3.ninfer"
 REM The lane's template travels with the archive; the source-tree copy is the fallback. Passing it
-REM explicitly stops the lane inheriting whichever template its artifact embeds -- the two shipped
-REM artifacts embed different ones, and the embedded pair predate the reasoning-effort alias mapping.
+REM explicitly stops the lane inheriting whichever template its artifact embeds -- shipped
+REM artifacts embed their own templates, and embedded templates can predate alias updates.
 set "TEMPLATE=%~dp0chat_templates\qwen3_8.jinja"
 if not exist "%TEMPLATE%" set "TEMPLATE=%~dp0tools\chat_templates\qwen3_8.jinja"
 REM The lane's environment, from profiles.launcher_env. A harness that starts Serve has to start it
