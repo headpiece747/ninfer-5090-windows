@@ -48,7 +48,16 @@ struct DeviceArgs {
     std::int32_t* drafts;
     float* q;
     int steps;
+    const std::int32_t* live_rows;
 };
+
+__device__ void clear_row(const DeviceArgs& a, int batch) {
+    const auto first = std::int64_t(batch) * a.steps;
+    for (int i = threadIdx.x; i < a.steps * kCandidates; i += blockDim.x) {
+        a.q[first * kCandidates + i] = 0.0F;
+        if (i < a.steps) a.drafts[first + i] = 0;
+    }
+}
 
 struct alignas(16) SelectorShared {
     std::uint8_t successor_staged[kCandidates * kCodeBytesPerRow];
@@ -92,11 +101,13 @@ __device__ int draw_rank(float edge, float temperature, unsigned long long seed,
         const float previous = __shfl_up_sync(kFullWarpMask, cumulative, offset);
         if (lane >= offset) cumulative += previous;
     }
-    const unsigned hits = __ballot_sync(kFullWarpMask, lane < kCandidates && uniform < cumulative);
-    return hits ? __ffs(hits) - 1 : kCandidates - 1;
+    const unsigned hits =
+        __ballot_sync(kFullWarpMask, lane < kCandidates && probability > 0 && uniform < cumulative);
+    const unsigned positive = __ballot_sync(kFullWarpMask, lane < kCandidates && probability > 0);
+    return hits ? __ffs(hits) - 1 : 31 - __clz(positive);
 }
 
-__device__ void score_row(const DeviceArgs& a, int column, SelectorShared& shared) {
+__device__ void score_row(const DeviceArgs& a, std::int64_t column, SelectorShared& shared) {
     const int tid = threadIdx.x, warp = tid >> 5, lane = tid & 31;
     int token = lane == 0 ? a.ids[column * kCandidates + warp] : 0;
     token     = __shfl_sync(kFullWarpMask, token, 0);
@@ -152,6 +163,10 @@ __device__ void score_row(const DeviceArgs& a, int column, SelectorShared& share
 __global__ __launch_bounds__(512, 1) void selector_walk_nvfp4_kernel(DeviceArgs a) {
     __shared__ SelectorShared shared;
     const int tid = threadIdx.x, warp = tid >> 5, lane = tid & 31, batch = blockIdx.x;
+    if (a.live_rows && !a.live_rows[batch]) {
+        clear_row(a, batch);
+        return;
+    }
     if (tid == 0) {
         shared.predecessor   = a.anchors[batch];
         shared.base_position = a.positions[batch];
@@ -160,7 +175,7 @@ __global__ __launch_bounds__(512, 1) void selector_walk_nvfp4_kernel(DeviceArgs 
     }
 #pragma unroll 1
     for (int step = 0; step < a.steps; ++step) {
-        const int column = batch * a.steps + step;
+        const auto column = std::int64_t(batch) * a.steps + step;
         score_row(a, column, shared);
         if (warp == 0) {
             const float edge   = lane < kCandidates ? shared.edge[lane] : -CUDART_INF_F;
@@ -175,33 +190,36 @@ __global__ __launch_bounds__(512, 1) void selector_walk_nvfp4_kernel(DeviceArgs 
 }
 
 __global__ __launch_bounds__(512, 2) void selector_lattice_nvfp4_kernel(DeviceArgs a, float* edges) {
-    const int column = blockIdx.x, p = blockIdx.y;
-    const int step = column % a.steps, batch = column / a.steps;
+    const std::int64_t column = blockIdx.x;
+    const int p = blockIdx.y;
+    const int step = static_cast<int>(column % a.steps), batch = static_cast<int>(column / a.steps);
+    if (a.live_rows && !a.live_rows[batch]) return;
     if (step == 0 && p != 0) return;
     __shared__ SelectorShared shared;
     if (threadIdx.x == 0)
         shared.predecessor = step == 0 ? a.anchors[batch] : a.ids[(column - 1) * kCandidates + p];
     score_row(a, column, shared);
     if (threadIdx.x < kCandidates)
-        edges[(static_cast<std::int64_t>(column) * kCandidates + p) * kCandidates + threadIdx.x] =
-            shared.edge[threadIdx.x];
+        edges[(column * kCandidates + p) * kCandidates + threadIdx.x] = shared.edge[threadIdx.x];
 }
 
 __global__ __launch_bounds__(32) void selector_lattice_walk_nvfp4_kernel(DeviceArgs a,
                                                                          const float* edges) {
     const int lane = threadIdx.x, batch = blockIdx.x;
+    if (a.live_rows && !a.live_rows[batch]) {
+        clear_row(a, batch);
+        return;
+    }
     const auto seed         = a.configs[batch].seed;
     const float temperature = a.configs[batch].temperature;
     const int position      = a.positions[batch];
     int predecessor_rank    = 0;
 #pragma unroll 1
     for (int step = 0; step < a.steps; ++step) {
-        const int column = batch * a.steps + step;
+        const auto column = std::int64_t(batch) * a.steps + step;
         const float edge =
             lane < kCandidates
-                ? edges[(static_cast<std::int64_t>(column) * kCandidates + predecessor_rank) *
-                            kCandidates +
-                        lane]
+                ? edges[(column * kCandidates + predecessor_rank) * kCandidates + lane]
                 : -CUDART_INF_F;
         int selected =
             draw_rank(edge, temperature, seed, position + step, a.q + column * kCandidates);
@@ -213,14 +231,12 @@ __global__ __launch_bounds__(32) void selector_lattice_walk_nvfp4_kernel(DeviceA
 } // namespace
 
 void launch_candidate_path_nvfp4(SelectorRoute route, const Tensor& candidate_ids,
-                                          const Tensor& unary_scores,
-                                          const Tensor& projected_hidden, const Tensor& anchors,
-                                          const Weight& predecessor_codebook,
-                                          const Weight& successor_codebook,
-                                          const Tensor& base_positions,
-                                          const SamplingConfig* configs, Tensor& drafts,
-                                          Tensor& proposal_q, const SelectorWorkspace& workspace,
-                                          cudaStream_t stream) {
+                                 const Tensor& unary_scores, const Tensor& projected_hidden,
+                                 const Tensor& anchors, const Weight& predecessor_codebook,
+                                 const Weight& successor_codebook, const Tensor& base_positions,
+                                 const SamplingConfig* configs, Tensor& drafts, Tensor& proposal_q,
+                                 const Tensor& live_rows, const SelectorWorkspace& workspace,
+                                 cudaStream_t stream) {
     const DeviceArgs args{static_cast<const std::int32_t*>(candidate_ids.data),
                           static_cast<const float*>(unary_scores.data),
                           static_cast<const __nv_bfloat16*>(projected_hidden.data),
@@ -235,7 +251,8 @@ void launch_candidate_path_nvfp4(SelectorRoute route, const Tensor& candidate_id
                           configs,
                           static_cast<std::int32_t*>(drafts.data),
                           static_cast<float*>(proposal_q.data),
-                          candidate_ids.ne[1]};
+                          candidate_ids.ne[1],
+                          static_cast<const std::int32_t*>(live_rows.data)};
     if (route == SelectorRoute::Direct) {
         selector_walk_nvfp4_kernel<<<candidate_ids.ne[2], 512, 0, stream>>>(args);
     } else {
@@ -249,24 +266,21 @@ void launch_candidate_path_nvfp4(SelectorRoute route, const Tensor& candidate_id
 }
 
 void execute_candidate_path_nvfp4(const Tensor& candidate_ids, const Tensor& unary_scores,
-                                            const Tensor& projected_hidden, const Tensor& anchors,
-                                            const Weight& predecessor_codebook,
-                                            const Weight& successor_codebook,
-                                            const Tensor& base_positions,
-                                            const SamplingConfig* configs, Tensor& drafts,
-                                            Tensor& proposal_q,
-                                            const SelectorWorkspace& workspace,
-                                            cudaStream_t stream) {
+                                  const Tensor& projected_hidden, const Tensor& anchors,
+                                  const Weight& predecessor_codebook,
+                                  const Weight& successor_codebook, const Tensor& base_positions,
+                                  const SamplingConfig* configs, Tensor& drafts, Tensor& proposal_q,
+                                  const Tensor& live_rows, const SelectorWorkspace& workspace,
+                                  cudaStream_t stream) {
     // The route and its edges buffer are the caller's: execute_candidate_path allocates once
     // so the capacity query covers the whole call.
     const auto route =
         select_candidate_path(CandidateSelectorInput::Candidates, candidate_ids.ne[1],
                               candidate_ids.ne[2])
             .route;
-    launch_candidate_path_nvfp4(route, candidate_ids, unary_scores, projected_hidden,
-                                anchors, predecessor_codebook, successor_codebook,
-                                base_positions, configs, drafts, proposal_q, workspace,
-                                stream);
+    launch_candidate_path_nvfp4(route, candidate_ids, unary_scores, projected_hidden, anchors,
+                                predecessor_codebook, successor_codebook, base_positions, configs,
+                                drafts, proposal_q, live_rows, workspace, stream);
 }
 
 } // namespace ninfer::ops::candidate_path_detail

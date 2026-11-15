@@ -5,8 +5,8 @@
 This repository is the native Windows port of [Neroued/ninfer](https://github.com/Neroued/ninfer):
 the same C++/CUDA engine, built with MSVC and CUDA 13.3 on Windows 11 x64, with no WSL2 and no
 Docker. It runs text, image, and video prompts through a local CLI or OpenAI-/Anthropic-compatible
-HTTP APIs. The runtime is deliberately specialized: one GPU, one resident model, and a
-startup-fixed capacity of one to eight active requests.
+HTTP APIs. The runtime is deliberately specialized: one GPU, one resident model, and a configurable
+resident-request capacity (`--max-concurrency`; shipped launchers pin `--max-concurrency 1`).
 
 Release v1.2.5 ships **eight measured launchers over four Qwen3.8-27B artifact lines**, all
 vision-capable at the full 262,144-token context, with DFlash2 or MTP speculative decoding. The
@@ -144,14 +144,14 @@ ships, and every profile reaches the full native context. **Three lanes ship `--
 
 | Launcher | Artifact | Spec | Vision | Context | Decode | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
-| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **305 tok/s** | 52.4% |
-| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 215 tok/s | 60.4% |
-| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **300 tok/s** | 41.7% |
-| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 194 tok/s | 55.5% |
-| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **309 tok/s** | 53.5% |
-| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 206 tok/s | 54.4% |
-| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **355 tok/s** | 51.1% |
-| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 201 tok/s | 55.3% |
+| `start_quasar_v3_dflash2_vision.bat` | QUASAR | DFlash2 (7) | yes | 262,144 | **318 tok/s** | 57.2% |
+| `start_quasar_v3_mtp4_vision.bat` | QUASAR | MTP (4) | yes | 262,144 | 215 tok/s | 60.6% |
+| `start_ninfer_v3_dflash2_vision.bat` | NVFP4-full no-ex | DFlash2 (9) | yes | 262,144 | **296 tok/s** | 41.6% |
+| `start_ninfer_v3_mtp4_vision.bat` | NVFP4-full | MTP (4) | yes | 262,144 | 195 tok/s | 56.3% |
+| `start_swift_v3_dflash2_vision.bat` | Swift15 | DFlash2 (7) | yes | 262,144 | **382 tok/s** | 70.2% |
+| `start_swift_v3_mtp4_vision.bat` | Swift15 | MTP (5) | yes | 262,144 | 209 tok/s | 55.3% |
+| `start_nvidia_v3_dflash2_vision.bat` | NVFP4-nvidia | DFlash2 (9) | yes | 262,144 | **292 tok/s** | 39.7% |
+| `start_nvidia_v3_mtp4_vision.bat` | NVFP4-nvidia | MTP (4) | yes | 262,144 | 201 tok/s | 55.4% |
 
 Context ceilings are measured, not assumed. The engine defaults to 512 MiB of automatic planning headroom (`kDefaultMemoryHeadroomBytes`), while all eight shipped Windows launchers pass `--memory-headroom 1024MiB` so automatic KV allocation leaves enough free device memory to avoid Windows WDDM Shared System Memory eviction; the engine refuses a profile whose minimum runtime reservation plus headroom does not fit after weights. That ceiling is a property of the artifact's weight size:
 QUASAR's MTP lane carries 16.3 GiB of device weights and NVFP4-full's 17.1 GiB, both of which leave
@@ -285,7 +285,7 @@ supported for this architecture. See the [CLI commands](docs/cli.md),
 The product boundary remains intentionally small:
 
 - one RTX 5090 and one resident model per Engine;
-- one to eight resident execution lanes with bounded FIFO ingress;
+- configurable resident execution lanes (`--max-concurrency`; shipped launchers set 1) with bounded FIFO ingress;
 - resource-pressure preemption with snapshot or token-replay recovery;
 - no priority/QoS, active-request swapping, weight offload, multi-GPU, or distributed serving;
 - startup-fixed typed KV pools shared by active requests and retained prefixes;
@@ -303,6 +303,7 @@ startup planning headroom in the engine (`--memory-headroom 1024MiB` in all ship
 - [Documentation index](docs/README.md)
 - [CLI](docs/cli.md)
 - [HTTP serving](docs/serving.md)
+- [Dashboard](dashboard/README.md)
 - [Performance](docs/performance.md)
 - [Perplexity evaluation](docs/perplexity.md)
 - [Weight conversion and custom recipes](docs/weight-conversion.md)

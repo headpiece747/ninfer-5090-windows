@@ -71,7 +71,15 @@ void ninfer::test::linear_swiglu::add_nvfp4_cases(Suite& suite) {
                 std::array{1, 4, 7, 8, 16, 17, 33, 64, 65, 128, 385, 512, 1024, 2048},
                 std::array{129, 513});
     add_profile(suite, {QType::NVFP4, 28672, 5120, 14336, 2013U, ops::LinearPolicy::A16Only},
-                std::array{4, 16});
+                std::array{1,  4,   8,   16,  17,  32,  33,  64,   65,   80,   81,  96,
+                           97, 112, 113, 128, 129, 192, 193, 1024, 2048, 4096, 4097},
+                std::array{17, 33, 81, 113, 129, 4097});
+    add_negative_gate(suite, {QType::NVFP4, 28672, 5120, 14336, 2017U, ops::LinearPolicy::A16Only},
+                      std::array{17, 33, 97, 4097}, std::array{0, 16},
+                      [] { return make_negative_gate_weight(28672); });
+    add_negative_gate(suite, {QType::NVFP4, 28672, 5120, 14336, 2019U, ops::LinearPolicy::A16Only},
+                      std::array{17, 33, 4097}, std::array<int, 0>{},
+                      [] { return make_negative_gate_weight(28672); });
     add_negative_gate(suite, {QType::NVFP4, 28672, 5120, 14336, 2015U, ops::LinearPolicy::AllowA4},
                       std::array{1, 8, 17, 385}, std::array{0, 16},
                       [] { return make_negative_gate_weight(28672); });
@@ -103,12 +111,8 @@ void ninfer::test::linear_swiglu::add_nvfp4_cases(Suite& suite) {
             std::array{1, 2, 4, 8, 16, 17, 32, 64, 128, 255, 256, 257, 512, 1024, 2048, 4096},
             std::array{0}, [recipe] { return make_clamp_weight(recipe); });
 #endif
-    // Every A16 extent is fused: decode at 1, the small-T family to 16, a sliced instance to 32,
-    // then the A16 MMA schedules. The extents straddle each boundary, and 128 is the drafter's
-    // own worst case at k=15, batch=8.
-    constexpr std::array<std::int32_t, 19> kA16Cases{
-        1,  2,  4,  5,  8,  9,  16, 17, 24, 25,
-        32, 33, 64, 65, 96, 97, 128, 129, 1024};
+    constexpr std::array kA16Cases{1,  2,  4,   8,   16,  17,  24,  25,  32,   33,   64,   65,
+                                   96, 97, 128, 129, 144, 145, 192, 193, 1024, 2048, 4096, 4097};
     // Exercise both sides of the native MMA/TMA boundary, including the partial TMA tile.
     constexpr std::array<std::int32_t, 17> kA4Cases{2,   4,   5,   16,  56,  64,  65,  96,  97,
                                                     112, 128, 129, 255, 256, 257, 512, 1024};
@@ -116,7 +120,13 @@ void ninfer::test::linear_swiglu::add_nvfp4_cases(Suite& suite) {
                       std::array{1, 64, 129, 256, 257}, std::array{0, 16},
                       [] { return make_negative_gate_weight(); });
     add_profile(suite, {QType::NVFP4, 34816, 5120, 17408, 1801U, ops::LinearPolicy::A16Only},
-                kA16Cases);
+                kA16Cases, std::array{17, 33, 97, 129, 145, 4097});
+    add_negative_gate(suite, {QType::NVFP4, 34816, 5120, 17408, 1839U, ops::LinearPolicy::A16Only},
+                      std::array{17, 33, 97, 4097}, std::array{0, 16},
+                      [] { return make_negative_gate_weight(); });
+    add_negative_gate(suite, {QType::NVFP4, 34816, 5120, 17408, 1841U, ops::LinearPolicy::A16Only},
+                      std::array{17, 33, 4097}, std::array<int, 0>{},
+                      [] { return make_negative_gate_weight(); });
     add_profile(suite, {QType::NVFP4, 34816, 5120, 17408, 1803U, ops::LinearPolicy::AllowA4},
                 kA4Cases, std::array<std::int32_t, 4>{65, 97, 128, 129});
 }

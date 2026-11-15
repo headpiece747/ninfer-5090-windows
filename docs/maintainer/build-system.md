@@ -54,7 +54,7 @@ composition. The default configuration is Release. Ninja links and archives shar
 | `NINFER_BUILD_APPS` | ON | CLI, HTTP server and perplexity evaluator; requires Engine |
 | `BUILD_TESTING` | OFF | Tests for the selected components |
 | `NINFER_BUILD_BENCHMARKS` | OFF | Benchmarks for the selected components |
-| `NINFER_ENABLE_DISTRIBUTED` | OFF | Process/control transport, distributed execution and NCCL collectives |
+| `NINFER_ENABLE_DISTRIBUTED` | OFF | Process/control transport, distributed execution and communication backends (NCCL; Native RDMA / `libibverbs` on Spark) |
 
 `BUILD_TESTING` is also the scope of the Op perturbation seam. When it is ON, `ninfer_ops` compiles
 with `NINFER_OP_TEST_MUTATIONS`, which enables mutation branches an Op kernel guards with that define

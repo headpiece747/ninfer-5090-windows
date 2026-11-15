@@ -10,6 +10,7 @@ run the CLI or HTTP server.
 | [Startup configuration](startup-configuration.md) | shared CLI/serve TOML schema, defaults, overrides, resource controls and startup display |
 | [CLI](cli.md) | text, chat-history, image/video input, output streams, sampling, MTP, and common runtime options |
 | [HTTP serving](serving.md) | OpenAI Responses/Chat Completions, Anthropic Messages, state, streaming, token counting, authentication, and tool calls |
+| [Dashboard](../dashboard/README.md) | independent monitoring service, shared history, deployment and display semantics |
 | [Performance](performance.md) | RTX 5090 measurement coverage, per-model serving results, methodology, and publication rules |
 | [Weight conversion](weight-conversion.md) | official recipes, custom formats and sources, conversion methods, optional components and artifact output |
 | [Perplexity](perplexity.md) | fixed-corpus and custom-text causal perplexity, comparison rules, progress, and reports |
@@ -55,8 +56,8 @@ formats, layouts, aliases and source transforms, with a section per line in Sect
 ## Open work
 
 [Open issues](issue-checklist.md) keeps pending problems and MLA performance work.
-Qwen4-27B's [architecture and quantization](designs/qwen4-27b-rtx5090.md) and
-[Op requirements](designs/qwen4-27b-op-checklist.md) are a separate adaptation plan.
+Qwen4-27B's [architecture and quantization](designs/qwen4-27b-rtx5090.md) preserves the
+standalone pre-study geometry assumptions and representation choices.
 
 ## Maintainer references
 
@@ -64,7 +65,7 @@ The active references under [`maintainer/`](maintainer/) record current architec
 artifact, and maintenance contracts. These files are not additional user workflows or installed
 API documentation.
 
-**Twelve of them are written in Chinese by upstream.**
+**Thirteen of them are written in Chinese by upstream.**
 [Maintainer documents: English index](maintainer/README.md) summarises in English what each one
 decides and links to the original, which is the source of truth. The originals are not translated or
 modified, with one exception: `op-development.md` §6.4 is an English section this port maintains. A
@@ -82,13 +83,14 @@ other references own narrower contracts:
 | Document | Responsibility |
 |---|---|
 | [Engine architecture](maintainer/engine-architecture.md) | ownership, startup budget, request and execution transactions, commit and retire |
+| [Concurrent execution](maintainer/concurrent-execution.md) | resident capacity, logical members, Graph buckets, ADP row mapping and padding |
 | [Distributed execution](maintainer/distributed-execution.md) | centralized scheduling, rank preparation, control and data communication, complete completion and failure |
 | [Context management](maintainer/context-management.md) | KV/State unified capacity, identity, reservation, prefix policy, ADP and recovery |
 | [Frontend](maintainer/frontend.md) | model policy and shared text/media foundations, input identity, output and grammar transactions |
 | [Weights and loading](maintainer/weights-and-loading.md) | representation, binding, conversion, value-preserving sharded materialization and backing |
 | [Qwen3.5](maintainer/qwen3_5-model.md) | Dense/MoE, Main/MTP/DFlash, Vision and state composition |
 | [Qwen4Exp](maintainer/qwen4_exp-model.md) | Flash Next, HC/QSA/PLE, quantization, TP/EP and execution composition |
-| [GLM5Next](maintainer/glm5next-model.md) | KDA/MLA/mHC, quantization, ADP, MTP/Vision and Graph |
+| [GLM5Next](maintainer/glm5next-model.md) | KDA/MLA/mHC, weight representation, ADP, MTP/DFlash2, Vision and Graph |
 | [Speculative execution](maintainer/speculative-decoding.md) | MTP alignment, ReplaySSM, DFlash distributions and accepted prefix |
 | [Expert cache](maintainer/expert-weight-cache.md) | fixed and streaming cache, CPU/GPU split, upload and consumption lifetime |
 | [Observability](maintainer/observability.md) | time and resource accounting, measurement windows, rank statistics and log boundaries |

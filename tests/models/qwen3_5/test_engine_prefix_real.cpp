@@ -743,10 +743,13 @@ int exercise_host_restore(const char* artifact) {
         return 1;
     }
 
+    // checkpoint handover gives the 512-token Device pool five state-sized blocks; fill three
+    // cached states first using prefill-only captures so decode reclamation cannot drop R_261
+    // before host demotion of the 256-token prompt checkpoint is forced.
     const std::vector<ninfer::TokenId> filler_input(256, 1234);
     const ninfer::GenerationResult filler =
-        engine.generate(engine.prepare_tokens(filler_input), options(5, true));
-    if (filler.prompt.prompt_tokens != 256 || filler.generated_token_ids.size() != 5) {
+        engine.generate(engine.prepare_tokens(filler_input), options(1, true));
+    if (filler.prompt.prompt_tokens != 256 || filler.generated_token_ids.size() != 1) {
         std::cerr << "Host-restore filler request did not complete\n";
         return 1;
     }
@@ -757,6 +760,13 @@ int exercise_host_restore(const char* artifact) {
     continuation.insert(continuation.end(), 5, 198);
 
     const ninfer::RuntimeStats before_pressure = engine.snapshot().runtime;
+    const std::vector<ninfer::TokenId> filler2_input(256, 2345);
+    const ninfer::GenerationResult filler2 =
+        engine.generate(engine.prepare_tokens(filler2_input), options(1, true));
+    if (filler2.prompt.prompt_tokens != 256 || filler2.generated_token_ids.size() != 1) {
+        std::cerr << "Host-restore pressure capture request did not complete\n";
+        return 1;
+    }
     const ninfer::GenerationResult pressure_result =
         engine.generate(engine.prepare_tokens(continuation), options(2, false));
     const ninfer::RuntimeStats after_pressure = engine.snapshot().runtime;

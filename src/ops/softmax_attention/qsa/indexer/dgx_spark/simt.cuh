@@ -3,10 +3,10 @@
 #include "ops/common/cuda/memory.cuh"
 
 namespace ninfer::ops::detail::qsa {
-template <int Lanes, int Threads, bool Vector>
+template <int Lanes, int Threads, bool Vector, int MaxQueries = 64>
 __global__ __launch_bounds__(Threads) void indexer_score_simt_kernel(
     const __grid_constant__ IndexerArguments a) {
-    __shared__ IndexerJobs<> jobs;
+    __shared__ IndexerJobs<MaxQueries> jobs;
     if (!jobs.template build<1, kIndexerKeyTile>(a)) return;
     constexpr int D = 128 / Lanes, Groups = Threads / Lanes;
     const int lane = threadIdx.x % Lanes, group = threadIdx.x / Lanes;

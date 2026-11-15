@@ -1,8 +1,9 @@
 #include "ops/gated_residual/mix/fp8/kernel/output.cuh"
 #include "ops/gated_residual/mix/fp8/kernel/input.cuh"
-#include "ops/gated_residual/mix/fp8/kernel/down.cuh"
+#include "vector.cuh"
 #include "ops/linear/kernels/fp8/fp8_template_launch.cuh"
 #include "ops/common/host/operands.h"
+#include "small.cuh"
 
 namespace ninfer::ops::detail::hc::mix::fp8 {
 using DownThin   = Fp8A8SplitKSchedule<Fp8A8TmaMmaSchedule<32, 32, 128, 1, 2, 3, 2>, 340, 16, 1>;
@@ -31,14 +32,21 @@ int up_token_tile(UpSchedule up) {
 Plan plan(LinearPolicy down, LinearPolicy up, int m) {
     const auto down_schedule = m <= kDownVectorColumns ? DownSchedule::SplitVector
                                : !allows_a8(down)      ? DownSchedule::Vector
+                               : m <= kSmallColumns    ? DownSchedule::A8Segmented
                                : m <= 64               ? DownSchedule::A8Thin
                                : m <= 320              ? DownSchedule::A8Medium
                                                        : DownSchedule::A8Wide;
-    return {down_schedule, allows_a8(up) && m >= 33,
+    const bool grouped =
+        allows_a8(up) && m >= 3 && m <= kSmallColumns && down_schedule != DownSchedule::Vector;
+    const auto encoding = grouped                    ? UpEncoding::Group
+                          : allows_a8(up) && m >= 33 ? UpEncoding::Row
+                                                     : UpEncoding::None;
+    return {down_schedule, encoding,
             m <= 64     ? UpSchedule::Thin
             : m <= 128  ? UpSchedule::Medium
             : m <= 1024 ? UpSchedule::WideRows
-                        : UpSchedule::WideTokens};
+                        : UpSchedule::WideTokens,
+            down_schedule == DownSchedule::A8Segmented ? (m <= 16 ? 16 : 32) : 0};
 }
 
 int encoded_columns(int m, int tile) {
@@ -48,18 +56,27 @@ int encoded_columns(int m, int tile) {
     return rounded <= std::numeric_limits<int>::max() ? int(rounded) : m;
 }
 
-Layout layout(int m, Plan p) {
+Layout layout(int m, Plan p, bool injection) {
     LayoutBuilder b;
-    const auto u =
-        b.add(common::operand::bytes(std::uint64_t(kRank) * m, 2, "hc_mix"), 256, "HC u");
+    LayoutRegion u;
+    if (!p.grouped_up())
+        u = b.add(common::operand::bytes(std::uint64_t(kRank) * m, 2, "hc_mix"), 256, "HC u");
     LayoutRegion codes, scales, partials;
-    if (p.down_a8() || p.up_a8) {
-        const int up_columns = p.up_a8 ? encoded_columns(m, up_token_tile(p.up)) : m;
+    if (p.down_a8() || p.up_a8()) {
+        const int up_columns =
+            p.up_a8() && !p.grouped_up() ? encoded_columns(m, up_token_tile(p.up)) : m;
         const auto code_bytes =
             std::max(p.down_a8() ? fp8_a8_checked_bytes(m, kTotal) : std::size_t(0),
-                     p.up_a8 ? fp8_a8_checked_bytes(up_columns, kRank) : std::size_t(0));
-        codes  = b.add(code_bytes, 256, "HC A8 codes");
-        scales = b.add(fp8_a8_checked_bytes(std::max(m, up_columns), 4), 256, "HC A8 scales");
+                     p.up_a8() ? fp8_a8_checked_bytes(up_columns, kRank) : std::size_t(0));
+        codes                  = b.add(code_bytes, 256, "HC A8 codes");
+        const auto scale_bytes = p.down == DownSchedule::A8Segmented
+                                     ? std::size_t(down_control_elements(m, injection) +
+                                                   (p.grouped_up() ? m * kRank / kUpGroup : 0)) *
+                                           sizeof(float)
+                                 : p.grouped_up()
+                                     ? std::size_t(m * kRank / kUpGroup) * sizeof(float)
+                                     : fp8_a8_checked_bytes(std::max(m, up_columns), 4);
+        scales                 = b.add(scale_bytes, 256, "HC A8 scales");
     }
     if (p.down == DownSchedule::SplitVector) {
         partials =
@@ -67,7 +84,10 @@ Layout layout(int m, Plan p) {
                                          sizeof(float), "hc_mix"),
                   256, "HC down partials");
     } else if (p.down_a8()) {
-        const auto bytes = p.down == DownSchedule::A8Thin     ? DownThin::kPartialBytes
+        const auto bytes = p.down == DownSchedule::A8Segmented
+                               ? (p.down_columns == 16 ? SmallDownSchedule<16>::kPartialBytes
+                                                       : SmallDownSchedule<32>::kPartialBytes)
+                           : p.down == DownSchedule::A8Thin   ? DownThin::kPartialBytes
                            : p.down == DownSchedule::A8Medium ? DownMedium::kPartialBytes
                                                               : DownWide::kPartialBytes;
         partials         = b.add(bytes, 256, "HC down partials");
@@ -88,32 +108,102 @@ void launch(Weights w, const Tensor& z, Tensor& out, Tensor* j, Scratch s, Plan 
         CUDA_CHECK(cudaGetLastError());
     }
     if (p.down == DownSchedule::SplitVector) {
-        const auto submit = [&]<int Tokens, int Values>() {
-            constexpr int Rows = 2;
-            down_split_vector<Tokens, Rows, Values>
-                <<<dim3((kRank + (j ? kStreams : 0) + 4 * Rows - 1) / (4 * Rows),
-                        (m + Tokens - 1) / Tokens, kDownPartitions),
-                   128, 0, stream>>>(static_cast<const __nv_bfloat16*>(z.data),
-                                     static_cast<const std::uint8_t*>(w.down.weight.qdata),
-                                     j ? static_cast<const __nv_bfloat16*>(w.injection->qdata)
-                                       : nullptr,
-                                     s.encoded.partials, m, kDownPartitions);
+        const auto submit = [&]<int Columns>() {
+            constexpr int Rows = VectorDownSchedule<Columns>::kRows;
+            down_vector<Columns>
+                <<<dim3(kRank / (4 * Rows) + (j ? 1 : 0), 1, kDownPartitions), 128, 0, stream>>>(
+                    static_cast<const __nv_bfloat16*>(z.data),
+                    static_cast<const std::uint8_t*>(w.down.weight.qdata),
+                    j ? static_cast<const __nv_bfloat16*>(w.injection->qdata) : nullptr,
+                    s.encoded.partials, m);
         };
         if (m == 1)
-            submit.template operator()<1, 8>();
+            submit.template operator()<1>();
+        else if (m == 2)
+            submit.template operator()<2>();
         else
-            submit.template operator()<4, 4>();
+            submit.template operator()<4>();
         CUDA_CHECK(cudaGetLastError());
-        down_split_finish<<<dim3((kRank + (j ? kStreams : 0) + 127) / 128, m), 128, 0, stream>>>(
-            s.encoded.partials, static_cast<const __nv_bfloat16*>(w.down.weight.scales), s.u,
-            j ? static_cast<float*>(j->data) : nullptr, m, kDownPartitions);
+        const auto finish = [&]<bool Encoded, bool Injection>() {
+            CUDA_CHECK(pdl::launch_dependent(
+                {dim3(kRank / kUpGroup, m), dim3(kUpGroup), 0, stream},
+                finish_small_down<false, Encoded, Injection>, s.encoded.partials,
+                static_cast<const __nv_bfloat16*>(w.down.weight.scales),
+                static_cast<const float*>(nullptr), s.u, s.encoded.codes, s.encoded.scales,
+                j ? static_cast<float*>(j->data) : nullptr, m));
+        };
+        if (p.grouped_up()) {
+            if (j)
+                finish.template operator()<true, true>();
+            else
+                finish.template operator()<true, false>();
+        } else {
+            if (j)
+                finish.template operator()<false, true>();
+            else
+                finish.template operator()<false, false>();
+        }
         CUDA_CHECK(cudaGetLastError());
+    } else if (p.down == DownSchedule::A8Segmented) {
+        const auto encode = [&]<bool Injection>() {
+            encode_segments<Injection><<<dim3(m, kDownPartitions), kSegmentThreads, 0, stream>>>(
+                static_cast<const __nv_bfloat16*>(z.data),
+                j ? static_cast<const __nv_bfloat16*>(w.injection->qdata) : nullptr,
+                s.encoded.codes, s.encoded.scales, m);
+        };
+        if (j)
+            encode.template operator()<true>();
+        else
+            encode.template operator()<false>();
+        CUDA_CHECK(cudaGetLastError());
+        const auto submit = [&]<int Columns>() {
+            using D = SmallDownSchedule<Columns>;
+            const Fp8TmaDescriptors maps{
+                fp8_tma_map(s.encoded.codes, m, kTotal, D::kBlockTokens, D::kBlockK),
+                fp8_tma_map(static_cast<const std::uint8_t*>(w.down.weight.qdata), kRank, kTotal,
+                            D::kBlockRows, D::kBlockK)};
+            constexpr auto kernel = down_small<Columns>;
+            const int bytes       = common::prepare_shared<D::kSharedBytes, kernel, true>();
+            kernel<<<kRank / D::kBlockRows * kDownPartitions, D::kThreads, bytes, stream>>>(
+                common::make_tma_kernel_param(maps), s.encoded.partials);
+            CUDA_CHECK(cudaGetLastError());
+            const auto finish = [&]<bool Encoded, bool Injection>() {
+                CUDA_CHECK(pdl::launch_dependent(
+                    {dim3(kRank / kUpGroup, m), dim3(kUpGroup), 0, stream},
+                    finish_small_down<true, Encoded, Injection, Columns>, s.encoded.partials,
+                    static_cast<const __nv_bfloat16*>(w.down.weight.scales), s.encoded.scales, s.u,
+                    s.encoded.codes, s.encoded.scales + down_control_elements(m, Injection),
+                    j ? static_cast<float*>(j->data) : nullptr, m));
+            };
+            if (p.grouped_up()) {
+                if (j)
+                    finish.template operator()<true, true>();
+                else
+                    finish.template operator()<true, false>();
+            } else {
+                if (j)
+                    finish.template operator()<false, true>();
+                else
+                    finish.template operator()<false, false>();
+            }
+            CUDA_CHECK(cudaGetLastError());
+        };
+        if (p.down_columns == 16)
+            submit.template operator()<16>();
+        else
+            submit.template operator()<32>();
     } else if (p.down_a8()) {
         if (j) {
-            encode_injection<<<m, 256, 0, stream>>>(
-                static_cast<const __nv_bfloat16*>(z.data),
-                static_cast<const __nv_bfloat16*>(w.injection->qdata), s.encoded.codes,
-                s.encoded.scales, static_cast<float*>(j->data));
+            const auto encode = [&]<int Threads>() {
+                encode_injection<Threads><<<m, Threads, 0, stream>>>(
+                    static_cast<const __nv_bfloat16*>(z.data),
+                    static_cast<const __nv_bfloat16*>(w.injection->qdata), s.encoded.codes,
+                    s.encoded.scales, static_cast<float*>(j->data));
+            };
+            if (m <= 128)
+                encode.template operator()<1024>();
+            else
+                encode.template operator()<256>();
             CUDA_CHECK(cudaGetLastError());
         } else
             launch_fp8_a8_quantize(input, w.down.weight, s.encoded, stream);
@@ -129,19 +219,37 @@ void launch(Weights w, const Tensor& z, Tensor& out, Tensor* j, Scratch s, Plan 
             submit.template operator()<DownWide>();
     } else {
         const auto a = fp8_a16_operands(input, w.down.weight);
-        if (m == 1)
-            launch_fp8_a16_gemv<Fp8A16GemvSchedule<4, 1, 8, 4, Fp8CodeCache::Default, 2, 2>>(
-                a, down, DownEpilogue{}, stream);
+        launch_fp8_a16_simt<
+            Fp8A16SimtSchedule<4, 1, 8, 4, 4, Fp8SimtActivationAccess::TokenPacked,
+                               Fp8CodeCache::Default, 2, Fp8SimtBlockOrder::RowsContiguous, 2>>(
+            a, down, DownEpilogue{}, stream);
+    }
+    if (p.grouped_up()) {
+        const int control =
+            p.down == DownSchedule::A8Segmented ? down_control_elements(m, j != nullptr) : 0;
+        const UpOutput output{static_cast<const __nv_bfloat16*>(z.data),
+                              static_cast<__nv_bfloat16*>(out.data), m};
+        const auto submit = [&]<int Tokens>() {
+            using S               = GroupedUpSchedule<Tokens>;
+            constexpr auto kernel = grouped_up_kernel<Tokens>;
+            const int bytes       = common::prepare_shared<S::kSharedBytes, kernel>();
+            CUDA_CHECK(pdl::launch_dependent(
+                {dim3(kTotal / S::kBlockRows), dim3(S::kThreads), std::size_t(bytes), stream},
+                kernel, s.encoded.codes, s.encoded.scales + control,
+                static_cast<const std::uint8_t*>(w.up.weight.qdata),
+                static_cast<const __nv_bfloat16*>(w.up.weight.scales), output));
+        };
+        if (m <= 16)
+            submit.template operator()<16>();
         else
-            launch_fp8_a16_simt<
-                Fp8A16SimtSchedule<4, 1, 8, 4, 4, Fp8SimtActivationAccess::TokenPacked,
-                                   Fp8CodeCache::Default, 2, Fp8SimtBlockOrder::RowsContiguous, 2>>(
-                a, down, DownEpilogue{}, stream);
+            submit.template operator()<32>();
+        CUDA_CHECK(cudaGetLastError());
+        return;
     }
     const Tensor u(s.u, z.device, DType::BF16, {kRank, m});
     const UpOutput output{static_cast<const __nv_bfloat16*>(z.data),
                           static_cast<__nv_bfloat16*>(out.data), m};
-    if (p.up_a8) {
+    if (p.up_a8()) {
         const int columns = encoded_columns(m, up_token_tile(p.up));
         encode_up<<<columns, 256, 0, stream>>>(s.u, s.encoded.codes, s.encoded.scales, m);
         CUDA_CHECK(cudaGetLastError());
@@ -160,8 +268,17 @@ void launch(Weights w, const Tensor& z, Tensor& out, Tensor* j, Scratch s, Plan 
             submit.template operator()<UpWide>();
     } else {
         const auto a = fp8_a16_operands(u, w.up.weight);
-        if (m == 1) {
-            up_gemv<<<kWidth / 16, 128, 0, stream>>>(a, output);
+        if (m <= kDownVectorColumns) {
+            const auto submit = [&]<int Columns>() {
+                CUDA_CHECK(pdl::launch_dependent({dim3(kWidth / 4), dim3(128), 0, stream},
+                                                 up_vector<Columns>, a, output));
+            };
+            if (m == 1)
+                submit.template operator()<1>();
+            else if (m == 2)
+                submit.template operator()<2>();
+            else
+                submit.template operator()<4>();
             CUDA_CHECK(cudaGetLastError());
         } else if (m >= 17 && m <= 32) {
             using Up = Fp8ScheduleInstance<Fp8A16MmaSchedule<64, 32, 64, 16, 16, 2, 2>, kRank>;

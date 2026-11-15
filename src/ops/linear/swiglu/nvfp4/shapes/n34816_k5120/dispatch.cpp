@@ -16,7 +16,7 @@ namespace {
 enum class Nvfp4LinearSwiGluRoute {
     DecodeFusedA16,
     SmallTFusedA16,
-    MatrixFusedA16,
+    LargeTFusedA16,
     FusedA4,
     TmaFusedA4,
 };
@@ -29,12 +29,7 @@ Nvfp4LinearSwiGluRoute select_route(LinearPolicy policy, std::int32_t tokens) {
     if (policy == LinearPolicy::A16Only || policy == LinearPolicy::AllowA8) {
         if (tokens == 1) { return Nvfp4LinearSwiGluRoute::DecodeFusedA16; }
         if (tokens <= 16) { return Nvfp4LinearSwiGluRoute::SmallTFusedA16; }
-        // Port-only wide-T A16 route. The fused MMA applies the nonlinearity to FP32 accumulators,
-        // which is what holds the profile's A16 tail bound at every extent: routing these extents
-        // through a materialized BF16 projection measures 8.1e-3 against 6.3e-3 at 17/32/64/129.
-        // The A16 MMA schedules are the ones the registered [34816,5120] Linear selects at the same
-        // extents. Like every other A16 route it is fused and needs no workspace.
-        return Nvfp4LinearSwiGluRoute::MatrixFusedA16;
+        return Nvfp4LinearSwiGluRoute::LargeTFusedA16;
     }
     if (tokens == 1) { return Nvfp4LinearSwiGluRoute::DecodeFusedA16; }
     if (tokens <= 4) { return Nvfp4LinearSwiGluRoute::SmallTFusedA16; }
@@ -82,8 +77,8 @@ void nvfp4_linear_swiglu_dispatch(const Tensor& x, const Weight& weight, Tensor&
     case Nvfp4LinearSwiGluRoute::SmallTFusedA16:
         launch_nvfp4_swiglu_small_t(x, weight, out, stream);
         return;
-    case Nvfp4LinearSwiGluRoute::MatrixFusedA16:
-        launch_nvfp4_swiglu_matrix(x, weight, out, stream);
+    case Nvfp4LinearSwiGluRoute::LargeTFusedA16:
+        launch_nvfp4_swiglu_large_t(x, weight, out, stream);
         return;
     case Nvfp4LinearSwiGluRoute::FusedA4:
         launch_nvfp4_swiglu_a4(x, weight, out, workspace, stream);

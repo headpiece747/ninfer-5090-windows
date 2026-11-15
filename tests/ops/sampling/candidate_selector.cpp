@@ -446,9 +446,13 @@ struct Fixture {
         DeviceBuffer candidate_device = to_device(candidate_ids);
         DeviceBuffer unary_device     = to_device(unary_scores);
         DeviceBuffer hidden_device    = to_device(projected_hidden);
-        DeviceBuffer anchor_device    = to_device(anchors);
-        DeviceBuffer position_device  = to_device(base_positions);
-        DeviceBuffer config_device    = to_device(configs);
+        auto packed_anchors           = anchors;
+        auto packed_positions         = base_positions;
+        packed_anchors.insert(packed_anchors.begin(), -1);
+        packed_positions.insert(packed_positions.begin(), -1);
+        DeviceBuffer anchor_device   = to_device(packed_anchors);
+        DeviceBuffer position_device = to_device(packed_positions);
+        DeviceBuffer config_device   = to_device(configs);
         DeviceBuffer predecessor_device(ninfer::test::cuda_environment().context.device(),
                                         static_cast<std::size_t>(kRank) * kCodebookRows *
                                             sizeof(std::uint16_t));
@@ -475,8 +479,10 @@ struct Fixture {
             Tensor ids(candidate_device.span(), DType::I32, {kCandidates, steps, batch_size});
             Tensor unary(unary_device.span(), DType::FP32, {kCandidates, steps, batch_size});
             Tensor hidden(hidden_device.span(), DType::BF16, {kRank, steps, batch_size});
-            Tensor anchor(anchor_device.span(), DType::I32, {batch_size});
-            Tensor positions(position_device.span(), DType::I32, {batch_size});
+            Tensor anchor(anchor_device.span().subspan(sizeof(std::int32_t)), DType::I32,
+                          {batch_size});
+            Tensor positions(position_device.span().subspan(sizeof(std::int32_t)), DType::I32,
+                             {batch_size});
             Tensor drafts(draft_device.span(), DType::I32, {steps, batch_size});
             Tensor q(q_device.span(), DType::FP32, {kCandidates, steps, batch_size});
             const auto capacity = ops::candidate_selector_path_workspace_capacity_bytes(
@@ -486,7 +492,7 @@ struct Fixture {
             const auto launch = [&](CudaExecutionView cuda) {
                 ops::candidate_selector_path(
                     ids, unary, hidden, anchor, predecessor, successor, kTokenDomain, positions,
-                    static_cast<const ops::SamplingConfig*>(config_device.data()), drafts, q,
+                    static_cast<const ops::SamplingConfig*>(config_device.data()), drafts, q, {},
                     workspace, cuda);
             };
             launch(ninfer::test::cuda_environment().default_execution);
@@ -536,7 +542,7 @@ struct Fixture {
                             choose_configs(candidate_ids, lattice, next_positions);
                         const auto next_expected =
                             walk_oracle(candidate_ids, lattice, next_configs, next_positions);
-                        cuda_check(cudaMemcpyAsync(position_device.data(), next_positions.data(),
+                        cuda_check(cudaMemcpyAsync(positions.data, next_positions.data(),
                                                    next_positions.size() * sizeof(int),
                                                    cudaMemcpyHostToDevice, stream),
                                    "update graph positions");
@@ -558,7 +564,7 @@ struct Fixture {
                         failures +=
                             verify_draws("selector graph updated q", batch_size, candidate_ids,
                                          next_configs, next_positions, next_drafts, next_q);
-                        cuda_check(cudaMemcpyAsync(position_device.data(), base_positions.data(),
+                        cuda_check(cudaMemcpyAsync(positions.data, base_positions.data(),
                                                    base_positions.size() * sizeof(int),
                                                    cudaMemcpyHostToDevice, stream),
                                    "restore graph positions");
@@ -611,7 +617,7 @@ struct Fixture {
                 tq(dq.span(), DType::FP32, {kCandidates, steps, 3});
             ops::candidate_selector_path(ti, tu, th, ta, predecessor, successor, kTokenDomain, tp,
                                          static_cast<const ops::SamplingConfig*>(dc.data()), td, tq,
-                                         workspace,
+                                         {}, workspace,
                                          ninfer::test::cuda_environment().default_execution);
             cuda_synchronize();
             const auto actual_d = from_device<int>(dd.data(), 3 * steps);
@@ -748,7 +754,7 @@ struct Fixture {
         return lattice;
     }
 
-    int run_nvfp4() {
+    int run_nvfp4(bool masked_graph = false) {
         const std::vector<std::int32_t> candidate_ids    = make_candidate_ids();
         const std::vector<std::uint16_t> projected_hidden = make_projected_hidden();
         const std::vector<std::int32_t> anchors          = make_anchors();
@@ -822,6 +828,111 @@ struct Fixture {
         const Weight successor   = upload_codebook(successor_book, 4.0F, successor_device);
 
         int failures = 0;
+        if (masked_graph) {
+            constexpr int batch_size        = kMaxBatch;
+            const std::size_t draft_count   = static_cast<std::size_t>(batch_size) * steps;
+            const std::size_t q_count       = draft_count * kCandidates;
+            GuardedDeviceBuffer draft_device(draft_count * sizeof(std::int32_t));
+            GuardedDeviceBuffer q_device(q_count * sizeof(float));
+            std::vector<std::int32_t> live(batch_size, 1);
+            auto live_device = to_device(live);
+            Tensor ids(candidate_device.span(), DType::I32, {kCandidates, steps, batch_size});
+            Tensor unary(unary_device.span(), DType::FP32, {kCandidates, steps, batch_size});
+            Tensor hidden(hidden_device.span(), DType::BF16, {kRank, steps, batch_size});
+            Tensor anchor(anchor_device.span(), DType::I32, {batch_size});
+            Tensor position(position_device.span(), DType::I32, {batch_size});
+            Tensor drafts(draft_device.span(), DType::I32, {steps, batch_size});
+            Tensor q(q_device.span(), DType::FP32, {kCandidates, steps, batch_size});
+            Tensor live_rows(live_device.span(), DType::I32, {batch_size});
+            const auto capacity = ops::candidate_selector_path_workspace_capacity_bytes(
+                ops::CandidateSelectorInput::Candidates, steps, steps, batch_size, batch_size);
+            GuardedDeviceBuffer scratch(std::max<std::size_t>(capacity, 1));
+            MemoryArena workspace(scratch.span());
+            DecodeGraphDefinition definition;
+            DecodeGraphExecutable executable;
+            cudaStream_t stream = nullptr;
+            cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+                       "nvfp4 masked selector graph stream");
+            const auto cuda = ninfer::test::cuda_environment().context.execution_view(stream);
+            cuda_synchronize();
+            definition.capture(stream, [&] {
+                ops::candidate_selector_path(
+                    ids, unary, hidden, anchor, predecessor, successor, kTokenDomain, position,
+                    static_cast<const ops::SamplingConfig*>(config_device.data()), drafts, q,
+                    live_rows, workspace, cuda);
+            });
+            executable.instantiate(definition);
+            for (int replay = 0; replay < 3; ++replay) {
+                auto poisoned_anchors = anchors, poisoned_positions = base_positions,
+                     poisoned_ids = candidate_ids;
+                auto poisoned_hidden = projected_hidden;
+                auto poisoned_unary  = unary_scores;
+                auto poisoned_cfg    = configs;
+                for (int b = 0; b < batch_size; ++b) {
+                    live[b] = replay < 2 && (b % 2 == replay);
+                    if (live[b]) continue;
+                    poisoned_anchors[b] = poisoned_positions[b] = INT_MIN;
+                    poisoned_cfg[b].temperature = std::numeric_limits<float>::quiet_NaN();
+                    for (int step = 0; step < steps; ++step) {
+                        const auto col = std::size_t(b) * steps + step;
+                        std::fill_n(poisoned_hidden.begin() + col * kRank, kRank,
+                                    std::uint16_t{0x7fc0});
+                        for (int c = 0; c < kCandidates; ++c) {
+                            poisoned_ids[col * kCandidates + c]   = INT_MIN;
+                            poisoned_unary[col * kCandidates + c] =
+                                std::numeric_limits<float>::quiet_NaN();
+                        }
+                    }
+                }
+                live_device.copy_from_host(live.data(), live_device.size());
+                anchor_device.copy_from_host(poisoned_anchors.data(), anchor_device.size());
+                position_device.copy_from_host(poisoned_positions.data(), position_device.size());
+                hidden_device.copy_from_host(poisoned_hidden.data(), hidden_device.size());
+                config_device.copy_from_host(poisoned_cfg.data(), config_device.size());
+                candidate_device.copy_from_host(poisoned_ids.data(), candidate_device.size());
+                unary_device.copy_from_host(poisoned_unary.data(), unary_device.size());
+                draft_device.fill(0xff);
+                q_device.fill(0xff);
+                cuda_synchronize();
+                executable.launch(cuda.stream());
+                cuda_synchronize(cuda.stream());
+                const auto actual_d = from_device<int>(draft_device.data(), draft_count);
+                const auto actual_q = from_device<float>(q_device.data(), q_count);
+                for (int b = 0; b < batch_size; ++b) {
+                    const std::string tag = "nvfp4 masked r=" + std::to_string(replay) +
+                                            " b=" + std::to_string(b);
+                    for (int step = 0; step < steps; ++step) {
+                        const auto col = std::size_t(b) * steps + step;
+                        if (!live[b]) {
+                            if (actual_d[col] != 0) ++failures;
+                            for (int c = 0; c < kCandidates; ++c)
+                                if (actual_q[col * kCandidates + c] != 0.0F ||
+                                    std::signbit(actual_q[col * kCandidates + c]))
+                                    ++failures;
+                        } else {
+                            if (actual_d[col] != expected.drafts[col]) {
+                                std::cerr << tag << " draft mismatch\n";
+                                ++failures;
+                            }
+                            for (int c = 0; c < kCandidates; ++c) {
+                                const double diff = std::abs(
+                                    actual_q[col * kCandidates + c] -
+                                    expected.probabilities[col * kCandidates + c]);
+                                const double limit = kProbabilityCriterion.absolute +
+                                                     kProbabilityCriterion.relative *
+                                                         std::abs(expected.probabilities[col * kCandidates + c]);
+                                if (!(diff <= limit)) ++failures;
+                            }
+                        }
+                    }
+                }
+                failures += draft_device.verify_guards("nvfp4 masked drafts") +
+                            q_device.verify_guards("nvfp4 masked q") +
+                            scratch.verify_guards("nvfp4 masked workspace");
+            }
+            cuda_check(cudaStreamDestroy(stream), "destroy nvfp4 masked selector stream");
+            return failures;
+        }
         for (int batch_size = 1; batch_size <= kMaxBatch; ++batch_size) {
             const std::size_t draft_count = static_cast<std::size_t>(batch_size) * steps;
             const std::size_t q_count     = draft_count * kCandidates;
@@ -844,7 +955,7 @@ struct Fixture {
                                          kTokenDomain, position,
                                          static_cast<const ops::SamplingConfig*>(
                                              config_device.data()),
-                                         drafts, q, workspace,
+                                         drafts, q, {}, workspace,
                                          ninfer::test::cuda_environment().default_execution);
             cuda_synchronize();
             const std::string label = "nvfp4 B=" + std::to_string(batch_size) + " K=" +
@@ -903,7 +1014,7 @@ struct Fixture {
                 ops::candidate_selector_path(
                     t_ids, t_unary, t_hidden, t_anchor, predecessor, bf16_successor, kTokenDomain,
                     t_pos, static_cast<const ops::SamplingConfig*>(config_device.data()), t_d, t_q,
-                    ws, ninfer::test::cuda_environment().default_execution);
+                    {}, ws, ninfer::test::cuda_environment().default_execution);
                 cuda_synchronize();
             } catch (const std::invalid_argument&) { refused = true; }
             if (!refused) {
@@ -937,4 +1048,8 @@ void add_candidate_selector_cases(ninfer::test::OpSuite& suite) {
         suite.add("candidate_selector/nvfp4/k" + std::to_string(steps),
                   [=] { return Fixture(steps).run_nvfp4(); },
                   {{"execution", "direct"}, {"suite", "selector"}});
+    for (int steps : {1, 15})
+        suite.add("candidate_selector/nvfp4/masked/k" + std::to_string(steps),
+                  [=] { return Fixture(steps).run_nvfp4(true); },
+                  {{"execution", "graph"}, {"suite", "selector"}});
 }

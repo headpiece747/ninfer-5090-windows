@@ -131,7 +131,7 @@ This port ships three recipes rather than expecting the commands above to be rec
 `tools/release/check_test_baseline.py` compares a run against the recorded baseline in
 `tools/release/test_baseline.json`, which is the authority for how many tests the suite has and which
 failures are expected by construction. Set `NINFER_TEST_ARTIFACT` before running it: without it the
-three required real-model tests skip, and the gate then fails on missing coverage rather than on a
+required real-model tests skip, and the gate then fails on missing coverage rather than on a
 regression.
 
 `tools/scripts/test_v3.cmd` runs one further gate at its tail, after `ctest`:
@@ -589,7 +589,7 @@ From the configured coordinator:
 ./build/dgx-spark-dev/tests/ninfer_distributed_execution_test --config distributed.local.toml
 ```
 
-The test launches local/SSH workers and uses the production Executor, transport and NCCL backend.
+The test launches local/SSH workers and uses the production Executor, transport and communication backend.
 It checks SUM, unsigned MAX and exact PLE words, Gather/Scatter/Broadcast/P2P, Graph replay,
 decision input, delayed-rank commit, owner subsets, cancellation, retirement, resource queries,
 peak reset, remote launch failure and failure during a collective. No model payload is loaded.

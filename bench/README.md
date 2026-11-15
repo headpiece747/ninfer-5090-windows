@@ -140,7 +140,7 @@ repetitions.
 ```text
 ninfer_bench <artifact.ninfer>
           [--prompt <text> | --messages <file>]
-          [--concurrency <1..8>]
+          [--concurrency <n>] [--max-concurrency <n>]
           [--max-tokens <n>]
           [--repetitions <n>] [--warmup <n>]
           [--max-context <tokens>] [--prefill-chunk <tokens>]
@@ -176,7 +176,7 @@ For a DFlash2 companion artifact:
   --max-context 4096 --kv-dtype bf16 --warmup 1 --repetitions 3
 ```
 
-`--concurrency` submits that many prepared requests per repetition. The output-constraint flags
+`--concurrency` submits that many prepared requests per repetition, and `--max-concurrency` configures Engine resident capacity (defaulting to `--concurrency` when omitted). The output-constraint flags
 (`--grammar-file`, `--json-schema-file`, `--json-object`, `--regex`, repeated `--choice`) are
 CLI-scoped: `ninfer_bench` rejects them as unknown arguments, and there is no `--mixed-constraints`.
 Batch throughput is `output_tokens_per_wall_second` in each summary, computed as `output_tokens /

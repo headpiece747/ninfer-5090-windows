@@ -30,9 +30,8 @@ void launch_nvfp4_swiglu_decode(const Tensor& x, const Weight& weight, Tensor& o
                                 cudaStream_t stream);
 void launch_nvfp4_swiglu_small_t(const Tensor& x, const Weight& weight, Tensor& out,
                                  cudaStream_t stream);
-// Port-only wide-T A16 route: the fused MMA above the small-T family (nvfp4_linear_swiglu_matrix.cu).
-void launch_nvfp4_swiglu_matrix(const Tensor& x, const Weight& weight, Tensor& out,
-                                cudaStream_t stream);
+void launch_nvfp4_swiglu_large_t(const Tensor& x, const Weight& weight, Tensor& out,
+                                 cudaStream_t stream);
 void launch_nvfp4_swiglu_a4(const Tensor& x, const Weight& weight, Tensor& out,
                             MemoryArena& workspace, cudaStream_t stream);
 

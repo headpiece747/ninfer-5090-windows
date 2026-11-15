@@ -213,8 +213,7 @@ public:
         for (std::uint32_t kind = 0; kind < 2; ++kind)
             for (auto& page : pages_[kind])
                 page = pool_.resolve(reservation.materialize(pool_.record_class(kind + 1)));
-        q35::ContextWork bindings;
-        q35::Work work;
+        // program.cpp enforces at most one residency binding per ContextWork; submit per lane.
         for (std::uint32_t lane = 0; lane < kBatch; ++lane) {
             rows_[lane] = {.member            = {{lane + 1, 1}, {{lane}, 1}},
                            .source_state      = {lane, 1},
@@ -223,6 +222,8 @@ public:
                                                  static_cast<std::int64_t>(states_[lane].offset)},
                            .main_table        = {0, lane, 1},
                            .backend_table     = ctx::TableRow{1, lane, 1}};
+            q35::ContextWork bindings;
+            q35::Work work;
             work.context.operations.emplace_back(ctx::RecordClear{range(states_[lane])});
             bindings.bindings.push_back({rows_[lane].member, {}, {}});
             for (std::uint32_t pool = 0; pool < 2; ++pool)
@@ -232,11 +233,11 @@ public:
                     0,
                     {static_cast<std::int64_t>(pages_[pool][lane * 2].offset),
                      static_cast<std::int64_t>(pages_[pool][lane * 2 + 1].offset)}});
+            work.operation = std::move(bindings);
+            auto ticket    = submit(std::move(work), runtime::FrameKind::Context);
+            (void)result(ticket);
+            retire(ticket);
         }
-        work.operation = std::move(bindings);
-        auto ticket    = submit(std::move(work), runtime::FrameKind::Context);
-        (void)result(ticket);
-        retire(ticket);
     }
 
     void forward(std::uint32_t lane, int count, q35::ForwardPurpose purpose, bool visual = false) {
@@ -244,6 +245,7 @@ public:
         q35::ForwardWork work;
         work.purpose = purpose;
         work.rows    = {rows_[lane]};
+        work.shape   = native_.session_plan.batch_execution->exact(1, 1);
         q35::InputWindow input;
         input.tokens.resize(count);
         input.rope_positions.resize(3 * count);
@@ -461,10 +463,10 @@ public:
                 operation.commit = q35::Commit{};
                 for (std::uint32_t lane = 0; lane < kBatch; ++lane) {
                     operation.commit->rows.push_back({accepted[lane], true, false});
-                    frame.host_commit->accepted_columns[lane] = accepted[lane];
+                    frame.host_commit.accepted_columns[lane] = accepted[lane];
                 }
                 CUDA_CHECK(cudaMemcpyAsync(frame.accepted_columns.data,
-                                           frame.host_commit->accepted_columns.data(),
+                                           frame.host_commit.accepted_columns.data(),
                                            kBatch * sizeof(std::int32_t), cudaMemcpyHostToDevice,
                                            native_.device().stream()));
                 native.rebuild_mtp_history(kBatch);
@@ -508,6 +510,7 @@ private:
     }
 
     runtime::ExecutionTicket submit(q35::Work work, runtime::FrameKind kind) {
+        q35::plan_work_batch(work, *native_.session_plan.batch_execution);
         auto reservation = native_.executor().try_reserve(kind);
         require(bool(reservation), "native MTP frame is unexpectedly occupied");
         return native_.executor().submit(std::move(*reservation), std::move(work));

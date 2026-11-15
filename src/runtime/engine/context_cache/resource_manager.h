@@ -8,6 +8,7 @@
 #include "runtime/engine/context_cache/prefix_index.h"
 #include "runtime/engine/context_cache/types.h"
 #include "runtime/engine/context_cache/reclaim_selection.h"
+#include "runtime/engine/context_cache/recovery_cost.h"
 
 #include <algorithm>
 #include <array>
@@ -41,6 +42,7 @@ public:
     using Source            = typename Model::SourceCandidate;
     using SessionKey        = typename Model::CacheSessionKey;
     using OwnerToken        = ContinuationOwnerToken;
+    using Ledger            = RecoveryLedger<Session, Handle>;
 
     using DemandKey =
         typename decltype(std::declval<const Base&>().prefix_shortlist_key(0))::value_type;
@@ -57,6 +59,9 @@ public:
         std::optional<Handle> checkpoint;
         std::optional<Handle> replacement;
         std::vector<Handle> sources;
+        PlacementId placement;
+        std::shared_ptr<const RecoveryDescription> target;
+        std::uint64_t pending_action = 0;
     };
 
     struct ReclaimCursor {
@@ -80,9 +85,20 @@ public:
         std::vector<OwnerProtection> owners;
         std::optional<Admission> admission;
         std::optional<std::uint64_t> gain_limit;
-        std::uint64_t sacrificed = 0;
+        std::uint64_t id = 0;
+        mutable std::unique_ptr<Ledger> ledger;
         ReclaimRights rights;
         std::vector<Handle> protected_points;
+    };
+
+    struct ReclaimActionQuote {
+        std::uint64_t decision = 0, revision = 0;
+        std::vector<Handle> retired;
+        std::uint64_t loss_after = 0, action_cost = 0;
+        bool budgeted = false;
+        // Reserved in admission/ranking, paid only if that later maintenance starts.
+        std::uint64_t followup_cost = 0;
+        std::vector<Handle> changed;
     };
 
     struct SourceChoice {
@@ -101,6 +117,11 @@ public:
     explicit ResourceManager(bool enabled, ContextMachineCostModel costs)
         : enabled_(enabled), costs_(std::move(costs)) {}
 
+    ResourceManager(const ResourceManager&)            = delete;
+    ResourceManager& operator=(const ResourceManager&) = delete;
+    ResourceManager(ResourceManager&&)                 = default;
+    ResourceManager& operator=(ResourceManager&&)      = default;
+
     [[nodiscard]] const PrefixCacheStatistics& statistics() const noexcept {
         return index_.statistics();
     }
@@ -114,11 +135,10 @@ public:
         if (enabled_) {
             for (const auto handle : index_.matches(session, base)) {
                 if (session.checkpoint_metadata(handle).frontier > maximum_frontier) { continue; }
-                for (const auto& owner : owners_) {
-                    const auto point =
-                        std::find_if(owner.points.begin(), owner.points.end(),
-                                     [&](const auto& p) { return p.handle == handle; });
-                    if (point == owner.points.end()) { continue; }
+                const auto found = references_.find(handle);
+                if (found == references_.end()) continue;
+                for (const auto token : found->second.owners) {
+                    const auto& owner  = *find_owner(token);
                     const auto& advice = base.context_cache();
                     const bool take =
                         own_resume
@@ -135,13 +155,11 @@ public:
                          .publication_order = owner.publication_order,
                          .ordinal           = owner.token});
                 }
-                for (const auto& shared : shared_) {
-                    if (shared.handle != handle) { continue; }
+                for (const auto ordinal : found->second.shared)
                     result.push_back({.source       = Source{.checkpoint = handle},
-                                      .shared_entry = shared.ordinal,
+                                      .shared_entry = ordinal,
                                       .resume_owner = own_resume,
-                                      .ordinal      = shared.ordinal});
-                }
+                                      .ordinal      = ordinal});
             }
         }
         if (own_resume) {
@@ -319,11 +337,15 @@ public:
         if (!waiting) {
             if (held.empty()) { return; }
             waiting_.push_back({.request = request, .choice = choice, .held = std::move(held)});
+            waiting_lookup_.emplace(request, std::prev(waiting_.end()));
+            for (auto h : waiting_.back().held) add_reference(h, &References::waiting, request);
             return;
         }
         auto old        = std::move(waiting->held);
         waiting->choice = choice;
         waiting->held   = std::move(held);
+        for (auto h : old) remove_reference(h, &References::waiting, request);
+        for (auto h : waiting->held) add_reference(h, &References::waiting, request);
         for (const auto point : old) { release_unreferenced(session, point); }
     }
 
@@ -356,22 +378,27 @@ public:
         if (auto* waiting = find_waiting(request)) { waiting->binding = true; }
         for (const auto handle : retired) { forget(handle); }
         if (consumed) {
-            for (auto& waiting : waiting_) {
-                if (waiting.request != request && std::erase(waiting.held, *consumed)) {
-                    ++waiting.revocations;
-                }
+            const auto found = references_.find(*consumed);
+            if (found == references_.end()) return;
+            const auto waiters = found->second.waiting;
+            for (auto id : waiters) {
+                if (id == request) continue;
+                auto& waiting = *find_waiting(id);
+                std::erase(waiting.held, *consumed);
+                remove_reference(*consumed, &References::waiting, id);
+                ++waiting.revocations;
             }
         }
     }
 
     void release_source(Session& session, std::uint64_t request) {
-        const auto found = std::find_if(waiting_.begin(), waiting_.end(), [=](const auto& entry) {
-            return entry.request == request;
-        });
-        if (found == waiting_.end()) { return; }
-        auto held = std::move(found->held);
-        waiting_.erase(found);
-        for (const auto handle : held) { release_unreferenced(session, handle); }
+        const auto found = waiting_lookup_.find(request);
+        if (found == waiting_lookup_.end()) return;
+        auto held = std::move(found->second->held);
+        for (auto h : held) remove_reference(h, &References::waiting, request);
+        waiting_.erase(found->second);
+        waiting_lookup_.erase(found);
+        for (const auto handle : held) release_unreferenced(session, handle);
     }
 
     // Called exactly once after Native's irreversible bind commit. The choice preserves logical
@@ -423,6 +450,7 @@ public:
                                    .priority        = priority,
                                    .proven_frontier = proven_frontier,
                                    .retained_at     = ++retention_clock_});
+                owner_lookup_.emplace(token, std::prev(owners_.end()));
             }
         }
         auto* owner   = find_owner(token);
@@ -456,8 +484,7 @@ public:
                 if (!identities.prefix(entry.handle, handle)) continue;
                 entry.evidence |= summary.evidence;
                 const auto cost = [&](Handle h) {
-                    return price_context_transfer_requirements(
-                        costs_, session.checkpoint_restore_requirements(h));
+                    return restore_cost(session, h, summary.placement);
                 };
                 if (prior.leased || cost(entry.handle) <= cost(handle)) {
                     release_unreferenced(session, handle);
@@ -465,6 +492,8 @@ public:
                 }
                 const auto old = entry.handle;
                 entry.handle   = handle;
+                remove_reference(old, &References::shared, entry.ordinal);
+                add_reference(handle, &References::shared, entry.ordinal);
                 index_.insert(session, handle, summary.frontier, summary.role);
                 release_unreferenced(session, old);
                 return;
@@ -475,6 +504,8 @@ public:
                  .priority    = demand_priority(session.checkpoint_key(handle, summary.frontier)),
                  .retained_at = ++retention_clock_,
                  .evidence    = summary.evidence});
+            shared_lookup_.emplace(shared_.back().ordinal, std::prev(shared_.end()));
+            add_reference(handle, &References::shared, shared_.back().ordinal);
             index_.insert(session, handle, summary.frontier, summary.role);
         } else {
             auto* owner = find_owner(token);
@@ -511,6 +542,7 @@ public:
                     return;
                 }
                 owner->points.push_back({handle, summary.role});
+                add_reference(handle, &References::owners, owner->token);
                 index_.insert(session, handle, summary.frontier, summary.role);
             }
         }
@@ -518,8 +550,9 @@ public:
 
     [[nodiscard]] bool
     retain_shared_checkpoint(Session& session, const Base& base, std::uint32_t frontier,
-                             PlacementId placement            = {},
-                             SharedCandidateEvidence evidence = SharedCandidateEvidence::None) {
+                             PlacementId placement             = {},
+                             SharedCandidateEvidence evidence  = SharedCandidateEvidence::None,
+                             const CaptureCostQuote* candidate = nullptr) {
         prune(session);
         const auto key = base.prefix_shortlist_key(frontier);
         if (!key) return false;
@@ -528,6 +561,7 @@ public:
                 session.checkpoint_metadata(entry.handle).frontier == frontier &&
                 session.checkpoint_key(entry.handle, frontier) == *key &&
                 session.checkpoint_recovery_frontier(entry.handle, base, frontier) == frontier) {
+                if (candidate && capture_improves(session, entry.handle, *candidate)) continue;
                 entry.evidence |= evidence;
                 return true;
             }
@@ -537,7 +571,8 @@ public:
 
     [[nodiscard]] std::optional<Handle> capture_source(Session& session, const Base& base,
                                                        std::uint32_t frontier,
-                                                       PlacementId placement) {
+                                                       PlacementId placement,
+                                                       const CaptureCostQuote* quote = nullptr) {
         prune(session);
         std::optional<Handle> best;
         std::uint64_t cost = UINT64_MAX;
@@ -545,8 +580,8 @@ public:
             const auto metadata = session.checkpoint_metadata(handle);
             if (metadata.frontier != frontier || metadata.placement != placement) continue;
             if (session.checkpoint_recovery_frontier(handle, base, frontier) != frontier) continue;
-            const auto candidate = price_context_transfer_requirements(
-                costs_, session.checkpoint_restore_requirements(handle));
+            if (quote && capture_improves(session, handle, *quote)) continue;
+            const auto candidate = restore_cost(session, handle, placement);
             if (!best || candidate < cost) {
                 best = handle;
                 cost = candidate;
@@ -561,6 +596,7 @@ public:
         auto* owner = find_owner(token);
         if (!owner) { return; }
         owner->active            = false;
+        references_dirty_        = true;
         owner->publication_order = publication_order;
         const auto& advice       = base.context_cache();
         if (advice.update_session_index && advice.session_key) {
@@ -582,7 +618,9 @@ public:
         auto* owner = find_owner(token);
         if (!owner) { return; }
         const auto old = points(token);
-        std::erase_if(owners_, [&](const auto& entry) { return entry.token == token; });
+        for (auto h : old) remove_reference(h, &References::owners, token);
+        owners_.erase(owner_lookup_.at(token));
+        owner_lookup_.erase(token);
         for (const auto handle : old) { release_unreferenced(session, handle); }
     }
 
@@ -643,8 +681,9 @@ public:
     }
 
     [[nodiscard]] Admission capture_admission(Session& session, OwnerToken owner, const Base& base,
-                                              std::uint32_t frontier,
-                                              CheckpointRole purpose) const {
+                                              std::uint32_t frontier, CheckpointRole purpose,
+                                              PlacementId placement         = {},
+                                              const CaptureCostQuote* quote = nullptr) const {
         auto demand = demand_priority(base.prefix_shortlist_key(frontier));
         if (!demand.reused() && purpose == CheckpointRole::InputReplay) {
             if (const auto* entry = find_owner(owner);
@@ -659,13 +698,16 @@ public:
                                                                   : std::nullopt;
         if (replacement && !session.checkpoint_recovery_frontier(*replacement, base, frontier))
             replacement.reset();
-        return {.priority    = priority,
-                .demand      = demand,
-                .purpose     = purpose,
-                .owner       = owner,
-                .base        = &base,
-                .frontier    = frontier,
-                .replacement = replacement};
+        return {.priority       = priority,
+                .demand         = demand,
+                .purpose        = purpose,
+                .owner          = owner,
+                .base           = &base,
+                .frontier       = frontier,
+                .replacement    = replacement,
+                .placement      = placement,
+                .target         = quote ? quote->retained : nullptr,
+                .pending_action = quote ? action_cost(quote->work) : 0};
     }
 
     [[nodiscard]] ReclaimCursor begin_reclaim(Session& session,
@@ -673,6 +715,7 @@ public:
                                               ReclaimRights rights               = {}) {
         prune(session);
         auto cursor      = reclaim_order(session);
+        cursor.id        = ++decision_clock_;
         cursor.admission = admission;
         cursor.rights    = admission ? ReclaimRights{ReclaimPurpose::OptionalWrite} : rights;
         if (admission) {
@@ -683,7 +726,7 @@ public:
                             cursor.protected_points.push_back(point.handle);
         }
         if (admission && !admission->demand.reused()) {
-            Evaluation evaluation;
+            Evaluation evaluation{.cursor = &cursor};
             cursor.gain_limit = recovery_gain(session, *admission, {}, evaluation);
         }
         return cursor;
@@ -700,7 +743,7 @@ public:
             if (session.valid_checkpoint(victim.handle) && referenced[victim.handle.index])
                 allowed.push_back(victim.handle);
         auto plan = session.plan_releases(allowed, {}, assessment.demand);
-        Evaluation evaluation;
+        Evaluation evaluation{.cursor = &cursor};
         const std::array<const Admission*, 1> admissions{cursor.admission ? &*cursor.admission
                                                                           : nullptr};
         ReclaimSelection<ResourceManager> selection(*this, session, assessment, cursor, evaluation,
@@ -722,25 +765,68 @@ public:
         for (const auto& victim : cursor.victims)
             if (session.valid_checkpoint(victim.handle) && referenced[victim.handle.index])
                 allowed.push_back(victim.handle);
-        auto plans     = session.plan_reclaim(allowed, {}, assessment.demand);
+        auto plans = session.plan_reclaim(allowed, {}, assessment.demand);
+        Evaluation evaluation{.cursor = &cursor};
         using Demotion = typename decltype(plans.demotions)::value_type;
         std::optional<Demotion> combined;
-        // Optional capture may preserve existing history on available Host backing, but
-        // cannot sacrifice it piecemeal before the complete destination is feasible.
-        for (const auto& plan : plans.demotions) {
-            if (!session.useful_release_bytes(plan.released, assessment)) continue;
-            auto next = plan;
-            if (combined) {
-                const std::array parts{*combined, plan};
-                next = session.combine_demotions(parts);
+        std::vector<bool> selected(plans.demotions.size());
+        // Every trial is independent until selected. Prefer an affordable complete plan;
+        // otherwise grow the cheapest useful partial plan and reprice the whole union.
+        for (;;) {
+            struct Choice {
+                std::size_t index;
+                Demotion plan;
+                ReclaimActionQuote quote;
+                ActionRank rank;
+                bool complete;
+            };
+
+            std::optional<Choice> best;
+            for (std::size_t i = 0; i < plans.demotions.size(); ++i) {
+                if (selected[i]) continue;
+                const auto& candidate = plans.demotions[i];
+                if (!session.useful_release_bytes(candidate.released, assessment)) continue;
+                auto trial = candidate;
+                if (combined) {
+                    const std::array parts{*combined, candidate};
+                    trial = session.combine_demotions(parts);
+                }
+                if (!session.can_place_host(session.demotion_host_requirements(trial))) continue;
+                const auto useful = session.useful_release_bytes(trial.released, assessment);
+                if (combined &&
+                    useful <= session.useful_release_bytes(combined->released, assessment) &&
+                    !session.assess(assessment.demand, trial.released).feasible())
+                    continue;
+                auto facts = action_facts(session, trial.sources, cursor, evaluation);
+                if (!admits(session, trial.sources, facts, cursor.admission, cursor, evaluation,
+                            true))
+                    continue;
+                auto quote = quote_demotion(session, trial, {}, cursor, evaluation, assessment);
+                if (!admits_action(session, quote, cursor, evaluation)) continue;
+                auto rank = rank_action(session, trial.sources, facts, useful, evaluation, true);
+                rank.loss = recovery_cost_increase(cursor.ledger->loss_after, quote.loss_after);
+                rank.action_cost = add_recovery_cost(quote.action_cost, quote.followup_cost);
+                if (cursor.admission &&
+                    !admits_limits(rank.priority, add_recovery_cost(rank.loss, rank.action_cost),
+                                   *cursor.admission, cursor))
+                    continue;
+                const bool complete = session.assess(assessment.demand, trial.released).feasible();
+                if (!best || (complete != best->complete ? complete : less_rank(rank, best->rank)))
+                    best.emplace(Choice{i, std::move(trial), std::move(quote), rank, complete});
             }
-            if (!session.can_place_host(session.demotion_host_requirements(next))) continue;
-            combined = std::move(next);
-            if (!session.assess(assessment.demand, combined->released).feasible()) continue;
-            const auto started = session.start_demote(*combined, {});
-            if (started == ContextStart::Started)
+            if (!best) break;
+            if (!best->complete) {
+                selected[best->index] = true;
+                combined              = std::move(best->plan);
+                continue;
+            }
+            const auto started = session.start_demote(best->plan, {});
+            if (started == ContextStart::Started) {
+                cursor.ledger->accept(best->plan.sources, {}, best->quote.loss_after,
+                                      best->quote.action_cost, best->quote.budgeted);
                 return session.has_context_operation() ? ReclaimProgress::Transferring
                                                        : ReclaimProgress::Changed;
+            }
             return started == ContextStart::Deferred ? ReclaimProgress::Deferred
                                                      : ReclaimProgress::Retry;
         }
@@ -754,32 +840,197 @@ public:
                  std::optional<Admission> admission      = std::nullopt,
                  const ReclaimCursor* decision = nullptr, ReclaimRights rights = {}) {
         prune(session);
-        Evaluation evaluation;
+        Evaluation evaluation{.cursor = decision};
         if (decision) {
             return host_victims_in_order(session, write, incoming, later_snapshots, excluded,
                                          decision->admission, *decision, evaluation);
         }
-        auto cursor = begin_reclaim(session, admission, rights);
+        auto cursor       = begin_reclaim(session, admission, rights);
+        evaluation.cursor = &cursor;
         return host_victims_in_order(session, write, incoming, later_snapshots, excluded, admission,
                                      cursor, evaluation);
     }
 
-    [[nodiscard]] std::uint64_t release_cost(Session& session,
-                                             std::span<const Handle> handles) const {
-        if (handles.empty()) return 0;
-        Evaluation evaluation;
-        return recovery(session, evaluation).loss(handles);
+    [[nodiscard]] ReclaimActionQuote quote_release(Session& session,
+                                                   std::span<const Handle> handles,
+                                                   const ReclaimCursor& cursor) const {
+        include_required_snapshots(session, cursor, handles);
+        Evaluation evaluation{.cursor = &cursor};
+        auto& values = recovery(session, evaluation);
+        return {cursor.id,
+                cursor.ledger->revision,
+                {handles.begin(), handles.end()},
+                values.total_loss(handles),
+                0,
+                needs_budget(cursor, handles)};
+    }
+
+    // Read-only complete destination plan. Native prepares the selected pause before any
+    // victim is consumed, and owns subsequent maintenance and relocation as one operation.
+    [[nodiscard]] std::optional<std::vector<Handle>>
+    pause_victims(Session& session, const ContextDemand& demand, const ReclaimCursor& cursor,
+                  std::span<const Handle> excluded        = {},
+                  std::span<const Handle> later_snapshots = {}) const {
+        const auto assessment = session.assess(demand);
+        if (assessment.feasible()) return std::vector<Handle>{};
+        if (assessment.impossible() || assessment.waiting()) return {};
+        include_required_snapshots(session, cursor, later_snapshots);
+        Evaluation evaluation{.cursor = &cursor};
+        (void)recovery(session, evaluation);
+        const auto referenced = referenced_handles(session);
+        std::vector<Handle> allowed;
+        for (const auto& victim : cursor.victims)
+            if (session.valid_checkpoint(victim.handle) && referenced[victim.handle.index])
+                allowed.push_back(victim.handle);
+        for (auto h : later_snapshots)
+            if (session.valid_checkpoint(h) && !contains(allowed, h)) allowed.push_back(h);
+        auto plan = session.plan_releases(allowed, {}, demand);
+        const std::array<const Admission*, 1> admissions{nullptr};
+        ReclaimSelection<ResourceManager> selection(*this, session, assessment, cursor, evaluation,
+                                                    *plan.inventory, plan.releases, admissions,
+                                                    excluded, later_snapshots);
+        while (!session.assess(demand, selection.released()).feasible()) {
+            const auto next = selection.best();
+            if (!next) return {};
+            selection.commit(*next);
+        }
+        return std::vector<Handle>(selection.handles().begin(), selection.handles().end());
+    }
+
+    [[nodiscard]] std::vector<Handle> pause_sources(Session& session) const {
+        return advertised(session);
+    }
+
+    template <class PauseOption>
+    [[nodiscard]] std::uint64_t
+    pause_cost(Session& session, const PauseCostQuote& quote, const PauseOption& option,
+               std::span<const Handle> victims, const ReclaimCursor* decision = nullptr) const {
+        if (quote.unpriced_work) return UINT64_MAX;
+        const auto price = [&](std::span<const ContextTransferRequirement> transfers) {
+            if (!costs_.prefill_measured &&
+                std::any_of(transfers.begin(), transfers.end(),
+                            [](const auto& t) { return t.peer.has_value(); }))
+                return UINT64_MAX;
+            return action_cost(transfers);
+        };
+        auto future = UINT64_MAX;
+        for (const auto& route : quote.recovery)
+            future = std::min(future, add_recovery_cost(price(route.transfers),
+                                                        costs_.prefill_ns(route.rebuild)));
+        auto cost = add_recovery_cost(price(quote.work), future);
+        if (victims.empty() && !option.host_write) return cost;
+        if (decision) {
+            const auto action = quote_pause_action(session, quote, option, victims, *decision);
+            return add_recovery_cost(
+                cost, recovery_cost_increase(decision->ledger->loss_after, action.loss_after));
+        }
+        const auto projected = pause_projection(session, option);
+        RecoveryCostEvaluation<Session, Handle> values(session, advertised(session), nullptr,
+                                                       costs_, projected);
+        return add_recovery_cost(cost, values.total_loss(victims));
+    }
+
+    template <class PauseOption>
+    ReclaimActionQuote
+    quote_pause_action(Session& session, const PauseCostQuote& quote, const PauseOption& option,
+                       std::span<const Handle> victims, const ReclaimCursor& cursor) const {
+        const auto projected = pause_projection(session, option);
+        auto changed         = std::vector<Handle>(victims.begin(), victims.end());
+        for (const auto& point : projected)
+            if (!contains(changed, point.handle)) changed.push_back(point.handle);
+        include_required_snapshots(session, cursor, changed);
+        RecoveryCostEvaluation<Session, Handle> values(session, advertised(session),
+                                                       cursor.ledger.get(), costs_, projected);
+        ReclaimActionQuote result{cursor.id,
+                                  cursor.ledger->revision,
+                                  {victims.begin(), victims.end()},
+                                  values.total_loss(victims),
+                                  action_cost(quote.work)};
+        result.changed = std::move(changed);
+        return result;
+    }
+
+    void accept_pause(Session& session, ReclaimCursor& cursor, const ReclaimActionQuote& quote) {
+        if (!cursor.ledger || quote.decision != cursor.id ||
+            quote.revision != cursor.ledger->revision)
+            throw std::logic_error("pause differs from its decision quote");
+        for (auto h : quote.retired) {
+            if (session.valid_checkpoint(h))
+                throw std::logic_error("pause did not retire its victims");
+            forget(h, true);
+        }
+        cursor.ledger->accept(quote.changed, quote.retired, quote.loss_after, quote.action_cost);
+        prune(session);
+    }
+
+    [[nodiscard]] std::uint64_t
+    action_cost(std::span<const ContextTransferRequirement> work) const {
+        return price_context_transfer_requirements(costs_, work);
+    }
+
+    [[nodiscard]] std::optional<ReclaimActionQuote>
+    quote_capture(Session& session, const CaptureCostQuote& capture, const ReclaimCursor& cursor,
+                  std::span<const Handle> removed = {}) const {
+        Evaluation evaluation{.cursor = &cursor};
+        auto& values       = recovery(session, evaluation);
+        const auto loss    = values.total_loss(removed);
+        const auto action  = action_cost(capture.work);
+        const auto gain    = values.gain(*capture.retained, {}, true);
+        const bool bounded = needs_budget(cursor, removed) || cursor.ledger->bounded_actions;
+        if (!affords_action(cursor, loss, action, gain, bounded)) return {};
+        return ReclaimActionQuote{
+            cursor.id, cursor.ledger->revision, {removed.begin(), removed.end()}, loss, action,
+            bounded};
+    }
+
+    [[nodiscard]] ReclaimProgress maintain(Session& session, const ContextAssessment& assessment,
+                                           const ReclaimCursor& cursor) const {
+        Evaluation evaluation{.cursor = &cursor};
+        auto& values    = recovery(session, evaluation);
+        const auto cost = action_cost(session.maintenance_work(assessment));
+        if (cursor.admission) {
+            const auto& a = *cursor.admission;
+            const auto target =
+                a.target ? a.target
+                         : (a.base ? session.recovery_target(*a.base, a.frontier, a.placement)
+                                   : nullptr);
+            const auto gain =
+                target ? values.gain(*target, {}, true) : recovery_gain(session, a, {}, evaluation);
+            if (!affords_action(cursor, values.total_loss(),
+                                add_recovery_cost(cost, a.pending_action), gain,
+                                cursor.ledger->bounded_actions))
+                return ReclaimProgress::Blocked;
+        }
+        const auto started = session.start_maintenance(assessment);
+        if (started == ContextStart::Started) {
+            cursor.ledger->accept({}, {}, values.total_loss(), cost);
+            return session.has_context_operation() ? ReclaimProgress::Transferring
+                                                   : ReclaimProgress::Changed;
+        }
+        return started == ContextStart::Deferred ? ReclaimProgress::Deferred
+                                                 : ReclaimProgress::Retry;
+    }
+
+    void accept_action(const ReclaimCursor& cursor, const ReclaimActionQuote& quote) const {
+        if (!cursor.ledger || quote.decision != cursor.id ||
+            quote.revision != cursor.ledger->revision || !quote.retired.empty())
+            throw std::logic_error("context action differs from its decision quote");
+        cursor.ledger->accept({}, {}, quote.loss_after, quote.action_cost, quote.budgeted);
     }
 
     void adopt_release(Session& session, std::span<const Handle> handles, ReclaimCursor& cursor,
-                       std::uint64_t loss) {
+                       ReclaimActionQuote quote) {
+        if (!cursor.ledger || quote.decision != cursor.id ||
+            quote.revision != cursor.ledger->revision ||
+            !std::equal(handles.begin(), handles.end(), quote.retired.begin(), quote.retired.end()))
+            throw std::logic_error("cache release differs from its decision quote");
         for (const auto handle : handles) {
             if (session.valid_checkpoint(handle))
                 throw std::logic_error("Session did not consume its quoted cache victim");
             forget(handle, true);
         }
-        cursor.sacrificed =
-            loss > UINT64_MAX - cursor.sacrificed ? UINT64_MAX : cursor.sacrificed + loss;
+        cursor.ledger->accept(handles, handles, quote.loss_after, quote.action_cost,
+                              quote.budgeted);
         prune(session);
     }
 
@@ -807,14 +1058,7 @@ public:
         if (assessment.waiting()) return ReclaimProgress::Deferred;
         const auto current = session.assess(assessment.demand);
         if (current.ready()) return ReclaimProgress::Retry;
-        if (current.requires_maintenance()) {
-            const auto started = session.start_maintenance(current);
-            if (started == ContextStart::Started)
-                return session.has_context_operation() ? ReclaimProgress::Transferring
-                                                       : ReclaimProgress::Changed;
-            return started == ContextStart::Deferred ? ReclaimProgress::Deferred
-                                                     : ReclaimProgress::Retry;
-        }
+        if (current.requires_maintenance()) return maintain(session, current, cursor);
         if (current.waiting()) return ReclaimProgress::Deferred;
         if (current.impossible()) return ReclaimProgress::Blocked;
         prune(session);
@@ -826,7 +1070,7 @@ public:
                 allowed.push_back(victim.handle);
         }
         auto plans = session.plan_reclaim(allowed, excluded, current.demand);
-        Evaluation evaluation;
+        Evaluation evaluation{.cursor = &cursor};
         using Demotion = typename decltype(plans.demotions)::value_type;
 
         struct Action {
@@ -869,14 +1113,22 @@ public:
             auto rank         = rank_action(session, plan.sources, facts, useful, evaluation, true);
             auto host_facts   = action_facts(session, *victims, cursor, evaluation);
             const auto host_rank = rank_action(session, *victims, host_facts, useful, evaluation);
-            rank.loss            = host_rank.loss;
-            rank.explicit_hint   = rank.explicit_hint || host_rank.explicit_hint;
-            rank.waiting         = host_rank.waiting;
-            rank.order           = std::max(rank.order, host_rank.order);
+            const auto quote = quote_demotion(session, plan, *victims, cursor, evaluation, current);
+            if (!admits_action(session, quote, cursor, evaluation)) continue;
+            rank.loss        = recovery_cost_increase(cursor.ledger->loss_after, quote.loss_after);
+            rank.action_cost = add_recovery_cost(quote.action_cost, quote.followup_cost);
+            rank.explicit_hint = rank.explicit_hint || host_rank.explicit_hint;
+            rank.waiting       = host_rank.waiting;
+            rank.order         = std::max(rank.order, host_rank.order);
             if (host_rank.priority.reused() &&
                 (!rank.priority.reused() ||
                  host_rank.priority.last_demand > rank.priority.last_demand))
                 rank.priority = host_rank.priority;
+            if (cursor.admission &&
+                (rank.action_cost == UINT64_MAX ||
+                 !admits_limits(rank.priority, add_recovery_cost(rank.loss, rank.action_cost),
+                                *cursor.admission, cursor)))
+                continue;
             actions.push_back({.demotion     = std::move(plan),
                                .host_victims = std::move(*victims),
                                .preservation = std::move(preservation),
@@ -911,6 +1163,20 @@ public:
                         auto combined = session.combine_demotions(parts);
                         if (!session.can_place_host(session.demotion_host_requirements(combined)))
                             break;
+                        if (cursor.admission) {
+                            const auto quote =
+                                quote_demotion(session, combined, {}, cursor, evaluation, current);
+                            if (!admits_action(session, quote, cursor, evaluation)) break;
+                            const auto loss =
+                                recovery_cost_increase(cursor.ledger->loss_after, quote.loss_after);
+                            if (quote.action_cost == UINT64_MAX ||
+                                !admits_limits(
+                                    action.rank.priority,
+                                    add_recovery_cost(loss, add_recovery_cost(quote.action_cost,
+                                                                              quote.followup_cost)),
+                                    *cursor.admission, cursor))
+                                break;
+                        }
                         plan = std::move(combined);
                     }
                 }
@@ -928,14 +1194,10 @@ public:
                 if (!may_revoke(action.host_victims, cursor.rights))
                     throw std::logic_error("demotion lacks Host victim revocation rights");
                 const auto host_assessment = session.assess(session.host_demand(host));
-                if (host_assessment.requires_maintenance()) {
-                    const auto maintenance = session.start_maintenance(host_assessment);
-                    if (maintenance == ContextStart::Started)
-                        return session.has_context_operation() ? ReclaimProgress::Transferring
-                                                               : ReclaimProgress::Changed;
-                    return maintenance == ContextStart::Deferred ? ReclaimProgress::Deferred
-                                                                 : ReclaimProgress::Retry;
-                }
+                if (host_assessment.requires_maintenance())
+                    return maintain(session, host_assessment, cursor);
+                const auto quote =
+                    quote_demotion(session, plan, action.host_victims, cursor, evaluation, current);
                 const auto started = session.start_demote(plan, action.host_victims);
                 if (started == ContextStart::Started) {
                     for (const auto victim : action.host_victims) {
@@ -943,10 +1205,11 @@ public:
                             throw std::logic_error("demotion did not release its Host victims");
                         forget(victim, true);
                     }
-                    if (cursor.gain_limit)
-                        cursor.sacrificed = action.rank.loss > UINT64_MAX - cursor.sacrificed
-                                                ? UINT64_MAX
-                                                : cursor.sacrificed + action.rank.loss;
+                    auto changed = plan.sources;
+                    changed.insert(changed.end(), action.host_victims.begin(),
+                                   action.host_victims.end());
+                    cursor.ledger->accept(changed, action.host_victims, quote.loss_after,
+                                          quote.action_cost, quote.budgeted);
                     prune(session);
                     return session.has_context_operation() ? ReclaimProgress::Transferring
                                                            : ReclaimProgress::Changed;
@@ -968,6 +1231,10 @@ public:
         owners_.clear();
         shared_.clear();
         waiting_.clear();
+        owner_lookup_.clear();
+        shared_lookup_.clear();
+        waiting_lookup_.clear();
+        references_.clear();
         demand_lookup_.clear();
         demand_frontiers_.clear();
         demand_.clear();
@@ -991,15 +1258,13 @@ private:
     };
 
     WaitingSource* find_waiting(std::uint64_t request) {
-        const auto found = std::find_if(waiting_.begin(), waiting_.end(),
-                                        [=](const auto& item) { return item.request == request; });
-        return found == waiting_.end() ? nullptr : &*found;
+        const auto found = waiting_lookup_.find(request);
+        return found == waiting_lookup_.end() ? nullptr : &*found->second;
     }
 
     const WaitingSource* find_waiting(std::uint64_t request) const {
-        const auto found = std::find_if(waiting_.begin(), waiting_.end(),
-                                        [=](const auto& item) { return item.request == request; });
-        return found == waiting_.end() ? nullptr : &*found;
+        const auto found = waiting_lookup_.find(request);
+        return found == waiting_lookup_.end() ? nullptr : &*found->second;
     }
 
     bool consumable(Handle handle, OwnerToken owner, std::uint64_t request,
@@ -1010,8 +1275,10 @@ private:
                                     [&](const auto& point) { return point.handle == handle; });
         }
         if (catalog_reference_count(handle) != allowed) { return false; }
-        for (const auto& waiting : waiting_) {
-            if (!contains(waiting.held, handle)) { continue; }
+        const auto refs = references_.find(handle);
+        if (refs == references_.end()) return false;
+        for (auto id : refs->second.waiting) {
+            const auto& waiting = *find_waiting(id);
             if (waiting.binding) { return false; }
             if (waiting.request != request &&
                 (!revocation || revocation->purpose == ReclaimPurpose::OptionalWrite ||
@@ -1026,25 +1293,23 @@ private:
 
     [[nodiscard]] std::uint64_t waiting_ticket(std::span<const Handle> handles) const {
         std::uint64_t oldest = 0;
-        for (const auto& waiting : waiting_) {
-            if (std::any_of(handles.begin(), handles.end(),
-                            [&](auto handle) { return contains(waiting.held, handle); })) {
-                oldest = oldest ? std::min(oldest, waiting.request) : waiting.request;
-            }
+        for (auto h : handles) {
+            const auto found = references_.find(h);
+            if (found == references_.end()) continue;
+            for (auto id : found->second.waiting) oldest = oldest ? std::min(oldest, id) : id;
         }
         return oldest;
     }
 
     bool may_revoke(std::span<const Handle> handles, ReclaimRights rights) const {
-        for (const auto& waiting : waiting_) {
-            if (!std::any_of(handles.begin(), handles.end(),
-                             [&](auto handle) { return contains(waiting.held, handle); })) {
-                continue;
-            }
-            if (waiting.binding || rights.purpose == ReclaimPurpose::OptionalWrite ||
-                (rights.purpose == ReclaimPurpose::FreshAdmission &&
-                 waiting.request <= rights.request)) {
-                return false;
+        for (auto h : handles) {
+            const auto found = references_.find(h);
+            if (found == references_.end()) continue;
+            for (auto id : found->second.waiting) {
+                const auto& waiting = *find_waiting(id);
+                if (waiting.binding || rights.purpose == ReclaimPurpose::OptionalWrite ||
+                    (rights.purpose == ReclaimPurpose::FreshAdmission && id <= rights.request))
+                    return false;
             }
         }
         return true;
@@ -1122,39 +1387,60 @@ private:
         return std::find(handles.begin(), handles.end(), handle) != handles.end();
     }
 
+    struct HandleHash {
+        std::size_t operator()(Handle h) const noexcept { return h.index; }
+    };
+
+    struct References {
+        std::vector<std::uint64_t> owners, shared, waiting;
+
+        bool empty() const { return owners.empty() && shared.empty() && waiting.empty(); }
+    };
+
+    using ReferenceList = std::vector<std::uint64_t> References::*;
+
+    void add_reference(Handle h, ReferenceList kind, std::uint64_t id) {
+        references_dirty_ = true;
+        auto& entries     = references_[h].*kind;
+        if (std::find(entries.begin(), entries.end(), id) == entries.end()) entries.push_back(id);
+    }
+
+    void remove_reference(Handle h, ReferenceList kind, std::uint64_t id) {
+        references_dirty_ = true;
+        const auto found  = references_.find(h);
+        if (found == references_.end()) return;
+        std::erase(found->second.*kind, id);
+        if (found->second.empty()) references_.erase(found);
+    }
+
     Owner* find_owner(OwnerToken token) {
-        const auto it = std::find_if(owners_.begin(), owners_.end(),
-                                     [&](const auto& owner) { return owner.token == token; });
-        return it == owners_.end() ? nullptr : &*it;
+        const auto found = owner_lookup_.find(token);
+        return found == owner_lookup_.end() ? nullptr : &*found->second;
     }
 
     const Owner* find_owner(OwnerToken token) const {
-        const auto it = std::find_if(owners_.begin(), owners_.end(),
-                                     [&](const auto& owner) { return owner.token == token; });
-        return it == owners_.end() ? nullptr : &*it;
+        const auto found = owner_lookup_.find(token);
+        return found == owner_lookup_.end() ? nullptr : &*found->second;
     }
 
     Shared* find_shared(std::uint64_t ordinal) {
-        const auto it = std::find_if(shared_.begin(), shared_.end(),
-                                     [&](const auto& entry) { return entry.ordinal == ordinal; });
-        return it == shared_.end() ? nullptr : &*it;
+        const auto found = shared_lookup_.find(ordinal);
+        return found == shared_lookup_.end() ? nullptr : &*found->second;
     }
 
     std::size_t catalog_reference_count(Handle handle) const {
-        std::size_t count = 0;
-        for (const auto& owner : owners_) {
-            count += std::count_if(owner.points.begin(), owner.points.end(),
-                                   [&](const auto& point) { return point.handle == handle; });
-        }
-        count += std::count_if(shared_.begin(), shared_.end(),
-                               [&](const auto& entry) { return entry.handle == handle; });
-        return count;
+        const auto found = references_.find(handle);
+        return found == references_.end()
+                   ? 0
+                   : found->second.owners.size() + found->second.shared.size();
     }
 
     std::size_t reference_count(Handle handle) const {
-        auto count = catalog_reference_count(handle);
-        for (const auto& waiting : waiting_) { count += contains(waiting.held, handle); }
-        return count;
+        const auto found = references_.find(handle);
+        return found == references_.end()
+                   ? 0
+                   : found->second.owners.size() + found->second.shared.size() +
+                         found->second.waiting.size();
     }
 
     bool references(Handle handle) const { return reference_count(handle) != 0; }
@@ -1165,20 +1451,33 @@ private:
             return false;
         }
         std::erase_if(owner.points, [&](const auto& point) { return point.handle == handle; });
+        remove_reference(handle, &References::owners, owner.token);
         if (!catalog_reference_count(handle)) { index_.erase(handle); }
         return true;
     }
 
     void forget(Handle handle, bool reclaimed = false) {
+        references_dirty_ = true;
         index_.erase(handle, reclaimed);
+        // Pinned checkpoints wait in pending_release_ with zero references, so clear
+        // them before the reference lookup can return early.
         std::erase(pending_release_, handle);
-        for (auto& owner : owners_) {
+        const auto found = references_.find(handle);
+        if (found == references_.end()) return;
+        for (auto token : found->second.owners) {
+            auto& owner = *find_owner(token);
             std::erase_if(owner.points, [&](const auto& point) { return point.handle == handle; });
         }
-        std::erase_if(shared_, [&](const auto& entry) { return entry.handle == handle; });
-        for (auto& waiting : waiting_) {
-            if (std::erase(waiting.held, handle) && !waiting.binding) { ++waiting.revocations; }
+        for (auto id : found->second.shared) {
+            shared_.erase(shared_lookup_.at(id));
+            shared_lookup_.erase(id);
         }
+        for (auto id : found->second.waiting) {
+            auto& waiting = *find_waiting(id);
+            std::erase(waiting.held, handle);
+            if (!waiting.binding) ++waiting.revocations;
+        }
+        references_.erase(found);
     }
 
     void release_unreferenced(Session& session, Handle handle) {
@@ -1200,6 +1499,7 @@ private:
         std::vector<Handle> old;
         for (const auto& point : owner.points) { old.push_back(point.handle); }
         owner.points.clear();
+        for (auto h : old) remove_reference(h, &References::owners, owner.token);
         for (const auto handle : carried) {
             if (!session.valid_checkpoint(handle)) { continue; }
             const auto summary = session.checkpoint_metadata(handle);
@@ -1207,33 +1507,36 @@ private:
                 throw std::logic_error("Native carried a public point as a private continuation");
             }
             owner.points.push_back({handle, summary.role});
+            add_reference(handle, &References::owners, owner.token);
             index_.insert(session, handle, summary.frontier, summary.role);
         }
         for (const auto handle : old) { release_unreferenced(session, handle); }
     }
 
     void prune(Session& session) {
+        // Retry pinned releases before checking references_dirty_ / catalog revision:
+        // unpinning a Lease does not bump CheckpointStore revision or mark references dirty.
         std::erase_if(pending_release_, [&](Handle handle) {
             if (!session.valid_checkpoint(handle)) { return true; }
             return session.release_checkpoint(handle);
         });
+        const auto revision = session.checkpoint_catalog_revision();
+        if (!references_dirty_ && revision == pruned_revision_) return;
         demand_capacity_ = std::max<std::size_t>(256, session.checkpoint_extent() * 2);
         std::vector<Handle> stale;
-        const auto inspect = [&](Handle handle) {
-            if (!session.valid_checkpoint(handle) && !contains(stale, handle)) {
-                stale.push_back(handle);
+        for (const auto& [handle, refs] : references_)
+            if (!session.valid_checkpoint(handle)) stale.push_back(handle);
+        for (const auto handle : stale) forget(handle);
+        for (auto it = owners_.begin(); it != owners_.end();) {
+            if (!it->active && it->points.empty()) {
+                owner_lookup_.erase(it->token);
+                it = owners_.erase(it);
+            } else {
+                ++it;
             }
-        };
-        for (const auto& owner : owners_) {
-            for (const auto& point : owner.points) { inspect(point.handle); }
         }
-        for (const auto& shared : shared_) { inspect(shared.handle); }
-        for (const auto& waiting : waiting_) {
-            for (const auto handle : waiting.held) { inspect(handle); }
-        }
-        for (const auto handle : stale) { forget(handle); }
-        std::erase_if(owners_,
-                      [](const auto& owner) { return !owner.active && owner.points.empty(); });
+        references_dirty_ = false;
+        pruned_revision_  = revision;
     }
 
     struct RankedVictim {
@@ -1324,28 +1627,22 @@ private:
         return kept;
     }
 
-    using Recovery =
-        decltype(std::declval<Session&>().evaluate_recovery(std::span<const Handle>{}));
+    using Recovery        = RecoveryCostEvaluation<Session, Handle>;
     using HostReleasePlan = decltype(std::declval<Session&>().plan_releases(
         std::span<const Handle>{}, std::span<const Handle>{}, ContextDemand{}));
 
     // These facts live only until this synchronous evaluation mutates resources or yields.
     // The fixed victim cursor may outlive them; newly published points still count as fallback.
     struct Evaluation {
+        const ReclaimCursor* cursor = nullptr;
         std::optional<std::vector<Handle>> retained;
         std::optional<Recovery> recovery;
-
-        struct Incoming {
-            const Base* base;
-            std::uint32_t frontier;
-            std::vector<Handle> candidates;
-        };
-
-        std::vector<Incoming> incoming;
 
         struct Host {
             std::vector<Handle> allowed;
             HostReleasePlan plan;
+            std::vector<Handle> selected;
+            ContextReleaseSet released;
         };
 
         std::optional<Host> host;
@@ -1380,9 +1677,54 @@ private:
         return *evaluation.retained;
     }
 
+    template <class PauseOption>
+    std::vector<RecoveryPoint<Handle>> pause_projection(Session& session,
+                                                        const PauseOption& option) const {
+        if (!option.host_write) return {};
+        auto projected = session.recovery_points(option.released);
+        auto current   = session.recovery_points();
+        std::sort(current.begin(), current.end(),
+                  [](const auto& a, const auto& b) { return a.handle.index < b.handle.index; });
+        std::erase_if(projected, [&](const auto& point) {
+            const auto old =
+                std::lower_bound(current.begin(), current.end(), point.handle.index,
+                                 [](const auto& p, auto index) { return p.handle.index < index; });
+            if (old == current.end() || old->handle != point.handle) return true;
+            const auto& a = *old->description;
+            const auto& b = *point.description;
+            return a.placement == b.placement && a.restores.size() == b.restores.size() &&
+                   std::equal(a.restores.begin(), a.restores.end(), b.restores.begin(),
+                              [](const auto& x, const auto& y) {
+                                  return x.placement == y.placement && x.transfers == y.transfers &&
+                                         x.replay_transfers == y.replay_transfers;
+                              });
+        });
+        return projected;
+    }
+
+    void prepare_ledger(Session& session, const ReclaimCursor& cursor) const {
+        if (!cursor.ledger)
+            cursor.ledger = std::make_unique<Ledger>(session, advertised(session), costs_);
+    }
+
+    void include_required_snapshots(Session& session, const ReclaimCursor& cursor,
+                                    std::span<const Handle> handles) const {
+        prepare_ledger(session, cursor);
+        if (cursor.admission || cursor.rights.purpose != ReclaimPurpose::Execution) return;
+        std::vector<Handle> added;
+        for (auto h : handles)
+            if (!cursor.ledger->contains(h) && session.valid_checkpoint(h)) added.push_back(h);
+        if (added.empty()) return;
+        const auto points = session.recovery_points({}, added);
+        cursor.ledger->include_required(session, points, advertised(session), costs_);
+    }
+
     [[nodiscard]] Recovery& recovery(Session& session, Evaluation& evaluation) const {
+        if (evaluation.cursor) prepare_ledger(session, *evaluation.cursor);
         if (!evaluation.recovery)
-            evaluation.recovery.emplace(session.evaluate_recovery(retained(session, evaluation)));
+            evaluation.recovery.emplace(
+                session, retained(session, evaluation),
+                evaluation.cursor ? evaluation.cursor->ledger.get() : nullptr, costs_);
         return *evaluation.recovery;
     }
 
@@ -1404,7 +1746,8 @@ private:
             data.removed_stamps.resize(data.entries.size());
             data.proof_stamps.resize(cursor.owners.size());
             for (std::size_t i = 0; i < cursor.victims.size(); ++i) {
-                const auto& victim  = cursor.victims[i];
+                const auto& victim = cursor.victims[i];
+                if (!recovery_index.contains(victim.handle)) continue;
                 auto& entry         = data.entries[victim.handle.index];
                 entry.handle        = victim.handle;
                 entry.priority      = victim.priority;
@@ -1491,12 +1834,13 @@ private:
 
     struct ActionRank {
         CacheRetentionPriority priority;
-        std::uint64_t loss    = 0;
-        std::uint64_t units   = 0;
-        std::size_t order     = 0;
-        std::uint64_t waiting = 0;
-        bool explicit_hint    = false;
-        bool replaces_input   = false;
+        std::uint64_t loss        = 0;
+        std::uint64_t action_cost = 0;
+        std::uint64_t units       = 0;
+        std::size_t order         = 0;
+        std::uint64_t waiting     = 0;
+        bool explicit_hint        = false;
+        bool replaces_input       = false;
     };
 
     [[nodiscard]] ActionRank rank_action(Session& session, std::span<const Handle> sources,
@@ -1514,8 +1858,10 @@ private:
         if (bool(left.waiting) != bool(right.waiting)) { return !left.waiting; }
         if (left.waiting != right.waiting) { return left.waiting > right.waiting; }
         if (left.priority.reused() != right.priority.reused()) { return !left.priority.reused(); }
-        const auto a = static_cast<Uint128>(left.loss) * right.units;
-        const auto b = static_cast<Uint128>(right.loss) * left.units;
+        const auto a =
+            static_cast<Uint128>(add_recovery_cost(left.loss, left.action_cost)) * right.units;
+        const auto b =
+            static_cast<Uint128>(add_recovery_cost(right.loss, right.action_cost)) * left.units;
         if (a != b) return a < b;
         if (left.priority.last_demand != right.priority.last_demand)
             return left.priority.last_demand < right.priority.last_demand;
@@ -1550,36 +1896,100 @@ private:
         return result;
     }
 
-    [[nodiscard]] const std::vector<Handle>& incoming_candidates(Session& session,
-                                                                 const Admission& admission,
-                                                                 Evaluation& evaluation) const {
-        auto found = std::find_if(
-            evaluation.incoming.begin(), evaluation.incoming.end(), [&](const auto& item) {
-                return item.base == admission.base && item.frontier == admission.frontier;
-            });
-        if (found == evaluation.incoming.end()) {
-            typename Evaluation::Incoming item{admission.base, admission.frontier, {}};
-            for (const auto handle : retained(session, evaluation))
-                if (session.checkpoint_recovery_frontier(handle, *admission.base,
-                                                         admission.frontier))
-                    item.candidates.push_back(handle);
-            auto& index = recovery(session, evaluation);
-            std::sort(item.candidates.begin(), item.candidates.end(),
-                      [&](auto a, auto b) { return index.frontier(a) > index.frontier(b); });
-            evaluation.incoming.push_back(std::move(item));
-            found = std::prev(evaluation.incoming.end());
-        }
+    static bool needs_budget(const ReclaimCursor& cursor, std::span<const Handle> handles) {
+        if (!cursor.admission || cursor.admission->demand.reused()) return false;
+        if (cursor.admission->purpose != CheckpointRole::InputReplay) return true;
+        return std::any_of(handles.begin(), handles.end(), [&](Handle h) {
+            const auto victim = std::find_if(cursor.victims.begin(), cursor.victims.end(),
+                                             [&](const auto& v) { return v.handle == h; });
+            return victim != cursor.victims.end() && victim->priority.reused();
+        });
+    }
 
-        return found->candidates;
+    bool admits_action(Session& session, const ReclaimActionQuote& quote,
+                       const ReclaimCursor& cursor, Evaluation& evaluation) const {
+        if (!cursor.admission) return true;
+        const auto& a = *cursor.admission;
+        const auto target =
+            a.target
+                ? a.target
+                : (a.base ? session.recovery_target(*a.base, a.frontier, a.placement) : nullptr);
+        const auto gain = target ? recovery(session, evaluation).gain(*target, {}, true)
+                                 : recovery_gain(session, a, {}, evaluation);
+        return affords_action(
+            cursor, quote.loss_after,
+            add_recovery_cost(quote.action_cost,
+                              add_recovery_cost(quote.followup_cost, a.pending_action)),
+            gain, quote.budgeted || cursor.ledger->bounded_actions);
+    }
+
+    static bool affords_action(const ReclaimCursor& cursor, std::uint64_t loss,
+                               std::uint64_t action, std::uint64_t gain, bool bounded) {
+        if (!cursor.admission) return true;
+        const auto paid = add_recovery_cost(cursor.ledger->paid_actions, action);
+        if (paid == UINT64_MAX || loss == UINT64_MAX) return false;
+        // Cold InputReplay replacement keeps its explicit bootstrap exception. Current
+        // copies still need positive payback, including when storage happens to be free.
+        if (!paid && !bounded) return true;
+        if (cursor.gain_limit) gain = std::min(gain, *cursor.gain_limit);
+        const auto spent = add_recovery_cost(bounded ? loss : 0, paid);
+        return spent < gain;
+    }
+
+    std::uint64_t restore_cost(Session& session, Handle h, PlacementId placement) const {
+        const auto points = session.recovery_points({}, {&h, 1});
+        if (points.empty()) return UINT64_MAX;
+        for (const auto& restore : points.front().description->restores)
+            if (restore.placement == placement) return action_cost(restore.transfers);
+        return UINT64_MAX;
+    }
+
+    bool capture_improves(Session& session, Handle h, const CaptureCostQuote& quote) const {
+        if (session.checkpoint_metadata(h).leased) return false;
+        const auto old = restore_cost(session, h, quote.retained->placement);
+        for (const auto& restore : quote.retained->restores)
+            if (restore.placement == quote.retained->placement) {
+                const auto cost =
+                    add_recovery_cost(action_cost(quote.work), action_cost(restore.transfers));
+                return cost != UINT64_MAX && cost < old;
+            }
+        return false;
+    }
+
+    template <class Demotion>
+    ReclaimActionQuote quote_demotion(Session& session, const Demotion& plan,
+                                      std::span<const Handle> victims, const ReclaimCursor& cursor,
+                                      Evaluation& evaluation,
+                                      const ContextAssessment& target) const {
+        auto& values      = recovery(session, evaluation);
+        const auto points = session.recovery_points(plan.released, plan.sources);
+        auto projection   = values.project(points);
+        auto released     = plan.released;
+        if (!victims.empty()) {
+            if (!evaluation.host ||
+                !std::equal(victims.begin(), victims.end(), evaluation.host->selected.begin(),
+                            evaluation.host->selected.end()))
+                throw std::logic_error("demotion lost its complete Host release quote");
+            released.merge(evaluation.host->released);
+        }
+        return {cursor.id,
+                cursor.ledger->revision,
+                {victims.begin(), victims.end()},
+                values.total_loss(victims),
+                price_context_transfer_requirements(costs_, session.demotion_work(plan, victims)),
+                needs_budget(cursor, victims) || needs_budget(cursor, plan.sources),
+                action_cost(session.maintenance_work(session.assess(target.demand, released)))};
     }
 
     [[nodiscard]] std::uint64_t recovery_gain(Session& session, const Admission& admission,
                                               std::span<const Handle> removed,
                                               Evaluation& evaluation) const {
         if (admission.base) {
-            const auto& candidates = incoming_candidates(session, admission, evaluation);
-            return admission.frontier -
-                   recovery(session, evaluation).best_remaining(candidates, removed);
+            const auto target = admission.target
+                                    ? admission.target
+                                    : session.recovery_target(*admission.base, admission.frontier,
+                                                              admission.placement);
+            return recovery(session, evaluation).gain(*target, removed);
         }
         if (admission.checkpoint && session.valid_checkpoint(*admission.checkpoint)) {
             auto sources = admission.sources;
@@ -1596,8 +2006,11 @@ private:
             return false;
         if (admission.purpose == CheckpointRole::InputReplay && !victim.reused()) return true;
         // The fixed outer budget also covers Host victims of a preservation transfer.
-        return !cursor.gain_limit || (cursor.sacrificed < *cursor.gain_limit &&
-                                      loss < *cursor.gain_limit - cursor.sacrificed);
+        const auto spent = add_recovery_cost(
+            cursor.ledger->loss_after,
+            add_recovery_cost(cursor.ledger->paid_actions, admission.pending_action));
+        return !cursor.gain_limit ||
+               (spent < *cursor.gain_limit && loss < *cursor.gain_limit - spent);
     }
 
     [[nodiscard]] bool admits(Session& session, std::span<const Handle> removed, ActionFacts& facts,
@@ -1619,14 +2032,13 @@ private:
         if (!may_revoke(handles, cursor.rights)) {
             throw std::logic_error("cache release lacks waiting-source revocation rights");
         }
+        const auto total = add_recovery_cost(cursor.ledger->loss_after, loss);
         for (const auto handle : handles) {
             if (!erase(session, handle, cursor.rights)) {
                 throw std::logic_error("quoted cache release changed before commit");
             }
         }
-        if (cursor.gain_limit)
-            cursor.sacrificed =
-                loss > UINT64_MAX - cursor.sacrificed ? UINT64_MAX : cursor.sacrificed + loss;
+        cursor.ledger->accept(handles, handles, total, 0, needs_budget(cursor, handles));
     }
 
     [[nodiscard]] std::optional<std::vector<Handle>>
@@ -1654,6 +2066,11 @@ private:
         // Paused snapshots are offered only by required recovery and keep their explicit
         // Engine order; ordinary optional writes cannot acquire these rights.
         if (!admission) {
+            if (!later_snapshots.empty()) {
+                include_required_snapshots(session, cursor, later_snapshots);
+                evaluation.recovery.reset();
+                evaluation.facts.reset();
+            }
             for (const auto handle : later_snapshots) {
                 if (!contains(allowed, handle) && session.valid_checkpoint(handle)) {
                     allowed.push_back(handle);
@@ -1678,15 +2095,21 @@ private:
             if (!next) return std::nullopt;
             selection.commit(*next);
         }
-        return std::vector<Handle>(selection.handles().begin(), selection.handles().end());
+        evaluation.host->selected.assign(selection.handles().begin(), selection.handles().end());
+        evaluation.host->released = selection.released();
+        return evaluation.host->selected;
     }
 
     bool enabled_;
     ContextMachineCostModel costs_;
     PrefixIndex<Model> index_;
-    std::vector<Owner> owners_;
-    std::vector<Shared> shared_;
-    std::vector<WaitingSource> waiting_;
+    std::list<Owner> owners_;
+    std::list<Shared> shared_;
+    std::list<WaitingSource> waiting_;
+    std::unordered_map<OwnerToken, typename std::list<Owner>::iterator> owner_lookup_;
+    std::unordered_map<std::uint64_t, typename std::list<Shared>::iterator> shared_lookup_;
+    std::unordered_map<std::uint64_t, typename std::list<WaitingSource>::iterator> waiting_lookup_;
+    std::unordered_map<Handle, References, HandleHash> references_;
     std::size_t demand_capacity_ = 256;
     std::list<Demand> demand_;
     std::map<DemandKey, typename std::list<Demand>::iterator> demand_lookup_;
@@ -1695,5 +2118,8 @@ private:
     std::uint64_t retention_clock_ = 0;
     std::uint64_t ordinal_         = 0;
     std::vector<Handle> pending_release_;
+    std::uint64_t decision_clock_  = 0;
+    std::uint64_t pruned_revision_ = 0;
+    bool references_dirty_         = false;
 };
 } // namespace ninfer::runtime

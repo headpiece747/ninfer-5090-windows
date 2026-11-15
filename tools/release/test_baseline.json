@@ -1,6 +1,6 @@
 {
-  "recorded": "2026-11-11",
-  "suite_size": 201,
+  "recorded": "2026-11-15",
+  "suite_size": 203,
   "known_failures": {
     "ninfer_qwen3_5_dflash_real_test": {
       "case": "dflash real route",
@@ -13,10 +13,6 @@
     "ninfer_qwen3_5_moe_offload_real_test": {
       "case": "moe offload real route",
       "reason": "Needs a 35B-A3B MoE checkpoint, as its sibling ninfer_qwen3_5_moe_real_test does. Measured here with a 27B dense artifact (C:\\AI\\models\\qwen3_8_27b_nvfp4nvidia.v3.ninfer): planning rejects it with 'VRAM budget cannot hold this model and its execution resources', which is the message at src/runtime/engine/model_instance.cpp:132 -- the resident plan does not fit, so planning falls through to the MoE branch and throws because the architecture is not Qwen3_5Moe (model_instance.cpp:130). So the refusal is the test refusing the wrong artifact, not a defect: the offload path is unexercised here and the coverage is missing, not satisfied. Baselined for the same reason as the sibling -- this product's artifacts cannot satisfy the test, and a gate that demands an artifact outside the product would block every release forever."
-    },
-    "ninfer_linear_swiglu_nvfp4_test": {
-      "case": "nvfp4 A16 above T=16",
-      "reason": "A deliberate divergence, not an impossibility -- unlike the three entries above it. Upstream's consolidated runner hard-codes a rejection at NVFP4 A16 T=17 (tests/ops/linear/swiglu/runner.cpp:431, CallForm::RejectA16Extent) because upstream's NVFP4 A16 family stops at T=16 (src/ops/linear/swiglu/nvfp4/shapes/n34816_k5120/a16.cu: SIMT to 2, sliced-K to 8, sliced-K to 16). This port registers an A16 route at every extent: the MatrixFusedA16 branch in nvfp4/shapes/n34816_k5120/dispatch.cpp, built from the same Nvfp4A16MmaSchedule instances the registered [34816,5120] Linear uses and mirroring upstream's own launch_fp8_swiglu_matrix for the FP8 format. So the case asserts the opposite of what this tree does, and it is NOT deleted from runner.cpp: that file is upstream-owned, so a deletion there is re-conflicted on every merge, while this entry is in a port-owned file. The extent itself is covered by cases_nvfp4.cpp's 19-extent A16 profile, which includes 17 and asserts it against the numerical criterion -- the surviving coverage is the stronger one. What upstream does above T=16 instead is the linear + silu_mul decomposition, measured at 8.1e-3 against the profile's 6.3e-3 tail bound (RELEASE_NOTES.md), which is what this route replaced. Remove this entry if the route is ever withdrawn; the gate fails on a stale baseline entry, which is the ratchet working."
     }
   },
   "required_tests": [
@@ -140,6 +136,11 @@
       "date": "2026-11-11",
       "count": 1,
       "note": "ninfer_read_queue_test enabled on Windows (tests/cmake/CoreTests.cmake, tests/io/test_read_queue.cpp) exercising real async Win32 IOCP DirectReadQueue behavior including overlapped page/tail/past-EOF completions, bounded capacity, wake(), and close/drain invariants. ctest -N confirms 201 tests registered."
+    },
+    {
+      "date": "2026-11-15",
+      "count": 2,
+      "note": "upstream/dev merge (17 commits through d9ad9dea4) adds ninfer_batch_execution_test (tests/models/common/tests.cmake) and ninfer_qwen4_exp_state_layout_test (tests/models/qwen4_exp/tests.cmake), and renames ninfer_gdn_replay_records_test to ninfer_replay_records_test (tests/cmake/CoreTests.cmake). Also removed ninfer_linear_swiglu_nvfp4_test from known_failures because the consolidated linear/swiglu/nvfp4 path now matches upstream and passes cleanly (203 registered tests total, 196 passing, 4 optional skipped, 3 artifact-bound known_failures)."
     }
   ]
 }

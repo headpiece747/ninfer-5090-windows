@@ -1,6 +1,6 @@
 {
   "against": "upstream/dev",
-  "recorded": "2026-11-11",
+  "recorded": "2026-11-15",
   "note": "Every upstream-owned path the port diverges from, and why. Filed by review. check_port_delta.py --check fails when a path is added here without a commit recording it, and equally when an entry no longer diverges -- a stale entry is worse than none, because it hides the next real change under an expected one.",
   "paths": {
     ".codex/hooks.json": {
@@ -37,7 +37,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "windows",
-      "reason": "MSVC definitions and flags (NOMINMAX, WIN32_LEAN_AND_MEAN, UTF8PROC_STATIC, /Zc:preprocessor, /Zc:__cplusplus and -Xcompiler=/Zc:__cplusplus), Windows optionality for FFmpeg/libcurl, and NINFER_BUILD_MEDIA_ACQUIRE / NINFER_BUILD_BENCHMARKS / BUILD_TESTING gates."
+      "reason": "MSVC definitions and flags (NOMINMAX, WIN32_LEAN_AND_MEAN, UTF8PROC_STATIC, /Zc:preprocessor, /Zc:__cplusplus, /FS, /utf-8 and CUDA -Xcompiler equivalents), plus enabling NINFER_BUILD_PRODUCT_SUPPORT when NINFER_BUILD_BENCHMARKS is ON."
     },
     "CONTRIBUTING.md": {
       "status": "M",
@@ -54,8 +54,8 @@
     "apps/CMakeLists.txt": {
       "status": "M",
       "disposition": "windows",
-      "review": "product",
-      "reason": "Part of the drafter-recall instrument: the CLI prints recall@1 and recall@16 by position from the vectors decode.cpp accumulates, and the per-position denominators are what make the two rates readable."
+      "review": "windows",
+      "reason": "Windows necessity: links winmm into ninfer-serve (timeBeginPeriod/timeEndPeriod) and embeds cmake/windows-utf8.manifest via /MANIFESTINPUT on ninfer, ninfer-serve, and ninfer-perplexity under MSVC."
     },
     "apps/perplexity/corpus.cpp": {
       "status": "M",
@@ -209,7 +209,7 @@
     },
     "docs/issue-checklist.md": {
       "status": "M",
-      "disposition": "unknown",
+      "disposition": "product",
       "review": "product",
       "reason": "Documentation correction: item 1 claimed a build passed under CUDA 13.4. A dated note records that only 13.3 is installed, that all four build trees target it, and that the 13.4 record cannot be checked on this tree or machine. Check against the installed toolkit and build/CMakeCache.txt."
     },
@@ -633,12 +633,6 @@
       "review": "product",
       "reason": "CodeQL cpp/integer-multiplication-cast-to-long at patch_size*merge_size (canvas/geometry): the product was uint32 and passed to the checked mul(); it now multiplies through mul() itself. Same file: the vision-token divisor merge_size*merge_size was uint32 and is now size_t, which is a correctness fix (the config check bounds patch*merge, not merge alone, so patch=1/merge=70000 wrapped 4.9e9 to 6.05e8; the patch-byte budget rejects that config on the next line, so nothing observed it)."
     },
-    "src/models/glm5next/program/frame.cpp": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "CodeQL cpp/integer-multiplication-cast-to-long: the expression multiplied in 32 bits and was widened afterwards; it now multiplies in the destination width, so the value cannot narrow before the conversion. No accepted input overflowed (see the commit message and docs/upstream-reports/); this is a local-invariant fix, not a behaviour change. Draft step (< 15) * batch (<= kMaximumConcurrency 8) * sizeof(TokenId): the leading operand is std::size_t now."
-    },
     "src/models/glm5next/program/inputs.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -804,8 +798,14 @@
     "src/ops/gated_residual/mix/fp8/rtx5090/launch.cu": {
       "status": "M",
       "disposition": "unknown",
-      "review": "product",
-      "reason": "Port feature: follows the port's rename of Fp8A8TmaSplitKSchedule to Fp8A8SplitKSchedule (fp8_schedule.cuh); upstream's new RTX 5090 FP8 mix caller migrated to Fp8A8SplitKSchedule."
+      "review": "windows",
+      "reason": "Passes common::make_tma_kernel_param(maps) to down_small (MSVC C2719 alignment workaround matching small.cuh) alongside the port's Fp8A8SplitKSchedule rename (fp8_schedule.cuh)."
+    },
+    "src/ops/gated_residual/mix/fp8/rtx5090/small.cuh": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "MSVC cudafe1 compatibility: wraps alignas(128) Fp8TmaDescriptors parameter of down_small in common::TmaKernelParam<Fp8TmaDescriptors> (ops/common/cuda/tma_param.cuh) via maps_param.get() to avoid C2719 while keeping PTX .param .align 128."
     },
     "src/ops/kv_cache/context_materialize/bf16.cu": {
       "status": "M",
@@ -1097,7 +1097,7 @@
     },
     "src/ops/linear/swiglu/fp8/shapes/n34816_k5120/a8.cu": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "windows",
       "review": "product",
       "reason": "Port FP8 ungated band ladder and split-K partials sizing (docs/maintainer/fp8-ungated-bands.md), with descriptor alignment comments updated for common::TmaKernelParam<Fp8TmaDescriptors>."
     },
@@ -1106,24 +1106,6 @@
       "disposition": "unknown",
       "review": "windows",
       "reason": "Launches fp8_block_a16_tma_kernel using common::make_tma_kernel_param(maps) to match the TmaKernelParam<Fp8TmaDescriptors> signature."
-    },
-    "src/ops/linear/swiglu/nvfp4/dispatch.h": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "Declares the port's wide-T A16 SwiGLU route. The plan header is where this family declares its route launches -- fp8_linear_swiglu_plan.h declares fp8_linear_swiglu_matrix_launch the same way -- so the declaration belongs here rather than in a header of its own for one line. The body is in the port-added nvfp4_linear_swiglu_matrix.cu; upstream's plan throws above T=16 instead of serving the extent, which is why the port has a route here at all."
-    },
-    "src/ops/linear/swiglu/nvfp4/shapes/n34816_k5120/dispatch.cpp": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "The DFlash2 NVFP4 drafter route. wrapper/attn_input_proj.cpp records why it exists: the NVFP4-encoded drafter is port-only, because upstream three-output drafter projection is Q8 only and its NVFP4 registry carries no drafter geometry, so neither serves an artifact whose draft module is NVFP4. Weight-only A16, as every drafter projection is."
-    },
-    "src/ops/linear/swiglu/sources.cmake": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "cpp-cuda-review + check_fp8_band_ladders (10 files, 0 divergences, self-test catches 3). The band ladders name their bounds once so the ladder and the capacity function cannot disagree; M32N32Deep carries its measured figure and configuration.",
-      "reason": "Port feature: lists nvfp4_linear_swiglu_matrix.cu, the port's wide-T A16 route above the small-T family. Its own comment records why it exists: routing those extents through a materialized BF16 projection measures 8.1e-3 against the profile's A16 tail bound of 6.3e-3."
     },
     "src/ops/linear_attention/gated_delta_net/input_conv/fp8/projection_a8.cu": {
       "status": "M",
@@ -1207,7 +1189,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
+      "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/sampling/candidate_selector.cpp covers it."
     },
     "src/ops/sampling/candidate_path/launch.h": {
       "status": "M",
@@ -1219,7 +1201,7 @@
       "status": "M",
       "disposition": "unknown",
       "review": "product",
-      "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/test_candidate_selector.cpp covers it."
+      "reason": "Part of the candidate selector's NVFP4 codebook support and its mixed-format guard. The guard's comment records the measurement: each codebook was validated on its own and the route is chosen from the predecessor alone, so an NVFP4 predecessor with a BF16 successor reached the NVFP4 kernel holding the successor's null scales pointer -- an illegal access 0x38AC into unmapped memory that aborts the process rather than failing the request, and the reverse reads packed E2M1 as bf16 and returns wrong drafts. Both codebooks come from one artifact in production, so requiring them to agree closes the hole at no cost. Blast radius: 4 callers including draft.cpp's propose_dflash2_batch; tests/ops/sampling/candidate_selector.cpp covers it."
     },
     "src/ops/sampling/sources.cmake": {
       "status": "M",
@@ -1262,24 +1244,6 @@
       "disposition": "unknown",
       "review": "a port-carried kernel family, not independently reviewed; evidence is the build in both trees, the affected tests and the gate chain -- the sparse-GQA and causal tests",
       "reason": "Port change: passes visible_capacity to the grouped kernel, which uses it for the position guard its quantized siblings already had. The launch had validated that the block table covers visible_capacity since before this change, so the guard adds no new precondition."
-    },
-    "src/ops/softmax_attention/qsa/indexer/dgx_spark/score.cuh": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "windows",
-      "reason": "MSVC port: dependent member-template call needs the `template` disambiguator (`jobs.template build<...>`)."
-    },
-    "src/ops/softmax_attention/qsa/indexer/dgx_spark/simt.cuh": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "windows",
-      "reason": "MSVC port: dependent member-template call needs the `template` disambiguator."
-    },
-    "src/ops/softmax_attention/qsa/indexer/score.cuh": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "windows",
-      "reason": "MSVC port: dependent member-template call needs the `template` disambiguator."
     },
     "src/ops/softmax_attention/qsa/tail_extract.cu": {
       "status": "M",
@@ -1364,6 +1328,12 @@
       "disposition": "windows",
       "review": "windows",
       "reason": "MSVC port: upstream's `unsigned __int128` becomes ninfer::Uint128 (no __int128 on MSVC)."
+    },
+    "src/runtime/engine/context_cache/recovery_cost.h": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "MSVC lacks GNU/Clang __int128; RecoveryCostSum uses Uint128 from core/uint128.h as its portable 128-bit finite accumulator."
     },
     "src/runtime/engine/context_cache/resource_manager.h": {
       "status": "M",
@@ -1466,12 +1436,6 @@
       "disposition": "unknown",
       "review": "windows",
       "reason": "Windows MSVC has no <unistd.h>; removed dead upstream <unistd.h> include (left behind upstream when getpid was moved to observations.cpp in 5b834fc3)."
-    },
-    "src/text/grammar.cpp": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "Fix for thinking-grammar delimiter escape regression introduced upstream in 1407c62f6: upstream replaced the exact byte DFA for reasoning_prefix with TagDispatch, adding epsilon edges from all end states to tail and creating an ambiguous Earley NFA that leaked delimiter tokens into constrained output (tested in ninfer_qwen3_5_grammar_real_test). Restored deterministic byte DFA in reasoning_prefix(). Documented in docs/upstream-reports/ninfer-thinking-grammar-escape.md."
     },
     "src/text/jinja.cpp": {
       "status": "M",
@@ -1663,7 +1627,7 @@
       "status": "M",
       "disposition": "windows",
       "review": "product",
-      "reason": "Port edits in an upstream test file: artifact goldens, a guarded main, and the model's default stops where a tool is declared. (1) exercise_artifact_frontend is upstream's and asserts upstream's artifacts (16 thinking / 18 no-thinking); this port's artifacts measure 58/18, because their embedded template emits the reasoning-effort instruction as a synthetic system message -- exactly the 40-token delta -- and upstream's predates it. Upstream's 16 also returned early, hiding every other scenario in this file. The port asserts its own goldens and names the actual count on failure; change these only against a fresh measurement, and prefer the shipping path (`ninfer --messages` reports prompt tokens directly). (2) main() guards the scenario dispatch and reports the failing scenario and its reason, because an uncaught throw reached std::terminate and exited 0xC0000409 with no message -- which reads as a crash in the code under test, and did, for one session. (3) Six scenarios keep the model's default EOS stops where they declare a tool. Upstream 41e50d0d made a tool-declaring request take a constrained contract, and src/models/qwen3_5/frontend/frontend.cpp:915 rejects include_model_defaults=false for it; that commit did not update its own scenarios. Measured 2026-10-07 over all 13 scenarios: those six failed with 'constraints require default EOS, text output, no custom stops, and one output language', while shared-rewrite-materialization also declares tools and passed because it never disabled them. No assertion changed."
+      "reason": "Port edits in an upstream test file: artifact goldens, a guarded main, and the model's default stops where a tool is declared. (1) exercise_artifact_frontend is upstream's and asserts upstream's artifacts (16 thinking / 18 no-thinking); this port's artifacts measure 58/18, because their embedded template emits the reasoning-effort instruction as a synthetic system message -- exactly the 40-token delta -- and upstream's predates it. Upstream's 16 also returned early, hiding every other scenario in this file. The port asserts its own goldens and names the actual count on failure; change these only against a fresh measurement, and prefer the shipping path (`ninfer --messages` reports prompt tokens directly). (2) main() guards the scenario dispatch and reports the failing scenario and its reason, because an uncaught throw reached std::terminate and exited 0xC0000409 with no message -- which reads as a crash in the code under test, and did, for one session. (3) Six scenarios keep the model's default EOS stops where they declare a tool. Upstream 41e50d0d made a tool-declaring request take a constrained contract, and src/models/qwen3_5/frontend/frontend.cpp:915 rejects include_model_defaults=false for it; that commit did not update its own scenarios. Measured 2026-10-07 over all 13 scenarios: those six failed with 'constraints require default EOS, text output, no custom stops, and one output language', while shared-rewrite-materialization also declares tools and passed because it never disabled them. No assertion changed. (4) exercise_host_restore uses two 256-token options(1, true) prefill-only filler requests (filler before before_pressure, filler2 + continuation options(2, false) after) so checkpoint handover's 5-block Device pool overflows via preserve_capture rather than having decode reclamation drop R_261 while keeping R_256 on Device."
     },
     "tests/models/qwen3_5/test_loading_real.cpp": {
       "status": "M",
@@ -1674,8 +1638,8 @@
     "tests/models/qwen3_5/test_mtp_history_real.cpp": {
       "status": "M",
       "disposition": "unknown",
-      "review": "windows",
-      "reason": "Widens accepted[lane] * hidden pointer offset to std::size_t on MSVC."
+      "review": "product",
+      "reason": "Widens accepted[lane] * hidden pointer offset to std::size_t on MSVC, and submits each lane's initial ContextWork separately because upstream enforces at most one residency binding per ContextWork."
     },
     "tests/models/qwen3_5/test_native_transactions.cpp": {
       "status": "M",
@@ -1803,12 +1767,6 @@
       "review": "a native-Windows port fix, not independently reviewed; evidence is the build in build-test and the affected tests. Upstream's code is Linux/GCC-shaped here and does not compile under MSVC 14.51 as written. Nothing parses this file; it is test input.",
       "reason": "MSVC rejects the nested ternary in the fill_n argument inside a generic lambda (C2326), so the value is named first. Behaviour is unchanged."
     },
-    "tests/ops/linear/swiglu/cases_nvfp4.cpp": {
-      "status": "M",
-      "disposition": "unknown",
-      "review": "product",
-      "reason": "Expands NVFP4 A16 SwiGLU qualification to 19 extents from 1 to 1024 covering wide-T fused MatrixFusedA16 routes."
-    },
     "tests/ops/linear/weights.cpp": {
       "status": "M",
       "disposition": "unknown",
@@ -1873,7 +1831,7 @@
       "status": "M",
       "disposition": "product",
       "review": "product",
-      "reason": "Includes <map> and widens iterator stride, plus folds the port's NVFP4 codebook candidate-selector tests (k1..15 and mixed-codebook guard)."
+      "reason": "Includes <map> and widens iterator stride, folds the port's NVFP4 codebook candidate-selector tests (k1..15 and mixed-codebook guard), and captures the NVFP4 masked CUDA graph on a dedicated cudaStreamNonBlocking stream instead of stream 0 (cudaErrorStreamCaptureUnsupported)."
     },
     "tests/ops/sampling/vocabulary.cpp": {
       "status": "M",
@@ -1985,7 +1943,7 @@
     },
     "tests/test_anthropic_schema.cpp": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "review": "product",
       "reason": "Adds 128-char accepted and 129-char rejected tool name boundary checks matching PR #396 kMaxToolNameLength = 128."
     },
@@ -2000,12 +1958,6 @@
       "disposition": "unknown",
       "review": "an upstream missing include, not independently reviewed; evidence is the build in build-test and the expert-cache test. No behaviour change.",
       "reason": "Adds <algorithm> for std::any_of."
-    },
-    "tests/test_gdn_replay_records.cpp": {
-      "status": "M",
-      "disposition": "windows",
-      "review": "windows",
-      "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
     },
     "tests/test_http_error_handler.cpp": {
       "status": "M",
@@ -2033,7 +1985,7 @@
     },
     "tests/test_openai_schema.cpp": {
       "status": "M",
-      "disposition": "product",
+      "disposition": "unknown",
       "review": "product",
       "reason": "Adds 128-char accepted and 129-char rejected tool name boundary checks matching PR #396 kMaxToolNameLength = 128."
     },
@@ -2042,6 +1994,12 @@
       "disposition": "windows",
       "review": "windows",
       "reason": "Cited in the diff -- win32: _WIN32. Open it before changing this path."
+    },
+    "tests/test_replay_records.cpp": {
+      "status": "M",
+      "disposition": "windows",
+      "review": "windows",
+      "reason": "MSVC CRT lacks std::aligned_alloc; uses ::_aligned_malloc/::_aligned_free in make_backing under #ifdef _WIN32 (replaces removed tests/test_gdn_replay_records.cpp)."
     },
     "tests/test_request_log.cpp": {
       "status": "M",

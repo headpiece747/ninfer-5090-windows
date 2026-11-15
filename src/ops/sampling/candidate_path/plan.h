@@ -20,6 +20,7 @@ struct SelectorWorkspace {
 };
 
 SelectorPlan select_candidate_path(CandidateSelectorInput input, int steps, int batch);
+int maximum_lattice_batch(CandidateSelectorInput input, int steps);
 
 template <class Allocator>
 SelectorWorkspace allocate_selector_workspace(Allocator& allocator, SelectorPlan plan, int steps,
@@ -35,17 +36,6 @@ void execute_candidate_path(CandidateSelectorInput input, const Tensor& candidat
                             const Tensor& projected_hidden, const Tensor& anchors,
                             const Weight& predecessor_codebook, const Weight& successor_codebook,
                             const Tensor& base_positions, const SamplingConfig* configs,
-                            Tensor& drafts, Tensor& proposal_q, MemoryArena& workspace,
-                            cudaStream_t stream);
-
-// The NVFP4-encoded codebook route of the same walk. The Op's contract admits either codebook
-// format, and a packed parent cannot be described as a BF16 tensor, so the route is selected from
-// the weight's own format rather than from a second entry point.
-void execute_candidate_path_nvfp4(const Tensor& candidate_ids, const Tensor& unary_scores,
-                                  const Tensor& projected_hidden, const Tensor& anchors,
-                                  const Weight& predecessor_codebook,
-                                  const Weight& successor_codebook, const Tensor& base_positions,
-                                  const SamplingConfig* configs, Tensor& drafts,
-                                  Tensor& proposal_q, const SelectorWorkspace& workspace,
-                                  cudaStream_t stream);
+                            Tensor& drafts, Tensor& proposal_q, const Tensor& live_rows,
+                            MemoryArena& workspace, cudaStream_t stream);
 } // namespace ninfer::ops::candidate_path_detail

@@ -11,6 +11,7 @@ void execute_candidate_path_nvfp4(const Tensor& candidate_ids, const Tensor& una
                                   const Weight& predecessor_codebook,
                                   const Weight& successor_codebook, const Tensor& base_positions,
                                   const SamplingConfig* configs, Tensor& drafts, Tensor& proposal_q,
-                                  const SelectorWorkspace& workspace, cudaStream_t stream);
+                                  const Tensor& live_rows, const SelectorWorkspace& workspace,
+                                  cudaStream_t stream);
 
 } // namespace ninfer::ops::candidate_path_detail

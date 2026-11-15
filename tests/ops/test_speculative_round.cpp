@@ -444,8 +444,8 @@ struct SparseAcceptSuite {
                 target_tensor, logits_tensor, drafts_tensor, candidate_tensor, q_tensor,
                 extent_tensor, lengths_tensor, licensed_tensor,
                 licensed_counts_tensor, kSparseTokenDomain,
-                static_cast<const ops::SamplingConfig*>(d_configs.data()), envelope, workspace,
-                cuda);
+                static_cast<const ops::SamplingConfig*>(d_configs.data()), envelope, Tensor{},
+                workspace, cuda);
         };
         launch(ninfer::test::cuda_environment().default_execution);
         cuda_synchronize();
@@ -922,8 +922,8 @@ struct SparseAcceptSuite {
                     targets_tensor, logits_tensor, drafts_tensor, candidate_tensor, q_tensor,
                     extent_tensor, lengths_tensor, licensed_tensor,
                     licensed_counts_tensor, kSparseTokenDomain,
-                    static_cast<const ops::SamplingConfig*>(d_configs.data()), envelope, arena,
-                    ninfer::test::cuda_environment().default_execution);
+                    static_cast<const ops::SamplingConfig*>(d_configs.data()), envelope, Tensor{},
+                    arena, ninfer::test::cuda_environment().default_execution);
                 cuda_synchronize();
                 const std::vector<std::int32_t> got = read<std::int32_t>(d_licensed, 2);
                 const std::int32_t got_count        = read<std::int32_t>(d_licensed_counts, 1)[0];
@@ -1160,8 +1160,8 @@ int execute_accept_case(const std::string& label, const std::vector<std::int32_t
     MemoryArena workspace(workspace_storage.span());
     ops::speculative_accept_greedy_drafts(
         targets, logits, draft_tensor, extent, length, sampled, num_sampled,
-        token_domain, static_cast<const ops::SamplingConfig*>(d_config.data()), workspace,
-        ninfer::test::cuda_environment().default_execution);
+        token_domain, static_cast<const ops::SamplingConfig*>(d_config.data()), Tensor{},
+        workspace, ninfer::test::cuda_environment().default_execution);
     cuda_synchronize();
 
     int failures = verify_exact((label + " sampled").c_str(), read<std::int32_t>(d_sampled, k + 1),
@@ -1363,7 +1363,7 @@ int batched_sampling_workspace_stride_case() {
     MemoryArena workspace(workspace_storage.span());
     ops::speculative_accept_greedy_drafts(
         targets, logits_tensor, draft_tensor, extents, lengths, licensed, counts, token_domain,
-        static_cast<const ops::SamplingConfig*>(d_configs.data()), workspace,
+        static_cast<const ops::SamplingConfig*>(d_configs.data()), Tensor{}, workspace,
         ninfer::test::cuda_environment().default_execution);
     cuda_synchronize();
 
