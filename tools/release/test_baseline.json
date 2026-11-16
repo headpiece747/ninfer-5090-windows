@@ -16,6 +16,17 @@
     }
   },
   "required_tests": [
+    "ninfer_artifact_direct_io_test",
+    "ninfer_qwen3_5_native_transactions_test",
+    "ninfer_qwen3_5_mtp_history_real_test",
+    "ninfer_qwen3_5_prefix_real_test",
+    "ninfer_qwen3_5_terminal_publication_real_test",
+    "ninfer_qwen3_5_agent_continuation_real_test",
+    "ninfer_qwen3_5_preemption_real_test",
+    "ninfer_qwen3_5_fairness_real_test",
+    "ninfer_qwen3_5_grammar_real_test",
+    "ninfer_qwen3_5_tools_real_test",
+    "ninfer_qwen3_5_issue5_race_test",
     "ninfer_qwen3_5_vision_workspace_test",
     "ninfer_qwen3_5_score_real_test",
     "ninfer_qwen3_5_dflash2_real_test",

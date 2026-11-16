@@ -22,8 +22,8 @@ executable, which is what the v1.0.6 vision package contained. The link check is
 rename left two
 links in docs/maintainer pointing at files that no longer existed and the release was about to
 carry them. The test gate compares against a recorded baseline rather than trusting a bare run,
-because a previous release was cut while a test was failing and nobody noticed; the baseline is
-empty now that the suite is green, so any failure blocks the archive. Pass --skip-test-gate to
+because a previous release was cut while a test was failing and nobody noticed; any
+non-baselined failure or missing required test blocks the archive. Pass --skip-test-gate to
 override deliberately.
 """
 from __future__ import annotations

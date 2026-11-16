@@ -74,6 +74,17 @@ def test_a_rebuilt_executable_changes_the_key(
     assert binary_key() != before
 
 
+def test_a_rebuilt_dll_changes_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rebuilding a shared Op/MoE library must invalidate the gate cache even without relinking EXEs."""
+    build = _point_at(monkeypatch, tmp_path)
+    (build / "tests" / "ninfer_ops.dll").write_bytes(b"MZ" + b"\0" * 32)
+    before = binary_key()
+    (build / "tests" / "ninfer_ops.dll").write_bytes(b"MZ" + b"\0" * 64)
+    assert binary_key() != before
+
+
 def test_a_changed_test_registration_changes_the_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

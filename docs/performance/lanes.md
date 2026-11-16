@@ -42,7 +42,7 @@ are the published figures, and `MEASURED_ENGINE` records the engine they came fr
 
 **Measurement status (2026-11-15).** These figures describe the current engine (`3959d3d68b6e`, running with `--memory-headroom 1024MiB` in `INVARIANT_FLAGS` to clear Windows WDDM Shared System Memory eviction across all eight lanes). The fold's run
 level was +0.0% median against the previous table (range -2.3% to +1.5%), so the decode column is this window's
-reading rather than a re-run of the interleaved window; re-measure before quoting it as current steady speed. The earlier 2026-11-03 interleaved comparison notes remain in `tools/release/profiles.py` and the per-lane sections below.
+reading rather than a re-run of the interleaved window; re-measure before quoting it as current steady speed. The earlier 2026-11-03 interleaved comparison notes remain in `tools/release/profiles.py`.
 
 ## Which artifact is "best"
 

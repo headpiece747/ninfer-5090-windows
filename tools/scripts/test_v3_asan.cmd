@@ -36,7 +36,7 @@ if errorlevel 1 (
 )
 cd /d "%REPO%"
 
-set "TESTS=ninfer_context_cost_test ninfer_resource_manager_test ninfer_artifact_reader_test ninfer_context_capacity_test ninfer_read_queue_test ninfer_media_acquire_test"
+set "TESTS=ninfer_context_cost_test ninfer_resource_manager_test ninfer_artifact_reader_test ninfer_context_capacity_test ninfer_read_queue_test ninfer_media_acquire_test ninfer_replay_records_test ninfer_uint128_test"
 
 REM The build must use the project's Python and not whatever find_package(Python3) finds: the tests'
 REM declared dependencies live in the selected environment, and tests/CMakeLists.txt requires an

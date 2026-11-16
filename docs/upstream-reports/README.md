@@ -46,7 +46,8 @@ The suite is green against the recorded baseline, which is the authority for how
 are and which failures are expected by construction: `tools/release/test_baseline.json`.
 `ninfer_resource_manager_test`'s
 `test_candidate_search_prefers_deep_reuse_without_eviction` used to fail and was recorded in
-`tools/release/test_baseline.json`; that record is now empty.
+`tools/release/test_baseline.json`; that entry is resolved (`test_baseline.json` now records only
+three non-product artifact failures: `dflash`, `moe`, and `moe_offload`).
 
 The earlier reading here -- a 5 ms **wall-clock** budget, so the outcome depends on the machine --
 was wrong. `950c87cb` had already let the planner take a caller-supplied clock, and the outcome is

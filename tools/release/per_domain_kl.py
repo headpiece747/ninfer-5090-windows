@@ -63,7 +63,7 @@ DEFAULT_LOG_FLOOR = -27.631021115928547
 
 def _pad(text: str, width: int) -> bytes:
     raw = text.encode("utf-8")
-    if len(raw) >= width:
+    if len(raw) > width:
         raise ValueError(f"{text!r} does not fit in {width} bytes")
     return raw + b"\0" * (width - len(raw))
 
@@ -120,7 +120,7 @@ def write_record(path: Path, record: Record) -> None:
         handle.write(_HEADER.pack(
             MAGIC, record.k, len(record.streams), record.positions,
             _pad(record.corpus_id, 32), record.context, record.stride,
-            _pad(record.kv_dtype, 8), _pad(record.prefill_signature, 64)))
+            _pad(record.kv_dtype, 32), _pad(record.prefill_signature, 64)))
         for stream in record.streams:
             handle.write(_STREAM_HEAD.pack(len(stream.id.encode("utf-8"))))
             handle.write(stream.id.encode("utf-8"))

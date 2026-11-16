@@ -1,6 +1,6 @@
-# NInfer Windows (post-v1.2.5 dev, RTX 5090)
+# NInfer Windows v1.2.6 (RTX 5090)
 
-## What changed since 1.2.5 (unreleased dev)
+## What changed in 1.2.6
 
 - **Upstream Synchronization (`a754fcf3b`..`d9ad9dea4`)**: Integrated `Neroued/ninfer@dev` updates through `d9ad9dea4`:
   - **Concurrent Execution & Cache Recovery**: Expanded concurrent execution capacity (`54466d120`), unified context reclamation and retention cost accounting (`3b76b98c1`), and corrected multimodal prefix lookup and recovery (`1fdb37160`).
@@ -265,7 +265,7 @@ that earlier builds shipped.
 - NVIDIA GeForce RTX 5090 (32 GB, `sm_120a`) and a recent driver.
 - **No CUDA toolkit needed at runtime.** The CUDA runtime is linked statically; the engine
   loads from this folder.
-- Windows 10/11 x64.
+- Windows 11 x64.
 
 ## What runs
 
@@ -317,10 +317,12 @@ cross-session comparison the interleave exists to replace. Each historical pass 
 table above and in `tools/release/profiles.py`.
 
 **All four lines are built here now**, so the choice is a measured trade-off rather than one of
-provenance. The QUASAR line is the only one whose text weights are a quantization-aware-trained
-checkpoint imported unchanged; the other three re-encode their FP8 attention from the BF16 base and
-score lower full-corpus perplexity (4.98, 4.92 and 4.90 against QUASAR's 4.99; see
-`tools/release/verify_shipping_artifacts.py` for current v3 artifact perplexity). Compare artifacts only on
+provenance. The QUASAR line (`nvfp4qat`) is the only one whose text weights are a
+quantization-aware-trained checkpoint imported unchanged, and the other three re-encode their FP8
+attention from the BF16 base; on the current full-corpus `fp8` perplexity baseline (`2026-10-07` in
+`docs/perplexity-baseline.md`, re-verified within `+/-0.11%` in
+`tools/release/verify_shipping_artifacts.py`), QUASAR (`4.684860`) and NVIDIA ModelOpt (`4.686759`)
+lead (`nvfp4full` `4.724219`, `nvfp4full_noex` `4.727636`, `nvfp4swift15` `4.755739`). Compare artifacts only on
 the full corpus: a `--quick` figure is decided by four streams and is not comparable, as
 `docs/perplexity-baseline.md` explains. ADR-0004 records why each DFlash2 lane rides a third-party draft
 with no in-house fallback, and Vision is free on every shipped artifact (the with/without comparison is
@@ -346,7 +348,7 @@ fetched before the republish does: the v3 engine **rejects v2 containers outrigh
 the tool in the error:
 
 ```
-python tools/upgrade_ninfer_v2_to_v3.py INPUT.ninfer OUTPUT.ninfer
+python upgrade_ninfer_v2_to_v3.py INPUT.ninfer OUTPUT.ninfer
 ```
 
 That upgrade is offline and preserves the weight bytes. On Windows this now works; in
@@ -396,30 +398,26 @@ so a near-tie can flip. Speculation measured roughly 2.4-4.8x faster across the 
 
 ## Known limitations
 
-- Every shipped profile reaches the full 262,144 context with Vision. Earlier builds capped the
-  NVFP4 lane because that artifact carried 19.7 GiB of device weights; the builds this release
-  ships carry 16.3-17.1 GiB on their MTP lanes and 17.2-18.0 GiB on their DFlash2 lanes.
+- Every shipped profile reaches the full 262,144 context with Vision on the current five-image
+  product (`316,237-424,673` KV token capacity verified with `--memory-headroom 1024MiB` across all
+  eight launchers on engine `3959d3d68b6e`). Earlier builds had capped the retired NVFP4 image
+  because it carried 19.7 GiB of device weights.
 - **Upstream tracks an intermittent CUDA illegal-access failure under sustained MTP use**
   ([Neroued/ninfer#208](https://github.com/Neroued/ninfer/issues/208), open). It was reported against
   an upstream commit on 2026-09-07, appears after tens of minutes of sustained agentic decode rather
   than on a single request, did not reproduce with `CUDA_LAUNCH_BLOCKING=1` or with MTP disabled, and a
   comment reports a fix in a long-context fork. It is recorded here because this release ships
-  long-context MTP lanes, which is the configuration it concerns. It has not been observed on this
-  port: the eight launchers were verified end to end, the 262,144 ceiling probes ran every spec, and
-  the lane sweeps held MTP and DFlash2 at the full context across all four artifacts, on this engine
-  revision.
+  long-context MTP lanes, which is the configuration it concerns.
 
 ## Release numbering
 
 Versions are published in order and never skipped. `v1.0.1` and `v1.0.2` were built on the
-maintainer's machine and never released — their archives are still in `C:\AI\releases` — so the
+maintainer's machine and never released — their archives are in the local release archive directory — so the
 published list reads `1.0.0, 1.0.3, ...`. Nothing was withdrawn, and `1.0.0` is unaffected.
 
-**`v1.2.0` is this release, and it is the first since `v1.1.0`.** Two drafts of these notes called it
-`1.2.0` and `1.3.0`; because `1.2.0` has never been published, shipping it as `1.3.0` would leave a
-`1.1.0 → 1.3.0` gap in the public list, and a gap reads as a withdrawn release. The two are merged
-here under `1.2.0` and the `1.3.0` label is withdrawn. A locally built `v1.2.0` archive from 2026-09-22
-predated this work and was deleted rather than left where the filename would find it.
+Historically, `v1.2.0` followed `v1.1.0` directly (merging the `1.2.0` and `1.3.0` drafts so there was no
+`1.1.0 -> 1.3.0` gap). Following that rule, `v1.2.6` follows `v1.2.5`:
 
-Patch numbers carry fixes to the shipped profile set; a minor number carries a new artifact line,
-which is what `1.1.0` is: the v3 container, the measured profile table, and the QUASAR lane.
+Patch numbers carry fixes and upstream syncs over the shipped profile set; a minor number carries a
+new artifact line, which is what `1.1.0` was (the v3 container, the measured profile table, and the
+QUASAR lane).

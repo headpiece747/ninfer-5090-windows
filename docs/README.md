@@ -16,7 +16,6 @@ run the CLI or HTTP server.
 | [Perplexity](perplexity.md) | fixed-corpus and custom-text causal perplexity, comparison rules, progress, and reports |
 | [opencode settings](opencode-settings.md) | the eight shipped model entries, compaction, and the concurrency answer for OpenCode Desktop |
 | [v2 to v3 flag diff](v2-v3-flag-diff.md) | what changed between the retired v2 launchers and the shipped v3 ones, flag by flag |
-| [FP8 ungated bands](maintainer/fp8-ungated-bands.md) | the matched-tile measurement, its control, and the two structural limits behind the ungated FP8 A8 TMA bands |
 | [CLI examples](../examples/cli/) | committed text, multimodal, thinking, long-decode, and long-context inputs |
 
 The executable `--help` output is the exact source for command-line option spelling and defaults.
@@ -65,7 +64,7 @@ The active references under [`maintainer/`](maintainer/) record current architec
 artifact, and maintenance contracts. These files are not additional user workflows or installed
 API documentation.
 
-**Thirteen of them are written in Chinese by upstream.**
+**Twelve of them are written in Chinese by upstream.**
 [Maintainer documents: English index](maintainer/README.md) summarises in English what each one
 decides and links to the original, which is the source of truth. The originals are not translated or
 modified, with one exception: `op-development.md` §6.4 is an English section this port maintains. A

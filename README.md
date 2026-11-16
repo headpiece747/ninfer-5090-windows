@@ -8,7 +8,7 @@ Docker. It runs text, image, and video prompts through a local CLI or OpenAI-/An
 HTTP APIs. The runtime is deliberately specialized: one GPU, one resident model, and a configurable
 resident-request capacity (`--max-concurrency`; shipped launchers pin `--max-concurrency 1`).
 
-This Windows port ships **eight measured launchers over four Qwen3.8-27B artifact lines** (current `dev`, following v1.2.5), all
+This Windows port ships **eight measured launchers over four Qwen3.8-27B artifact lines** (`v1.2.6`), all
 vision-capable at the full 262,144-token context, with DFlash2 or MTP speculative decoding. The
 engine rejects v2 artifacts outright, so a v1.0.x user must download a v3 artifact or
 [upgrade the one they have](docs/weight-conversion.md#upgrade-an-existing-v2-artifact). Details in
@@ -93,11 +93,13 @@ same engine natively on Windows 11 x64 with MSVC and CUDA, with no WSL2 or Docke
 - Visual Studio with the **Desktop development with C++** workload — the build enters the
   MSVC x64 environment, and the VS installer ships the CMake and Ninja it uses;
 - the FFmpeg shared development tree staged in `ffmpeg/` at the repository root
-  (`include/` and `lib/`, from an `ffmpeg-master-latest-win64-lgpl-shared` build).
+  (`include/`, `lib/`, and `bin/`, from an `ffmpeg-master-latest-win64-lgpl-shared` build);
+- the `libjpeg-turbo` development tree staged in `jpeg/` at the repository root
+  (`include/`, `lib/`, and `bin/jpeg62.dll`; downloaded automatically by `build_windows.bat`).
 
 ### Build
 
-You can run `build_windows.bat` from the repository root for an automated one-click build (which automatically downloads the matching FFmpeg LGPL shared dev files if missing, configures CMake with Ninja, compiles in Release mode, and stages the FFmpeg DLLs).
+You can run `build_windows.bat` from the repository root for an automated one-click build (which automatically downloads the matching FFmpeg LGPL shared dev files and `libjpeg-turbo` if missing, configures CMake with Ninja, compiles in Release mode, and stages the runtime DLLs).
 
 Alternatively, compile manually from an x64 Native Tools Command Prompt:
 
@@ -109,12 +111,14 @@ cmake --build build --config Release -j
 
 producing `build/apps/ninfer-serve.exe`, `ninfer.exe`, and `ninfer-perplexity.exe`.
 
-Two build notes specific to Windows:
+Three build notes specific to Windows:
 
 - FFmpeg is located through the local `ffmpeg/` tree instead of `pkg-config`, and is exposed
   to consumers as the **`PkgConfig::FFMPEG`** target, so the upstream targets that link it
   need no changes.
-- The FFmpeg runtime DLLs must sit beside the executables. Copy `ffmpeg\bin\*.dll` into
+- `libjpeg-turbo` is located through the local `jpeg/` tree (`JPEG::JPEG`).
+- The runtime DLLs must sit beside the executables. Copy `ffmpeg\bin\*.dll`, `jpeg\bin\jpeg*.dll`,
+  `build\src\ops\ninfer_ops.dll`, and `build\src\ops\ninfer_moe_cpu.dll` into
   `build\apps\` after building (done automatically by `build_windows.bat`); without them the process exits immediately with
   `0xC0000135` (`STATUS_DLL_NOT_FOUND`) and prints nothing.
 
@@ -135,8 +139,8 @@ Two build notes specific to Windows:
 Eight launchers ship for the RTX 5090 over the five artifact images above: three lines carry both
 routes, and the unsloth line splits its two lanes across the full and no-exception images. Every number
 below was measured on this machine
-with the exact argument set the launcher uses, in one interleaved pass -- absolute decode varies by
-up to ~9% between sessions on a card whose clocks are not pinned, so compare lanes to each other
+with the exact argument set the launcher uses, in a sequential fingerprint pass (`tools/bench/lane_fingerprint.py`, engine `3959d3d68b6e`) -- absolute decode varies by
+up to ~9% between sessions on a card whose clocks are not pinned (and per-flag comparisons live in `profiles.py`), so compare lanes to each other
 and expect your own absolute figures to differ. All four lines are vision-only here because Vision
 measured free on every one at 262,144; the with/without comparison is recorded in
 [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md). No degraded text-only variant
@@ -177,8 +181,9 @@ rate.
   token against the target argmax for its verify column, and the maintainer notes state that
   speculation "does not impose token or logits equality between different quantization, prefill
   or kernel paths" — the batched verify kernel is not the single-token decode path, so a
-  near-tie can flip and the continuation diverges. Speculation measured 3-4x faster; the lane
-  table above carries each launcher's own measured decode figure.
+  near-tie can flip and the continuation diverges. Speculation measured roughly 2.4-4.8x faster
+  (194.9-388.0 tok/s across current lanes vs the historical 2026-10-08 non-speculative control of
+  80.1-84.8 tok/s); the lane table above carries each launcher's own measured decode figure.
 - **Vision is free on every shipped artifact.** The with/without comparison at 262,144 is recorded
   in [ADR-0004](docs/adr/0004-vision-only-and-third-party-artifact.md), so every profile here carries Vision. The retired NVFP4 image did cost 16,384-27,008 tokens of context, which is
   part of why it was replaced. The Vision runtime still has its own input envelope of 32,768
@@ -273,7 +278,7 @@ The engine provides the following capabilities, with optional components enabled
 Four of the five shipped artifacts (`nvfp4qat`, `nvfp4full_noex`, `nvfp4swift15`, and `nvfp4nvidia`)
 carry the DFlash2 companion weights and serve `--spec dflash2` with depth 7 or 9 per lane on the
 same Text/Vision Engine path (while `nvfp4full` keeps the BF16 exception weights for its MTP4 lane);
-all lanes support draft counts 1..15 and either full or optimized proposal heads.
+DFlash2 lanes support draft counts 1..15 and MTP lanes support 1..5, with either `full` or `optimized` proposal heads.
 
 Qwen3.8-Flash-Next uses CPU/GPU Main experts, disk-backed NF4 PLE and segmented CUDA Graph.
 Its native MTP uses the full shared head; DFlash/DFlash2 and optimized proposal heads are not

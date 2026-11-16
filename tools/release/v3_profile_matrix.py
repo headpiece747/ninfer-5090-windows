@@ -191,9 +191,9 @@ CEILINGS = {
 }
 
 
-# Key is (artifact, spec, vision, lm_head_draft).
+# Key is (artifact, spec, vision, lm_head).
 #
-# --lm-head-draft is NOT uniformly good: measured, it is worth +9% (DFlash2) and +18%
+# --proposal-head optimized is NOT uniformly good: measured, it is worth +9% (DFlash2) and +18%
 # (MTP d4) on QUASAR, but on nvfp4 it costs ~14% throughput, 11pp acceptance and a full
 # ladder step of context (163,840 -> 180,224 on DFlash2). So the ceilings below differ
 # per artifact AND per flag, and both must be probed with the flag the launcher ships.
@@ -902,7 +902,7 @@ def mode_correct(art: str, vision: bool) -> None:
 def mode_verify(art: str, spec: str, draft: int, vision: bool, max_context: int,
                 lm_head: bool = True, kv_dtype: str = "fp8") -> None:
     print(f"\n=== verify: {art} / {spec} d{draft} / vision={vision} / ctx {max_context:,}"
-          f" / lm-head-draft={lm_head} / kv {kv_dtype}")
+          f" / proposal-head={'optimized' if lm_head else 'none'} / kv {kv_dtype}")
     rec = run_profile(art, spec, draft, vision, max_context, measure=True, lm_head=lm_head,
                       kv_dtype=kv_dtype)
     show(rec)
@@ -945,7 +945,7 @@ def main() -> int:
                          "refused by the width check below, which is the check earning its place.")
     ap.add_argument("--max-context", type=int, default=262144)
     ap.add_argument("--no-lm-head", action="store_true",
-                    help="verify mode: omit --lm-head-draft")
+                    help="verify mode: omit --proposal-head optimized")
     ap.add_argument("--file", dest="files", action="append",
                     help="profile mode: shipped launcher file; repeatable, default all four")
     ap.add_argument("--extra-state-slots", "--device-state-slots", dest="slots", default=None,

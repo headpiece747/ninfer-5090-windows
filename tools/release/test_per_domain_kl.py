@@ -113,6 +113,17 @@ class RecordRoundTrip(unittest.TestCase):
             for g, w in zip(got, want):
                 self.assertEqual(g, struct.unpack("<f", struct.pack("<f", w))[0])
 
+    def test_round_trip_long_kv_dtype_and_full_signature(self):
+        original = self._record()
+        original.kv_dtype = "fp8-e4m3-r256"
+        original.prefill_signature = "a" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "record_long.bin"
+            write_record(path, original)
+            back = read_record(path)
+        self.assertEqual(back.kv_dtype, "fp8-e4m3-r256")
+        self.assertEqual(back.prefill_signature, "a" * 64)
+
     def test_truncated_file_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "record.bin"

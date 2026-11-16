@@ -112,7 +112,8 @@ def binary_key() -> str | None:
     if not executables:
         return None
     digest = hashlib.sha256()
-    for path in executables + sorted(BUILD.rglob("CTestTestfile.cmake")):
+    inputs = executables + sorted(BUILD.rglob("*.dll")) + sorted(BUILD.rglob("CTestTestfile.cmake"))
+    for path in inputs:
         stat = path.stat()
         digest.update(f"{path.relative_to(REPO).as_posix()}:{stat.st_size}:{stat.st_mtime_ns}\n"
                       .encode("utf-8"))

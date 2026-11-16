@@ -76,6 +76,7 @@ def main() -> int:
             time.sleep(2)
 
     print(f"   serves from the extracted copy : {bool(ids)}  {ids}")
+    chat_ok = False
     if ids:
         body = {"model": ids[0],
                 "messages": [{"role": "user", "content": "Reply with the single word OK."}],
@@ -88,6 +89,7 @@ def main() -> int:
                 resp = json.loads(r.read())
             print(f"   chat                          : HTTP 200, "
                   f"{resp['usage']['completion_tokens']} tokens")
+            chat_ok = True
         except Exception as error:  # noqa: BLE001
             print(f"   chat                          : FAILED {type(error).__name__}")
     else:
@@ -96,7 +98,7 @@ def main() -> int:
 
     proc.kill()
     kill_servers()
-    return 0 if ids else 1
+    return 0 if (ids and chat_ok) else 1
 
 
 if __name__ == "__main__":
