@@ -50,7 +50,7 @@ The archive built from this tree carries `ninfer-serve.exe` at
 - Releases are published on **`origin`** (`headpiece747/ninfer-5090-windows`), where `v1.2.5` and its
   predecessors live. Because `upstream` (`Neroued/ninfer`) exists as a remote, release commands must
   pass `-R headpiece747/ninfer-5090-windows` explicitly.
-- Work lands on `dev`. Per `AGENTS.md`, `main` is updated as a squashed release cut (`git merge --squash dev`), tagged `v1.2.6` on `main`, and pushed with the archive and `SHA256SUMS`.
+- Work lands on `dev`. Consistent with `v1.2.4` and `v1.2.5`, `main` fast-forwards to `dev` (`git merge --ff-only dev`), is tagged `v1.2.6`, and publishes the archive and `SHA256SUMS` to `origin`.
 
 ## Gates before publishing
 
@@ -65,9 +65,9 @@ The archive built from this tree carries `ninfer-serve.exe` at
 
 ## Packaging and Acceptance Verification
 
-- **Archive**: `ninfer-windows-v1.2.6-rtx5090.zip` (`438,507,862` bytes / `418.2 MB`, `92` entries;
+- **Archive**: `ninfer-windows-v1.2.6-rtx5090.zip` (`438,508,072` bytes / `418.2 MB`, `92` entries;
   `SHA256SUMS` covers `91` files, all hashes verified by `check_archive_contents.py`).
-- **Archive SHA-256**: `5360f480cdc3d60679faf38cd3e27fdbbbb0d76731a30dd961967998e15f4c92`
+- **Archive SHA-256**: `9496cf3d8adf285e2b732c61d4573934b0cea2340a26dad60d84549a47e5bf7a`
 - **Shipped Engine SHA-256 (`./ninfer-serve.exe` inside zip)**:
   `3959d3d68b6eb4c985b7513473cca5019d6f285429d40759567bccfb54b6ee89`
 - **Live Archive Acceptance (`tools/release/check_release_archive.py`)**:
